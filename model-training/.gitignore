@@ -1,0 +1,4 @@
+.venv/
+artifacts/
+.matplotlib/
+__pycache__/
