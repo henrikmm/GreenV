@@ -1,6 +1,7 @@
 from .config import CLASS_NAMES, NUM_CLASSES
 from .data import VegetationDataset, build_eval_transform
 from .models import create_efficientnet_b0
+from .training import train_with_group_cv
 
 __all__ = [
     "CLASS_NAMES",
@@ -8,4 +9,5 @@ __all__ = [
     "VegetationDataset",
     "build_eval_transform",
     "create_efficientnet_b0",
+    "train_with_group_cv",
 ]

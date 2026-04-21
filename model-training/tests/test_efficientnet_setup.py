@@ -15,6 +15,11 @@ class EfficientNetSetupTests(unittest.TestCase):
         self.assertEqual(tuple(image.shape), (3, 224, 224))
         self.assertIn(CLASS_NAMES[label], CLASS_NAMES)
 
+    def test_dataset_accepts_custom_image_size(self):
+        dataset = VegetationDataset(TRAIN_VAL_CSV, image_size=320)
+        image, _ = dataset[0]
+        self.assertEqual(tuple(image.shape), (3, 320, 320))
+
 
 if __name__ == "__main__":
     unittest.main()

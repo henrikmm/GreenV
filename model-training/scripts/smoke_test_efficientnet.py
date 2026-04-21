@@ -16,6 +16,7 @@ def main() -> None:
     parser.add_argument("--csv", type=Path, default=TRAIN_VAL_CSV)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--max-samples", type=int, default=8)
+    parser.add_argument("--image-size", type=int, default=224)
     parser.add_argument("--device", default="auto")
     args = parser.parse_args()
 
@@ -24,7 +25,7 @@ def main() -> None:
     else:
         device = torch.device(args.device)
 
-    dataset = VegetationDataset(args.csv)
+    dataset = VegetationDataset(args.csv, image_size=args.image_size)
     subset_size = min(args.max_samples, len(dataset))
     subset = Subset(dataset, list(range(subset_size)))
     loader = DataLoader(
@@ -47,6 +48,7 @@ def main() -> None:
         preds = probs.argmax(dim=1)
 
     print(f"[ok] device: {device}")
+    print(f"[ok] image_size: {args.image_size}")
     print(f"[ok] batch_shape: {tuple(images.shape)}")
     print(f"[ok] logits_shape: {tuple(logits.shape)}")
     print(f"[ok] labels: {[CLASS_NAMES[i] for i in labels.tolist()]}")

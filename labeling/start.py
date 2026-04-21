@@ -294,6 +294,112 @@ def cmd_export(args):
     print(f"     → Use este arquivo no model-training/ para treinar o classificador.")
 
 
+# Mapeamento entre CLASS_NAMES do modelo e valores do LABEL_CONFIG
+_MODEL_CLASS_TO_LS_CHOICE = {
+    "null": "null_NA",
+    "1": "1_rasteira",
+    "2": "2_media",
+    "3": "3_alta_poda",
+}
+
+
+def cmd_predict(args):
+    """Envia predicoes do modelo como pre-anotacoes no Label Studio."""
+    import urllib.request
+    import urllib.error
+
+    args.token = resolve_access_token(args.port, args.token)
+
+    predictions_path = Path(args.predictions)
+    if not predictions_path.exists():
+        print(f"[!] Arquivo de predicoes nao encontrado: {predictions_path}")
+        print("    Gere primeiro com:")
+        print("      cd model-training")
+        print("      PYTHONPATH=src python scripts/predict_all.py")
+        sys.exit(1)
+
+    with predictions_path.open(encoding="utf-8") as f:
+        predictions = json.load(f)
+    print(f"[ok] {len(predictions)} predicoes carregadas de {predictions_path}")
+
+    # Encontra projeto
+    projects = api_request(args.port, args.token, "GET", "projects")
+    project = next((p for p in projects.get("results", []) if p["title"] == PROJECT_TITLE), None)
+    if not project:
+        print(f"[!] Projeto '{PROJECT_TITLE}' nao encontrado. Rode 'import' primeiro.")
+        sys.exit(1)
+    project_id = project["id"]
+
+    # Busca todas as tasks (paginado)
+    img_port = args.port + 1
+    tasks = []
+    page = 1
+    while True:
+        resp = api_request(args.port, args.token, "GET",
+                           f"tasks?project={project_id}&page={page}&page_size=500")
+        batch = resp.get("tasks", resp) if isinstance(resp, dict) else resp
+        if not batch:
+            break
+        tasks.extend(batch)
+        if len(batch) < 500:
+            break
+        page += 1
+    print(f"[ok] {len(tasks)} tasks encontradas no projeto")
+
+    # Apaga predicoes antigas se solicitado
+    if args.overwrite:
+        existing = api_request(args.port, args.token, "GET",
+                               f"predictions?project={project_id}&page_size=1")
+        total_old = existing.get("count", 0) if isinstance(existing, dict) else 0
+        if total_old > 0:
+            print(f"[...] Apagando {total_old} predicoes antigas...")
+            old_preds = api_request(args.port, args.token, "GET",
+                                    f"predictions?project={project_id}&page_size=10000")
+            for pred in old_preds.get("results", []):
+                api_request(args.port, args.token, "DELETE", f"predictions/{pred['id']}")
+
+    # Monta mapa: relative_path → task_id
+    base_url = f"http://localhost:{img_port}/"
+    path_to_task: dict[str, int] = {}
+    for task in tasks:
+        image_url = task.get("data", {}).get("image", "")
+        if image_url.startswith(base_url):
+            rel = image_url[len(base_url):]
+            path_to_task[rel] = task["id"]
+
+    # Envia predicoes
+    sent = 0
+    skipped = 0
+    for rel_path, pred_data in predictions.items():
+        task_id = path_to_task.get(rel_path)
+        if task_id is None:
+            skipped += 1
+            continue
+
+        ls_choice = _MODEL_CLASS_TO_LS_CHOICE.get(pred_data["pred"], pred_data["pred"])
+        payload = {
+            "task": task_id,
+            "model_version": args.model_version,
+            "score": pred_data["confidence"],
+            "result": [
+                {
+                    "from_name": "height_class",
+                    "to_name": "image",
+                    "type": "choices",
+                    "value": {"choices": [ls_choice]},
+                }
+            ],
+        }
+        api_request(args.port, args.token, "POST", "predictions", payload)
+        sent += 1
+        if sent % 100 == 0:
+            print(f"  [...] {sent}/{len(predictions)} enviadas")
+
+    print(f"\n[ok] {sent} predicoes enviadas | {skipped} imagens sem task no projeto")
+    print(f"     Abra http://localhost:{args.port}/projects/{project_id}")
+    print("     Em cada task voce vera a predicao do modelo antes de rotular.")
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -330,6 +436,27 @@ def main():
     export_p.add_argument("--token", required=True, help="Access Token do Label Studio")
     export_p.add_argument("--format", choices=["csv", "json"], default="csv")
     export_p.set_defaults(func=cmd_export)
+
+    # predict
+    predict_p = sub.add_parser("predict", help="Envia predicoes do modelo para o Label Studio")
+    predict_p.add_argument("--token", required=True, help="Access Token do Label Studio")
+    predict_p.add_argument(
+        "--predictions",
+        type=str,
+        default=str(Path(__file__).resolve().parent.parent / "model-training" / "artifacts" / "predictions.json"),
+        help="JSON gerado por model-training/scripts/predict_all.py",
+    )
+    predict_p.add_argument(
+        "--model-version",
+        default="efficientnet-b0-focal-ensemble-v1",
+        help="Nome da versao do modelo (aparece no Label Studio)",
+    )
+    predict_p.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Apaga predicoes antigas antes de enviar",
+    )
+    predict_p.set_defaults(func=cmd_predict)
 
     args = parser.parse_args()
 
