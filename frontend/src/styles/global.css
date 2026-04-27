@@ -1,0 +1,78 @@
+:root {
+  --motiva: #5e22f3;
+  --motiva-hover: #4c1ad0;
+  --motiva-light: #f3effe;
+  --motiva-subtle: rgba(94, 34, 243, 0.08);
+  --motiva-mid: rgba(94, 34, 243, 0.15);
+
+  --bg-primary: #ffffff;
+  --bg-secondary: #f8f7fc;
+  --bg-card: #ffffff;
+  --bg-card-hover: #f3f1fa;
+  --bg-overlay: rgba(0, 0, 0, 0.45);
+
+  --text-primary: #1a1a2e;
+  --text-secondary: #6b6b80;
+  --text-muted: #9d9db0;
+
+  --level-1: #16a34a;
+  --level-2: #ca8a04;
+  --level-3: #dc2626;
+  --level-1-bg: rgba(22, 163, 74, 0.12);
+  --level-2-bg: rgba(202, 138, 4, 0.12);
+  --level-3-bg: rgba(220, 38, 38, 0.12);
+
+  --border: #e8e5f0;
+  --border-active: #d0cce0;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+
+  --shadow-card: 0 1px 4px rgba(94, 34, 243, 0.06), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-modal: 0 20px 60px rgba(94, 34, 243, 0.12), 0 8px 24px rgba(0,0,0,0.08);
+
+  --font-sans: 'DM Sans', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body, #root { height: 100%; width: 100%; overflow: hidden; }
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+.leaflet-container { background: #f0eff5 !important; font-family: var(--font-sans) !important; }
+
+.leaflet-control-zoom {
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-sm) !important;
+  overflow: hidden;
+  box-shadow: var(--shadow-card) !important;
+}
+.leaflet-control-zoom a {
+  background: white !important;
+  color: var(--text-primary) !important;
+  border-bottom: 1px solid var(--border) !important;
+  width: 36px !important; height: 36px !important;
+  line-height: 36px !important; font-size: 16px !important;
+}
+.leaflet-control-zoom a:hover { background: var(--bg-secondary) !important; }
+
+.leaflet-popup-content-wrapper {
+  background: white !important; color: var(--text-primary) !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: var(--shadow-card) !important;
+  border: 1px solid var(--border) !important;
+}
+.leaflet-popup-tip { background: white !important; }
+.leaflet-popup-close-button { color: var(--text-muted) !important; }
+
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
