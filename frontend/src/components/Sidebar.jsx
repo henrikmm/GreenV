@@ -56,7 +56,6 @@ const s = {
     padding: 14, background: 'var(--bg-secondary)',
     borderRadius: 'var(--radius-md)', border: '1px solid var(--border)',
   },
-  featureTitle: { fontSize: 14, fontWeight: 600, marginBottom: 8 },
   featureRow: {
     display: 'flex', justifyContent: 'space-between',
     fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4,
@@ -90,20 +89,21 @@ function Toggle({ label, active, onToggle }) {
 
 export default function Sidebar({
   activeLayers, onToggleLayer, filterLevel, onFilterLevel,
-  selectedFeature, onCreateOrder, gridData,
+  selectedFeature, onCreateOrder, geojson,
 }) {
-  const stats = gridData ? (() => {
+  // Stats from polygon geojson
+  const stats = geojson ? (() => {
     let l1 = 0, l2 = 0, l3 = 0
-    gridData.forEach(item => item.segments.forEach(seg => {
-      if (seg.level === 1) l1++; if (seg.level === 2) l2++; if (seg.level === 3) l3++
-    }))
+    geojson.features.forEach(f => {
+      const lv = f.properties.vegetation_level || 1
+      if (lv === 1) l1++; if (lv === 2) l2++; if (lv === 3) l3++
+    })
     return { l1, l2, l3 }
   })() : null
 
   const eq = selectedFeature
     ? (EQUIPMENT_TYPES[selectedFeature.properties.name] || { short: selectedFeature.properties.name })
     : null
-
   const selLevel = selectedFeature ? (selectedFeature.properties.vegetation_level || 1) : null
   const selLvl = selLevel ? LEVELS[selLevel] : null
 
@@ -142,13 +142,17 @@ export default function Sidebar({
 
         <div style={s.section}>
           <div style={s.sectionTitle}>Camadas</div>
-          <Toggle label="Polígonos de Vegetação" active={activeLayers.polygons} onToggle={() => onToggleLayer('polygons')} />
+          <Toggle label="Polígonos de Vegetação" active={activeLayers.polygons}
+            onToggle={() => onToggleLayer('polygons')} />
+          <Toggle label="Marcos Quilométricos" active={activeLayers.marcoKm}
+            onToggle={() => onToggleLayer('marcoKm')} />
         </div>
 
         <div style={s.section}>
           <div style={s.sectionTitle}>Filtrar por Nível</div>
           <div>
-            <span style={s.chip(filterLevel === null, '#5e22f3')} onClick={() => onFilterLevel(null)}>Todos</span>
+            <span style={s.chip(filterLevel === null, '#5e22f3')}
+              onClick={() => onFilterLevel(null)}>Todos</span>
             {Object.entries(LEVELS).map(([k, v]) => (
               <span key={k} style={s.chip(filterLevel === Number(k), v.color)}
                 onClick={() => onFilterLevel(filterLevel === Number(k) ? null : Number(k))}>
