@@ -2,25 +2,9 @@ import { LEVELS, EQUIPMENT_TYPES, formatArea } from '../utils/classification'
 
 const s = {
   sidebar: {
-    width: 300, height: '100vh', background: 'white',
+    width: 300, height: '100%', background: 'white',
     borderRight: '1px solid var(--border)', display: 'flex',
     flexDirection: 'column', overflow: 'hidden', flexShrink: 0,
-  },
-  header: {
-    padding: '20px 20px 16px',
-    borderBottom: '1px solid var(--border)',
-    background: '#5e22f3',
-  },
-  logo: { display: 'flex', alignItems: 'center', gap: 10 },
-  logoIcon: {
-    width: 34, height: 34, borderRadius: 10,
-    background: 'rgb(11, 4, 82)', display: 'flex',
-    alignItems: 'center', justifyContent: 'center', fontSize: 18,
-  },
-  title: { fontSize: 18, fontWeight: 700, color: 'white', letterSpacing: '-0.02em' },
-  subtitle: {
-    fontSize: 10, color: 'rgba(255,255,255,0.7)', marginTop: 1,
-    letterSpacing: '0.06em', textTransform: 'uppercase',
   },
   body: { flex: 1, overflowY: 'auto', padding: '16px 20px' },
   section: { marginBottom: 22 },
@@ -91,7 +75,6 @@ export default function Sidebar({
   activeLayers, onToggleLayer, filterLevel, onFilterLevel,
   selectedFeature, onCreateOrder, geojson,
 }) {
-  // Stats from polygon geojson
   const stats = geojson ? (() => {
     let l1 = 0, l2 = 0, l3 = 0
     geojson.features.forEach(f => {
@@ -109,16 +92,6 @@ export default function Sidebar({
 
   return (
     <div style={s.sidebar}>
-      <div style={s.header}>
-        <div style={s.logo}>
-          <div style={s.logoIcon}>🌿</div>
-          <div>
-            <div style={s.title}>MOTIVA</div>
-            <div style={s.subtitle}>Gestão de Vegetação Rodoviária</div>
-          </div>
-        </div>
-      </div>
-
       <div style={s.body}>
         {stats && (
           <div style={s.section}>
