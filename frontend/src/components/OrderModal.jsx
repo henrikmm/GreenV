@@ -1,9 +1,16 @@
 import { useState } from 'react'
 import { EQUIPMENT_TYPES, LEVELS, formatArea, generateOrderId } from '../utils/classification'
 
+const TEAMS = {
+  eq1: 'Equipe 1 — Zona Norte',
+  eq2: 'Equipe 2 — Zona Sul',
+  eq3: 'Equipe 3 — Manutenção Especial',
+  terceirizada: 'Terceirizada',
+}
+
 const s = {
   backdrop: {
-    position: 'fixed', inset: 0, background: 'var(--bg-overlay)',
+    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
     backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center',
     justifyContent: 'center', zIndex: 9999, animation: 'fadeIn 0.2s ease',
   },
@@ -13,7 +20,7 @@ const s = {
     overflowY: 'auto', boxShadow: 'var(--shadow-modal)', animation: 'slideUp 0.25s ease',
   },
   header: { padding: '24px 24px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' },
-  modalTitle: { fontSize: 18, fontWeight: 700, color: '#1a1a2e' },
+  modalTitle: { fontSize: 18, fontWeight: 700 },
   orderId: { fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', marginTop: 4 },
   closeBtn: {
     background: 'var(--bg-secondary)', border: '1px solid var(--border)',
@@ -28,7 +35,7 @@ const s = {
     borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)',
   },
   infoLabel: { fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 },
-  infoValue: { fontSize: 14, fontWeight: 600 },
+  infoValue: { fontSize: 13, fontWeight: 600 },
   divider: { height: 1, background: 'var(--border)', margin: '20px 0' },
   formGroup: { marginBottom: 16 },
   label: { display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 },
@@ -71,7 +78,7 @@ const s = {
   },
 }
 
-export default function OrderModal({ feature, onClose }) {
+export default function OrderModal({ feature, onSubmit, onClose }) {
   const [submitted, setSubmitted] = useState(false)
   const [form, setForm] = useState({ priority: 'media', team: '', scheduledDate: '', notes: '' })
 
@@ -81,8 +88,24 @@ export default function OrderModal({ feature, onClose }) {
   const lvl = LEVELS[level]
 
   const handleSubmit = () => {
+    const order = {
+      id: orderId,
+      createdAt: new Date().toISOString(),
+      status: 'pendente',
+      priority: form.priority,
+      team: form.team ? TEAMS[form.team] || form.team : '',
+      scheduledDate: form.scheduledDate,
+      notes: form.notes,
+      equipment: eq.short,
+      area: formatArea(feature.properties.area_m2),
+      areaM2: feature.properties.area_m2,
+      vegetationLevel: level,
+      lat: feature.properties.centroid_lat,
+      lon: feature.properties.centroid_lon,
+    }
+    onSubmit(order)
     setSubmitted(true)
-    setTimeout(() => onClose(), 2000)
+    setTimeout(() => onClose(), 1500)
   }
 
   return (
@@ -91,7 +114,7 @@ export default function OrderModal({ feature, onClose }) {
         {submitted && (
           <div style={s.success}>
             <div style={s.successIcon}>✓</div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: '#1a1a2e' }}>Ordem Criada</div>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>Ordem Criada</div>
             <div style={{ fontSize: 13, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{orderId}</div>
           </div>
         )}
@@ -130,7 +153,8 @@ export default function OrderModal({ feature, onClose }) {
 
           <div style={s.formGroup}>
             <label style={s.label}>Prioridade</label>
-            <select style={s.select} value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value }))}>
+            <select style={s.select} value={form.priority}
+              onChange={e => setForm(f => ({ ...f, priority: e.target.value }))}>
               <option value="baixa">🟢 Baixa — Nível 1</option>
               <option value="media">🟡 Média — Nível 2</option>
               <option value="alta">🔴 Alta — Nível 3</option>
@@ -140,12 +164,12 @@ export default function OrderModal({ feature, onClose }) {
 
           <div style={s.formGroup}>
             <label style={s.label}>Equipe Responsável</label>
-            <select style={s.select} value={form.team} onChange={e => setForm(f => ({ ...f, team: e.target.value }))}>
+            <select style={s.select} value={form.team}
+              onChange={e => setForm(f => ({ ...f, team: e.target.value }))}>
               <option value="">Selecionar equipe...</option>
-              <option value="eq1">Equipe 1 — Zona Norte</option>
-              <option value="eq2">Equipe 2 — Zona Sul</option>
-              <option value="eq3">Equipe 3 — Manutenção Especial</option>
-              <option value="terceirizada">Terceirizada</option>
+              {Object.entries(TEAMS).map(([k, v]) => (
+                <option key={k} value={k}>{v}</option>
+              ))}
             </select>
           </div>
 
@@ -173,8 +197,8 @@ export default function OrderModal({ feature, onClose }) {
       </div>
 
       <style>{`
-        @keyframes fadeIn { from { opacity:0 } to { opacity:1 } }
-        @keyframes slideUp { from { opacity:0; transform:translateY(20px) } to { opacity:1; transform:translateY(0) } }
+        @keyframes fadeIn { from{opacity:0} to{opacity:1} }
+        @keyframes slideUp { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
       `}</style>
     </div>
   )

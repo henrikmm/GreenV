@@ -1,5 +1,5 @@
 export const LEVELS = {
-  1: { label: 'Nível 1', desc: 'h < 10 cm', color: '#16a34a', bg: 'rgba(22,163,74,0.20)', priority: 'Baixa' },
+  1: { label: 'Nível 1', desc: 'h < 10 cm', color: '#42bb6f', bg: 'rgba(22,163,74,0.20)', priority: 'Baixa' },
   2: { label: 'Nível 2', desc: '10 ≤ h ≤ 30 cm', color: '#ca8a04', bg: 'rgba(202,138,4,0.20)', priority: 'Média' },
   3: { label: 'Nível 3', desc: 'h > 30 cm', color: '#dc2626', bg: 'rgba(220,38,38,0.20)', priority: 'Alta' },
 }
