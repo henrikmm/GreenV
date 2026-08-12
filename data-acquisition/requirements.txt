@@ -1,6 +1,0 @@
-requests
-polyline
-geopy
-streetview
-python-dotenv
-pandas
