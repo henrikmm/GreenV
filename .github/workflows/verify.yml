@@ -1,0 +1,115 @@
+name: Verify
+
+# Build verification only, on purpose. Four people, four stacks and four weeks do
+# not contain a full test strategy; what this has to catch is "main does not
+# build", which is the failure that blocks everybody else.
+#
+# Linux only. A private repository bills macOS runner minutes at 10x, against the
+# 2,000 a month the free plan gives.
+
+on:
+  push:
+  pull_request:
+
+permissions: {}
+
+jobs:
+  hygiene:
+    name: repository hygiene
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: No dependency trees or build output are tracked
+        run: |
+          offenders="$(git ls-files | grep -E '(^|/)(node_modules|dist|build|\.gradle|\.dart_tool)/' || true)"
+          if [ -n "${offenders}" ]; then
+            echo "::error::tracked dependency or build output:"
+            echo "${offenders}" | head -20
+            exit 1
+          fi
+      - name: No tracked file is larger than 5 MB
+        run: |
+          big="$(git ls-tree -r -l HEAD | awk '$4 > 5242880 {print $4, $5}' || true)"
+          if [ -n "${big}" ]; then
+            echo "::error::tracked file over 5 MB:"; echo "${big}"; exit 1
+          fi
+
+  web:
+    name: apps/web
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+        working-directory: apps/web
+      - run: npm run build
+        working-directory: apps/web
+
+  mobile:
+    name: apps/mobile
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: flutter pub get
+        working-directory: apps/mobile
+      - run: flutter analyze
+        working-directory: apps/mobile
+      - run: flutter test
+        working-directory: apps/mobile
+
+  services:
+    name: services/${{ matrix.service }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [greenv-video-api, greenv-frame-extractor]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+      - name: FFmpeg, which the extractor's tests shell out to
+        run: sudo apt-get update && sudo apt-get install --yes ffmpeg
+      - run: ./gradlew check --no-daemon
+        working-directory: services/${{ matrix.service }}
+
+  measurement:
+    name: measurement
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: measurement
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: measurement/.nvmrc
+          cache: npm
+          cache-dependency-path: measurement/app/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: sudo apt-get update && sudo apt-get install --yes ffmpeg
+      - run: npm ci --prefix app
+      - run: python -m pip install --requirement requirements-dev.txt
+      - run: VERGE_PY=python ./scripts/verify.sh
