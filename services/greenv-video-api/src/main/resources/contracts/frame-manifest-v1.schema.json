@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://greenv.local/contracts/frame-manifest-v1.schema.json",
+  "title": "FrameManifest.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "jobId", "sourceGeneration", "requestedFps",
+    "sampling", "scale", "probe", "createdAt", "frames"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "jobId": { "type": "string", "format": "uuid" },
+    "sourceGeneration": { "type": "string", "minLength": 1 },
+    "requestedFps": { "type": "number", "exclusiveMinimum": 0 },
+    "sampling": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["count", "effectiveFps", "capped", "requestedCount"],
+      "properties": {
+        "count": { "type": "integer", "minimum": 2 },
+        "effectiveFps": { "type": "number", "exclusiveMinimum": 0 },
+        "capped": { "type": "boolean" },
+        "requestedCount": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "scale": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width", "height", "scaled"],
+      "properties": {
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 },
+        "scaled": { "type": "boolean" }
+      }
+    },
+    "probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "durationSeconds", "nativeFps", "width", "height",
+        "rotation", "storedWidth", "storedHeight"
+      ],
+      "properties": {
+        "durationSeconds": { "type": "number", "exclusiveMinimum": 0 },
+        "nativeFps": { "type": "number", "minimum": 0 },
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 },
+        "rotation": { "type": "integer", "minimum": 0, "maximum": 359 },
+        "storedWidth": { "type": "integer", "minimum": 1 },
+        "storedHeight": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "frames": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["index", "fileName", "timestampSeconds", "sizeBytes", "sha256"],
+        "properties": {
+          "index": { "type": "integer", "minimum": 1 },
+          "fileName": { "type": "string", "pattern": "^frame-[0-9]{4}\\.jpg$" },
+          "timestampSeconds": { "type": "number", "minimum": 0 },
+          "sizeBytes": { "type": "integer", "minimum": 1 },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,476 @@
+openapi: 3.1.0
+info:
+  title: GreenV Video API
+  version: 2.0.0
+servers:
+  - url: http://127.0.0.1:8080
+paths:
+  /v1/jobs:
+    post:
+      operationId: createJob
+      summary: Create a transient video-processing job
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateJobRequest'
+      responses:
+        '201':
+          description: Job created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+  /v1/jobs/{jobId}/source:
+    put:
+      operationId: uploadSource
+      summary: Stream the source video into the transient job
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      requestBody:
+        required: true
+        content:
+          video/*:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '204':
+          description: Upload stored and checksummed
+  /v1/jobs/{jobId}/complete:
+    post:
+      operationId: completeUpload
+      summary: Queue frame extraction after upload completion
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '202':
+          description: Extraction queued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+  /v1/jobs/{jobId}:
+    get:
+      operationId: getJob
+      summary: Read current job state
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: Current job state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+    delete:
+      operationId: deleteJob
+      summary: Delete transient and saved job artifacts
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '204':
+          description: Job deleted
+  /v1/jobs/{jobId}/manifest:
+    get:
+      operationId: getManifest
+      summary: Read the verified frame manifest
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: Frame manifest
+          content:
+            application/json:
+              schema:
+                type: object
+  /v1/jobs/{jobId}/save:
+    post:
+      operationId: saveJob
+      summary: Copy a completed job to durable local storage
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: Job marked as saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+  /v2/capture-sessions:
+    post:
+      operationId: createCaptureSession
+      summary: Create or recover a client-assigned mobile capture session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCaptureSessionRequest'
+      responses:
+        '201':
+          description: Capture session created or recovered idempotently
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaptureSession'
+  /v2/capture-sessions/{sessionId}:
+    get:
+      operationId: getCaptureSession
+      summary: Read aggregate mobile capture state
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Current capture session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaptureSession'
+  /v2/capture-sessions/{sessionId}/segments/{segmentIndex}:
+    get:
+      operationId: getCaptureSegment
+      summary: Read upload and worker state for one segment
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - $ref: '#/components/parameters/SegmentIndex'
+      responses:
+        '200':
+          description: Current segment state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaptureSegment'
+  /v2/capture-sessions/{sessionId}/segments/{segmentIndex}/video:
+    put:
+      operationId: uploadCaptureVideo
+      summary: Stream one checksummed MP4 segment
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - $ref: '#/components/parameters/SegmentIndex'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/ContentSha256'
+        - $ref: '#/components/parameters/CapturedAt'
+        - $ref: '#/components/parameters/DurationMillis'
+      requestBody:
+        required: true
+        content:
+          video/mp4:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '200':
+          description: Video stored or the identical upload recovered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaptureSegment'
+        '409':
+          description: Segment identity or checksum conflicts with the stored object
+  /v2/capture-sessions/{sessionId}/segments/{segmentIndex}/telemetry:
+    put:
+      operationId: uploadCaptureTelemetry
+      summary: Stream checksummed GNSS and motion samples for one segment
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - $ref: '#/components/parameters/SegmentIndex'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/ContentSha256'
+        - $ref: '#/components/parameters/CapturedAt'
+        - $ref: '#/components/parameters/DurationMillis'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Telemetry stored or the identical upload recovered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaptureSegment'
+        '409':
+          description: Segment identity or checksum conflicts with the stored object
+  /v2/capture-sessions/{sessionId}/segments/{segmentIndex}/complete:
+    post:
+      operationId: completeCaptureSegment
+      summary: Publish or safely republish extraction for a complete segment
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - $ref: '#/components/parameters/SegmentIndex'
+      responses:
+        '202':
+          description: Extraction accepted by the durable queue
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaptureSegment'
+  /v2/capture-sessions/{sessionId}/complete:
+    post:
+      operationId: completeCaptureSession
+      summary: Close the ordered mobile capture
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompleteCaptureSessionRequest'
+      responses:
+        '202':
+          description: Session closed; it becomes ready after every segment is ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaptureSession'
+  /v2/capture-sessions/{sessionId}/segments/{segmentIndex}/manifest:
+    get:
+      operationId: getCaptureSegmentManifest
+      summary: Read the verified per-frame telemetry and JPEG manifest
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - $ref: '#/components/parameters/SegmentIndex'
+      responses:
+        '200':
+          description: Verified segment manifest
+          content:
+            application/json:
+              schema:
+                type: object
+        '409':
+          description: Worker manifest is not ready
+components:
+  parameters:
+    JobId:
+      name: jobId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    SessionId:
+      name: sessionId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    SegmentIndex:
+      name: segmentIndex
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 0
+    IdempotencyKey:
+      name: X-Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 200
+    ContentSha256:
+      name: X-Content-SHA256
+      in: header
+      required: true
+      schema:
+        type: string
+        pattern: '^[0-9a-f]{64}$'
+    CapturedAt:
+      name: X-Captured-At
+      in: header
+      required: true
+      schema:
+        type: string
+        format: date-time
+    DurationMillis:
+      name: X-Duration-Millis
+      in: header
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 30000
+  schemas:
+    CreateCaptureSessionRequest:
+      type: object
+      required: [deviceId]
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+          description: Client-assigned UUID used to recover an offline-first session
+        deviceId:
+          type: string
+          minLength: 1
+        startedAt:
+          type: string
+          format: date-time
+    CompleteCaptureSessionRequest:
+      type: object
+      required: [lastSegmentIndex]
+      properties:
+        lastSegmentIndex:
+          type: integer
+          minimum: 0
+        endedAt:
+          type: string
+          format: date-time
+    CaptureSession:
+      type: object
+      required: [schemaVersion, sessionId, deviceId, state, startedAt, expiresAt, segmentCount, readySegmentCount]
+      properties:
+        schemaVersion:
+          const: 1
+        sessionId:
+          type: string
+          format: uuid
+        deviceId:
+          type: string
+        state:
+          type: string
+          enum: [recording, processing, ready]
+        startedAt:
+          type: string
+          format: date-time
+        endedAt:
+          type: [string, 'null']
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        lastSegmentIndex:
+          type: [integer, 'null']
+        segmentCount:
+          type: integer
+        readySegmentCount:
+          type: integer
+    CaptureSegment:
+      type: object
+      required: [schemaVersion, sessionId, segmentIndex, state, idempotencyKey, capturedAt, durationMillis]
+      properties:
+        schemaVersion:
+          const: 1
+        sessionId:
+          type: string
+          format: uuid
+        segmentIndex:
+          type: integer
+          minimum: 0
+        state:
+          type: string
+          enum: [uploading, queued, validating, ready, failed]
+        idempotencyKey:
+          type: string
+        capturedAt:
+          type: string
+          format: date-time
+        durationMillis:
+          type: integer
+        videoBytes:
+          type: [integer, 'null']
+        videoSha256:
+          type: [string, 'null']
+        telemetryBytes:
+          type: [integer, 'null']
+        telemetrySha256:
+          type: [string, 'null']
+        manifestUrl:
+          type: [string, 'null']
+          format: uri
+        frameCount:
+          type: [integer, 'null']
+        errorCode:
+          type: [string, 'null']
+        errorMessage:
+          type: [string, 'null']
+    CreateJobRequest:
+      type: object
+      required: [fileName, contentType, sizeBytes]
+      properties:
+        fileName:
+          type: string
+          minLength: 1
+        contentType:
+          type: string
+          minLength: 1
+        sizeBytes:
+          type: integer
+          minimum: 1
+        requestedFps:
+          type: number
+          minimum: 0.1
+          maximum: 60
+          default: 10
+        maxFrames:
+          type: integer
+          minimum: 2
+          maximum: 512
+          default: 112
+        longEdge:
+          type: integer
+          minimum: 64
+          maximum: 4096
+          default: 1024
+    Job:
+      type: object
+      required:
+        - schemaVersion
+        - jobId
+        - state
+        - retention
+        - fileName
+        - declaredSizeBytes
+        - sampling
+        - createdAt
+        - updatedAt
+        - uploadUrl
+        - statusUrl
+        - sourceDeleted
+      properties:
+        schemaVersion:
+          const: 1
+        jobId:
+          type: string
+          format: uuid
+        state:
+          type: string
+          enum: [created, uploading, queued, extracting, frames_ready, failed]
+        retention:
+          type: string
+          enum: [transient, saved]
+        fileName:
+          type: string
+        declaredSizeBytes:
+          type: integer
+        actualSizeBytes:
+          type: [integer, 'null']
+        sampling:
+          type: object
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        uploadUrl:
+          type: string
+          format: uri
+        statusUrl:
+          type: string
+          format: uri
+        manifestUrl:
+          type: [string, 'null']
+          format: uri
+        sourceDeleted:
+          type: boolean
+        errorCode:
+          type: [string, 'null']
+        errorMessage:
+          type: [string, 'null']

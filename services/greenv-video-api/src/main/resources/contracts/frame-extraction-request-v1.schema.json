@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://greenv.local/contracts/frame-extraction-request-v1.schema.json",
+  "title": "FrameExtractionRequested.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "attempt",
+    "jobId",
+    "idempotencyKey",
+    "sourceUri",
+    "statusUri",
+    "outputPrefixUri",
+    "sourceGeneration",
+    "requestedFps",
+    "maxFrames",
+    "longEdge",
+    "requestedAt"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "attempt": { "type": "integer", "minimum": 0 },
+    "jobId": { "type": "string", "format": "uuid" },
+    "idempotencyKey": { "type": "string", "minLength": 1 },
+    "sourceUri": { "type": "string", "format": "uri" },
+    "statusUri": { "type": "string", "format": "uri" },
+    "outputPrefixUri": { "type": "string", "format": "uri" },
+    "sourceGeneration": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "requestedFps": { "type": "number", "exclusiveMinimum": 0, "maximum": 60 },
+    "maxFrames": { "type": "integer", "minimum": 2, "maximum": 512 },
+    "longEdge": { "type": "integer", "minimum": 64, "maximum": 4096 },
+    "requestedAt": { "type": "string", "format": "date-time" }
+  }
+}

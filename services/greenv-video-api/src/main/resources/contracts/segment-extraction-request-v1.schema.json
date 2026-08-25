@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://greenv.local/contracts/segment-extraction-request-v1.schema.json",
+  "title": "SegmentExtractionRequested.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "attempt", "sessionId", "segmentIndex", "idempotencyKey",
+    "videoUri", "videoSha256", "telemetryUri", "telemetrySha256", "outputPrefixUri",
+    "capturedAt", "durationMillis", "requestedAt"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "attempt": { "type": "integer", "minimum": 0 },
+    "sessionId": { "type": "string", "format": "uuid" },
+    "segmentIndex": { "type": "integer", "minimum": 0 },
+    "idempotencyKey": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "videoUri": { "type": "string", "format": "uri" },
+    "videoSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "telemetryUri": { "type": "string", "format": "uri" },
+    "telemetrySha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "outputPrefixUri": { "type": "string", "format": "uri" },
+    "capturedAt": { "type": "string", "format": "date-time" },
+    "durationMillis": { "type": "integer", "minimum": 1, "maximum": 30000 },
+    "requestedAt": { "type": "string", "format": "date-time" }
+  }
+}
