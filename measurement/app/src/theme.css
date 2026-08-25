@@ -1,0 +1,2413 @@
+/* Design tokens — docs/DESIGN.md is the source of truth. */
+:root {
+  --bg-app: #0d0d0f;
+  --bg-pane: #151517;
+  --bg-header: #1a1a1d;
+  --bg-node: #1e1e21;
+  --border: #2a2a2e;
+  --text: #d4d4d8;
+  --text-dim: #8a8a90;
+
+  /*
+    Colour encodes data TYPE (the port hues below), never status.
+    Status rides a neutral luminance ramp plus a shape glyph, so the interface still
+    reads when hue is unavailable — desaturated, colour-blind, or in a screenshot.
+    The old green `--accent-run` is gone: it was carrying "ok", "current", "selected",
+    "warm" and "truth" at once, which is more meaning than one hue can hold.
+  */
+  --emph-hi: #f4f4f6;
+  --emph: #c7c7cd;
+  --emph-dim: #8a8a90;
+
+  /* Amber is the one state hue we keep: stale, pending, needs-attention. */
+  --accent-busy: #f59e0b;
+  /* Desaturated on purpose — reserved for hard failure, never for "experimental". */
+  --accent-err: #b4574f;
+  /* Sentinel red, and the only red in the reference: it marks CONTROLS, not state. */
+  --slider: #e05252;
+  --font-ui: "Inter", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --port-frames: #d8d8d8;
+  --port-depth: #5aa0e8;
+  --port-points: #4ade80;
+  --port-plane: #f3c969;
+  --port-selection: #fb7185;
+  --port-measurement: #e8a95b;
+  --port-camera: #e879a0;
+  --port-scalar: #f59e0b;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  background: var(--bg-app);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.app-dock {
+  flex: 1;
+  min-height: 0;
+}
+
+/* Dockview theme overrides — dense Sentinel chrome */
+.dockview-theme-dark {
+  --dv-background-color: var(--bg-app);
+  --dv-group-view-background-color: var(--bg-pane);
+  --dv-tabs-and-actions-container-background-color: var(--bg-header);
+  --dv-activegroup-visiblepanel-tab-background-color: var(--bg-pane);
+  --dv-activegroup-hiddenpanel-tab-background-color: var(--bg-header);
+  --dv-inactivegroup-visiblepanel-tab-background-color: var(--bg-pane);
+  --dv-inactivegroup-hiddenpanel-tab-background-color: var(--bg-header);
+  --dv-activegroup-visiblepanel-tab-color: var(--text);
+  --dv-activegroup-hiddenpanel-tab-color: var(--text-dim);
+  --dv-inactivegroup-visiblepanel-tab-color: var(--text-dim);
+  --dv-inactivegroup-hiddenpanel-tab-color: var(--text-dim);
+  --dv-separator-border: var(--border);
+  --dv-paneview-header-border-color: var(--border);
+  --dv-tabs-and-actions-container-height: 26px;
+  --dv-tabs-and-actions-container-font-size: 11px;
+}
+
+/* Custom pane tab: title + hide. Double-click toggles focus. */
+.pane-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+  padding: 0 8px;
+  font-size: 11px;
+  user-select: none;
+}
+
+.pane-tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A focused pane names itself, so the state is never inferred from the layout alone. */
+.pane-tab.focused .pane-tab-title::after {
+  content: " · focused";
+  color: var(--text-dim);
+}
+
+.pane-tab-hide {
+  flex: none;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.pane-tab-hide:hover {
+  color: var(--emph-hi);
+}
+
+/* View bar — the way back from a hidden pane. */
+.view-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+/*
+  How much of itself the app shows. Two chips rather than one toggle, because a single button
+  reading "Advanced" cannot say whether that is the current state or the offer — and this switch
+  changes what several panes contain, which is too much to leave ambiguous.
+*/
+.mode-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mode-switch .mode-label {
+  color: var(--text-dim);
+  letter-spacing: 0.06em;
+}
+
+.chip-toggle.focused {
+  border-color: var(--emph-hi);
+}
+
+.pane-btn.on {
+  color: var(--emph-hi);
+  border-color: var(--emph-hi);
+}
+
+/* Pane internals */
+.pane {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg-pane);
+  min-width: 0;
+  min-height: 0;
+}
+
+.pane-status {
+  flex: none;
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/*
+  Status glyphs. One convention across the whole app, so state survives the loss of hue:
+    ●  current / ok / warm      ○  idle / paused / cold
+    ◐  working / stale          ▲  hard failure
+  The glyph is the signal; luminance and amber only reinforce it.
+*/
+.pane-status .ok {
+  color: var(--emph-hi);
+}
+
+.pane-status .ok::before {
+  content: "● ";
+}
+
+/* Blind mode is a deliberate, visible state — it must not look like an ordinary pane. */
+.pane-status .busy {
+  color: var(--accent-busy);
+}
+
+.pane-status .busy::before {
+  content: "◐ ";
+}
+
+.pane-status .hint {
+  font-family: var(--font-ui);
+  font-size: 10px;
+  margin-left: auto;
+}
+
+.pane-body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Control row: status + elapsed left, Remove/Pause right (DESIGN.md) */
+.pane-controls {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 6px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  overflow: hidden;
+}
+
+.pane-controls .running {
+  color: var(--emph-hi);
+}
+
+.pane-controls .running::before {
+  content: "● ";
+}
+
+.pane-controls .paused {
+  color: var(--accent-busy);
+}
+
+.pane-controls .paused::before {
+  content: "○ ";
+}
+
+.pane-controls .spacer {
+  margin-left: auto;
+}
+
+.pane-controls .pane-note {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pane-btn {
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  font-family: var(--font-ui);
+  font-size: 10px;
+  padding: 0 6px;
+  cursor: pointer;
+}
+
+.pane-btn:hover {
+  color: var(--text);
+  border-color: var(--text-dim);
+}
+
+/* OUTPUT row: label, toggle chips, dim hint in parentheses */
+/*
+  Control rows WRAP. Measured 2026-08-08 at 180 px before this changed: Depth 2D's OUTPUT row
+  put its `Confidence` chip and the whole mask hint outside the pane, and `.pane-controls` put
+  `Focus`, `Hide` and `Pause` outside it — five controls that could not be clicked at all,
+  because `nowrap` plus `overflow: hidden` clips silently rather than scrolling.
+
+  A second line is the price and it is the right one: these rows carry the pane's only controls,
+  and a taller row costs canvas while a clipped row costs the function. Wrapping is the DEFAULT
+  rather than something each row opts into — the opt-in existed, and the two rows that most
+  needed it had not taken it.
+*/
+.output-row,
+.pane-controls {
+  flex-wrap: wrap;
+  white-space: normal;
+}
+
+.output-row {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px;
+  border-bottom: 1px solid var(--border);
+  font-size: 10px;
+  color: var(--text-dim);
+  overflow: hidden;
+}
+
+.output-label {
+  font-family: var(--font-mono);
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+
+.chip-toggle {
+  background: var(--bg-node);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  font-family: var(--font-ui);
+  font-size: 10px;
+  padding: 0 7px;
+  cursor: pointer;
+}
+
+.chip-toggle.on {
+  background: var(--bg-header);
+  color: var(--text);
+  border-color: var(--text-dim);
+}
+
+.output-hint {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 10px;
+  opacity: 0.75;
+}
+
+/*
+  The `?` and its panel — see panes/help.tsx for the rule about what may go inside one.
+
+  Deliberately quiet: a row of loud help marks would be its own kind of clutter, so the dot sits
+  at --text-dim until hovered. It is a real button, so it is reachable by Tab; the focus style is
+  a border rather than the browser's blue ring, which DESIGN.md item 1 forbids.
+*/
+.help-dot {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg-node);
+  color: var(--text-dim);
+  font-family: var(--font-ui);
+  font-size: 9px;
+  line-height: 1;
+  cursor: help;
+}
+
+.help-dot:hover,
+.help-dot[aria-expanded="true"] {
+  color: var(--emph-hi);
+  border-color: var(--text-dim);
+}
+
+.help-dot:focus-visible {
+  outline: none;
+  border-color: var(--emph-hi);
+}
+
+/*
+  Portalled to document.body at fixed coordinates, so no pane's `overflow: hidden` can clip it.
+  Width is capped in characters rather than pixels: 44em of 11px text is roughly 60 characters a
+  line, which is the width prose stops being work to read at.
+*/
+.help-panel {
+  position: fixed;
+  z-index: 50;
+  max-width: min(44ch, calc(100vw - 16px));
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: rgba(21, 21, 23, 0.98);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.55);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text);
+}
+
+.help-panel b {
+  color: var(--emph-hi);
+  font-weight: 500;
+}
+
+.help-panel p {
+  margin: 0 0 5px;
+}
+
+.help-panel p:last-child {
+  margin-bottom: 0;
+}
+
+.help-panel .mono {
+  font-family: var(--font-mono);
+  color: var(--emph);
+}
+
+.pane-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 0 16px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-dim);
+  pointer-events: none;
+}
+
+/* Graph canvas — warm brown-grey, so it reads as its own surface next to the
+   neutral pane bodies (DESIGN.md, and fix-list item 2 from the 2026-07-31 review). */
+.graph-canvas {
+  background: #171512;
+}
+
+.graph-canvas .react-flow__pane {
+  background: transparent;
+}
+
+.graph-banner {
+  position: absolute;
+  inset: 0 0 auto 0;
+  z-index: 5;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 4px 8px;
+  background: linear-gradient(#17151299, #17151200);
+  pointer-events: none;
+}
+
+.graph-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--text);
+}
+
+.graph-sub {
+  font-size: 10px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph-fit {
+  pointer-events: auto;
+  background: var(--bg-node);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  font-family: var(--font-ui);
+  font-size: 10px;
+  padding: 1px 8px;
+  cursor: pointer;
+}
+
+.graph-actions {
+  display: flex;
+  gap: 5px;
+  margin-left: auto;
+  pointer-events: auto;
+}
+
+.graph-fit:hover {
+  border-color: var(--text-dim);
+}
+
+.graph-fit.on {
+  color: var(--emph-hi);
+  border-color: var(--emph-hi);
+}
+
+/* Node card — anatomy per DESIGN.md */
+.node-card {
+  width: 180px;
+  background: var(--bg-node);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  overflow: hidden;
+}
+
+.node-card.selected {
+  outline: 1px solid var(--emph-hi);
+  outline-offset: -1px;
+}
+
+/* Stale nodes dim until they are re-run. */
+.node-card.stale {
+  opacity: 0.62;
+}
+
+.node-card.dropping {
+  outline: 1px dashed var(--accent-busy);
+  outline-offset: -1px;
+}
+
+.node-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 5px;
+  color: #f2f2f4;
+  font-size: 11px;
+}
+
+.node-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-badge,
+.node-run {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  background: #0000004d;
+  color: #f2f2f4;
+  border: 1px solid #ffffff26;
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.node-badge.on {
+  color: var(--emph-hi);
+  border-color: #ffffff5c;
+}
+
+.node-run {
+  color: var(--accent-busy);
+}
+
+.node-ports {
+  padding: 3px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.port-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 6px;
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+.port-row.out {
+  justify-content: flex-end;
+}
+
+.port-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.port-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* React Flow's handle is the real hit target; the dot is the visible mark. */
+.react-flow__handle.port-handle {
+  width: 7px;
+  height: 7px;
+  border: 1px solid #00000080;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Provenance banner. Deliberately in the pane body's flow, not in `.pane-status` — that row is
+   nowrap + overflow:hidden and silently clips anything at its right edge (2026-08-04 audit,
+   bug 4). A warning that can disappear in a narrow pane is worse than no warning. */
+.provenance {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.provenance.mock {
+  background: #3a1a1a;
+  border-bottom-color: var(--accent-err);
+  color: #ffd9d9;
+}
+
+.provenance.fixture {
+  background: #16161a;
+  color: var(--text-dim);
+}
+
+/* Streamed job output. Fixed height so a 20-minute build cannot push the rest of the
+   inspector off screen, and monospaced because it is gcloud's own text. */
+.job-log {
+  max-height: 130px;
+  overflow: auto;
+  margin: 4px 0;
+  padding: 4px 6px;
+  background: #0a0a0c;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  line-height: 1.5;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.node-thumb {
+  position: relative;
+  height: 74px;
+  display: grid;
+  place-items: center;
+  background: #0a0a0c;
+  overflow: hidden;
+}
+
+/* Overlaid rather than laid out, so the control sits in the same place whether the card is
+   showing "drop a video, or" or a frame thumbnail from a loaded clip. */
+.node-browse {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  padding: 2px 6px;
+  background: #000000a6;
+  color: #f2f2f4;
+  border: 1px solid #ffffff40;
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.node-browse:hover {
+  border-color: #ffffff8c;
+  color: var(--emph-hi);
+}
+
+.node-browse:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.node-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.node-thumb-empty {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.node-foot {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  border-top: 1px solid var(--border);
+}
+
+.node-sum {
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-err {
+  margin-left: auto;
+  color: var(--accent-err);
+}
+
+.node-err-line {
+  padding: 2px 6px 4px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  line-height: 1.35;
+  color: var(--accent-err);
+}
+
+/* Inspector */
+.inspector {
+  overflow-y: auto;
+  height: 100%;
+}
+
+.inspector-section {
+  border-bottom: 1px solid var(--border);
+}
+
+/* Flex so a section heading can carry its `?` at the right without a second row. */
+.inspector-section > h3 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin: 0;
+  padding: 5px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--bg-header);
+}
+
+/*
+  The clip drop zone — the first thing anyone sees in a fresh app.
+
+  A dashed border rather than a filled panel: it has to read as a target for something, and a
+  solid box in this palette reads as a disabled control. It stays a drop target once a clip is
+  loaded, so replacing one is the same gesture as choosing the first.
+*/
+.clip-drop {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 8px;
+  padding: 8px;
+  border: 1px dashed var(--border);
+  border-radius: 3px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.clip-drop.dropping {
+  border-color: var(--emph-hi);
+  border-style: solid;
+}
+
+.clip-drop .clip-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.clip-drop .clip-meta {
+  color: var(--emph);
+}
+
+.clip-drop .clip-empty {
+  flex: 1;
+  min-width: 0;
+}
+
+/*
+ * The Browse/Change button inherited nothing and rendered at the browser's default 13.33 px —
+ * the only text in the whole pane over 12 px, against DESIGN.md acceptance item 9. Measured
+ * 2026-08-11; it had been that way since the Clip section was added.
+ */
+.clip-drop button {
+  background: var(--bg-node);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.clip-drop button:hover:not(:disabled) {
+  border-color: var(--text-dim);
+}
+
+.clip-drop button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/*
+ * A control's label that explains itself on hover. The dotted underline is the whole affordance
+ * — enough to say "there is more here", and quiet enough that a column of them does not become
+ * the noise a `?` per row was.
+ */
+.help-term {
+  text-decoration: underline dotted var(--text-dim);
+  text-underline-offset: 2px;
+  cursor: help;
+}
+
+.help-term:hover,
+.help-term:focus-visible {
+  color: var(--text);
+  text-decoration-color: var(--text);
+  outline: none;
+}
+
+/*
+ * Share of the dock this pane holds, shown only while a sash is being dragged. All three appear
+ * together, which is what makes 40/40/20 checkable at a glance; the rest of the time the status
+ * rows belong to the readouts the panes exist for.
+ */
+.pane-share {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--emph-hi);
+  background: var(--bg-node);
+  border: 1px solid var(--border);
+  padding: 0 4px;
+  border-radius: 2px;
+}
+
+/* `hidden` is what the component sets when idle; without this the UA default loses to flex. */
+.pane-share[hidden] {
+  display: none;
+}
+
+/* The way back to this session's run, at the top of the Runs list. */
+.run-live-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: calc(100% - 16px);
+  margin: 4px 8px;
+  padding: 4px 6px;
+  background: var(--bg-node);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.run-live-row:hover:not(:disabled) {
+  border-color: var(--text-dim);
+}
+
+.run-live-row:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.run-live-row.active {
+  border-color: var(--emph-hi);
+}
+
+.run-live-glyph {
+  flex: none;
+  font-family: var(--font-mono);
+}
+
+.run-live-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.run-live-note {
+  flex: none;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+/* A `?` that has no heading to sit in — it ends a block of rows instead. */
+.section-help,
+.budget-help {
+  display: flex;
+  justify-content: flex-end;
+  padding: 2px 8px 4px;
+}
+
+.pane-hint {
+  padding: 10px 8px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.inspector-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 8px;
+  font-size: 11px;
+}
+
+.inspector-row .k {
+  color: var(--text-dim);
+}
+
+.inspector-row .v {
+  font-family: var(--font-mono);
+  color: var(--text);
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* label — control — value, per DESIGN.md */
+.inspector-row.control {
+  display: grid;
+  grid-template-columns: 84px 1fr 46px;
+  align-items: center;
+  gap: 8px;
+}
+
+.inspector-row.control .v.num {
+  text-align: right;
+  font-size: 11px;
+}
+
+/*
+  ALL range inputs, not just the inspector's.
+  The measurement toolbars' sliders were never styled, so they fell back to the UA control:
+  a white track with the OS accent colour on the filled portion — five white surfaces and a
+  system blue in a spec that forbids both (acceptance checklist item 1). Styling the element
+  rather than a container is what stops the next toolbar from reintroducing it.
+*/
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 3px;
+  background: var(--border);
+  border-radius: 2px;
+  outline: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 9px;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--slider);
+  cursor: ew-resize;
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 9px;
+  height: 14px;
+  border: 0;
+  border-radius: 2px;
+  background: var(--slider);
+  cursor: ew-resize;
+}
+
+input[type="range"]::-moz-range-track {
+  height: 3px;
+  background: var(--border);
+  border-radius: 2px;
+}
+
+.inspector-row select {
+  background: var(--bg-node);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 1px 4px;
+  /*
+   * A `select` has an intrinsic minimum width set by its widest option, and it ignores the
+   * flex container's attempt to shrink it. Measured 2026-08-11 at a 180 px pane: the Source
+   * dropdown ran 63 px past the pane's right edge — DESIGN.md acceptance item 19, which is
+   * graded at a narrow pane precisely because this is invisible at 1280.
+   */
+  min-width: 0;
+  max-width: 100%;
+  flex: 1 1 auto;
+}
+
+.inspector-row input[type="checkbox"] {
+  accent-color: var(--slider);
+  justify-self: start;
+}
+
+/* VRAM budget bar */
+.vram {
+  padding: 4px 8px 6px;
+}
+
+.vram-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+
+.vram-head .k {
+  color: var(--text-dim);
+}
+
+.vram-head .v {
+  font-family: var(--font-mono);
+}
+
+.vram-track {
+  height: 6px;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.vram-fill {
+  height: 100%;
+  transition: width 120ms linear, background 200ms linear;
+}
+
+.inspector-actions {
+  display: flex;
+  gap: 6px;
+  padding: 6px 8px;
+}
+
+.inspector-actions button {
+  flex: 1;
+  background: var(--bg-node);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  padding: 3px 6px;
+  cursor: pointer;
+}
+
+.inspector-actions button:hover:not(:disabled) {
+  border-color: var(--text-dim);
+}
+
+.inspector-actions button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.inspector-actions button.danger {
+  color: var(--accent-err);
+}
+
+.inspector-note {
+  padding: 4px 8px 6px;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--accent-busy);
+}
+
+.inspector-note.error {
+  color: var(--accent-err);
+  font-family: var(--font-mono);
+}
+
+/* The action that moves the session forward, one per section at most. */
+.inspector-actions button.primary {
+  border-color: var(--text-dim);
+  color: var(--emph-hi);
+}
+
+/*
+ * The frame plan: what extraction WILL do, shown before it does it. Inset so it reads as a
+ * consequence of the two sliders above rather than another pair of settings.
+ */
+.frame-plan {
+  margin: 2px 8px 4px;
+  border-left: 1px solid var(--border);
+  padding-left: 6px;
+}
+
+.frame-plan .inspector-row,
+.frame-plan .vram {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/* Preconditions: clip, frames, somewhere to send them. Glyph carries the state, not hue. */
+.precondition-list {
+  padding: 2px 8px;
+}
+
+/*
+ * Wraps, and the fix takes a line of its own.
+ *
+ * At a 320 px pane the four parts fought each other on one line: the detail ellipsised to
+ * "none…" and the fix ran off the right edge. A row that clips its own instruction is worse
+ * than a taller row — the same trade every control row here already makes.
+ */
+.precondition {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 0;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.precondition.ok {
+  color: var(--text);
+}
+
+.precondition-glyph {
+  font-family: var(--font-mono);
+  width: 9px;
+  flex: none;
+}
+
+.precondition .k {
+  flex: none;
+  min-width: 64px;
+  color: var(--text-dim);
+}
+
+.precondition .v {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Its own line, indented past the glyph so it reads as belonging to the step above it. */
+.precondition-fix {
+  flex-basis: 100%;
+  margin-left: 15px;
+  color: var(--accent-busy);
+  font-size: 10px;
+}
+
+.precondition-action {
+  flex: none;
+  background: var(--bg-node);
+  color: var(--emph-hi);
+  border: 1px solid var(--text-dim);
+  border-radius: 2px;
+  font-family: var(--font-ui);
+  font-size: 10px;
+  padding: 1px 6px;
+  cursor: pointer;
+}
+
+/*
+ * The live phase readout.
+ *
+ * `.phase-track` is the ONLY proportional bar here, and it is fed by bytes acknowledged over
+ * bytes handed to the socket. Every other phase shows an elapsed clock beside a figure labelled
+ * as measured — a bar that filled on a timer would be a prediction wearing a measurement's
+ * clothes, which is what honesty rule 1 forbids.
+ */
+.phase-readout {
+  padding: 4px 8px 6px;
+  border-top: 1px solid var(--border);
+  margin-top: 2px;
+}
+
+.phase-line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.phase-line .k {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+}
+
+.phase-line .v {
+  flex: none;
+  color: var(--text-dim);
+}
+
+.phase-glyph {
+  font-family: var(--font-mono);
+  flex: none;
+}
+
+.phase-glyph.busy {
+  color: var(--accent-busy);
+  animation: pulse 1s ease-in-out infinite;
+}
+
+.phase-readout.failed .phase-glyph {
+  color: var(--accent-err);
+}
+
+.phase-readout.done .phase-glyph {
+  color: var(--emph-hi);
+}
+
+.phase-detail {
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--text-dim);
+  padding-top: 2px;
+}
+
+.phase-track {
+  height: 3px;
+  margin: 4px 0 2px;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.phase-fill {
+  height: 100%;
+  background: var(--emph);
+  transition: width 120ms linear;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .phase-glyph.busy {
+    animation: none;
+  }
+  .phase-fill {
+    transition: none;
+  }
+}
+
+/*
+ * The contact sheet: every sampled frame in one image, so "did it sample the whole clip?" can be
+ * answered by looking. Free — the frames are already JPEGs on local disk.
+ */
+.contact-sheet {
+  padding: 2px 8px 6px;
+}
+
+.contact-sheet-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  cursor: pointer;
+  /* Cells are ~96 px wide and shrink with the pane. Smoothing at that scale turns a grid of
+     frames into grey mush; crisp keeps each frame legible as a picture. */
+  image-rendering: crisp-edges;
+}
+
+.contact-sheet-foot {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding-top: 3px;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.contact-sheet-foot .hint {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Bottom status bar */
+.status-bar {
+  flex: none;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 10px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-header);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 7px;
+  color: var(--text-dim);
+}
+
+/* Hollow = cold, filled = warm, filled + pulse = busy. Shape carries it, not hue. */
+.chip .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  border: 1px solid var(--text-dim);
+  background: transparent;
+  box-sizing: border-box;
+}
+
+.chip.warm .dot {
+  background: var(--emph-hi);
+  border-color: var(--emph-hi);
+}
+
+.chip.busy .dot {
+  background: var(--accent-busy);
+  border-color: var(--accent-busy);
+  animation: pulse 1s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/*
+ * The service lifecycle control. Four states, and only one of them glows.
+ *
+ * Creating a Cloud Run service is free; the meter starts when a request wakes an instance. So
+ * `.live` is the state that costs money and the only one that pulses. Lighting up `.ready`
+ * would teach an operator that deploying is the expensive act, which is backwards and is how a
+ * machine gets left running overnight.
+ */
+.deploy-chip {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: none;
+  cursor: default;
+}
+
+.deploy-chip.action,
+.deploy-chip.ready,
+.deploy-chip.live {
+  cursor: pointer;
+}
+
+.deploy-chip.action {
+  color: var(--text);
+  border-color: var(--text-dim);
+}
+
+.deploy-chip.action:hover:not(:disabled) {
+  color: var(--emph-hi);
+  border-color: var(--emph-hi);
+}
+
+/* Deployed and quiet: solid, so it reads as a real state, but at rest. */
+.deploy-chip.ready .dot {
+  background: var(--emph-hi);
+  border-color: var(--emph-hi);
+}
+
+/* Billing. The one state in the app that costs money while nobody is looking at it. */
+.deploy-chip.live {
+  color: var(--accent-busy);
+  border-color: var(--accent-busy);
+  animation: deploy-glow 2s ease-in-out infinite;
+}
+
+.deploy-chip.live .dot {
+  background: var(--accent-busy);
+  border-color: var(--accent-busy);
+}
+
+.deploy-chip:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+@keyframes deploy-glow {
+  50% {
+    box-shadow: 0 0 6px 0 var(--accent-busy);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The state must still be distinguishable without movement, so the border stays and only the
+     animation goes. Same rule as the busy dot's pulse. */
+  .deploy-chip.live,
+  .chip.busy .dot {
+    animation: none;
+  }
+}
+
+/* Not a currency figure — the app has no billing data. See COST_BASIS in lib/cloud-store.ts. */
+.status-bar .cost {
+  color: var(--text-dim);
+}
+
+/* A live instance is the one thing in this app that costs money while nobody looks at it. */
+.status-bar .cost.billing {
+  color: var(--accent-busy);
+}
+
+.inspector-row.control input[type="text"],
+.inspector-row.control input[type="password"] {
+  min-width: 0;
+  background: var(--bg-app);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 2px 4px;
+}
+
+/*
+  The result strip — what was measured, and how wrong it is.
+
+  Reserved chrome, deliberately: it is a flex row in the pane's column, not a layer over the
+  canvas, so it cannot land in front of the thing being measured no matter where the scene is
+  orbited to. It wraps like every other control row (DESIGN.md ⚠️), which is what lets it keep all
+  four figures at a 180 px pane instead of dropping the last one off the right edge.
+*/
+.result-strip {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-node);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.result-strip .spacer {
+  flex: 1;
+}
+
+/* The glyph carries the state; the hue only reinforces it, so this survives greyscale. */
+.result-strip .result-glyph {
+  color: var(--text-dim);
+}
+
+.result-strip.graded .result-glyph {
+  color: var(--emph-hi);
+}
+
+.result-strip.blind .result-glyph,
+.result-strip.refused .result-glyph {
+  color: var(--accent-busy);
+}
+
+.result-strip.refused .result-glyph {
+  color: var(--accent-err);
+}
+
+.result-strip .result-target {
+  color: var(--text);
+}
+
+.result-strip .result-basis {
+  letter-spacing: 0.06em;
+}
+
+/* The one number a person came to read. 14px is the largest type in any pane and it is spent here
+   on purpose — everything else is 10–12px. Not larger: 14 is the ceiling DESIGN.md item 9 sets for
+   rendered copy, and the headline does not get to be the one thing that breaks the density rule. */
+.result-strip .result-value {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.1;
+  color: var(--emph-hi);
+}
+
+.result-strip .result-pair {
+  color: var(--emph);
+}
+
+/* Label above value would cost a second line; inline and dimmed costs nothing and reads the
+   same way the inspector rows do. */
+.result-strip .result-pair i {
+  margin-right: 4px;
+  color: var(--text-dim);
+  font-style: normal;
+  letter-spacing: 0.04em;
+}
+
+.result-strip .result-note {
+  min-width: 0;
+  color: var(--text-dim);
+}
+
+.result-strip.refused .result-note {
+  color: var(--accent-err);
+}
+
+/* Viewport overlays */
+.viewport-overlay {
+  position: absolute;
+  left: 8px;
+  top: 6px;
+  /* Bounded so it WRAPS instead of running under the pane's hidden overflow. The floor readout
+     grew to 59 characters when BELOW joined it — 391px inside a 405px pane, six pixels from
+     losing its RMSE figure with no sign that anything had gone. A readout that silently drops
+     its last number is worse than one that takes a second line. */
+  max-width: calc(100% - 16px);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  pointer-events: none;
+  /*
+    A backing panel, not a heavier shadow.
+
+    This readout sits over whatever the scene happens to be, and a text shadow only separates it
+    from a MID-tone background. Over the bright end of a point cloud — or over the ghosted video
+    frame, which is the mode where the readout states the camera's height and field of view — the
+    dim grey text washed out completely. Padding plus a translucent backing works against any
+    content, and at 55% the scene still reads through it.
+  */
+  padding: 3px 6px;
+  border-radius: 2px;
+  background: rgba(10, 10, 12, 0.55);
+  text-shadow: 0 1px 2px #000;
+}
+
+/*
+  What the recorded-evidence layer is drawing. Bottom-left, so it never collides with the fit
+  diagnostics at the top, and present in both modes because the switch that drives it is.
+
+  Dim grey, not the measurement hue it names. `--port-measurement` (#e8a95b) sits close enough to
+  `--accent-busy` (#f59e0b) that a single line over a point cloud reads as a warning, and this one
+  is on whenever evidence is shown — which is the desensitising "Amber is a warning" exists to
+  stop. Graded FAIL on 2026-08-12 and changed here. The hue stays where it encodes a data type:
+  on the rulers themselves and on their labels.
+*/
+.evidence-note {
+  position: absolute;
+  bottom: 6px;
+  left: 8px;
+  max-width: calc(100% - 16px);
+  padding: 3px 6px;
+  border-radius: 2px;
+  background: rgba(10, 10, 12, 0.55);
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  pointer-events: none;
+  text-shadow: 0 1px 2px #000;
+}
+
+/* Held evidence that no longer matches its inputs — the same amber "stale" the node cards use. */
+.viewport-overlay .overlay-stale {
+  color: var(--accent-busy);
+}
+
+/* No ground could be established. The ▲ glyph carries this without the hue. */
+.viewport-overlay .overlay-failed {
+  color: var(--accent-err);
+}
+
+/* Instructions sitting inside a readout: present, and visibly not one of the numbers. */
+.overlay-dim {
+  opacity: 0.65;
+}
+
+/* A slider in a control row must not take the row. `input[type="range"]` is width:100% so it
+   can fill the toolbars it was written for, which in a chip row would push every chip out. */
+.output-row input[type="range"] {
+  flex: none;
+  width: 56px;
+}
+
+/*
+  Where the recorded video frame lands inside the pane.
+
+  Centred and sized in percentages by the pane, from `recordedFrameRect` — the fixed view fits the
+  whole frame rather than cropping it, so in a pane of a different shape the frame occupies only
+  part of the viewport and the boundary has to be visible. Without it, "the camera saw this" would
+  silently include scene the camera never saw.
+*/
+.recorded-frame {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  /* Border inside the box, or the rectangle overshoots the pane by 2 px and its top and bottom
+     edges are clipped away exactly when the frame fills the height — which is the common case. */
+  box-sizing: border-box;
+  border: 1px solid rgba(232, 121, 160, 0.45); /* --port-camera, faint */
+  pointer-events: none;
+  z-index: 1;
+}
+
+.recorded-ghost {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+}
+
+/*
+  The control list, in the pane rather than in a row.
+
+  It replaces a 45-character hint that used to sit at the right edge of the `nowrap` OUTPUT row,
+  which DESIGN.md warns clips in a narrow pane. There is more to say about the controls than that
+  line could hold, and a panel inside the viewport cannot be pushed out of the pane by its
+  neighbours.
+*/
+.key-help {
+  position: absolute;
+  right: 8px;
+  top: 6px;
+  z-index: 2;
+  max-width: calc(100% - 16px);
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  background: rgba(10, 10, 12, 0.9);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--text-dim);
+  pointer-events: none;
+}
+
+.key-help b {
+  color: var(--text);
+  font-weight: 500;
+}
+
+canvas {
+  display: block;
+  outline: none;
+}
+
+/* Depth pane */
+.depth-wrap {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  background: #0a0a0c;
+}
+
+.depth-wrap canvas {
+  image-rendering: pixelated;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.depth-legend {
+  position: absolute;
+  right: 8px;
+  bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  text-shadow: 0 1px 2px #000;
+}
+
+.depth-legend .ramp {
+  width: 90px;
+  height: 8px;
+  border: 1px solid var(--border);
+}
+
+/* M3b measurement canvas — Sentinel-style compact tool rows, evidence on image. */
+.brush-toolbar,
+.frame-toolbar,
+.segment-toolbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  padding: 2px 6px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 10px;
+  /* Same rule as `.output-row` and `.pane-controls`, for the same reason. Two of these three
+     already opted into wrapping individually; the frame toolbar had not, and fell back to a
+     horizontal scrollbar nobody looks for in a 19 px row. */
+  flex-wrap: wrap;
+  white-space: normal;
+  overflow-x: hidden;
+}
+
+.brush-toolbar label,
+.frame-toolbar label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  /* A labelled slider is one flex item whose min-content width is its caption plus a fixed
+     68 px track. Wrapping the ROW cannot help that — the item still overflows its own line.
+     Measured at a 100 px pane on 2026-08-08: Size, Mask and Zoom all left the toolbar. */
+  min-width: 0;
+  max-width: 100%;
+}
+
+.segment-toolbar {
+  justify-content: flex-start;
+  background: #0d1514;
+  color: var(--text-dim);
+}
+
+.segment-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.segment-toolbar .mono {
+  flex-basis: 100%;
+  line-height: 1.35;
+}
+
+.segment-toolbar .busy {
+  color: var(--accent-busy);
+}
+
+/* "Experimental" is a caution, not a failure — amber, and never the error red. */
+.segment-toolbar .segment-warning {
+  color: var(--accent-busy);
+}
+
+/* Amber while unreviewed, bright neutral once accepted: pending vs settled. */
+.chip-toggle.accepted {
+  border-color: #f4f4f688;
+  background: #f4f4f614;
+  color: var(--emph-hi);
+}
+
+.brush-toolbar input[type="range"] {
+  width: 68px;
+  min-width: 0;
+}
+
+.free-mode-choices {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.frame-toolbar > input[type="range"] {
+  flex: 1;
+  min-width: 90px;
+}
+
+.frame-toolbar label input[type="range"] {
+  width: 58px;
+}
+
+.tool-context {
+  color: var(--text);
+  margin-right: 2px;
+}
+
+/* These are identifiers (B1, the active object), not selections — they take the
+   emphasis ramp. --port-selection stays reserved for the selection PORT type. */
+.tool-context b,
+.object-code,
+.evidence-title b {
+  color: var(--emph-hi);
+  font-family: var(--font-mono);
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+/* The stage does not scroll; `.depth-scroll` inside it does. That separation is what lets the
+   readout and the legend sit over the image without being laid out beside it — as flex items
+   of the scroller they added their own width to the row, and the frame was pushed 5 px right
+   of centre by a scrollbar it had caused itself. */
+.depth-stage {
+  background: #0a0a0c;
+}
+
+.depth-scroll {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  overflow: auto;
+}
+
+/* Sized in pixels by the pane, which fits the frame to the stage — see `frameSize` in
+   depth-2d.tsx. `min-height: 100%` used to live here and would now stretch a landscape frame
+   past its own fitted height, so the canvas inside it would come out distorted. */
+.depth-canvas-frame {
+  flex: none;
+  margin: auto;
+  background: #070708;
+}
+
+.depth-canvas-frame canvas {
+  width: 100%;
+  height: 100%;
+  image-rendering: auto;
+  touch-action: none;
+}
+
+.depth-canvas-frame canvas.painting {
+  cursor: crosshair;
+}
+
+.depth-canvas-frame canvas.erasing {
+  cursor: cell;
+}
+
+.depth-canvas-frame canvas.segmenting {
+  cursor: copy;
+}
+
+.mask-readout {
+  position: absolute;
+  left: 8px;
+  top: 7px;
+  padding: 2px 6px;
+  border: 1px solid #ffffff33;
+  background: #0a0a0ccc;
+  color: var(--emph-hi);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  pointer-events: none;
+}
+
+/* Runs pane */
+.runs-pane {
+  overflow-y: auto;
+}
+
+.runs-root {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 9px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 7px;
+  border-bottom: 1px solid #242428;
+}
+
+.run-row.active {
+  background: #ffffff08;
+  box-shadow: inset 2px 0 var(--emph-hi);
+}
+
+.run-pick {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+.run-pick:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* A run whose artifacts never reached durable storage. Lives outside .run-pick so the dimming
+   above cannot reach it — see the comment in panes/runs.tsx. The shape carries the meaning, so
+   this survives greyscale; the amber only reinforces it. Not --accent-err: the run itself is
+   fine and fully usable, it is the storage that degraded. */
+.run-warning {
+  color: var(--accent-busy);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.run-label {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.run-label b,
+.run-label small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-label small {
+  color: var(--text-dim);
+  font-size: 9px;
+}
+
+.run-state {
+  flex: none;
+  color: var(--text-dim);
+  font-size: 9px;
+}
+
+.run-actions {
+  flex: none;
+  display: flex;
+  gap: 4px;
+}
+
+.pane-btn.danger {
+  color: var(--accent-err);
+}
+
+/* Objects / grading pane */
+.objects-pane {
+  overflow-y: auto;
+}
+
+.object-context {
+  position: sticky;
+  z-index: 2;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  /* Wraps rather than clipping: the Objects pane is routinely docked narrow, and a control
+     that silently leaves the viewport is worse than one on a second line. */
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-header);
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.object-context label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.object-context select {
+  background: var(--bg-node);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.object-list {
+  border-bottom: 1px solid var(--border);
+}
+
+.object-row {
+  width: 100%;
+  display: grid;
+  /* Trailing auto track holds the n/3 trial-count flag; it collapses when there is none.
+     The reading track carries value + error + trial count + spread, so it is wider than the
+     90px the single frozen number needed. */
+  grid-template-columns: 38px minmax(0, 1fr) 118px auto;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 7px;
+  border: 0;
+  border-bottom: 1px solid #242428;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+.object-row:hover,
+.object-row.active {
+  background: #ffffff08;
+}
+
+.object-row.active {
+  box-shadow: inset 2px 0 var(--emph-hi);
+}
+
+.object-copy,
+.object-reading {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.object-copy b,
+.object-copy small,
+.object-reading b,
+.object-reading small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.object-copy small,
+.object-reading small,
+.honesty-note {
+  color: var(--text-dim);
+  font-size: 9px;
+}
+
+.object-reading {
+  text-align: right;
+  font-family: var(--font-mono);
+}
+
+/* Add-target form */
+.add-target-open {
+  display: block;
+  width: 100%;
+  padding: 5px 7px;
+  border: 0;
+  border-bottom: 1px solid #242428;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: var(--font-ui);
+  font-size: 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.add-target-open:hover {
+  color: var(--emph-hi);
+  background: #ffffff08;
+}
+
+.add-target {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 7px;
+  border-bottom: 1px solid var(--border);
+  background: #111113;
+}
+
+.add-target label {
+  display: grid;
+  grid-template-columns: 74px 1fr;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+.add-target input,
+.add-target select {
+  min-width: 0;
+  background: var(--bg-app);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  font-family: var(--font-ui);
+  font-size: 10px;
+  padding: 2px 4px;
+}
+
+.evidence-card,
+.resolution-card,
+.error-model-card {
+  margin: 7px;
+  border: 1px solid var(--border);
+  background: #111113;
+}
+
+.evidence-title,
+.resolution-card h3,
+.error-model-card h3 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin: 0;
+  padding: 5px 7px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-header);
+  font-size: 11px;
+}
+
+/* The paint instruction keeps its `?` on the same line — it is one thought, not two. */
+.honesty-note .help-dot {
+  margin-left: 5px;
+  vertical-align: middle;
+}
+
+/* A tape truth is reference data, not a verdict — it sits below the reading it grades. */
+.truth {
+  color: var(--emph);
+  font-family: var(--font-mono);
+}
+
+.evidence-card > p,
+.resolution-card > p,
+.error-model-card > p {
+  margin: 0;
+  padding: 5px 7px;
+  color: var(--text-dim);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.reading-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 8px;
+  padding: 6px 7px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.reading-grid span {
+  color: var(--text-dim);
+}
+
+.reading-grid b {
+  color: var(--text);
+  text-align: right;
+}
+
+.reading-grid small {
+  grid-column: 1 / -1;
+  color: var(--text-dim);
+  font-size: 9px;
+  line-height: 1.35;
+}
+
+/*
+  The uncertainty budget. Boxed away from the raw reading on purpose: these numbers are of a
+  different kind, and the M3b display that ran them together is what let a patch roughness be
+  read as a total error bar.
+*/
+.budget-block {
+  margin: 0 7px 5px;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--emph);
+  background: #0d0d0f;
+}
+
+.budget-block .honesty-note {
+  display: block;
+  padding: 0 7px 6px;
+}
+
+.evidence-warning {
+  margin: 0 7px 5px;
+  padding: 4px 6px;
+  border-left: 2px solid var(--accent-busy);
+  background: #f59e0b0c;
+  color: var(--accent-busy);
+  font-size: 9px;
+  line-height: 1.35;
+}
+
+.composition-check {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  margin: 0 7px 5px;
+  padding: 5px 6px;
+  border: 1px solid #ffffff26;
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.composition-check small {
+  grid-column: 1 / -1;
+  color: var(--text-dim);
+}
+
+.trial-flag {
+  padding: 1px 4px;
+  border: 1px solid var(--accent-busy);
+  color: var(--accent-busy);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+.trial-block {
+  margin: 0 7px 5px;
+  border: 1px solid var(--border);
+}
+
+.trial-head {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 5px 6px;
+  background: var(--bg-header);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+.trial-head > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.trial-head span {
+  overflow: hidden;
+  color: var(--text-dim);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trial-head b {
+  font-size: 11px;
+}
+
+/* A spread from fewer than MIN_TRIALS_FOR_SPREAD trials is not yet a claim about repeatability. */
+.trial-head b.unproven {
+  color: var(--text-dim);
+}
+
+/*
+  Scrolls rather than clips.
+
+  These rows are a fixed-column grid, and six columns plus their gaps already needed 219 px
+  against the 148 px content box of a 180 px pane — so the discard `×` sat outside the pane,
+  unreachable, and the ruler column added on 2026-08-12 pushed the paint time out beside it.
+  DESIGN's row rule is that a clipped row costs the control; the overflow goes on the list rather
+  than on each row so the columns still line up under one scrollbar instead of six.
+*/
+.trial-list {
+  margin: 0;
+  padding: 0;
+  overflow-x: auto;
+  list-style: none;
+}
+
+.trial-list li {
+  display: grid;
+  /* #, reading, error, mask, ruler, paint time, discard. */
+  grid-template-columns: 22px 62px 52px minmax(72px, 1fr) 36px 40px 18px;
+  /*
+    `min-content` on a grid is the sum of its columns' minimums, so this tracks the line above by
+    itself — add a column and the floor moves with it. `max-content` would have sized the row to
+    the mask cell's full digest string and made it scroll at every width.
+  */
+  min-width: min-content;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 6px;
+  border-top: 1px solid #242428;
+  font-size: 9px;
+}
+
+.trial-list li .mono {
+  overflow: hidden;
+  color: var(--text-dim);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trial-list li.repeated-mask {
+  background: #f59e0b0c;
+}
+
+.trial-list li.repeated-mask .mono {
+  color: var(--accent-busy);
+}
+
+/*
+  The mask cell is a button now, so it has to sit on the same baseline as the `.mono` cells it
+  replaces — same font, same truncation, no chrome until it is pointed at.
+*/
+.trial-brush,
+.trial-ruler {
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  font: inherit;
+  font-family: var(--font-mono);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trial-brush:hover,
+.trial-brush[aria-expanded="true"] {
+  color: var(--text);
+}
+
+/*
+  The ruler cell shares the mask cell's chrome-free treatment, and adds one thing: when it is on,
+  it carries the measurement hue — the same colour the ruler it just lit up is drawn in, so the
+  row and the scene are visibly the same claim. The hue is not the only mark: `aria-pressed` is
+  read out, and the weight change is visible in greyscale.
+*/
+.trial-ruler[aria-pressed="true"] {
+  color: var(--port-measurement);
+  font-weight: 600;
+}
+
+/* Spans every column: the preview belongs to the row, not to one of its cells. */
+.trial-mask {
+  grid-column: 1 / -1;
+  margin: 4px 0 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+/*
+  `align-self` matters: the figure is a flex column, so a stretched canvas is scaled by CSS to
+  the pane's width and stops matching the pixels it was drawn with.
+*/
+.trial-mask canvas {
+  align-self: flex-start;
+  max-width: 100%;
+  border: 1px solid #242428;
+  border-radius: 2px;
+}
+
+.trial-mask figcaption {
+  color: var(--text-dim);
+  font-size: 9px;
+}
+
+.trial-drop {
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.trial-drop:hover {
+  color: var(--accent-err);
+}
+
+.evidence-actions {
+  display: flex;
+  gap: 5px;
+  padding: 5px 7px;
+}
+
+.evidence-actions button {
+  flex: 1;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  background: var(--bg-node);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.evidence-actions button:first-child:not(:disabled) {
+  border-color: #f4f4f666;
+}
+
+.evidence-actions button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.honesty-note {
+  display: block;
+  padding: 0 7px 7px;
+  line-height: 1.35;
+}
+
+.resolution-head,
+.resolution-row {
+  display: grid;
+  grid-template-columns: 1.4fr 0.6fr 0.8fr 0.8fr;
+  gap: 5px;
+  padding: 3px 7px;
+  border-bottom: 1px solid #242428;
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+.resolution-head {
+  color: var(--text-dim);
+}
+
+.resolution-row span:not(:first-child),
+.resolution-head span:not(:first-child) {
+  text-align: right;
+}

@@ -1,0 +1,50 @@
+# deps / build
+node_modules/
+dist/
+*.tsbuildinfo
+
+# python
+__pycache__/
+*.pyc
+.venv/
+
+# model weights / large media (fixtures/ is whitelisted by review, not by git)
+*.safetensors
+*.mp4
+*.mov
+
+# M2b room fixture: real DA3 output from test_demo.mp4. A 128-frame GLB runs to tens
+# of MB — far past the 5 MB commit limit — so the payloads are LOCAL-ONLY and a fresh
+# clone will not have them. Regenerate with a cloud run + scripts/save-run.sh.
+# manifest.json and SHA256SUMS ARE committed, so M3's numbers stay traceable to the
+# exact artifacts that produced them.
+fixtures/room/**
+!fixtures/room/**/
+!fixtures/room/**/manifest.json
+!fixtures/room/**/SHA256SUMS
+
+# M3 door fixture: same treatment as room/, plus the extracted SOURCE FRAMES. Masks are
+# painted on frames, so from M3 on the frames are part of the fixture, not a temp file —
+# without them a saved run cannot be re-measured.
+fixtures/door/**
+!fixtures/door/**/
+!fixtures/door/**/manifest.json
+!fixtures/door/**/SHA256SUMS
+
+# Pictures drawn by scripts/inspect.mjs. Evidence for the session that made them, and cheap to
+# regenerate from a fixture that is already on disk — so never committed.
+.inspect/
+
+# OS / editor
+.DS_Store
+.vscode/
+
+# local env
+.env
+.env.*
+!.env.local.example
+
+# Live run manifests from a warm cloud session. Point at a transient service and
+# become meaningless once it is torn down; the fixture under fixtures/room/ is the
+# durable record. Never commit.
+.runs/

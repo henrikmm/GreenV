@@ -1,0 +1,255 @@
+/**
+ * Runs pane — what evidence exists, what it costs on disk, and how to get rid of it.
+ *
+ * The storage policy in CLAUDE.md is "transient by default, persist only on explicit Save".
+ * Before this pane the second half was unimplemented: there was no Save, no Delete, and no way
+ * to see what a run had consumed. `scripts/save-run.sh` was the whole story, run by hand
+ * during the exact window when a GPU instance is billing.
+ */
+
+import { useState } from "react";
+import { refreshRuns, useRuns } from "../lib/runs-store";
+import { deleteRun, estimateSaveBytes, formatBytes, saveRun, type RunRecord } from "../lib/runs";
+import { removeObservationsForRun } from "../measurement/measurement-store";
+import { setNodeParam, runAuto, useGraph } from "../graph/graph-store";
+import { FIXTURE_RUN_ID } from "../graph/nodes";
+import { DEFAULT_RUN_ID } from "../graph/nodes/fixture-run";
+import { PaneControls } from "./pane-chrome";
+import { HelpDot } from "./help";
+
+function RunRow({
+  run,
+  active,
+  busy,
+  onSelect,
+  onSave,
+  onDelete,
+}: {
+  run: RunRecord;
+  active: boolean;
+  busy: boolean;
+  onSelect: () => void;
+  onSave: () => void;
+  onDelete: () => void;
+}) {
+  const estimate = estimateSaveBytes(run);
+  /**
+   * Where an unsaved run's bytes actually are, which changed on 2026-08-06 and used to be
+   * one answer for everybody: "on the instance, dies with it".
+   *
+   * Saving is still the only way to KEEP a run. What differs now is the consequence of not
+   * saving yet, and a "degraded" run is the case that must not look like the healthy one —
+   * it carries exactly the old urgency while sitting in a list where nothing else does.
+   */
+  const publishMode = run.manifest?.diagnostics?.publishMode;
+  const degraded = !run.persisted && publishMode === "degraded";
+  const saveHint = run.persisted
+    ? ""
+    : degraded
+      ? `Download this run's artifacts to disk — about ${formatBytes(estimate)}. Publishing to durable storage FAILED for this run, so they exist only on the cloud instance and die with it. Save before teardown.`
+      : publishMode === "gcs"
+        ? `Download this run's artifacts to disk — about ${formatBytes(estimate)}. They are in durable storage and survive teardown, but only until the bucket expires them in ${run.manifest?.expiresAfterDays ?? 3} days.`
+        : `Download this run's artifacts to disk — about ${formatBytes(estimate)}. Until then they exist only on the cloud instance and die with it.`;
+  return (
+    <div className={`run-row${active ? " active" : ""}`}>
+      <button className="run-pick" onClick={onSelect} disabled={!run.persisted || !run.available}>
+        <span className="run-label">
+          <b>{run.label}</b>
+          <small>
+            {run.clipName || "—"}
+            {run.frameCount ? ` · ${run.frameCount}f` : ""}
+            {run.processRes ? ` · ${run.processRes} px` : ""}
+          </small>
+        </span>
+        <span className="run-state mono">
+          {run.builtin
+            ? "built-in"
+            : run.persisted
+              ? run.available
+                ? formatBytes(run.sizeBytes)
+                : "payload missing"
+              : "transient"}
+        </span>
+      </button>
+      <span className="run-actions">
+        {/*
+          Outside the run-pick button on purpose. A transient run cannot be selected, so that
+          button is disabled and rendered at opacity 0.5 — and a warning inside it inherited the
+          dimming, which put the one row that urgently needs action at half the contrast of every
+          calm row beside it. Measured 2026-08-06 during the design review. It sits next to Save
+          because Save is the action it is asking for.
+        */}
+        {/*
+          The glyph alone, not "▲ instance only". Spelling it out cost 224 px of a 335 px row and
+          squeezed the run label down to "de…", so the row shouted that something was wrong while
+          hiding which run it was. The pane's note below defines the mark, and the tooltip carries
+          the full sentence. Measured 2026-08-06.
+        */}
+        {degraded && (
+          <span
+            className="run-warning mono"
+            title="Publishing to durable storage failed for this run, so its artifacts exist only on the cloud instance and die with it. Save it before teardown."
+          >
+            ▲
+          </span>
+        )}
+        {!run.persisted && (
+          <button
+            className="pane-btn"
+            disabled={busy}
+            title={saveHint}
+            onClick={onSave}
+          >
+            Save {formatBytes(estimate)}
+          </button>
+        )}
+        {!run.builtin && (
+          <button className="pane-btn danger" disabled={busy} onClick={onDelete} title="Delete this run's bytes from disk">
+            Delete
+          </button>
+        )}
+      </span>
+    </div>
+  );
+}
+
+export function RunsPane() {
+  const runs = useRuns();
+  const graph = useGraph();
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  const fixture = graph.nodes.find((node) => node.id === FIXTURE_RUN_ID);
+  const activeId = String(fixture?.params.runId ?? DEFAULT_RUN_ID);
+  const liveSelected = String(fixture?.params.source ?? "live") === "live";
+  // A live run exists once DA3 holds an output. Its manifest is not a run record until saved,
+  // so the graph runtime — not the registry — is what knows whether there is one.
+  const hasLiveRun = Boolean(graph.runtime["da3-depth"]?.outputs?.depth);
+
+  const savedBytes = runs.runs.reduce((total, run) => total + (run.sizeBytes || 0), 0);
+  const transient = runs.runs.filter((run) => !run.persisted).length;
+
+  const act = async (fn: () => Promise<void>) => {
+    setBusy(true);
+    setNote(null);
+    try {
+      await fn();
+      await refreshRuns();
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="pane">
+      <PaneControls
+        status={runs.loading ? "Loading" : "Idle"}
+        elapsedMs={0}
+        paused={false}
+        paneId="runs"
+        onPause={() => void refreshRuns()}
+        extra={
+          <span className="pane-note">
+            {runs.runs.length} runs · {formatBytes(savedBytes)} on disk
+            {transient > 0 ? ` · ${transient} transient` : ""}
+            {/*
+              The paragraph that used to close this pane. It explains the storage policy, which is
+              a thing you read once — while the pane's job is to show what exists and what it
+              costs. The ▲ that needs acting on keeps its own visible mark on the row it belongs
+              to, and its tooltip still spells the urgency out there.
+            */}
+            <HelpDot label="How runs are stored">
+              <p>
+                <b>Runs are transient by default.</b> A finished cloud run is registered here as a
+                stub so it stays selectable, but nothing large is written to disk until you press
+                Save.
+              </p>
+              <p>
+                A stub's artifacts sit in cloud storage and are deleted after three days — sooner
+                if you delete the bucket. A stub marked <b>▲</b> never reached storage and dies
+                with its instance instead, so save that one before teardown.
+              </p>
+            </HelpDot>
+          </span>
+        }
+      />
+      <div className="pane-body runs-pane">
+        <div className="runs-root mono" title="Runs live outside the repository so a 135 MB artifact can never be staged by accident.">
+          {runs.root || "~/verge-runs"}
+        </div>
+        {runs.error && <div className="evidence-warning">{runs.error}</div>}
+        {note && <div className="evidence-warning">{note}</div>}
+        {/*
+          The way back to the live run, because this pane now owns the choice entirely — the
+          Source control in Setup became a readout, so without this a recorded run would be a
+          one-way door.
+        */}
+        <button
+          className={`run-live-row${liveSelected ? " active" : ""}`}
+          disabled={!hasLiveRun}
+          title={
+            hasLiveRun
+              ? "Point the measurement branch back at this session's DA3 run."
+              : "No live run in this session yet. Load a clip in Setup and press Run."
+          }
+          onClick={() => {
+            setNodeParam(FIXTURE_RUN_ID, "source", "live");
+            void runAuto();
+          }}
+        >
+          <span className="run-live-glyph" aria-hidden="true">
+            {liveSelected ? "●" : "○"}
+          </span>
+          <span className="run-live-label">This session's run</span>
+          <span className="run-live-note mono">
+            {hasLiveRun ? (liveSelected ? "showing" : "live DA3") : "not run yet"}
+          </span>
+        </button>
+        {runs.runs.length === 0 && !runs.loading && (
+          <div className="pane-hint">No runs yet. Load a clip in Setup and press Run.</div>
+        )}
+        {runs.runs.map((run) => (
+          <RunRow
+            key={run.id}
+            run={run}
+            active={run.id === activeId}
+            busy={busy}
+            onSelect={() => {
+              setNodeParam(FIXTURE_RUN_ID, "runId", run.id);
+              setNodeParam(FIXTURE_RUN_ID, "source", "recorded");
+              void runAuto();
+            }}
+            onSave={() =>
+              void act(async () => {
+                const { output } = await saveRun(run.id);
+                setNote(output.slice(-400));
+              })
+            }
+            onDelete={() =>
+              void act(async () => {
+                if (
+                  !window.confirm(
+                    `Delete ${run.label}?\n\nIts artifacts go from disk permanently — rerunning the clip is the only way back. Recorded trials are archived to ~/verge-runs/.archive first, and stop appearing in this session.`,
+                  )
+                ) {
+                  return;
+                }
+                const { archived } = await deleteRun(run.id);
+                // The rows outlived the run: no run left to select them under, nothing to remove
+                // them, and the export still counting them. Their packets are in the archive.
+                const dropped = removeObservationsForRun(run.id);
+                setNote(
+                  archived || dropped.length
+                    ? `Deleted ${run.label}; archived ${archived} recorded trial${archived === 1 ? "" : "s"}`
+                    : `Deleted ${run.label}`,
+                );
+              })
+            }
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
