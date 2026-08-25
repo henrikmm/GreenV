@@ -1,0 +1,41 @@
+# Dependencies and build output are never committed. The lockfiles are the record
+# of what CI and the development machines both installed; the trees they produce
+# are not. Committing one cost this repository 49.9 MB before it was noticed.
+node_modules/
+dist/
+build/
+.vite/
+*.tsbuildinfo
+
+# JVM
+.gradle/
+!gradle/wrapper/gradle-wrapper.jar
+*.class
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+venv/
+
+# Flutter and Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+*.iml
+
+# Secrets and machine-local configuration
+.env
+.env.local
+*.local.json
+!.claude/settings.local.json.example
+
+# Session scratch. Cheap to redraw, never evidence anybody else can check.
+.inspect/
+.runs/
+
+# Editor and OS
+.DS_Store
+.idea/
+*.swp
