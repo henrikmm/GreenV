@@ -115,7 +115,9 @@ Checking costs nothing and wakes nothing.
 - The body explains **why**, not what, wrapped at 72. Required when a change alters a measured
   number or a file the CI reads.
 - **Never commit dependencies, build output, model weights, secrets, or media over 5 MB.** The root
-  `.gitignore` covers the known cases; a new stack adds its own lines before its first commit.
+  `.gitignore` covers the known cases; a new stack adds its own lines before its first commit. CI
+  enforces both. The one exemption is `measurement/fixtures/`, where Verge Studio tracks a 12 MB
+  roadside reconstruction on purpose so its tests have real geometry to run against.
 - Work on `main` is not protected — the free plan gives no branch protection, so nothing but review
   stops a bad push.
 

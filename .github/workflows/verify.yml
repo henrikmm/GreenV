@@ -31,7 +31,12 @@ jobs:
           fi
       - name: No tracked file is larger than 5 MB
         run: |
-          big="$(git ls-tree -r -l HEAD | awk '$4 > 5242880 {print $4, $5}' || true)"
+          # measurement/fixtures/ is exempt. Verge Studio tracks a 12 MB roadside
+          # fixture on purpose so its tests have a real reconstruction to run
+          # against, and that is upstream's decision to make, not this repo's.
+          big="$(git ls-tree -r -l HEAD \
+                 | awk '$4 > 5242880 {print $4, $5}' \
+                 | grep -v ' measurement/fixtures/' || true)"
           if [ -n "${big}" ]; then
             echo "::error::tracked file over 5 MB:"; echo "${big}"; exit 1
           fi
