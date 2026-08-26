@@ -6,30 +6,26 @@ import br.com.greenv.videoapi.config.PipelineProperties;
 import br.com.greenv.videoapi.domain.FrameExtractionRequest;
 import br.com.greenv.videoapi.domain.JobDocument;
 import br.com.greenv.videoapi.domain.JobState;
-import br.com.greenv.videoapi.storage.LocalJobStore;
-import br.com.greenv.videoapi.task.LocalTaskPublisher;
+import br.com.greenv.videoapi.port.FrameWorkQueue;
+import br.com.greenv.videoapi.port.LegacyJobStore;
 import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.UUID;
-import org.springframework.core.io.FileSystemResource;
-import org.springframework.core.io.Resource;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 @Service
 public class JobService {
 
-    private final LocalJobStore jobStore;
-    private final LocalTaskPublisher taskPublisher;
+    private final LegacyJobStore jobStore;
+    private final FrameWorkQueue taskPublisher;
     private final PipelineProperties properties;
     private final Clock clock;
 
     public JobService(
-            LocalJobStore jobStore,
-            LocalTaskPublisher taskPublisher,
+            LegacyJobStore jobStore,
+            FrameWorkQueue taskPublisher,
             PipelineProperties properties,
             Clock clock) {
         this.jobStore = jobStore;
@@ -83,8 +79,8 @@ public class JobService {
                     job.jobId(),
                     job.jobId() + ":" + job.sourceGeneration(),
                     job.sourceUri(),
-                    jobStore.statusPath(jobId).toUri().toString(),
-                    jobStore.jobDirectory(jobId).toUri().toString(),
+                    jobStore.statusReference(jobId),
+                    jobStore.outputPrefixReference(jobId),
                     job.sourceGeneration(),
                     job.sampling().requestedFps(),
                     job.sampling().maxFrames(),
@@ -97,13 +93,12 @@ public class JobService {
         }
     }
 
-    public Resource manifest(UUID jobId) {
+    public byte[] manifest(UUID jobId) {
         JobDocument job = jobStore.get(jobId);
-        Path manifest = jobStore.manifestPath(jobId);
-        if (job.state() != JobState.FRAMES_READY || !Files.isRegularFile(manifest)) {
+        if (job.state() != JobState.FRAMES_READY || !jobStore.manifestExists(jobId)) {
             throw new ApiException(HttpStatus.CONFLICT, "manifest_not_ready", "frame manifest is not ready");
         }
-        return new FileSystemResource(manifest);
+        return jobStore.readManifest(jobId);
     }
 
     public JobDocument save(UUID jobId) {

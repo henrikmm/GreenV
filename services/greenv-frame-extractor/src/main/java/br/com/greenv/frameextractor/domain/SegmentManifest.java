@@ -17,7 +17,7 @@ public record SegmentManifest(
         int unavailableLocationFrames,
         int locationSampleCount,
         int motionSampleCount,
-        String frameMetadataUri,
+        String frameMetadataObjectKey,
         String frameMetadataSha256,
         long frameMetadataBytes,
         List<FrameRecord> sampledFrames,

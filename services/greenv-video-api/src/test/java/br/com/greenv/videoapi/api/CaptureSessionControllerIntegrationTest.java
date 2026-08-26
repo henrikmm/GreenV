@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
-import br.com.greenv.videoapi.task.SegmentTaskPublisher;
+import br.com.greenv.videoapi.port.SegmentWorkQueue;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -47,7 +47,7 @@ class CaptureSessionControllerIntegrationTest {
     ObjectMapper objectMapper;
 
     @MockitoBean
-    SegmentTaskPublisher taskPublisher;
+    SegmentWorkQueue taskPublisher;
 
     @Test
     void acceptsIdempotentVideoAndTelemetryUploadsAndRejectsChangedContent() throws Exception {
@@ -159,7 +159,11 @@ class CaptureSessionControllerIntegrationTest {
         assertThat(send(client, HttpRequest.newBuilder(URI.create(segment + "/complete"))
                 .POST(HttpRequest.BodyPublishers.noBody())).statusCode()).isEqualTo(202);
 
-        verify(taskPublisher, times(2)).publish(org.mockito.ArgumentMatchers.any());
+        verify(taskPublisher, times(2)).publish(org.mockito.ArgumentMatchers.argThat(request ->
+                request.schemaVersion() == 2
+                        && request.videoObjectKey().endsWith("/source.mp4")
+                        && request.telemetryObjectKey().endsWith("/telemetry.json")
+                        && !request.outputPrefix().contains("://")));
     }
 
     private static HttpResponse<String> upload(

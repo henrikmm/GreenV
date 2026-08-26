@@ -4,46 +4,42 @@ import br.com.greenv.videoapi.api.ApiException;
 import br.com.greenv.videoapi.api.CaptureSessionResponse;
 import br.com.greenv.videoapi.api.CreateCaptureSessionRequest;
 import br.com.greenv.videoapi.config.CaptureProperties;
-import br.com.greenv.videoapi.config.PipelineProperties;
 import br.com.greenv.videoapi.domain.CaptureSegmentDocument;
+import br.com.greenv.videoapi.domain.CaptureObjectKeys;
 import br.com.greenv.videoapi.domain.CaptureSessionDocument;
 import br.com.greenv.videoapi.domain.SegmentExtractionRequest;
-import br.com.greenv.videoapi.storage.CaptureObjectStore;
-import br.com.greenv.videoapi.storage.CaptureSessionRepository;
-import br.com.greenv.videoapi.task.SegmentTaskPublisher;
+import br.com.greenv.videoapi.port.CaptureObjectStorage;
+import br.com.greenv.videoapi.port.CaptureSessionStore;
+import br.com.greenv.videoapi.port.SegmentWorkQueue;
 import java.io.InputStream;
-import java.nio.file.Files;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.UUID;
-import org.springframework.core.io.FileSystemResource;
-import org.springframework.core.io.Resource;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 @Service
 public class CaptureSessionService {
 
-    private final CaptureSessionRepository repository;
-    private final CaptureObjectStore objectStore;
-    private final SegmentTaskPublisher taskPublisher;
+    private static final long MAXIMUM_MANIFEST_BYTES = 4 * 1024 * 1024;
+
+    private final CaptureSessionStore repository;
+    private final CaptureObjectStorage objectStorage;
+    private final SegmentWorkQueue workQueue;
     private final CaptureProperties captureProperties;
-    private final PipelineProperties pipelineProperties;
     private final Clock clock;
 
     public CaptureSessionService(
-            CaptureSessionRepository repository,
-            CaptureObjectStore objectStore,
-            SegmentTaskPublisher taskPublisher,
+            CaptureSessionStore repository,
+            CaptureObjectStorage objectStorage,
+            SegmentWorkQueue workQueue,
             CaptureProperties captureProperties,
-            PipelineProperties pipelineProperties,
             Clock clock) {
         this.repository = repository;
-        this.objectStore = objectStore;
-        this.taskPublisher = taskPublisher;
+        this.objectStorage = objectStorage;
+        this.workQueue = workQueue;
         this.captureProperties = captureProperties;
-        this.pipelineProperties = pipelineProperties;
         this.clock = clock;
     }
 
@@ -77,7 +73,7 @@ public class CaptureSessionService {
                 null,
                 now,
                 now,
-                now.plus(pipelineProperties.transientDays(), ChronoUnit.DAYS),
+                now.plus(captureProperties.transientDays(), ChronoUnit.DAYS),
                 null);
         return repository.createSession(session);
     }
@@ -109,9 +105,13 @@ public class CaptureSessionService {
         if (segment.videoSha256() != null && !segment.videoSha256().equals(expectedSha256)) {
             throw conflict("video");
         }
-        var stored = objectStore.storeVideo(sessionId, segmentIndex, input, expectedSha256);
+        var stored = objectStorage.put(
+                CaptureObjectKeys.video(sessionId, segmentIndex),
+                input,
+                expectedSha256,
+                captureProperties.maxSegmentBytes());
         return repository.recordVideo(
-                sessionId, segmentIndex, stored.uri(), stored.sha256(), stored.bytes(), now);
+                sessionId, segmentIndex, stored.objectKey(), stored.sha256(), stored.bytes(), now);
     }
 
     public CaptureSegmentDocument uploadTelemetry(
@@ -129,9 +129,13 @@ public class CaptureSessionService {
         if (segment.telemetrySha256() != null && !segment.telemetrySha256().equals(expectedSha256)) {
             throw conflict("telemetry");
         }
-        var stored = objectStore.storeTelemetry(sessionId, segmentIndex, input, expectedSha256);
+        var stored = objectStorage.put(
+                CaptureObjectKeys.telemetry(sessionId, segmentIndex),
+                input,
+                expectedSha256,
+                captureProperties.maxTelemetryBytes());
         return repository.recordTelemetry(
-                sessionId, segmentIndex, stored.uri(), stored.sha256(), stored.bytes(), now);
+                sessionId, segmentIndex, stored.objectKey(), stored.sha256(), stored.bytes(), now);
     }
 
     public CaptureSegmentDocument completeSegment(UUID sessionId, int segmentIndex) {
@@ -158,17 +162,17 @@ public class CaptureSessionService {
     private void publishSegment(CaptureSegmentDocument segment) {
         Instant queuedAt = clock.instant();
         try {
-            taskPublisher.publish(new SegmentExtractionRequest(
-                    1,
+            workQueue.publish(new SegmentExtractionRequest(
+                    2,
                     0,
                     segment.sessionId(),
                     segment.segmentIndex(),
                     segment.idempotencyKey(),
-                    segment.videoUri(),
+                    segment.videoObjectKey(),
                     segment.videoSha256(),
-                    segment.telemetryUri(),
+                    segment.telemetryObjectKey(),
                     segment.telemetrySha256(),
-                    objectStore.segmentDirectory(segment.sessionId(), segment.segmentIndex()).toUri().toString(),
+                    CaptureObjectKeys.segmentPrefix(segment.sessionId(), segment.segmentIndex()),
                     segment.capturedAt(),
                     segment.durationMillis(),
                     queuedAt));
@@ -196,13 +200,14 @@ public class CaptureSessionService {
                 now);
     }
 
-    public Resource manifest(UUID sessionId, int segmentIndex) {
+    public byte[] manifest(UUID sessionId, int segmentIndex) {
         CaptureSegmentDocument segment = repository.getSegment(sessionId, segmentIndex);
-        var path = objectStore.manifestPath(sessionId, segmentIndex);
-        if (!"ready".equals(segment.state()) || !Files.isRegularFile(path)) {
+        if (!"ready".equals(segment.state())
+                || segment.manifestObjectKey() == null
+                || !objectStorage.exists(segment.manifestObjectKey())) {
             throw new ApiException(HttpStatus.CONFLICT, "segment_manifest_not_ready", "segment manifest is not ready");
         }
-        return new FileSystemResource(path);
+        return objectStorage.read(segment.manifestObjectKey(), MAXIMUM_MANIFEST_BYTES);
     }
 
     public int segmentSeconds() {

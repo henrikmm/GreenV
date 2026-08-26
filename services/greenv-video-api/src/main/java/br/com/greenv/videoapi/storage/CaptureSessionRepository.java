@@ -3,6 +3,7 @@ package br.com.greenv.videoapi.storage;
 import br.com.greenv.videoapi.api.ApiException;
 import br.com.greenv.videoapi.domain.CaptureSegmentDocument;
 import br.com.greenv.videoapi.domain.CaptureSessionDocument;
+import br.com.greenv.videoapi.port.CaptureSessionStore;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
@@ -10,13 +11,15 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 @Repository
-public class CaptureSessionRepository {
+@ConditionalOnProperty(name = "greenv.adapters.database", havingValue = "jdbc", matchIfMissing = true)
+public class CaptureSessionRepository implements CaptureSessionStore {
 
     private final JdbcTemplate jdbc;
 
@@ -109,30 +112,30 @@ public class CaptureSessionRepository {
     public CaptureSegmentDocument recordVideo(
             UUID sessionId,
             int segmentIndex,
-            String uri,
+            String objectKey,
             String sha256,
             long bytes,
             Instant now) {
         jdbc.update("""
                 UPDATE capture_segments
-                SET video_uri = ?, video_sha256 = ?, video_bytes = ?, state = 'uploading', updated_at = ?
+                SET video_object_key = ?, video_sha256 = ?, video_bytes = ?, state = 'uploading', updated_at = ?
                 WHERE session_id = ? AND segment_index = ?
-                """, uri, sha256, bytes, timestamp(now), sessionId, segmentIndex);
+                """, objectKey, sha256, bytes, timestamp(now), sessionId, segmentIndex);
         return getSegment(sessionId, segmentIndex);
     }
 
     public CaptureSegmentDocument recordTelemetry(
             UUID sessionId,
             int segmentIndex,
-            String uri,
+            String objectKey,
             String sha256,
             long bytes,
             Instant now) {
         jdbc.update("""
                 UPDATE capture_segments
-                SET telemetry_uri = ?, telemetry_sha256 = ?, telemetry_bytes = ?, state = 'uploading', updated_at = ?
+                SET telemetry_object_key = ?, telemetry_sha256 = ?, telemetry_bytes = ?, state = 'uploading', updated_at = ?
                 WHERE session_id = ? AND segment_index = ?
-                """, uri, sha256, bytes, timestamp(now), sessionId, segmentIndex);
+                """, objectKey, sha256, bytes, timestamp(now), sessionId, segmentIndex);
         return getSegment(sessionId, segmentIndex);
     }
 
@@ -217,13 +220,13 @@ public class CaptureSessionRepository {
                 result.getString("idempotency_key"),
                 instant(result, "captured_at"),
                 result.getLong("duration_millis"),
-                result.getString("video_uri"),
+                result.getString("video_object_key"),
                 result.getString("video_sha256"),
                 result.getObject("video_bytes", Long.class),
-                result.getString("telemetry_uri"),
+                result.getString("telemetry_object_key"),
                 result.getString("telemetry_sha256"),
                 result.getObject("telemetry_bytes", Long.class),
-                result.getString("manifest_uri"),
+                result.getString("manifest_object_key"),
                 result.getObject("frame_count", Integer.class),
                 result.getString("error_code"),
                 result.getString("error_message"),

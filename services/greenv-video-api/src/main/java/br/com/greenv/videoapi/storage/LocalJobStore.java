@@ -5,6 +5,7 @@ import br.com.greenv.videoapi.config.PipelineProperties;
 import br.com.greenv.videoapi.domain.JobDocument;
 import br.com.greenv.videoapi.domain.JobState;
 import br.com.greenv.videoapi.domain.Retention;
+import br.com.greenv.videoapi.port.LegacyJobStore;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.AtomicMoveNotSupportedException;
@@ -28,7 +29,7 @@ import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 
 @Component
-public class LocalJobStore {
+public class LocalJobStore implements LegacyJobStore {
 
     private static final int BUFFER_SIZE = 1024 * 1024;
 
@@ -132,6 +133,30 @@ public class LocalJobStore {
 
     public Path manifestPath(UUID jobId) {
         return jobDirectory(jobId).resolve("manifest.json");
+    }
+
+    @Override
+    public String statusReference(UUID jobId) {
+        return statusPath(jobId).toUri().toString();
+    }
+
+    @Override
+    public String outputPrefixReference(UUID jobId) {
+        return jobDirectory(jobId).toUri().toString();
+    }
+
+    @Override
+    public boolean manifestExists(UUID jobId) {
+        return Files.isRegularFile(manifestPath(jobId));
+    }
+
+    @Override
+    public byte[] readManifest(UUID jobId) {
+        try {
+            return Files.readAllBytes(manifestPath(jobId));
+        } catch (IOException exception) {
+            throw storageFailure("could not read frame manifest", exception);
+        }
     }
 
     public Path pendingTasksDirectory() {

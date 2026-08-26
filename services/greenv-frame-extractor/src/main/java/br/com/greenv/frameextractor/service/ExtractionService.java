@@ -5,7 +5,7 @@ import br.com.greenv.frameextractor.domain.FrameExtractionRequest;
 import br.com.greenv.frameextractor.domain.FrameManifest;
 import br.com.greenv.frameextractor.domain.FrameRecord;
 import br.com.greenv.frameextractor.domain.SamplingPlan;
-import br.com.greenv.frameextractor.storage.LocalPipelineStore;
+import br.com.greenv.frameextractor.port.LegacyPipelineStore;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -19,7 +19,7 @@ import org.springframework.stereotype.Service;
 public class ExtractionService {
 
     private final ExtractorProperties properties;
-    private final LocalPipelineStore store;
+    private final LegacyPipelineStore store;
     private final MediaProbe mediaProbe;
     private final SamplingPlanner samplingPlanner;
     private final FfmpegExtractor ffmpegExtractor;
@@ -27,7 +27,7 @@ public class ExtractionService {
 
     public ExtractionService(
             ExtractorProperties properties,
-            LocalPipelineStore store,
+            LegacyPipelineStore store,
             MediaProbe mediaProbe,
             SamplingPlanner samplingPlanner,
             FfmpegExtractor ffmpegExtractor,

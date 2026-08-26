@@ -6,7 +6,6 @@ import jakarta.validation.Valid;
 import java.io.IOException;
 import java.net.URI;
 import java.util.UUID;
-import org.springframework.core.io.Resource;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -57,7 +56,7 @@ public class JobController {
     }
 
     @GetMapping(path = "/{jobId}/manifest", produces = MediaType.APPLICATION_JSON_VALUE)
-    Resource manifest(@PathVariable UUID jobId) {
+    byte[] manifest(@PathVariable UUID jobId) {
         return jobService.manifest(jobId);
     }
 

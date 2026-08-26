@@ -14,8 +14,10 @@ local object-store adapter so API and worker can exchange files without a cloud 
 | Path | Responsibility |
 |---|---|
 | `src/main/java/.../api/` | HTTP request validation and response models |
+| `src/main/java/.../port/` | Cloud-neutral database, object-storage and queue contracts |
 | `src/main/java/.../service/` | Capture/job state machines and queue publication |
-| `src/main/java/.../storage/` | PostgreSQL records and bounded local object writes |
+| `src/main/java/.../storage/` | JDBC and local-filesystem output adapters |
+| `src/main/java/.../task/` | RabbitMQ and legacy-filesystem queue adapters |
 | `src/main/resources/db/migration/` | Flyway schema for capture sessions and segments |
 | `src/main/resources/contracts/` | Versioned queue and manifest JSON Schemas |
 | `openapi.yaml` | Complete v1 and v2 HTTP contract |
@@ -80,6 +82,9 @@ Spring reads these environment variables in Compose and native runs:
 
 | Setting | Environment variable | Native default |
 |---|---|---|
+| Database adapter | `GREENV_DATABASE_ADAPTER` | `jdbc` |
+| Object-storage adapter | `GREENV_OBJECT_STORAGE_ADAPTER` | `local` |
+| Segment-queue adapter | `GREENV_SEGMENT_QUEUE_ADAPTER` | `rabbitmq` |
 | Bind address/port | `SERVER_ADDRESS`, `PORT` | `127.0.0.1:8080` |
 | Pipeline root | `GREENV_PIPELINE_ROOT` | OS temp directory under `greenv-pipeline` |
 | Saved v1 runs | `GREENV_SAVED_ROOT` | `~/verge-runs` |
@@ -93,7 +98,7 @@ Spring reads these environment variables in Compose and native runs:
 | Segment target | `GREENV_SEGMENT_SECONDS` | 10 seconds |
 | Maximum segment | `GREENV_MAX_SEGMENT_BYTES` | 64 MiB |
 | Maximum telemetry | `GREENV_MAX_TELEMETRY_BYTES` | 4 MiB |
-| Exchange/queue/key | `GREENV_SEGMENT_EXCHANGE`, `GREENV_SEGMENT_QUEUE`, `GREENV_SEGMENT_ROUTING_KEY` | `greenv.capture`, `greenv.segment.extract.v1`, `segment.extract.v1` |
+| Exchange/queue/key | `GREENV_SEGMENT_EXCHANGE`, `GREENV_SEGMENT_QUEUE`, `GREENV_SEGMENT_ROUTING_KEY` | `greenv.capture`, `greenv.segment.extract.v2`, `segment.extract.v2` |
 
 `./gradlew bootRun` uses H2 and the local directory defaults for the legacy v1 flow. Use Compose
 for v2 so PostgreSQL, RabbitMQ, API and worker share one tested configuration.
@@ -183,17 +188,17 @@ recording -> uploading -> queued -> validating -> ready
                                 +-> failed        +-> verified manifest
 ```
 
-PostgreSQL tables `capture_sessions` and `capture_segments` hold identity, state, object URIs,
-checksums, byte counts, final manifest URI/frame count, error details and timestamps. Binary data
+The JDBC adapter's tables `capture_sessions` and `capture_segments` hold identity, state, opaque
+object keys, checksums, byte counts, final manifest key/frame count, error details and timestamps. Binary data
 does not live in PostgreSQL. The Compose volume stores:
 
 ```text
 capture-sessions/<session UUID>/segments/00000000/
   source.mp4                  # deleted by the worker only after verified publication
   telemetry.json
-  frame-metadata-v1.json
+  frame-metadata-v2.json
   sampled-frames/*.jpg
-  segment-manifest-v1.json
+  segment-manifest-v2.json
 ```
 
 Repeating completion while a segment is `queued` republishes the same durable request. This closes
@@ -251,8 +256,24 @@ and HTTP error responses. The full API-worker seam is covered by `services/captu
 
 ## Production boundary
 
+The application layer depends only on `CaptureSessionStore`, `CaptureObjectStorage`,
+`SegmentWorkQueue`, `LegacyJobStore` and `FrameWorkQueue`. The shipped adapters are JDBC,
+RabbitMQ and local filesystem; a cloud provider is added behind those ports and selected with the
+three `GREENV_*_ADAPTER` settings. Queue contract v2 contains opaque object keys and never a
+`file:`, `s3:` or provider URL. Do not put signed URLs in the queue because they can expire while a
+message is waiting or retrying.
+
 Before an internet deployment, add authenticated device identity, authorization per session,
-rate limits, TLS, observability and retention cleanup. Return presigned S3-compatible upload URLs
-instead of proxying large video bodies, and let the worker use ephemeral disk plus object storage.
-Keep PostgreSQL for control-plane state and add PostGIS only when spatial indexing or server-side
-route queries are required. The local shared volume is not redundant production storage.
+rate limits, TLS, observability and retention cleanup. A production object adapter should issue
+presigned upload URLs where appropriate while retaining opaque keys in persisted state. Ephemeral
+worker disk is an FFmpeg workspace, not durable storage.
+
+To add a provider, implement the relevant interface in `port/`, register that implementation under
+a new adapter value, and leave `service/` unchanged. API and worker object adapters must address
+the same bucket/container and interpret an object key identically. A queue adapter must provide
+durable at-least-once delivery; a database adapter must preserve the session/segment identity and
+atomic state transitions currently implemented by JDBC.
+
+Verification observed on 25 Aug 2026: `./gradlew.bat check --no-daemon --offline` completed
+successfully. The Compose smoke command was attempted on the same date but did not execute because
+the local Docker daemon was unavailable.

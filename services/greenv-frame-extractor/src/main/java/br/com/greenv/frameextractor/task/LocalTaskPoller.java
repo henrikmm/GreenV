@@ -3,7 +3,7 @@ package br.com.greenv.frameextractor.task;
 import br.com.greenv.frameextractor.config.ExtractorProperties;
 import br.com.greenv.frameextractor.service.ExtractionException;
 import br.com.greenv.frameextractor.service.ExtractionService;
-import br.com.greenv.frameextractor.storage.LocalPipelineStore;
+import br.com.greenv.frameextractor.port.LegacyPipelineStore;
 import java.time.Clock;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -18,14 +18,14 @@ public class LocalTaskPoller {
 
     private final LocalTaskInbox inbox;
     private final ExtractionService extractionService;
-    private final LocalPipelineStore store;
+    private final LegacyPipelineStore store;
     private final ExtractorProperties properties;
     private final Clock clock;
 
     public LocalTaskPoller(
             LocalTaskInbox inbox,
             ExtractionService extractionService,
-            LocalPipelineStore store,
+            LegacyPipelineStore store,
             ExtractorProperties properties,
             Clock clock) {
         this.inbox = inbox;

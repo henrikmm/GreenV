@@ -1,14 +1,17 @@
 package br.com.greenv.frameextractor.storage;
 
 import br.com.greenv.frameextractor.domain.SegmentExtractionRequest;
+import br.com.greenv.frameextractor.port.CaptureSegmentStore;
 import br.com.greenv.frameextractor.service.ExtractionException;
 import java.sql.Timestamp;
 import java.time.Instant;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Repository;
 
 @Repository
-public class CaptureSegmentRepository {
+@ConditionalOnProperty(name = "greenv.adapters.database", havingValue = "jdbc", matchIfMissing = true)
+public class CaptureSegmentRepository implements CaptureSegmentStore {
 
     private final JdbcTemplate jdbc;
 
@@ -52,16 +55,16 @@ public class CaptureSegmentRepository {
 
     public void markReady(
             SegmentExtractionRequest request,
-            String manifestUri,
+            String manifestObjectKey,
             int frameCount,
             Instant now) {
         jdbc.update("""
                 UPDATE capture_segments
-                SET state = 'ready', manifest_uri = ?, frame_count = ?, updated_at = ?,
+                SET state = 'ready', manifest_object_key = ?, frame_count = ?, updated_at = ?,
                     error_code = NULL, error_message = NULL
                 WHERE session_id = ? AND segment_index = ?
                 """,
-                manifestUri,
+                manifestObjectKey,
                 frameCount,
                 timestamp(now),
                 request.sessionId(),

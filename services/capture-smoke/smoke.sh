@@ -133,9 +133,9 @@ for segment_index in 0 1 2; do
   manifest="$(curl --fail --silent \
     "${api_url}/v2/capture-sessions/${session_id}/segments/${segment_index}/manifest")"
   encoded_count="$(jq '.encodedFrameCount' <<<"${manifest}")"
-  metadata_uri="$(jq --raw-output '.frameMetadataUri' <<<"${manifest}")"
+  metadata_key="$(jq --raw-output '.frameMetadataObjectKey' <<<"${manifest}")"
   [[ "${encoded_count}" == "100" ]]
-  [[ "${metadata_uri}" == file:*frame-metadata-v1.json ]]
+  [[ "${metadata_key}" == capture-sessions/*/segments/*/frame-metadata-v2.json ]]
 done
 
 session_state="$(curl --fail --silent \

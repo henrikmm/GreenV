@@ -7,9 +7,10 @@ import br.com.greenv.frameextractor.domain.SamplingPlan;
 import br.com.greenv.frameextractor.domain.SegmentExtractionRequest;
 import br.com.greenv.frameextractor.domain.SegmentManifest;
 import br.com.greenv.frameextractor.domain.SegmentTelemetry;
-import br.com.greenv.frameextractor.storage.CaptureSegmentRepository;
-import br.com.greenv.frameextractor.storage.LocalPipelineStore;
-import java.io.IOException;
+import br.com.greenv.frameextractor.port.CaptureSegmentStore;
+import br.com.greenv.frameextractor.port.ProcessingWorkspace;
+import br.com.greenv.frameextractor.port.SegmentObjectStorage;
+import br.com.greenv.frameextractor.port.SegmentObjectStorage.ObjectDescriptor;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -25,8 +26,9 @@ public class SegmentExtractionService {
     private static final int SAMPLE_LONG_EDGE = 1280;
 
     private final ExtractorProperties properties;
-    private final LocalPipelineStore store;
-    private final CaptureSegmentRepository repository;
+    private final SegmentObjectStorage objectStorage;
+    private final ProcessingWorkspace processingWorkspace;
+    private final CaptureSegmentStore segmentStore;
     private final MediaProbe mediaProbe;
     private final FrameTimestampProbe timestampProbe;
     private final TelemetryAssociator telemetryAssociator;
@@ -36,8 +38,9 @@ public class SegmentExtractionService {
 
     public SegmentExtractionService(
             ExtractorProperties properties,
-            LocalPipelineStore store,
-            CaptureSegmentRepository repository,
+            SegmentObjectStorage objectStorage,
+            ProcessingWorkspace processingWorkspace,
+            CaptureSegmentStore segmentStore,
             MediaProbe mediaProbe,
             FrameTimestampProbe timestampProbe,
             TelemetryAssociator telemetryAssociator,
@@ -45,8 +48,9 @@ public class SegmentExtractionService {
             FfmpegExtractor ffmpegExtractor,
             Clock clock) {
         this.properties = properties;
-        this.store = store;
-        this.repository = repository;
+        this.objectStorage = objectStorage;
+        this.processingWorkspace = processingWorkspace;
+        this.segmentStore = segmentStore;
         this.mediaProbe = mediaProbe;
         this.timestampProbe = timestampProbe;
         this.telemetryAssociator = telemetryAssociator;
@@ -57,28 +61,47 @@ public class SegmentExtractionService {
 
     public SegmentManifest extract(SegmentExtractionRequest request) {
         validateRequest(request);
-        Path source = store.resolve(request.videoUri());
-        Path telemetryPath = store.resolve(request.telemetryUri());
-        Path outputRoot = store.resolve(request.outputPrefixUri());
-        Path manifestPath = outputRoot.resolve("segment-manifest-v1.json");
-
-        if (Files.isRegularFile(manifestPath)) {
-            SegmentManifest existing = store.readJson(manifestPath, SegmentManifest.class);
+        String manifestKey = request.outputPrefix() + "/segment-manifest-v2.json";
+        if (objectStorage.exists(manifestKey)) {
+            SegmentManifest existing = objectStorage.readJson(manifestKey, SegmentManifest.class);
             requireGeneration(existing, request);
-            repository.markReady(request, manifestPath.toUri().toString(), existing.encodedFrameCount(), clock.instant());
-            if (Files.isRegularFile(source)) {
-                store.delete(source);
+            verifyPublished(request.outputPrefix(), existing);
+            if (!existing.sourceDeleted() || objectStorage.exists(request.videoObjectKey())) {
+                objectStorage.delete(request.videoObjectKey());
             }
-            return existing;
+            SegmentManifest published = existing.sourceDeleted() ? existing : markSourceDeleted(existing);
+            if (!existing.sourceDeleted()) {
+                objectStorage.putJson(manifestKey, published);
+            }
+            segmentStore.markReady(request, manifestKey, published.encodedFrameCount(), clock.instant());
+            return published;
         }
 
-        requireFile(source, "source_missing", "segment video is not available");
-        requireFile(telemetryPath, "telemetry_missing", "segment telemetry is not available");
-        requireChecksum(source, request.videoSha256(), "source_generation_mismatch");
-        requireChecksum(telemetryPath, request.telemetrySha256(), "telemetry_generation_mismatch");
-        repository.markValidating(request, clock.instant());
+        Path workspace = processingWorkspace.create(request);
+        try {
+            return extractInWorkspace(request, workspace, manifestKey);
+        } finally {
+            processingWorkspace.clean(workspace);
+        }
+    }
 
-        SegmentTelemetry telemetry = store.readJson(telemetryPath, SegmentTelemetry.class);
+    private SegmentManifest extractInWorkspace(
+            SegmentExtractionRequest request,
+            Path workspace,
+            String manifestKey) {
+        Path source = workspace.resolve("source.mp4");
+        Path telemetryPath = workspace.resolve("telemetry.json");
+        requireChecksum(
+                objectStorage.download(request.videoObjectKey(), source),
+                request.videoSha256(),
+                "source_generation_mismatch");
+        requireChecksum(
+                objectStorage.download(request.telemetryObjectKey(), telemetryPath),
+                request.telemetrySha256(),
+                "telemetry_generation_mismatch");
+        segmentStore.markValidating(request, clock.instant());
+
+        SegmentTelemetry telemetry = objectStorage.readJson(request.telemetryObjectKey(), SegmentTelemetry.class);
         validateTelemetry(telemetry, request);
         var probe = mediaProbe.probe(source);
         if (probe.durationSeconds() > Math.min(30.0, properties.maxDurationSeconds())) {
@@ -89,30 +112,26 @@ public class SegmentExtractionService {
             throw new ExtractionException("frame_probe_empty", "segment contains no encoded video frames", false);
         }
 
-        Path metadataPath = outputRoot.resolve("frame-metadata-v1.json");
-        store.writeJson(metadataPath, frames);
-        verifyFrameMetadata(metadataPath, frames.size());
+        String metadataKey = request.outputPrefix() + "/frame-metadata-v2.json";
+        ObjectDescriptor metadata = objectStorage.putJson(metadataKey, frames);
+        verifyFrameMetadata(metadataKey, frames.size());
 
         SamplingPlan requestedSampling = samplingPlanner.sampling(
                 SAMPLE_FPS,
                 probe.durationSeconds(),
                 MAX_SAMPLE_FRAMES);
         var scale = samplingPlanner.scale(probe.width(), probe.height(), SAMPLE_LONG_EDGE);
-        Path attemptRoot = outputRoot.resolve("attempts").resolve(request.videoSha256().substring(0, 16));
-        Path attemptFrames = attemptRoot.resolve("sampled-frames");
-        List<Path> extracted = ffmpegExtractor.extract(source, attemptFrames, requestedSampling, scale);
-        Path finalFrames = outputRoot.resolve("sampled-frames");
-        store.moveDirectory(attemptFrames, finalFrames);
-        List<FrameRecord> sampledFrames = describeFrames(
-                finalFrames,
+        Path sampledFramesPath = workspace.resolve("sampled-frames");
+        List<Path> extracted = ffmpegExtractor.extract(source, sampledFramesPath, requestedSampling, scale);
+        List<FrameRecord> sampledFrames = publishFrames(
+                request.outputPrefix(),
+                sampledFramesPath,
                 extracted.size(),
                 requestedSampling.effectiveFps(),
                 probe.durationSeconds());
 
-        String metadataSha256 = store.sha256(metadataPath);
-        long metadataBytes = fileSize(metadataPath);
         SegmentManifest unpublished = new SegmentManifest(
-                1,
+                2,
                 request.sessionId(),
                 request.segmentIndex(),
                 request.videoSha256(),
@@ -124,55 +143,36 @@ public class SegmentExtractionService {
                 countQuality(frames, "unavailable"),
                 telemetry.locations().size(),
                 telemetry.motions().size(),
-                metadataPath.toUri().toString(),
-                metadataSha256,
-                metadataBytes,
+                metadata.objectKey(),
+                metadata.sha256(),
+                metadata.bytes(),
                 sampledFrames,
                 false,
                 clock.instant());
-        store.writeJson(manifestPath, unpublished);
-        SegmentManifest verified = store.readJson(manifestPath, SegmentManifest.class);
-        verifyPublished(outputRoot, verified);
+        objectStorage.putJson(manifestKey, unpublished);
+        SegmentManifest verified = objectStorage.readJson(manifestKey, SegmentManifest.class);
+        verifyPublished(request.outputPrefix(), verified);
 
-        store.delete(source);
-        SegmentManifest published = new SegmentManifest(
-                verified.schemaVersion(),
-                verified.sessionId(),
-                verified.segmentIndex(),
-                verified.sourceGeneration(),
-                verified.telemetryGeneration(),
-                verified.durationMillis(),
-                verified.encodedFrameCount(),
-                verified.goodLocationFrames(),
-                verified.degradedLocationFrames(),
-                verified.unavailableLocationFrames(),
-                verified.locationSampleCount(),
-                verified.motionSampleCount(),
-                verified.frameMetadataUri(),
-                verified.frameMetadataSha256(),
-                verified.frameMetadataBytes(),
-                verified.sampledFrames(),
-                true,
-                verified.createdAt());
-        store.writeJson(manifestPath, published);
-        verifyPublished(outputRoot, store.readJson(manifestPath, SegmentManifest.class));
-        store.deleteTree(outputRoot.resolve("attempts"));
-        repository.markReady(request, manifestPath.toUri().toString(), frames.size(), clock.instant());
+        objectStorage.delete(request.videoObjectKey());
+        SegmentManifest published = markSourceDeleted(verified);
+        objectStorage.putJson(manifestKey, published);
+        verifyPublished(request.outputPrefix(), objectStorage.readJson(manifestKey, SegmentManifest.class));
+        segmentStore.markReady(request, manifestKey, frames.size(), clock.instant());
         return published;
     }
 
     private static void validateRequest(SegmentExtractionRequest request) {
         boolean invalid = request == null
-                || request.schemaVersion() != 1
+                || request.schemaVersion() != 2
                 || request.attempt() < 0
                 || request.sessionId() == null
                 || request.segmentIndex() < 0
                 || isBlank(request.idempotencyKey())
-                || isBlank(request.videoUri())
+                || isBlank(request.videoObjectKey())
                 || !isSha256(request.videoSha256())
-                || isBlank(request.telemetryUri())
+                || isBlank(request.telemetryObjectKey())
                 || !isSha256(request.telemetrySha256())
-                || isBlank(request.outputPrefixUri())
+                || isBlank(request.outputPrefix())
                 || request.capturedAt() == null
                 || request.durationMillis() <= 0
                 || request.durationMillis() > 30_000
@@ -180,7 +180,7 @@ public class SegmentExtractionService {
         if (invalid) {
             throw new ExtractionException(
                     "invalid_segment_request",
-                    "segment extraction request does not satisfy schema version 1",
+                    "segment extraction request does not satisfy schema version 2",
                     false);
         }
     }
@@ -212,15 +212,9 @@ public class SegmentExtractionService {
         }
     }
 
-    private void requireChecksum(Path path, String expected, String code) {
-        if (!store.sha256(path).equals(expected)) {
-            throw new ExtractionException(code, path.getFileName() + " checksum does not match the request", false);
-        }
-    }
-
-    private static void requireFile(Path path, String code, String message) {
-        if (!Files.isRegularFile(path)) {
-            throw new ExtractionException(code, message, true);
+    private static void requireChecksum(ObjectDescriptor object, String expected, String code) {
+        if (!object.sha256().equals(expected)) {
+            throw new ExtractionException(code, object.objectKey() + " checksum does not match the request", false);
         }
     }
 
@@ -234,7 +228,8 @@ public class SegmentExtractionService {
         }
     }
 
-    private List<FrameRecord> describeFrames(
+    private List<FrameRecord> publishFrames(
+            String outputPrefix,
             Path directory,
             int count,
             double effectiveFps,
@@ -245,18 +240,20 @@ public class SegmentExtractionService {
             if (!Files.isRegularFile(frame)) {
                 throw new ExtractionException("sampled_frame_missing", "sampled frame is missing", true);
             }
+            ObjectDescriptor published = objectStorage.putFile(
+                    outputPrefix + "/sampled-frames/" + frame.getFileName(), frame);
             records.add(new FrameRecord(
                     index,
                     frame.getFileName().toString(),
                     Math.min(durationSeconds, index / effectiveFps),
-                    fileSize(frame),
-                    store.sha256(frame)));
+                    published.bytes(),
+                    published.sha256()));
         }
         return List.copyOf(records);
     }
 
-    private void verifyFrameMetadata(Path path, int expectedCount) {
-        FrameTelemetry[] frames = store.readJson(path, FrameTelemetry[].class);
+    private void verifyFrameMetadata(String objectKey, int expectedCount) {
+        FrameTelemetry[] frames = objectStorage.readJson(objectKey, FrameTelemetry[].class);
         if (frames.length != expectedCount) {
             throw new ExtractionException(
                     "frame_metadata_count_mismatch",
@@ -273,36 +270,54 @@ public class SegmentExtractionService {
         }
     }
 
-    private void verifyPublished(Path outputRoot, SegmentManifest manifest) {
-        Path metadata = store.resolve(manifest.frameMetadataUri());
-        if (!Files.isRegularFile(metadata)
-                || fileSize(metadata) != manifest.frameMetadataBytes()
-                || !store.sha256(metadata).equals(manifest.frameMetadataSha256())) {
+    private void verifyPublished(String outputPrefix, SegmentManifest manifest) {
+        if (!manifest.frameMetadataObjectKey().equals(outputPrefix + "/frame-metadata-v2.json")) {
+            throw new ExtractionException(
+                    "frame_metadata_key_mismatch",
+                    "manifest metadata key is outside the segment output prefix",
+                    false);
+        }
+        ObjectDescriptor metadata = objectStorage.stat(manifest.frameMetadataObjectKey());
+        if (metadata.bytes() != manifest.frameMetadataBytes()
+                || !metadata.sha256().equals(manifest.frameMetadataSha256())) {
             throw new ExtractionException("frame_metadata_verify_failed", "frame metadata verification failed", true);
         }
-        verifyFrameMetadata(metadata, manifest.encodedFrameCount());
-        Path framesRoot = outputRoot.resolve("sampled-frames");
+        verifyFrameMetadata(metadata.objectKey(), manifest.encodedFrameCount());
         for (FrameRecord frame : manifest.sampledFrames()) {
-            Path path = framesRoot.resolve(frame.fileName()).normalize();
-            if (!path.startsWith(framesRoot.normalize())
-                    || !Files.isRegularFile(path)
-                    || fileSize(path) != frame.sizeBytes()
-                    || !store.sha256(path).equals(frame.sha256())) {
+            if (frame.fileName() == null || !frame.fileName().matches("frame-[0-9]{4}\\.jpg")) {
+                throw new ExtractionException("sampled_frame_key_invalid", "sampled frame key is invalid", false);
+            }
+            ObjectDescriptor stored = objectStorage.stat(outputPrefix + "/sampled-frames/" + frame.fileName());
+            if (stored.bytes() != frame.sizeBytes() || !stored.sha256().equals(frame.sha256())) {
                 throw new ExtractionException("sampled_frame_verify_failed", "sampled frame verification failed", true);
             }
         }
     }
 
-    private static int countQuality(List<FrameTelemetry> frames, String quality) {
-        return (int) frames.stream().filter(frame -> quality.equals(frame.locationQuality())).count();
+    private static SegmentManifest markSourceDeleted(SegmentManifest manifest) {
+        return new SegmentManifest(
+                manifest.schemaVersion(),
+                manifest.sessionId(),
+                manifest.segmentIndex(),
+                manifest.sourceGeneration(),
+                manifest.telemetryGeneration(),
+                manifest.durationMillis(),
+                manifest.encodedFrameCount(),
+                manifest.goodLocationFrames(),
+                manifest.degradedLocationFrames(),
+                manifest.unavailableLocationFrames(),
+                manifest.locationSampleCount(),
+                manifest.motionSampleCount(),
+                manifest.frameMetadataObjectKey(),
+                manifest.frameMetadataSha256(),
+                manifest.frameMetadataBytes(),
+                manifest.sampledFrames(),
+                true,
+                manifest.createdAt());
     }
 
-    private static long fileSize(Path path) {
-        try {
-            return Files.size(path);
-        } catch (IOException exception) {
-            throw new ExtractionException("artifact_stat_failed", "could not inspect published artifact", true, exception);
-        }
+    private static int countQuality(List<FrameTelemetry> frames, String quality) {
+        return (int) frames.stream().filter(frame -> quality.equals(frame.locationQuality())).count();
     }
 
     private static boolean isBlank(String value) {

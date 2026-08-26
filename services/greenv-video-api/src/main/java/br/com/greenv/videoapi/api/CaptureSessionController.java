@@ -8,7 +8,6 @@ import java.net.URI;
 import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
-import org.springframework.core.io.Resource;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -123,7 +122,7 @@ public class CaptureSessionController {
     @GetMapping(
             path = "/{sessionId}/segments/{segmentIndex}/manifest",
             produces = MediaType.APPLICATION_JSON_VALUE)
-    Resource manifest(@PathVariable UUID sessionId, @PathVariable int segmentIndex) {
+    byte[] manifest(@PathVariable UUID sessionId, @PathVariable int segmentIndex) {
         return service.manifest(sessionId, segmentIndex);
     }
 

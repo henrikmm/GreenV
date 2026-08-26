@@ -3,6 +3,7 @@ package br.com.greenv.videoapi.task;
 import br.com.greenv.videoapi.api.ApiException;
 import br.com.greenv.videoapi.config.PipelineProperties;
 import br.com.greenv.videoapi.domain.FrameExtractionRequest;
+import br.com.greenv.videoapi.port.FrameWorkQueue;
 import tools.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.nio.file.AtomicMoveNotSupportedException;
@@ -14,7 +15,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 
 @Component
-public class LocalTaskPublisher {
+public class LocalTaskPublisher implements FrameWorkQueue {
 
     private final ObjectMapper objectMapper;
     private final Path tasksRoot;
@@ -27,6 +28,7 @@ public class LocalTaskPublisher {
         }
     }
 
+    @Override
     public synchronized void publish(FrameExtractionRequest request) {
         String fileName = request.jobId() + "-" + request.sourceGeneration() + ".json";
         for (String state : List.of("pending", "processing", "done", "failed")) {

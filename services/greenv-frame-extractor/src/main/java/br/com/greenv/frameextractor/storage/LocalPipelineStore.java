@@ -2,6 +2,8 @@ package br.com.greenv.frameextractor.storage;
 
 import br.com.greenv.frameextractor.config.ExtractorProperties;
 import br.com.greenv.frameextractor.domain.FrameManifest;
+import br.com.greenv.frameextractor.port.SegmentObjectStorage;
+import br.com.greenv.frameextractor.port.LegacyPipelineStore;
 import br.com.greenv.frameextractor.service.ExtractionException;
 import java.io.IOException;
 import java.net.URI;
@@ -18,13 +20,15 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import org.springframework.stereotype.Component;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
 
 @Component
-public class LocalPipelineStore {
+@ConditionalOnProperty(name = "greenv.adapters.object-storage", havingValue = "local", matchIfMissing = true)
+public class LocalPipelineStore implements SegmentObjectStorage, LegacyPipelineStore {
 
     private final ObjectMapper objectMapper;
     private final Path root;
@@ -54,6 +58,92 @@ public class LocalPipelineStore {
             throw new ExtractionException("storage_path_escape", "storage URI escapes the pipeline root", false);
         }
         return path;
+    }
+
+    @Override
+    public boolean exists(String objectKey) {
+        return Files.isRegularFile(resolveObjectKey(objectKey));
+    }
+
+    @Override
+    public ObjectDescriptor download(String objectKey, Path destination) {
+        Path source = resolveObjectKey(objectKey);
+        if (!Files.isRegularFile(source)) {
+            throw new ExtractionException("object_missing", "object is not available: " + objectKey, true);
+        }
+        try {
+            Files.createDirectories(destination.toAbsolutePath().normalize().getParent());
+            Files.copy(source, destination, StandardCopyOption.REPLACE_EXISTING);
+            return descriptor(objectKey, destination);
+        } catch (IOException exception) {
+            throw new ExtractionException("object_download_failed", "could not materialize " + objectKey, true, exception);
+        }
+    }
+
+    @Override
+    public ObjectDescriptor putFile(String objectKey, Path source) {
+        Path destination = resolveObjectKey(objectKey);
+        try {
+            Files.createDirectories(destination.getParent());
+            Path temporary = Files.createTempFile(
+                    destination.getParent(), destination.getFileName().toString(), ".publishing");
+            try {
+                Files.copy(source, temporary, StandardCopyOption.REPLACE_EXISTING);
+                move(temporary, destination, true);
+            } catch (IOException | RuntimeException exception) {
+                Files.deleteIfExists(temporary);
+                throw exception;
+            }
+            return descriptor(objectKey, destination);
+        } catch (IOException exception) {
+            throw new ExtractionException("object_publish_failed", "could not publish " + objectKey, true, exception);
+        }
+    }
+
+    @Override
+    public ObjectDescriptor putJson(String objectKey, Object value) {
+        Path destination = resolveObjectKey(objectKey);
+        atomicWrite(destination, value);
+        return descriptor(objectKey, destination);
+    }
+
+    @Override
+    public <T> T readJson(String objectKey, Class<T> type) {
+        return readJson(resolveObjectKey(objectKey), type);
+    }
+
+    @Override
+    public ObjectDescriptor stat(String objectKey) {
+        Path path = resolveObjectKey(objectKey);
+        if (!Files.isRegularFile(path)) {
+            throw new ExtractionException("object_missing", "object is not available: " + objectKey, true);
+        }
+        return descriptor(objectKey, path);
+    }
+
+    @Override
+    public void delete(String objectKey) {
+        delete(resolveObjectKey(objectKey));
+    }
+
+    private Path resolveObjectKey(String objectKey) {
+        if (objectKey == null || objectKey.isBlank() || objectKey.contains(":")) {
+            throw new ExtractionException("invalid_object_key", "storage object key is invalid", false);
+        }
+        Path relative = Path.of(objectKey).normalize();
+        Path resolved = root.resolve(relative).toAbsolutePath().normalize();
+        if (relative.isAbsolute() || relative.startsWith("..") || !resolved.startsWith(root)) {
+            throw new ExtractionException("object_key_escape", "storage object key escapes its namespace", false);
+        }
+        return resolved;
+    }
+
+    private ObjectDescriptor descriptor(String objectKey, Path path) {
+        try {
+            return new ObjectDescriptor(objectKey, sha256(path), Files.size(path));
+        } catch (IOException exception) {
+            throw new ExtractionException("artifact_stat_failed", "could not inspect " + objectKey, true, exception);
+        }
     }
 
     public ObjectNode readStatus(String statusUri) {

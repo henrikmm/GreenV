@@ -3,7 +3,7 @@ package br.com.greenv.frameextractor.api;
 import br.com.greenv.frameextractor.domain.FrameExtractionRequest;
 import br.com.greenv.frameextractor.service.ExtractionException;
 import br.com.greenv.frameextractor.service.ExtractionService;
-import br.com.greenv.frameextractor.storage.LocalPipelineStore;
+import br.com.greenv.frameextractor.port.LegacyPipelineStore;
 import jakarta.validation.Valid;
 import java.time.Clock;
 import org.springframework.http.HttpStatus;
@@ -18,10 +18,10 @@ import org.springframework.web.bind.annotation.RestController;
 public class ExtractionController {
 
     private final ExtractionService extractionService;
-    private final LocalPipelineStore store;
+    private final LegacyPipelineStore store;
     private final Clock clock;
 
-    public ExtractionController(ExtractionService extractionService, LocalPipelineStore store, Clock clock) {
+    public ExtractionController(ExtractionService extractionService, LegacyPipelineStore store, Clock clock) {
         this.extractionService = extractionService;
         this.store = store;
         this.clock = clock;

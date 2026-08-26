@@ -12,9 +12,10 @@ that consume its versioned manifest.
 
 | Path | Responsibility |
 |---|---|
-| `src/main/java/.../task/` | RabbitMQ listener and legacy filesystem queue |
+| `src/main/java/.../port/` | Cloud-neutral state, object-storage, queue and workspace contracts |
+| `src/main/java/.../task/` | RabbitMQ input/output adapters and legacy filesystem queue |
 | `src/main/java/.../service/` | Validation, ffprobe association, FFmpeg extraction and publication |
-| `src/main/java/.../storage/` | Pipeline-file safety and PostgreSQL segment transitions |
+| `src/main/java/.../storage/` | JDBC, local object-storage and ephemeral-workspace adapters |
 | `src/main/resources/contracts/` | Queue, telemetry and manifest JSON Schemas copied from the API |
 | `src/test/` | Unit, contract and real-FFmpeg integration coverage |
 
@@ -67,6 +68,9 @@ first.
 
 | Setting | Environment variable | Native default |
 |---|---|---|
+| Database adapter | `GREENV_DATABASE_ADAPTER` | `jdbc` |
+| Object-storage adapter | `GREENV_OBJECT_STORAGE_ADAPTER` | `local` |
+| Segment-queue adapter | `GREENV_SEGMENT_QUEUE_ADAPTER` | `rabbitmq` |
 | Bind address/port | `SERVER_ADDRESS`, `PORT` | `127.0.0.1:8081` |
 | Pipeline root | `GREENV_PIPELINE_ROOT` | OS temp directory under `greenv-pipeline` |
 | FFmpeg executable | `GREENV_FFMPEG` | `ffmpeg` |
@@ -80,7 +84,7 @@ first.
 | RabbitMQ address | `GREENV_RABBITMQ_HOST`, `GREENV_RABBITMQ_PORT` | `127.0.0.1:5672` |
 | RabbitMQ credentials | `GREENV_RABBITMQ_USER`, `GREENV_RABBITMQ_PASSWORD` | `guest`, `guest` |
 | Rabbit listener | `GREENV_RABBITMQ_LISTENER_ENABLED` | `false` |
-| Exchange/queue/key | `GREENV_SEGMENT_EXCHANGE`, `GREENV_SEGMENT_QUEUE`, `GREENV_SEGMENT_ROUTING_KEY` | `greenv.capture`, `greenv.segment.extract.v1`, `segment.extract.v1` |
+| Exchange/queue/key | `GREENV_SEGMENT_EXCHANGE`, `GREENV_SEGMENT_QUEUE`, `GREENV_SEGMENT_ROUTING_KEY` | `greenv.capture`, `greenv.segment.extract.v2`, `segment.extract.v2` |
 
 Compose disables the legacy poller and enables the RabbitMQ listener. A standalone
 `./gradlew bootRun` enables only the legacy local poller unless these variables are overridden.
@@ -90,12 +94,12 @@ The internal endpoint binds to loopback and has no authentication.
 ## Mobile processing flow
 
 ```text
-durable RabbitMQ request
-  -> validate schema, generation, URI boundaries and both SHA-256 values
+durable queue request
+  -> validate schema, opaque object keys and both SHA-256 values
   -> mark PostgreSQL segment validating
   -> ffprobe media duration, dimensions and every encoded timestamp/key-frame flag
   -> join each frame to bounded-age telemetry
-  -> write and re-read frame-metadata-v1.json
+  -> write and re-read frame-metadata-v2.json through object storage
   -> extract full-duration JPEG sample and verify every checksum
   -> write and re-read unpublished manifest
   -> delete source.mp4
@@ -110,7 +114,7 @@ terminal conflict.
 
 ## Frame and telemetry contract
 
-`frame-metadata-v1.json` contains one row for every encoded frame, not only the sampled JPEGs. Each
+`frame-metadata-v2.json` contains one row for every encoded frame, not only the sampled JPEGs. Each
 row includes presentation timestamp, derived UTC and monotonic capture time, key-frame flag,
 location fields/quality/age and motion fields/age.
 
@@ -135,11 +139,11 @@ For a segment at index zero, the shared pipeline volume ends with:
 ```text
 capture-sessions/<session UUID>/segments/00000000/
   telemetry.json
-  frame-metadata-v1.json       # one record for every encoded frame
+  frame-metadata-v2.json       # one record for every encoded frame
   sampled-frames/
     frame-0001.jpg
     ...
-  segment-manifest-v1.json     # written last; published=true after source deletion
+  segment-manifest-v2.json     # publication marker; sourceDeleted=true when complete
 ```
 
 `source.mp4` is present until all output files and their checksums have been verified. Temporary
@@ -181,14 +185,28 @@ path with real FFmpeg in containers.
 | Segment stays `queued` | Rabbit listener is enabled, queue names match the API, and RabbitMQ is healthy |
 | Segment becomes `failed` | Read `errorCode`/`errorMessage` from the API and inspect worker logs |
 | `ffmpeg`/`ffprobe` not found | Install both or set `GREENV_FFMPEG` and `GREENV_FFPROBE` to valid executables |
-| `unsupported_storage_uri` | Local worker only accepts `file:` URIs inside `GREENV_PIPELINE_ROOT` |
+| `invalid_object_key` | Queue messages must carry relative opaque keys, never provider URIs |
 | Checksum or generation conflict | API/worker do not share the same volume, or an identity was reused for different bytes |
 | Database errors | Worker and API must point at the same PostgreSQL database and migration level |
 | Tests skip integration | Put both FFmpeg executables on `PATH`; unit and contract tests still run |
 
 ## Production boundary
 
-In production the worker should download from S3-compatible object storage into ephemeral disk,
-run this same CPU contract, upload outputs, then acknowledge the durable message only after
-publication. Add metrics, tracing, a dead-letter policy, bounded concurrency and retention cleanup.
+`SegmentExtractionService` depends only on `SegmentObjectStorage`, `CaptureSegmentStore` and
+`ProcessingWorkspace`; retry orchestration depends only on `SegmentWorkQueue`. The shipped
+adapters are local filesystem, JDBC and RabbitMQ. Cloud adapters can download into the same
+ephemeral workspace and publish the same v2 artifacts without changing extraction code.
+
+The v2 manifest is first stored with `sourceDeleted=false`, verified, and then rewritten with
+`sourceDeleted=true` after source cleanup. A redelivery completes this transition idempotently.
+Add metrics, tracing, a dead-letter policy, bounded concurrency and retention cleanup in production.
 FFmpeg is CPU work and must not run on the paid GPU service used by the depth model.
+
+To add a provider, implement the relevant interface in `port/`, register it under a new adapter
+value, and leave `service/` unchanged. `SegmentObjectStorage.download` materializes an object in the
+ephemeral workspace; `putFile`/`putJson` publish durable output. The queue adapter must redeliver
+unacknowledged work, and the state adapter must make duplicate delivery observable as `ready`.
+
+Verification observed on 25 Aug 2026: `./gradlew.bat check --no-daemon --offline` completed
+successfully. The Compose smoke command was attempted on the same date but did not execute because
+the local Docker daemon was unavailable.
