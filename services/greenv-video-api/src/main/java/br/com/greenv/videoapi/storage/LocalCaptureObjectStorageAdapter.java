@@ -1,8 +1,9 @@
 package br.com.greenv.videoapi.storage;
 
-import br.com.greenv.videoapi.api.ApiException;
 import br.com.greenv.videoapi.config.PipelineProperties;
 import br.com.greenv.videoapi.port.CaptureObjectStorage;
+import br.com.greenv.videoapi.service.ApplicationException;
+import br.com.greenv.videoapi.service.FailureKind;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.AtomicMoveNotSupportedException;
@@ -14,19 +15,19 @@ import java.security.DigestOutputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
-import org.springframework.http.HttpStatus;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 @Component
 @ConditionalOnProperty(name = "greenv.adapters.object-storage", havingValue = "local", matchIfMissing = true)
-public class CaptureObjectStore implements CaptureObjectStorage {
+public class LocalCaptureObjectStorageAdapter implements CaptureObjectStorage {
 
     private static final int BUFFER_SIZE = 1024 * 1024;
 
-    private final Path root;
-    public CaptureObjectStore(PipelineProperties pipeline) {
-        this.root = pipeline.root().toAbsolutePath().normalize().resolve("capture-sessions");
+    private final Path objectStorageRoot;
+
+    public LocalCaptureObjectStorageAdapter(PipelineProperties pipelineProperties) {
+        this.objectStorageRoot = pipelineProperties.root().toAbsolutePath().normalize().resolve("capture-sessions");
     }
 
     @Override
@@ -34,7 +35,7 @@ public class CaptureObjectStore implements CaptureObjectStorage {
             String objectKey,
             InputStream input,
             String expectedSha256,
-            long limit) {
+            long maximumBytes) {
         requireSha256(expectedSha256);
         Path destination = resolve(objectKey);
         Path directory = destination.getParent();
@@ -43,8 +44,8 @@ public class CaptureObjectStore implements CaptureObjectStorage {
             if (Files.isRegularFile(destination)) {
                 String existing = sha256(destination);
                 if (!existing.equals(expectedSha256)) {
-                    throw new ApiException(
-                            HttpStatus.CONFLICT,
+                    throw new ApplicationException(
+                            FailureKind.CONFLICT,
                             "segment_object_conflict",
                             objectKey + " already exists with a different checksum");
                 }
@@ -54,11 +55,11 @@ public class CaptureObjectStore implements CaptureObjectStorage {
             Path temporary = Files.createTempFile(directory, destination.getFileName().toString(), ".uploading");
             try {
                 MessageDigest digest = MessageDigest.getInstance("SHA-256");
-                long bytes = copyBounded(input, temporary, digest, limit);
+                long bytes = copyBounded(input, temporary, digest, maximumBytes);
                 String actual = HexFormat.of().formatHex(digest.digest());
                 if (!actual.equals(expectedSha256)) {
-                    throw new ApiException(
-                            HttpStatus.BAD_REQUEST,
+                    throw new ApplicationException(
+                            FailureKind.INVALID_INPUT,
                             "checksum_mismatch",
                             objectKey + " checksum does not match X-Content-SHA256");
                 }
@@ -68,11 +69,11 @@ public class CaptureObjectStore implements CaptureObjectStorage {
                 Files.deleteIfExists(temporary);
                 throw exception;
             }
-        } catch (ApiException exception) {
+        } catch (ApplicationException exception) {
             throw exception;
         } catch (IOException | NoSuchAlgorithmException exception) {
-            throw new ApiException(
-                    HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new ApplicationException(
+                    FailureKind.INTERNAL_ERROR,
                     "capture_storage_failure",
                     "could not store " + objectKey + ": " + exception.getMessage());
         }
@@ -88,28 +89,37 @@ public class CaptureObjectStore implements CaptureObjectStorage {
         Path path = resolve(objectKey);
         try {
             if (!Files.isRegularFile(path)) {
-                throw new ApiException(HttpStatus.NOT_FOUND, "capture_object_not_found", "capture object does not exist");
+                throw new ApplicationException(
+                        FailureKind.NOT_FOUND, "capture_object_not_found", "capture object does not exist");
             }
             long bytes = Files.size(path);
             if (bytes > maximumBytes) {
-                throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "capture_object_too_large", "capture object exceeds its read limit");
+                throw new ApplicationException(
+                        FailureKind.INTERNAL_ERROR,
+                        "capture_object_too_large",
+                        "capture object exceeds its read limit");
             }
             return Files.readAllBytes(path);
-        } catch (ApiException exception) {
+        } catch (ApplicationException exception) {
             throw exception;
         } catch (IOException exception) {
-            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "capture_storage_failure", "could not read capture object");
+            throw new ApplicationException(
+                    FailureKind.INTERNAL_ERROR,
+                    "capture_storage_failure",
+                    "could not read capture object");
         }
     }
 
     private Path resolve(String objectKey) {
         if (objectKey == null || objectKey.isBlank() || objectKey.contains(":")) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "invalid_object_key", "storage object key is invalid");
+            throw new ApplicationException(
+                    FailureKind.INVALID_INPUT, "invalid_object_key", "storage object key is invalid");
         }
         Path relative = Path.of(objectKey).normalize();
-        Path path = root.getParent().resolve(relative).toAbsolutePath().normalize();
-        if (relative.isAbsolute() || relative.startsWith("..") || !path.startsWith(root.getParent())) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "invalid_object_key", "storage object key escapes its namespace");
+        Path path = objectStorageRoot.getParent().resolve(relative).toAbsolutePath().normalize();
+        if (relative.isAbsolute() || relative.startsWith("..") || !path.startsWith(objectStorageRoot.getParent())) {
+            throw new ApplicationException(
+                    FailureKind.INVALID_INPUT, "invalid_object_key", "storage object key escapes its namespace");
         }
         return path;
     }
@@ -118,7 +128,7 @@ public class CaptureObjectStore implements CaptureObjectStorage {
             InputStream input,
             Path destination,
             MessageDigest digest,
-            long limit) throws IOException {
+            long maximumBytes) throws IOException {
         long total = 0;
         byte[] buffer = new byte[BUFFER_SIZE];
         try (DigestOutputStream output = new DigestOutputStream(
@@ -130,9 +140,9 @@ public class CaptureObjectStore implements CaptureObjectStorage {
             int read;
             while ((read = input.read(buffer)) != -1) {
                 total += read;
-                if (total > limit) {
-                    throw new ApiException(
-                            HttpStatus.CONTENT_TOO_LARGE,
+                if (total > maximumBytes) {
+                    throw new ApplicationException(
+                            FailureKind.PAYLOAD_TOO_LARGE,
                             "segment_object_too_large",
                             "capture object exceeds its configured limit");
                 }
@@ -140,15 +150,16 @@ public class CaptureObjectStore implements CaptureObjectStorage {
             }
         }
         if (total == 0) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "empty_segment_object", "capture object is empty");
+            throw new ApplicationException(
+                    FailureKind.INVALID_INPUT, "empty_segment_object", "capture object is empty");
         }
         return total;
     }
 
     private static void requireSha256(String value) {
         if (value == null || !value.matches("[0-9a-f]{64}")) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
+            throw new ApplicationException(
+                    FailureKind.INVALID_INPUT,
                     "invalid_checksum",
                     "X-Content-SHA256 must be 64 lowercase hexadecimal characters");
         }

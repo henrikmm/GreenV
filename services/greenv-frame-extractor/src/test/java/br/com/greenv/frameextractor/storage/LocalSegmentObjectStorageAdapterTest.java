@@ -11,38 +11,38 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import tools.jackson.databind.json.JsonMapper;
 
-class LocalPipelineStoreObjectKeyTest {
+class LocalSegmentObjectStorageAdapterTest {
 
     @TempDir
     Path temporaryDirectory;
 
     @Test
     void storesAndReadsAnOpaqueObjectKey() throws Exception {
-        LocalPipelineStore store = store();
+        LocalSegmentObjectStorageAdapter storage = storage();
         Path source = temporaryDirectory.resolve("source.bin");
         Files.writeString(source, "artifact");
 
-        var stored = store.putFile("capture-sessions/session/segments/00000000/source.mp4", source);
+        var stored = storage.putFile("capture-sessions/session/segments/00000000/source.mp4", source);
 
         assertThat(stored.objectKey()).isEqualTo("capture-sessions/session/segments/00000000/source.mp4");
         assertThat(stored.sha256()).hasSize(64);
-        assertThat(store.exists(stored.objectKey())).isTrue();
+        assertThat(storage.exists(stored.objectKey())).isTrue();
     }
 
     @Test
     void rejectsProviderUrisAndTraversal() throws Exception {
-        LocalPipelineStore store = store();
+        LocalSegmentObjectStorageAdapter storage = storage();
 
-        assertThatThrownBy(() -> store.exists("file:///tmp/source.mp4"))
+        assertThatThrownBy(() -> storage.exists("file:///tmp/source.mp4"))
                 .isInstanceOf(ExtractionException.class)
                 .hasMessageContaining("object key is invalid");
-        assertThatThrownBy(() -> store.exists("../outside/source.mp4"))
+        assertThatThrownBy(() -> storage.exists("../outside/source.mp4"))
                 .isInstanceOf(ExtractionException.class)
                 .hasMessageContaining("escapes");
     }
 
-    private LocalPipelineStore store() throws Exception {
-        return new LocalPipelineStore(
+    private LocalSegmentObjectStorageAdapter storage() throws Exception {
+        return new LocalSegmentObjectStorageAdapter(
                 JsonMapper.builder().findAndAddModules().build(),
                 new ExtractorProperties(
                         temporaryDirectory.resolve("pipeline"),

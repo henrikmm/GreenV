@@ -12,18 +12,21 @@ import org.springframework.stereotype.Service;
 public class TransientCleanupService {
 
     private final LegacyJobStore jobStore;
-    private final PipelineProperties properties;
+    private final PipelineProperties pipelineProperties;
     private final Clock clock;
 
-    public TransientCleanupService(LegacyJobStore jobStore, PipelineProperties properties, Clock clock) {
+    public TransientCleanupService(
+            LegacyJobStore jobStore,
+            PipelineProperties pipelineProperties,
+            Clock clock) {
         this.jobStore = jobStore;
-        this.properties = properties;
+        this.pipelineProperties = pipelineProperties;
         this.clock = clock;
     }
 
     @Scheduled(initialDelay = 60_000, fixedDelay = 3_600_000)
     public void removeExpiredJobs() {
-        var cutoff = clock.instant().minus(properties.transientDays(), ChronoUnit.DAYS);
+        var cutoff = clock.instant().minus(pipelineProperties.transientDays(), ChronoUnit.DAYS);
         for (var job : jobStore.listJobs()) {
             if (job.retention() == Retention.TRANSIENT && job.updatedAt().isBefore(cutoff)) {
                 jobStore.deleteJob(job.jobId());

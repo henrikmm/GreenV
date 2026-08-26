@@ -1,7 +1,6 @@
 package br.com.greenv.frameextractor.port;
 
 import br.com.greenv.frameextractor.domain.FrameManifest;
-import br.com.greenv.frameextractor.service.ExtractionException;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.function.Consumer;
@@ -20,7 +19,12 @@ public interface LegacyPipelineStore {
 
     void markReady(String statusReference, Path manifest, boolean sourceDeleted, Instant now);
 
-    void markError(String statusReference, String state, ExtractionException exception, Instant now);
+    void markError(
+            String statusReference,
+            String state,
+            String errorCode,
+            String errorMessage,
+            Instant now);
 
     void writeManifest(Path path, FrameManifest manifest);
 

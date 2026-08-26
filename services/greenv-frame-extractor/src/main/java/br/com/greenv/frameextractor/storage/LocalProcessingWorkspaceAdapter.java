@@ -11,12 +11,12 @@ import java.util.Comparator;
 import org.springframework.stereotype.Component;
 
 @Component
-public class LocalProcessingWorkspace implements ProcessingWorkspace {
+public class LocalProcessingWorkspaceAdapter implements ProcessingWorkspace {
 
     private final Path root;
 
-    public LocalProcessingWorkspace(ExtractorProperties properties) {
-        this.root = properties.root().toAbsolutePath().normalize().resolve(".workspaces");
+    public LocalProcessingWorkspaceAdapter(ExtractorProperties extractorProperties) {
+        this.root = extractorProperties.root().toAbsolutePath().normalize().resolve(".workspaces");
     }
 
     @Override

@@ -1,6 +1,6 @@
 package br.com.greenv.videoapi.api;
 
-import br.com.greenv.videoapi.service.JobService;
+import br.com.greenv.videoapi.port.LegacyJobUseCase;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.io.IOException;
@@ -23,15 +23,19 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 @RequestMapping("/v1/jobs")
 public class JobController {
 
-    private final JobService jobService;
+    private final LegacyJobUseCase jobUseCase;
 
-    public JobController(JobService jobService) {
-        this.jobService = jobService;
+    public JobController(LegacyJobUseCase jobUseCase) {
+        this.jobUseCase = jobUseCase;
     }
 
     @PostMapping
     ResponseEntity<JobResponse> create(@Valid @RequestBody CreateJobRequest request) {
-        var job = jobService.create(request);
+        var job = jobUseCase.create(
+                request.fileName(),
+                request.contentType(),
+                request.sizeBytes(),
+                request.sampling());
         String baseUrl = baseUrl();
         JobResponse response = JobResponse.from(job, baseUrl);
         return ResponseEntity.created(URI.create(response.statusUrl())).body(response);
@@ -39,7 +43,7 @@ public class JobController {
 
     @PutMapping(path = "/{jobId}/source", consumes = MediaType.ALL_VALUE)
     ResponseEntity<Void> upload(@PathVariable UUID jobId, HttpServletRequest request) throws IOException {
-        jobService.upload(jobId, request.getInputStream());
+        jobUseCase.upload(jobId, request.getInputStream());
         return ResponseEntity.noContent().build();
     }
 
@@ -47,27 +51,27 @@ public class JobController {
     ResponseEntity<JobResponse> complete(@PathVariable UUID jobId) {
         return ResponseEntity
                 .status(HttpStatus.ACCEPTED)
-                .body(JobResponse.from(jobService.complete(jobId), baseUrl()));
+                .body(JobResponse.from(jobUseCase.complete(jobId), baseUrl()));
     }
 
     @GetMapping("/{jobId}")
     JobResponse get(@PathVariable UUID jobId) {
-        return JobResponse.from(jobService.get(jobId), baseUrl());
+        return JobResponse.from(jobUseCase.get(jobId), baseUrl());
     }
 
     @GetMapping(path = "/{jobId}/manifest", produces = MediaType.APPLICATION_JSON_VALUE)
     byte[] manifest(@PathVariable UUID jobId) {
-        return jobService.manifest(jobId);
+        return jobUseCase.manifest(jobId);
     }
 
     @PostMapping("/{jobId}/save")
     JobResponse save(@PathVariable UUID jobId) {
-        return JobResponse.from(jobService.save(jobId), baseUrl());
+        return JobResponse.from(jobUseCase.save(jobId), baseUrl());
     }
 
     @DeleteMapping("/{jobId}")
     ResponseEntity<Void> delete(@PathVariable UUID jobId) {
-        jobService.delete(jobId);
+        jobUseCase.delete(jobId);
         return ResponseEntity.noContent().build();
     }
 

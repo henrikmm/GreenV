@@ -7,8 +7,8 @@ import br.com.greenv.frameextractor.config.ExtractorProperties;
 import br.com.greenv.frameextractor.domain.SegmentExtractionRequest;
 import br.com.greenv.frameextractor.domain.SegmentTelemetry;
 import br.com.greenv.frameextractor.port.CaptureSegmentStore;
-import br.com.greenv.frameextractor.storage.LocalPipelineStore;
-import br.com.greenv.frameextractor.storage.LocalProcessingWorkspace;
+import br.com.greenv.frameextractor.storage.LocalSegmentObjectStorageAdapter;
+import br.com.greenv.frameextractor.storage.LocalProcessingWorkspaceAdapter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -35,7 +35,7 @@ class SegmentExtractionServiceIntegrationTest {
         Path root = temporaryDirectory.resolve("pipeline");
         ExtractorProperties properties = new ExtractorProperties(root, "ffmpeg", "ffprobe", 300, 3, 1000, false);
         ObjectMapper mapper = JsonMapper.builder().findAndAddModules().build();
-        LocalPipelineStore objects = new LocalPipelineStore(mapper, properties);
+        LocalSegmentObjectStorageAdapter objects = new LocalSegmentObjectStorageAdapter(mapper, properties);
         Path source = temporaryDirectory.resolve("input.mp4");
         generateVideo(source);
         String prefix = "capture-sessions/2d995d67-dd6f-4792-af22-480c43b37f2f/segments/00000000";
@@ -69,7 +69,7 @@ class SegmentExtractionServiceIntegrationTest {
         SegmentExtractionService service = new SegmentExtractionService(
                 properties,
                 objects,
-                new LocalProcessingWorkspace(properties),
+                new LocalProcessingWorkspaceAdapter(properties),
                 segments,
                 new MediaProbe(runner, mapper, properties),
                 new FrameTimestampProbe(runner, mapper, properties),
@@ -126,7 +126,11 @@ class SegmentExtractionServiceIntegrationTest {
         }
 
         @Override
-        public void markError(SegmentExtractionRequest request, ExtractionException exception, Instant now) {
+        public void markError(
+                SegmentExtractionRequest request,
+                String errorCode,
+                String errorMessage,
+                Instant now) {
         }
     }
 }

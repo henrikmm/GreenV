@@ -2,7 +2,7 @@ package br.com.greenv.frameextractor.task;
 
 import br.com.greenv.frameextractor.domain.SegmentExtractionRequest;
 import br.com.greenv.frameextractor.service.ExtractionException;
-import br.com.greenv.frameextractor.service.SegmentExtractionHandler;
+import br.com.greenv.frameextractor.port.SegmentExtractionUseCase;
 import java.nio.charset.StandardCharsets;
 import org.springframework.amqp.core.Message;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -13,22 +13,22 @@ import tools.jackson.databind.ObjectMapper;
 
 @Component
 @ConditionalOnProperty(name = "greenv.adapters.segment-queue", havingValue = "rabbitmq", matchIfMissing = true)
-public class SegmentExtractionListener {
+public class RabbitMqSegmentExtractionListener {
 
     private final ObjectMapper objectMapper;
-    private final SegmentExtractionHandler handler;
+    private final SegmentExtractionUseCase extractionUseCase;
 
-    public SegmentExtractionListener(
+    public RabbitMqSegmentExtractionListener(
             ObjectMapper objectMapper,
-            SegmentExtractionHandler handler) {
+            SegmentExtractionUseCase extractionUseCase) {
         this.objectMapper = objectMapper;
-        this.handler = handler;
+        this.extractionUseCase = extractionUseCase;
     }
 
     @RabbitListener(queues = "${greenv.capture.queue}")
     public void receive(Message message) {
         SegmentExtractionRequest request = parse(message);
-        handler.handle(request);
+        extractionUseCase.handle(request);
     }
 
     private SegmentExtractionRequest parse(Message message) {

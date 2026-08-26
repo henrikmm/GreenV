@@ -1,9 +1,10 @@
 package br.com.greenv.videoapi.task;
 
-import br.com.greenv.videoapi.api.ApiException;
 import br.com.greenv.videoapi.config.PipelineProperties;
 import br.com.greenv.videoapi.domain.FrameExtractionRequest;
 import br.com.greenv.videoapi.port.FrameWorkQueue;
+import br.com.greenv.videoapi.service.ApplicationException;
+import br.com.greenv.videoapi.service.FailureKind;
 import tools.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.nio.file.AtomicMoveNotSupportedException;
@@ -11,18 +12,18 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.List;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 
 @Component
-public class LocalTaskPublisher implements FrameWorkQueue {
+public class LocalFrameWorkQueueAdapter implements FrameWorkQueue {
 
     private final ObjectMapper objectMapper;
     private final Path tasksRoot;
 
-    public LocalTaskPublisher(ObjectMapper objectMapper, PipelineProperties properties) throws IOException {
+    public LocalFrameWorkQueueAdapter(ObjectMapper objectMapper, PipelineProperties pipelineProperties)
+            throws IOException {
         this.objectMapper = objectMapper;
-        this.tasksRoot = properties.root().toAbsolutePath().normalize().resolve("tasks");
+        this.tasksRoot = pipelineProperties.root().toAbsolutePath().normalize().resolve("tasks");
         for (String state : List.of("pending", "processing", "done", "failed")) {
             Files.createDirectories(tasksRoot.resolve(state));
         }
@@ -47,8 +48,8 @@ public class LocalTaskPublisher implements FrameWorkQueue {
                 Files.move(temporary, destination);
             }
         } catch (IOException exception) {
-            throw new ApiException(
-                    HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new ApplicationException(
+                    FailureKind.INTERNAL_ERROR,
                     "task_publish_failed",
                     "could not publish frame extraction task: " + exception.getMessage());
         }

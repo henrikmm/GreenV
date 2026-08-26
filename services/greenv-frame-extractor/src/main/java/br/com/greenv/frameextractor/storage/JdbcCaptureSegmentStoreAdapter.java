@@ -11,16 +11,17 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 @ConditionalOnProperty(name = "greenv.adapters.database", havingValue = "jdbc", matchIfMissing = true)
-public class CaptureSegmentRepository implements CaptureSegmentStore {
+public class JdbcCaptureSegmentStoreAdapter implements CaptureSegmentStore {
 
-    private final JdbcTemplate jdbc;
+    private final JdbcTemplate jdbcTemplate;
 
-    public CaptureSegmentRepository(JdbcTemplate jdbc) {
-        this.jdbc = jdbc;
+    public JdbcCaptureSegmentStoreAdapter(JdbcTemplate jdbcTemplate) {
+        this.jdbcTemplate = jdbcTemplate;
     }
 
+    @Override
     public String state(SegmentExtractionRequest request) {
-        return jdbc.query(
+        return jdbcTemplate.query(
                         "SELECT state FROM capture_segments WHERE session_id = ? AND segment_index = ?",
                         (result, row) -> result.getString(1),
                         request.sessionId(),
@@ -33,8 +34,9 @@ public class CaptureSegmentRepository implements CaptureSegmentStore {
                         false));
     }
 
+    @Override
     public void markValidating(SegmentExtractionRequest request, Instant now) {
-        int changed = jdbc.update("""
+        int changed = jdbcTemplate.update("""
                 UPDATE capture_segments
                 SET state = 'validating', updated_at = ?, error_code = NULL, error_message = NULL
                 WHERE session_id = ? AND segment_index = ?
@@ -53,12 +55,13 @@ public class CaptureSegmentRepository implements CaptureSegmentStore {
         }
     }
 
+    @Override
     public void markReady(
             SegmentExtractionRequest request,
             String manifestObjectKey,
             int frameCount,
             Instant now) {
-        jdbc.update("""
+        jdbcTemplate.update("""
                 UPDATE capture_segments
                 SET state = 'ready', manifest_object_key = ?, frame_count = ?, updated_at = ?,
                     error_code = NULL, error_message = NULL
@@ -72,21 +75,26 @@ public class CaptureSegmentRepository implements CaptureSegmentStore {
         refreshSession(request.sessionId(), now);
     }
 
-    public void markError(SegmentExtractionRequest request, ExtractionException exception, Instant now) {
-        jdbc.update("""
+    @Override
+    public void markError(
+            SegmentExtractionRequest request,
+            String errorCode,
+            String errorMessage,
+            Instant now) {
+        jdbcTemplate.update("""
                 UPDATE capture_segments
                 SET state = 'failed', error_code = ?, error_message = ?, updated_at = ?
                 WHERE session_id = ? AND segment_index = ?
                 """,
-                exception.code(),
-                exception.getMessage(),
+                errorCode,
+                errorMessage,
                 timestamp(now),
                 request.sessionId(),
                 request.segmentIndex());
     }
 
     private void refreshSession(java.util.UUID sessionId, Instant now) {
-        Integer lastIndex = jdbc.query(
+        Integer lastIndex = jdbcTemplate.query(
                         "SELECT last_segment_index FROM capture_sessions WHERE session_id = ?",
                         (result, row) -> result.getObject(1, Integer.class),
                         sessionId)
@@ -96,12 +104,12 @@ public class CaptureSegmentRepository implements CaptureSegmentStore {
         if (lastIndex == null) {
             return;
         }
-        Long ready = jdbc.queryForObject(
+        Long ready = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM capture_segments WHERE session_id = ? AND state = 'ready'",
                 Long.class,
                 sessionId);
         if (ready != null && ready == (long) lastIndex + 1) {
-            jdbc.update(
+            jdbcTemplate.update(
                     "UPDATE capture_sessions SET state = 'ready', updated_at = ? WHERE session_id = ?",
                     timestamp(now),
                     sessionId);

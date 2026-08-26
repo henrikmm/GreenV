@@ -13,27 +13,27 @@ import tools.jackson.databind.ObjectMapper;
 
 @Component
 @ConditionalOnProperty(name = "greenv.adapters.segment-queue", havingValue = "rabbitmq", matchIfMissing = true)
-public class SegmentTaskPublisher implements SegmentWorkQueue {
+public class RabbitMqSegmentWorkQueueAdapter implements SegmentWorkQueue {
 
     private final RabbitTemplate rabbitTemplate;
     private final ObjectMapper objectMapper;
-    private final CaptureQueueProperties properties;
+    private final CaptureQueueProperties queueProperties;
 
-    public SegmentTaskPublisher(
+    public RabbitMqSegmentWorkQueueAdapter(
             RabbitTemplate rabbitTemplate,
             ObjectMapper objectMapper,
-            CaptureQueueProperties properties) {
+            CaptureQueueProperties queueProperties) {
         this.rabbitTemplate = rabbitTemplate;
         this.objectMapper = objectMapper;
-        this.properties = properties;
+        this.queueProperties = queueProperties;
     }
 
     @Override
     public void publish(SegmentExtractionRequest request) {
         try {
             rabbitTemplate.convertAndSend(
-                    properties.exchange(),
-                    properties.routingKey(),
+                    queueProperties.exchange(),
+                    queueProperties.routingKey(),
                     objectMapper.writeValueAsString(request),
                     message -> {
                         message.getMessageProperties().setContentType("application/json");

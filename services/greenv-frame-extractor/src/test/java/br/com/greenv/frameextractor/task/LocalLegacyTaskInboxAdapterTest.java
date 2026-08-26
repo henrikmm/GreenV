@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import br.com.greenv.frameextractor.config.ExtractorProperties;
 import br.com.greenv.frameextractor.domain.FrameExtractionRequest;
-import br.com.greenv.frameextractor.storage.LocalPipelineStore;
+import br.com.greenv.frameextractor.storage.LocalLegacyPipelineStoreAdapter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -14,7 +14,7 @@ import org.junit.jupiter.api.io.TempDir;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 
-class LocalTaskInboxTest {
+class LocalLegacyTaskInboxAdapterTest {
 
     @TempDir
     Path temporaryDirectory;
@@ -23,10 +23,9 @@ class LocalTaskInboxTest {
     void atomicallyClaimsAndRequeuesWithANewAttempt() throws Exception {
         Path root = temporaryDirectory.resolve("pipeline").toAbsolutePath();
         ObjectMapper objectMapper = JsonMapper.builder().findAndAddModules().build();
-        LocalPipelineStore store = new LocalPipelineStore(
-                objectMapper,
-                new ExtractorProperties(root, "ffmpeg", "ffprobe", 300, 3, 1000, true));
-        LocalTaskInbox inbox = new LocalTaskInbox(objectMapper, store);
+        var extractorProperties = new ExtractorProperties(root, "ffmpeg", "ffprobe", 300, 3, 1000, true);
+        LocalLegacyPipelineStoreAdapter store = new LocalLegacyPipelineStoreAdapter(objectMapper, extractorProperties);
+        LocalLegacyTaskInboxAdapter inbox = new LocalLegacyTaskInboxAdapter(objectMapper, extractorProperties);
         UUID jobId = UUID.randomUUID();
         FrameExtractionRequest request = new FrameExtractionRequest(
                 1,
@@ -45,7 +44,7 @@ class LocalTaskInboxTest {
         objectMapper.writeValue(pending, request);
 
         var claimed = inbox.claim().orElseThrow();
-        assertThat(claimed.path().getParent().getFileName().toString()).isEqualTo("processing");
+        assertThat(Path.of(claimed.receipt()).getParent().getFileName().toString()).isEqualTo("processing");
         assertThat(inbox.claim()).isEmpty();
 
         inbox.retry(claimed);

@@ -1,7 +1,6 @@
 package br.com.greenv.frameextractor.port;
 
 import br.com.greenv.frameextractor.domain.SegmentExtractionRequest;
-import br.com.greenv.frameextractor.service.ExtractionException;
 import java.time.Instant;
 
 /** Control-plane segment state. Implementations may use any transactional database. */
@@ -13,5 +12,9 @@ public interface CaptureSegmentStore {
 
     void markReady(SegmentExtractionRequest request, String manifestObjectKey, int frameCount, Instant now);
 
-    void markError(SegmentExtractionRequest request, ExtractionException exception, Instant now);
+    void markError(
+            SegmentExtractionRequest request,
+            String errorCode,
+            String errorMessage,
+            Instant now);
 }

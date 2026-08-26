@@ -8,8 +8,12 @@ import br.com.greenv.frameextractor.domain.SegmentExtractionRequest;
 import br.com.greenv.frameextractor.domain.SegmentManifest;
 import br.com.greenv.frameextractor.domain.SegmentTelemetry;
 import br.com.greenv.frameextractor.port.CaptureSegmentStore;
+import br.com.greenv.frameextractor.port.FrameSampler;
+import br.com.greenv.frameextractor.port.FrameTimelineProbe;
 import br.com.greenv.frameextractor.port.ProcessingWorkspace;
 import br.com.greenv.frameextractor.port.SegmentObjectStorage;
+import br.com.greenv.frameextractor.port.SegmentProcessor;
+import br.com.greenv.frameextractor.port.VideoProbe;
 import br.com.greenv.frameextractor.port.SegmentObjectStorage.ObjectDescriptor;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -19,46 +23,47 @@ import java.util.List;
 import org.springframework.stereotype.Service;
 
 @Service
-public class SegmentExtractionService {
+public class SegmentExtractionService implements SegmentProcessor {
 
     private static final double SAMPLE_FPS = 2.0;
     private static final int MAX_SAMPLE_FRAMES = 64;
     private static final int SAMPLE_LONG_EDGE = 1280;
 
-    private final ExtractorProperties properties;
+    private final ExtractorProperties extractorProperties;
     private final SegmentObjectStorage objectStorage;
     private final ProcessingWorkspace processingWorkspace;
     private final CaptureSegmentStore segmentStore;
-    private final MediaProbe mediaProbe;
-    private final FrameTimestampProbe timestampProbe;
+    private final VideoProbe videoProbe;
+    private final FrameTimelineProbe frameTimelineProbe;
     private final TelemetryAssociator telemetryAssociator;
     private final SamplingPlanner samplingPlanner;
-    private final FfmpegExtractor ffmpegExtractor;
+    private final FrameSampler frameSampler;
     private final Clock clock;
 
     public SegmentExtractionService(
-            ExtractorProperties properties,
+            ExtractorProperties extractorProperties,
             SegmentObjectStorage objectStorage,
             ProcessingWorkspace processingWorkspace,
             CaptureSegmentStore segmentStore,
-            MediaProbe mediaProbe,
-            FrameTimestampProbe timestampProbe,
+            VideoProbe videoProbe,
+            FrameTimelineProbe frameTimelineProbe,
             TelemetryAssociator telemetryAssociator,
             SamplingPlanner samplingPlanner,
-            FfmpegExtractor ffmpegExtractor,
+            FrameSampler frameSampler,
             Clock clock) {
-        this.properties = properties;
+        this.extractorProperties = extractorProperties;
         this.objectStorage = objectStorage;
         this.processingWorkspace = processingWorkspace;
         this.segmentStore = segmentStore;
-        this.mediaProbe = mediaProbe;
-        this.timestampProbe = timestampProbe;
+        this.videoProbe = videoProbe;
+        this.frameTimelineProbe = frameTimelineProbe;
         this.telemetryAssociator = telemetryAssociator;
         this.samplingPlanner = samplingPlanner;
-        this.ffmpegExtractor = ffmpegExtractor;
+        this.frameSampler = frameSampler;
         this.clock = clock;
     }
 
+    @Override
     public SegmentManifest extract(SegmentExtractionRequest request) {
         validateRequest(request);
         String manifestKey = request.outputPrefix() + "/segment-manifest-v2.json";
@@ -103,11 +108,11 @@ public class SegmentExtractionService {
 
         SegmentTelemetry telemetry = objectStorage.readJson(request.telemetryObjectKey(), SegmentTelemetry.class);
         validateTelemetry(telemetry, request);
-        var probe = mediaProbe.probe(source);
-        if (probe.durationSeconds() > Math.min(30.0, properties.maxDurationSeconds())) {
+        var probe = videoProbe.probe(source);
+        if (probe.durationSeconds() > Math.min(30.0, extractorProperties.maxDurationSeconds())) {
             throw new ExtractionException("segment_too_long", "capture segment exceeds 30 seconds", false);
         }
-        List<FrameTelemetry> frames = telemetryAssociator.associate(timestampProbe.probe(source), telemetry);
+        List<FrameTelemetry> frames = telemetryAssociator.associate(frameTimelineProbe.probe(source), telemetry);
         if (frames.isEmpty()) {
             throw new ExtractionException("frame_probe_empty", "segment contains no encoded video frames", false);
         }
@@ -122,7 +127,7 @@ public class SegmentExtractionService {
                 MAX_SAMPLE_FRAMES);
         var scale = samplingPlanner.scale(probe.width(), probe.height(), SAMPLE_LONG_EDGE);
         Path sampledFramesPath = workspace.resolve("sampled-frames");
-        List<Path> extracted = ffmpegExtractor.extract(source, sampledFramesPath, requestedSampling, scale);
+        List<Path> extracted = frameSampler.extract(source, sampledFramesPath, requestedSampling, scale);
         List<FrameRecord> sampledFrames = publishFrames(
                 request.outputPrefix(),
                 sampledFramesPath,

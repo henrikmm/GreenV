@@ -3,7 +3,7 @@ package br.com.greenv.videoapi.storage;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import br.com.greenv.videoapi.api.ApiException;
+import br.com.greenv.videoapi.service.ApplicationException;
 import br.com.greenv.videoapi.config.PipelineProperties;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
@@ -13,14 +13,14 @@ import java.util.HexFormat;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-class CaptureObjectStoreTest {
+class LocalCaptureObjectStorageAdapterTest {
 
     @TempDir
     Path temporaryDirectory;
 
     @Test
     void storesOpaqueKeysAndRejectsProviderUrisAndTraversal() throws Exception {
-        CaptureObjectStore storage = new CaptureObjectStore(new PipelineProperties(
+        LocalCaptureObjectStorageAdapter storage = new LocalCaptureObjectStorageAdapter(new PipelineProperties(
                 temporaryDirectory.resolve("pipeline"),
                 temporaryDirectory.resolve("saved"),
                 1024,
@@ -33,10 +33,10 @@ class CaptureObjectStoreTest {
         assertThat(stored.objectKey()).isEqualTo(key);
         assertThat(storage.read(key, 1024)).isEqualTo(value);
         assertThatThrownBy(() -> storage.exists("file:///tmp/source.mp4"))
-                .isInstanceOf(ApiException.class)
+                .isInstanceOf(ApplicationException.class)
                 .hasMessageContaining("object key is invalid");
         assertThatThrownBy(() -> storage.exists("../outside/source.mp4"))
-                .isInstanceOf(ApiException.class)
+                .isInstanceOf(ApplicationException.class)
                 .hasMessageContaining("escapes");
     }
 

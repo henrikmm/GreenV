@@ -5,7 +5,10 @@ import br.com.greenv.frameextractor.domain.FrameExtractionRequest;
 import br.com.greenv.frameextractor.domain.FrameManifest;
 import br.com.greenv.frameextractor.domain.FrameRecord;
 import br.com.greenv.frameextractor.domain.SamplingPlan;
+import br.com.greenv.frameextractor.port.FrameSampler;
 import br.com.greenv.frameextractor.port.LegacyPipelineStore;
+import br.com.greenv.frameextractor.port.LegacyFrameProcessor;
+import br.com.greenv.frameextractor.port.VideoProbe;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -16,39 +19,40 @@ import java.util.List;
 import org.springframework.stereotype.Service;
 
 @Service
-public class ExtractionService {
+public class ExtractionService implements LegacyFrameProcessor {
 
-    private final ExtractorProperties properties;
-    private final LegacyPipelineStore store;
-    private final MediaProbe mediaProbe;
+    private final ExtractorProperties extractorProperties;
+    private final LegacyPipelineStore pipelineStore;
+    private final VideoProbe videoProbe;
     private final SamplingPlanner samplingPlanner;
-    private final FfmpegExtractor ffmpegExtractor;
+    private final FrameSampler frameSampler;
     private final Clock clock;
 
     public ExtractionService(
-            ExtractorProperties properties,
-            LegacyPipelineStore store,
-            MediaProbe mediaProbe,
+            ExtractorProperties extractorProperties,
+            LegacyPipelineStore pipelineStore,
+            VideoProbe videoProbe,
             SamplingPlanner samplingPlanner,
-            FfmpegExtractor ffmpegExtractor,
+            FrameSampler frameSampler,
             Clock clock) {
-        this.properties = properties;
-        this.store = store;
-        this.mediaProbe = mediaProbe;
+        this.extractorProperties = extractorProperties;
+        this.pipelineStore = pipelineStore;
+        this.videoProbe = videoProbe;
         this.samplingPlanner = samplingPlanner;
-        this.ffmpegExtractor = ffmpegExtractor;
+        this.frameSampler = frameSampler;
         this.clock = clock;
     }
 
+    @Override
     public FrameManifest extract(FrameExtractionRequest request) {
         validate(request);
-        Path source = store.resolve(request.sourceUri());
-        Path outputRoot = store.resolve(request.outputPrefixUri());
+        Path source = pipelineStore.resolve(request.sourceUri());
+        Path outputRoot = pipelineStore.resolve(request.outputPrefixUri());
         Path finalFrames = outputRoot.resolve("frames");
         Path finalManifest = outputRoot.resolve("manifest.json");
 
         if (Files.isRegularFile(finalManifest)) {
-            FrameManifest existing = store.readManifest(finalManifest);
+            FrameManifest existing = pipelineStore.readManifest(finalManifest);
             if (!existing.sourceGeneration().equals(request.sourceGeneration())) {
                 throw new ExtractionException(
                         "manifest_generation_conflict",
@@ -56,16 +60,16 @@ public class ExtractionService {
                         false);
             }
             if (Files.exists(source)) {
-                store.delete(source);
+                pipelineStore.delete(source);
             }
-            store.markReady(request.statusUri(), finalManifest, true, clock.instant());
+            pipelineStore.markReady(request.statusUri(), finalManifest, true, clock.instant());
             return existing;
         }
 
         if (!Files.isRegularFile(source)) {
             throw new ExtractionException("source_missing", "source video is not available", true);
         }
-        String actualGeneration = store.sha256(source);
+        String actualGeneration = pipelineStore.sha256(source);
         if (!actualGeneration.equals(request.sourceGeneration())) {
             throw new ExtractionException(
                     "source_generation_mismatch",
@@ -73,9 +77,9 @@ public class ExtractionService {
                     false);
         }
 
-        store.markState(request.statusUri(), "extracting", clock.instant());
-        var probe = mediaProbe.probe(source);
-        if (probe.durationSeconds() > properties.maxDurationSeconds()) {
+        pipelineStore.markState(request.statusUri(), "extracting", clock.instant());
+        var probe = videoProbe.probe(source);
+        if (probe.durationSeconds() > extractorProperties.maxDurationSeconds()) {
             throw new ExtractionException(
                     "video_too_long",
                     "video duration exceeds the configured five-minute limit",
@@ -90,9 +94,9 @@ public class ExtractionService {
                 .resolve(request.sourceGeneration().substring(0, Math.min(16, request.sourceGeneration().length()))
                         + "-" + request.attempt());
         Path attemptFrames = attemptRoot.resolve("frames");
-        store.deleteTree(attemptRoot);
+        pipelineStore.deleteTree(attemptRoot);
 
-        List<Path> extracted = ffmpegExtractor.extract(source, attemptFrames, sampling, scale);
+        List<Path> extracted = frameSampler.extract(source, attemptFrames, sampling, scale);
         SamplingPlan actualSampling = new SamplingPlan(
                 extracted.size(), sampling.effectiveFps(), sampling.capped(), sampling.requestedCount());
         FrameManifest manifest = new FrameManifest(
@@ -107,20 +111,20 @@ public class ExtractionService {
                 describeFrames(extracted, actualSampling.effectiveFps(), probe.durationSeconds()));
 
         Path attemptManifest = attemptRoot.resolve("manifest.json");
-        store.writeManifest(attemptManifest, manifest);
-        verifyManifest(attemptFrames, store.readManifest(attemptManifest));
+        pipelineStore.writeManifest(attemptManifest, manifest);
+        verifyManifest(attemptFrames, pipelineStore.readManifest(attemptManifest));
 
         if (Files.exists(finalFrames)) {
-            store.deleteTree(finalFrames);
+            pipelineStore.deleteTree(finalFrames);
         }
-        store.moveDirectory(attemptFrames, finalFrames);
+        pipelineStore.moveDirectory(attemptFrames, finalFrames);
         verifyManifest(finalFrames, manifest);
-        store.writeManifest(finalManifest, manifest);
-        store.readManifest(finalManifest);
+        pipelineStore.writeManifest(finalManifest, manifest);
+        pipelineStore.readManifest(finalManifest);
 
-        store.delete(source);
-        store.markReady(request.statusUri(), finalManifest, true, clock.instant());
-        store.deleteTree(outputRoot.resolve("attempts"));
+        pipelineStore.delete(source);
+        pipelineStore.markReady(request.statusUri(), finalManifest, true, clock.instant());
+        pipelineStore.deleteTree(outputRoot.resolve("attempts"));
         return manifest;
     }
 
@@ -166,7 +170,7 @@ public class ExtractionService {
                         frame.getFileName().toString(),
                         Math.min(durationSeconds, index / effectiveFps),
                         Files.size(frame),
-                        store.sha256(frame)));
+                        pipelineStore.sha256(frame)));
             } catch (IOException exception) {
                 throw new ExtractionException("frame_stat_failed", "could not inspect extracted frame", true, exception);
             }
@@ -184,7 +188,7 @@ public class ExtractionService {
                 throw new ExtractionException("manifest_frame_missing", "manifest references a missing frame", true);
             }
             try {
-                if (Files.size(path) != frame.sizeBytes() || !store.sha256(path).equals(frame.sha256())) {
+                if (Files.size(path) != frame.sizeBytes() || !pipelineStore.sha256(path).equals(frame.sha256())) {
                     throw new ExtractionException("manifest_checksum_mismatch", "frame verification failed", true);
                 }
             } catch (IOException exception) {

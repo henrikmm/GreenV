@@ -12,7 +12,7 @@ that consume its versioned manifest.
 
 | Path | Responsibility |
 |---|---|
-| `src/main/java/.../port/` | Cloud-neutral state, object-storage, queue and workspace contracts |
+| `src/main/java/.../port/` | Inbound use cases and replaceable state, storage, queue, workspace and media contracts |
 | `src/main/java/.../task/` | RabbitMQ input/output adapters and legacy filesystem queue |
 | `src/main/java/.../service/` | Validation, ffprobe association, FFmpeg extraction and publication |
 | `src/main/java/.../storage/` | JDBC, local object-storage and ephemeral-workspace adapters |
@@ -192,10 +192,28 @@ path with real FFmpeg in containers.
 
 ## Production boundary
 
-`SegmentExtractionService` depends only on `SegmentObjectStorage`, `CaptureSegmentStore` and
-`ProcessingWorkspace`; retry orchestration depends only on `SegmentWorkQueue`. The shipped
-adapters are local filesystem, JDBC and RabbitMQ. Cloud adapters can download into the same
-ephemeral workspace and publish the same v2 artifacts without changing extraction code.
+Dependency direction is explicit and uses constructor injection:
+
+```text
+RabbitMQ/HTTP/poller adapter -> inbound use-case interface -> orchestration handler
+handler -> processor/state/queue interfaces -> provider adapters
+segment processor -> storage/workspace/media interfaces -> local or cloud implementation
+```
+
+RabbitMQ, the internal HTTP endpoint and the legacy poller depend on `SegmentExtractionUseCase` or
+`LegacyExtractionUseCase`, never concrete handlers. Retry handlers depend on processor, state and
+queue ports. `SegmentExtractionService` receives `SegmentObjectStorage`, `CaptureSegmentStore`,
+`ProcessingWorkspace`, `VideoProbe`, `FrameTimelineProbe` and `FrameSampler` interfaces; ffmpeg
+and ffprobe are therefore replaceable media providers rather than hard-coded infrastructure.
+Pure deterministic collaborators such as sampling and telemetry association remain concrete
+because adding one-implementation interfaces would not create a useful substitution boundary.
+
+The former local store with both v1 and v2 responsibilities was split into
+`LocalSegmentObjectStorageAdapter` and `LocalLegacyPipelineStoreAdapter`. Each implements one
+outbound port. The local legacy inbox now implements `LegacyTaskInbox` and exposes only an opaque
+receipt to its poller. The shipped provider adapters are local filesystem, JDBC and RabbitMQ.
+Cloud adapters can download into the same ephemeral workspace and publish the same v2 artifacts
+without changing extraction code.
 
 The v2 manifest is first stored with `sourceDeleted=false`, verified, and then rewritten with
 `sourceDeleted=true` after source cleanup. A redelivery completes this transition idempotently.
@@ -207,6 +225,10 @@ value, and leave `service/` unchanged. `SegmentObjectStorage.download` materiali
 ephemeral workspace; `putFile`/`putJson` publish durable output. The queue adapter must redeliver
 unacknowledged work, and the state adapter must make duplicate delivery observable as `ready`.
 
-Verification observed on 25 Aug 2026: `./gradlew.bat check --no-daemon --offline` completed
-successfully. The Compose smoke command was attempted on the same date but did not execute because
+Architecture tests enforce inbound interface injection, service-to-adapter isolation, one port per
+local storage adapter, provider-neutral object keys and API/worker schema equality. Handler tests
+cover success, retry exhaustion, acknowledgement, requeue and terminal failure.
+
+Verification observed on 26 Aug 2026: `./gradlew.bat check --no-daemon --offline` completed
+successfully. The Compose smoke command was attempted on 25 Aug 2026 but did not execute because
 the local Docker daemon was unavailable.

@@ -1,11 +1,12 @@
 package br.com.greenv.videoapi.storage;
 
-import br.com.greenv.videoapi.api.ApiException;
 import br.com.greenv.videoapi.config.PipelineProperties;
 import br.com.greenv.videoapi.domain.JobDocument;
 import br.com.greenv.videoapi.domain.JobState;
 import br.com.greenv.videoapi.domain.Retention;
 import br.com.greenv.videoapi.port.LegacyJobStore;
+import br.com.greenv.videoapi.service.ApplicationException;
+import br.com.greenv.videoapi.service.FailureKind;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.AtomicMoveNotSupportedException;
@@ -23,25 +24,25 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.UnaryOperator;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 
 @Component
-public class LocalJobStore implements LegacyJobStore {
+public class LocalLegacyJobStoreAdapter implements LegacyJobStore {
 
     private static final int BUFFER_SIZE = 1024 * 1024;
 
     private final ObjectMapper objectMapper;
-    private final PipelineProperties properties;
+    private final PipelineProperties pipelineProperties;
     private final Path root;
     private final Map<UUID, Object> locks = new ConcurrentHashMap<>();
 
-    public LocalJobStore(ObjectMapper objectMapper, PipelineProperties properties) throws IOException {
+    public LocalLegacyJobStoreAdapter(ObjectMapper objectMapper, PipelineProperties pipelineProperties)
+            throws IOException {
         this.objectMapper = objectMapper;
-        this.properties = properties;
-        this.root = properties.root().toAbsolutePath().normalize();
+        this.pipelineProperties = pipelineProperties;
+        this.root = pipelineProperties.root().toAbsolutePath().normalize();
         Files.createDirectories(root.resolve("jobs"));
         Files.createDirectories(root.resolve("tasks/pending"));
     }
@@ -50,7 +51,7 @@ public class LocalJobStore implements LegacyJobStore {
         synchronized (lock(job.jobId())) {
             Path status = statusPath(job.jobId());
             if (Files.exists(status)) {
-                throw new ApiException(HttpStatus.CONFLICT, "job_exists", "job already exists");
+                throw new ApplicationException(FailureKind.CONFLICT, "job_exists", "job already exists");
             }
             write(status, job);
             return job;
@@ -61,7 +62,7 @@ public class LocalJobStore implements LegacyJobStore {
         synchronized (lock(jobId)) {
             Path status = statusPath(jobId);
             if (!Files.isRegularFile(status)) {
-                throw new ApiException(HttpStatus.NOT_FOUND, "job_not_found", "job does not exist");
+                throw new ApplicationException(FailureKind.NOT_FOUND, "job_not_found", "job does not exist");
             }
             try {
                 return objectMapper.readValue(status.toFile(), JobDocument.class);
@@ -86,7 +87,8 @@ public class LocalJobStore implements LegacyJobStore {
                 throw invalidState(job, "accept a source upload");
             }
             if (job.sourceGeneration() != null) {
-                throw new ApiException(HttpStatus.CONFLICT, "source_exists", "source upload is already complete");
+                throw new ApplicationException(
+                        FailureKind.CONFLICT, "source_exists", "source upload is already complete");
             }
 
             write(statusPath(jobId), job.withState(JobState.UPLOADING, now));
@@ -98,8 +100,8 @@ public class LocalJobStore implements LegacyJobStore {
                 MessageDigest digest = MessageDigest.getInstance("SHA-256");
                 long bytes = copyBounded(input, temporary, digest);
                 if (bytes != job.declaredSizeBytes()) {
-                    throw new ApiException(
-                            HttpStatus.BAD_REQUEST,
+                    throw new ApplicationException(
+                            FailureKind.INVALID_INPUT,
                             "size_mismatch",
                             "uploaded bytes do not match the declared file size");
                 }
@@ -108,7 +110,7 @@ public class LocalJobStore implements LegacyJobStore {
                 JobDocument uploaded = job.withUpload(bytes, source.toUri().toString(), generation, now);
                 write(statusPath(jobId), uploaded);
                 return uploaded;
-            } catch (ApiException exception) {
+            } catch (ApplicationException exception) {
                 deleteQuietly(temporary);
                 write(statusPath(jobId), job.withError(exception.code(), exception.getMessage(), now));
                 throw exception;
@@ -163,10 +165,6 @@ public class LocalJobStore implements LegacyJobStore {
         return insideRoot(root.resolve("tasks/pending"));
     }
 
-    public PipelineProperties properties() {
-        return properties;
-    }
-
     public List<JobDocument> listJobs() {
         Path jobs = root.resolve("jobs");
         try (var directories = Files.list(jobs)) {
@@ -191,7 +189,7 @@ public class LocalJobStore implements LegacyJobStore {
     public void deleteJob(UUID jobId) {
         synchronized (lock(jobId)) {
             deleteTree(jobDirectory(jobId));
-            deleteTree(properties.savedRoot().toAbsolutePath().normalize().resolve(jobId.toString()));
+            deleteTree(pipelineProperties.savedRoot().toAbsolutePath().normalize().resolve(jobId.toString()));
             deleteTaskFiles(jobId);
             locks.remove(jobId);
         }
@@ -203,10 +201,11 @@ public class LocalJobStore implements LegacyJobStore {
             if (job.state() != JobState.FRAMES_READY || !Files.isRegularFile(manifestPath(jobId))) {
                 throw invalidState(job, "save frames");
             }
-            Path savedRoot = properties.savedRoot().toAbsolutePath().normalize();
+            Path savedRoot = pipelineProperties.savedRoot().toAbsolutePath().normalize();
             Path destination = savedRoot.resolve(jobId.toString()).normalize();
             if (!destination.startsWith(savedRoot)) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, "invalid_job_path", "invalid save destination");
+                throw new ApplicationException(
+                        FailureKind.INVALID_INPUT, "invalid_job_path", "invalid save destination");
             }
             JobDocument saved = job.withRetention(Retention.SAVED, now);
             if (!Files.exists(destination)) {
@@ -234,9 +233,9 @@ public class LocalJobStore implements LegacyJobStore {
             int read;
             while ((read = input.read(buffer)) != -1) {
                 total += read;
-                if (total > properties.maxFileSizeBytes()) {
-                    throw new ApiException(
-                            HttpStatus.CONTENT_TOO_LARGE,
+                if (total > pipelineProperties.maxFileSizeBytes()) {
+                    throw new ApplicationException(
+                            FailureKind.PAYLOAD_TOO_LARGE,
                             "video_too_large",
                             "video exceeds the configured 1 GB limit");
                 }
@@ -269,7 +268,8 @@ public class LocalJobStore implements LegacyJobStore {
     private Path insideRoot(Path path) {
         Path normalized = path.toAbsolutePath().normalize();
         if (!normalized.startsWith(root)) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "invalid_job_path", "path escapes pipeline storage");
+            throw new ApplicationException(
+                    FailureKind.INVALID_INPUT, "invalid_job_path", "path escapes pipeline storage");
         }
         return normalized;
     }
@@ -337,14 +337,15 @@ public class LocalJobStore implements LegacyJobStore {
         }
     }
 
-    private static ApiException invalidState(JobDocument job, String action) {
-        return new ApiException(
-                HttpStatus.CONFLICT,
+    private static ApplicationException invalidState(JobDocument job, String action) {
+        return new ApplicationException(
+                FailureKind.CONFLICT,
                 "invalid_job_state",
                 "cannot " + action + " while job is " + job.state().wireValue());
     }
 
-    private static ApiException storageFailure(String message, Exception exception) {
-        return new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "storage_failure", message + ": " + exception.getMessage());
+    private static ApplicationException storageFailure(String message, Exception exception) {
+        return new ApplicationException(
+                FailureKind.INTERNAL_ERROR, "storage_failure", message + ": " + exception.getMessage());
     }
 }

@@ -12,8 +12,8 @@ import br.com.greenv.frameextractor.domain.SamplingPlan;
 import br.com.greenv.frameextractor.domain.SegmentExtractionRequest;
 import br.com.greenv.frameextractor.domain.SegmentTelemetry;
 import br.com.greenv.frameextractor.port.CaptureSegmentStore;
-import br.com.greenv.frameextractor.storage.LocalPipelineStore;
-import br.com.greenv.frameextractor.storage.LocalProcessingWorkspace;
+import br.com.greenv.frameextractor.storage.LocalSegmentObjectStorageAdapter;
+import br.com.greenv.frameextractor.storage.LocalProcessingWorkspaceAdapter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -37,7 +37,7 @@ class SegmentExtractionServiceTest {
         ExtractorProperties properties = new ExtractorProperties(
                 temporaryDirectory.resolve("pipeline"), "ffmpeg", "ffprobe", 300, 3, 1000, false);
         ObjectMapper mapper = JsonMapper.builder().findAndAddModules().build();
-        LocalPipelineStore objects = new LocalPipelineStore(mapper, properties);
+        LocalSegmentObjectStorageAdapter objects = new LocalSegmentObjectStorageAdapter(mapper, properties);
         String prefix = "capture-sessions/2d995d67-dd6f-4792-af22-480c43b37f2f/segments/00000000";
         Path source = temporaryDirectory.resolve("source.mp4");
         Files.writeString(source, "fake-encoded-video");
@@ -80,7 +80,7 @@ class SegmentExtractionServiceTest {
         SegmentExtractionService service = new SegmentExtractionService(
                 properties,
                 objects,
-                new LocalProcessingWorkspace(properties),
+                new LocalProcessingWorkspaceAdapter(properties),
                 segments,
                 mediaProbe,
                 timestamps,
@@ -120,7 +120,11 @@ class SegmentExtractionServiceTest {
         }
 
         @Override
-        public void markError(SegmentExtractionRequest request, ExtractionException exception, Instant now) {
+        public void markError(
+                SegmentExtractionRequest request,
+                String errorCode,
+                String errorMessage,
+                Instant now) {
         }
     }
 }

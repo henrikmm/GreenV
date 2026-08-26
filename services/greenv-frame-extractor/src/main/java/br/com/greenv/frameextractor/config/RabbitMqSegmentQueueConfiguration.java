@@ -1,4 +1,4 @@
-package br.com.greenv.videoapi.config;
+package br.com.greenv.frameextractor.config;
 
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
@@ -10,25 +10,25 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 
 @Configuration
 @ConditionalOnProperty(name = "greenv.adapters.segment-queue", havingValue = "rabbitmq", matchIfMissing = true)
-public class CaptureQueueConfiguration {
+public class RabbitMqSegmentQueueConfiguration {
 
     @Bean
-    DirectExchange captureExchange(CaptureQueueProperties properties) {
-        return new DirectExchange(properties.exchange(), true, false);
+    DirectExchange captureExchange(CaptureQueueProperties queueProperties) {
+        return new DirectExchange(queueProperties.exchange(), true, false);
     }
 
     @Bean
-    Queue segmentExtractionQueue(CaptureQueueProperties properties) {
-        return new Queue(properties.queue(), true);
+    Queue segmentExtractionQueue(CaptureQueueProperties queueProperties) {
+        return new Queue(queueProperties.queue(), true);
     }
 
     @Bean
     Binding segmentExtractionBinding(
             Queue segmentExtractionQueue,
             DirectExchange captureExchange,
-            CaptureQueueProperties properties) {
+            CaptureQueueProperties queueProperties) {
         return BindingBuilder.bind(segmentExtractionQueue)
                 .to(captureExchange)
-                .with(properties.routingKey());
+                .with(queueProperties.routingKey());
     }
 }

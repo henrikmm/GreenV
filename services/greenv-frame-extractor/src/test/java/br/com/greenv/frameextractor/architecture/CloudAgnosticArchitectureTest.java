@@ -2,10 +2,28 @@ package br.com.greenv.frameextractor.architecture;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import br.com.greenv.frameextractor.api.ExtractionController;
 import br.com.greenv.frameextractor.domain.SegmentExtractionRequest;
+import br.com.greenv.frameextractor.port.CaptureSegmentStore;
+import br.com.greenv.frameextractor.port.LegacyExtractionUseCase;
+import br.com.greenv.frameextractor.port.LegacyPipelineStore;
+import br.com.greenv.frameextractor.port.LegacyTaskInbox;
+import br.com.greenv.frameextractor.port.SegmentExtractionUseCase;
+import br.com.greenv.frameextractor.port.SegmentObjectStorage;
+import br.com.greenv.frameextractor.port.SegmentProcessor;
+import br.com.greenv.frameextractor.port.SegmentWorkQueue;
 import br.com.greenv.frameextractor.service.ExtractionService;
+import br.com.greenv.frameextractor.service.LegacyExtractionHandler;
 import br.com.greenv.frameextractor.service.SegmentExtractionHandler;
 import br.com.greenv.frameextractor.service.SegmentExtractionService;
+import br.com.greenv.frameextractor.storage.JdbcCaptureSegmentStoreAdapter;
+import br.com.greenv.frameextractor.storage.LocalLegacyPipelineStoreAdapter;
+import br.com.greenv.frameextractor.storage.LocalSegmentObjectStorageAdapter;
+import br.com.greenv.frameextractor.task.LocalLegacyTaskInboxAdapter;
+import br.com.greenv.frameextractor.task.LocalLegacyTaskPollerAdapter;
+import br.com.greenv.frameextractor.task.RabbitMqSegmentExtractionListener;
+import br.com.greenv.frameextractor.task.RabbitMqSegmentWorkQueueAdapter;
+import java.lang.reflect.Modifier;
 import java.lang.reflect.RecordComponent;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -15,8 +33,38 @@ import org.junit.jupiter.api.Test;
 class CloudAgnosticArchitectureTest {
 
     @Test
+    void inboundAdaptersDependOnUseCaseInterfaces() {
+        assertGreenVDependenciesAreInterfaces(ExtractionController.class);
+        assertGreenVDependenciesAreInterfaces(RabbitMqSegmentExtractionListener.class);
+        assertGreenVDependenciesAreInterfaces(LocalLegacyTaskPollerAdapter.class);
+        assertThat(SegmentExtractionUseCase.class).isAssignableFrom(SegmentExtractionHandler.class);
+        assertThat(LegacyExtractionUseCase.class).isAssignableFrom(LegacyExtractionHandler.class);
+        assertThat(SegmentProcessor.class).isAssignableFrom(SegmentExtractionService.class);
+    }
+
+    @Test
+    void outboundPortsDoNotDependOnApplicationServices() {
+        assertNoMethodTypeFromPackage(CaptureSegmentStore.class, "br.com.greenv.frameextractor.service");
+        assertNoMethodTypeFromPackage(LegacyPipelineStore.class, "br.com.greenv.frameextractor.service");
+        assertNoMethodTypeFromPackage(LegacyTaskInbox.class, "br.com.greenv.frameextractor.service");
+    }
+
+    @Test
+    void providerAdaptersHaveOnePortResponsibility() {
+        assertThat(LocalSegmentObjectStorageAdapter.class.getInterfaces())
+                .containsExactly(SegmentObjectStorage.class);
+        assertThat(LocalLegacyPipelineStoreAdapter.class.getInterfaces())
+                .containsExactly(LegacyPipelineStore.class);
+        assertThat(LocalLegacyTaskInboxAdapter.class.getInterfaces())
+                .containsExactly(LegacyTaskInbox.class);
+        assertThat(CaptureSegmentStore.class).isAssignableFrom(JdbcCaptureSegmentStoreAdapter.class);
+        assertThat(SegmentWorkQueue.class).isAssignableFrom(RabbitMqSegmentWorkQueueAdapter.class);
+    }
+
+    @Test
     void applicationServicesDoNotDependOnInfrastructureAdapters() {
         assertCloudNeutral(ExtractionService.class);
+        assertCloudNeutral(LegacyExtractionHandler.class);
         assertCloudNeutral(SegmentExtractionService.class);
         assertCloudNeutral(SegmentExtractionHandler.class);
     }
@@ -43,5 +91,23 @@ class CloudAgnosticArchitectureTest {
                         || packageName.startsWith("br.com.greenv.frameextractor.task")
                         || packageName.startsWith("org.springframework.jdbc")
                         || packageName.startsWith("org.springframework.amqp"));
+    }
+
+    private static void assertGreenVDependenciesAreInterfaces(Class<?> adapter) {
+        assertThat(Arrays.stream(adapter.getDeclaredFields())
+                        .filter(field -> !Modifier.isStatic(field.getModifiers()))
+                        .map(field -> field.getType())
+                        .filter(type -> type.getPackageName().startsWith("br.com.greenv")))
+                .allMatch(Class::isInterface)
+                .allMatch(type -> type.getPackageName().equals("br.com.greenv.frameextractor.port"));
+    }
+
+    private static void assertNoMethodTypeFromPackage(Class<?> port, String forbiddenPackage) {
+        assertThat(Arrays.stream(port.getDeclaredMethods())
+                        .flatMap(method -> java.util.stream.Stream.concat(
+                                java.util.stream.Stream.of(method.getReturnType()),
+                                Arrays.stream(method.getParameterTypes())))
+                        .map(Class::getPackageName))
+                .noneMatch(packageName -> packageName.startsWith(forbiddenPackage));
     }
 }

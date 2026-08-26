@@ -1,11 +1,8 @@
 package br.com.greenv.frameextractor.api;
 
 import br.com.greenv.frameextractor.domain.FrameExtractionRequest;
-import br.com.greenv.frameextractor.service.ExtractionException;
-import br.com.greenv.frameextractor.service.ExtractionService;
-import br.com.greenv.frameextractor.port.LegacyPipelineStore;
+import br.com.greenv.frameextractor.port.LegacyExtractionUseCase;
 import jakarta.validation.Valid;
-import java.time.Clock;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -17,26 +14,20 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/internal/v1/extractions")
 public class ExtractionController {
 
-    private final ExtractionService extractionService;
-    private final LegacyPipelineStore store;
-    private final Clock clock;
+    private final LegacyExtractionUseCase extractionUseCase;
 
-    public ExtractionController(ExtractionService extractionService, LegacyPipelineStore store, Clock clock) {
-        this.extractionService = extractionService;
-        this.store = store;
-        this.clock = clock;
+    public ExtractionController(LegacyExtractionUseCase extractionUseCase) {
+        this.extractionUseCase = extractionUseCase;
     }
 
     @PostMapping
     ResponseEntity<ExtractionResponse> extract(@Valid @RequestBody FrameExtractionRequest request) {
-        try {
-            return ResponseEntity.ok(ExtractionResponse.ready(extractionService.extract(request)));
-        } catch (ExtractionException exception) {
-            String state = exception.retryable() ? "queued" : "failed";
-            store.markError(request.statusUri(), state, exception, clock.instant());
-            return ResponseEntity
-                    .status(exception.retryable() ? HttpStatus.SERVICE_UNAVAILABLE : HttpStatus.OK)
-                    .body(ExtractionResponse.failed(state, exception.code(), exception.getMessage()));
+        var result = extractionUseCase.execute(request);
+        if (result.isReady()) {
+            return ResponseEntity.ok(ExtractionResponse.ready(result.manifest()));
         }
+        return ResponseEntity
+                .status(result.shouldRetry() ? HttpStatus.SERVICE_UNAVAILABLE : HttpStatus.OK)
+                .body(ExtractionResponse.failed(result.state(), result.errorCode(), result.errorMessage()));
     }
 }

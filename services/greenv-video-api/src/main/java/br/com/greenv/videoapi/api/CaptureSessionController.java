@@ -1,6 +1,8 @@
 package br.com.greenv.videoapi.api;
 
-import br.com.greenv.videoapi.service.CaptureSessionService;
+import br.com.greenv.videoapi.port.CaptureSessionUseCase;
+import br.com.greenv.videoapi.service.ApplicationException;
+import br.com.greenv.videoapi.service.FailureKind;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.io.IOException;
@@ -25,16 +27,16 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 @RequestMapping("/v2/capture-sessions")
 public class CaptureSessionController {
 
-    private final CaptureSessionService service;
+    private final CaptureSessionUseCase captureSessionUseCase;
 
-    public CaptureSessionController(CaptureSessionService service) {
-        this.service = service;
+    public CaptureSessionController(CaptureSessionUseCase captureSessionUseCase) {
+        this.captureSessionUseCase = captureSessionUseCase;
     }
 
     @PostMapping
     ResponseEntity<CaptureSessionResponse> create(@Valid @RequestBody CreateCaptureSessionRequest request) {
-        var session = service.create(request);
-        var response = service.getSession(session.sessionId());
+        var session = captureSessionUseCase.create(request.sessionId(), request.deviceId(), request.startedAt());
+        var response = CaptureSessionResponse.from(captureSessionUseCase.getSession(session.sessionId()));
         return ResponseEntity
                 .created(URI.create(baseUrl() + "/v2/capture-sessions/" + session.sessionId()))
                 .body(response);
@@ -42,12 +44,12 @@ public class CaptureSessionController {
 
     @GetMapping("/{sessionId}")
     CaptureSessionResponse get(@PathVariable UUID sessionId) {
-        return service.getSession(sessionId);
+        return CaptureSessionResponse.from(captureSessionUseCase.getSession(sessionId));
     }
 
     @GetMapping("/{sessionId}/segments/{segmentIndex}")
     CaptureSegmentResponse getSegment(@PathVariable UUID sessionId, @PathVariable int segmentIndex) {
-        return CaptureSegmentResponse.from(service.getSegment(sessionId, segmentIndex), baseUrl());
+        return CaptureSegmentResponse.from(captureSessionUseCase.getSegment(sessionId, segmentIndex), baseUrl());
     }
 
     @PutMapping(path = "/{sessionId}/segments/{segmentIndex}/video", consumes = "video/mp4")
@@ -60,7 +62,7 @@ public class CaptureSessionController {
             @RequestHeader("X-Duration-Millis") long durationMillis,
             HttpServletRequest request) throws IOException {
         return CaptureSegmentResponse.from(
-                service.uploadVideo(
+                captureSessionUseCase.uploadVideo(
                         sessionId,
                         segmentIndex,
                         idempotencyKey,
@@ -83,7 +85,7 @@ public class CaptureSessionController {
             @RequestHeader("X-Duration-Millis") long durationMillis,
             HttpServletRequest request) throws IOException {
         return CaptureSegmentResponse.from(
-                service.uploadTelemetry(
+                captureSessionUseCase.uploadTelemetry(
                         sessionId,
                         segmentIndex,
                         idempotencyKey,
@@ -100,7 +102,8 @@ public class CaptureSessionController {
             @PathVariable int segmentIndex) {
         return ResponseEntity
                 .status(HttpStatus.ACCEPTED)
-                .body(CaptureSegmentResponse.from(service.completeSegment(sessionId, segmentIndex), baseUrl()));
+                .body(CaptureSegmentResponse.from(
+                        captureSessionUseCase.completeSegment(sessionId, segmentIndex), baseUrl()));
     }
 
     @PostMapping("/{sessionId}/complete")
@@ -109,21 +112,21 @@ public class CaptureSessionController {
             @RequestBody Map<String, Object> body) {
         Object rawIndex = body.get("lastSegmentIndex");
         if (!(rawIndex instanceof Number number)) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
+            throw new ApplicationException(
+                    FailureKind.INVALID_INPUT,
                     "invalid_segment_index",
                     "lastSegmentIndex is required");
         }
         Instant endedAt = body.get("endedAt") == null ? null : Instant.parse(body.get("endedAt").toString());
-        service.completeSession(sessionId, number.intValue(), endedAt);
-        return ResponseEntity.accepted().body(service.getSession(sessionId));
+        captureSessionUseCase.completeSession(sessionId, number.intValue(), endedAt);
+        return ResponseEntity.accepted().body(CaptureSessionResponse.from(captureSessionUseCase.getSession(sessionId)));
     }
 
     @GetMapping(
             path = "/{sessionId}/segments/{segmentIndex}/manifest",
             produces = MediaType.APPLICATION_JSON_VALUE)
     byte[] manifest(@PathVariable UUID sessionId, @PathVariable int segmentIndex) {
-        return service.manifest(sessionId, segmentIndex);
+        return captureSessionUseCase.manifest(sessionId, segmentIndex);
     }
 
     private static String baseUrl() {

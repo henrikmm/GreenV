@@ -3,43 +3,51 @@ package br.com.greenv.frameextractor.service;
 import br.com.greenv.frameextractor.config.ExtractorProperties;
 import br.com.greenv.frameextractor.domain.SegmentExtractionRequest;
 import br.com.greenv.frameextractor.port.CaptureSegmentStore;
+import br.com.greenv.frameextractor.port.SegmentExtractionUseCase;
+import br.com.greenv.frameextractor.port.SegmentProcessor;
 import br.com.greenv.frameextractor.port.SegmentWorkQueue;
 import java.time.Clock;
 import org.springframework.stereotype.Service;
 
 @Service
-public class SegmentExtractionHandler {
+public class SegmentExtractionHandler implements SegmentExtractionUseCase {
 
-    private final SegmentExtractionService extractionService;
+    private final SegmentProcessor segmentProcessor;
     private final CaptureSegmentStore segmentStore;
     private final SegmentWorkQueue workQueue;
-    private final ExtractorProperties properties;
+    private final ExtractorProperties extractorProperties;
     private final Clock clock;
 
     public SegmentExtractionHandler(
-            SegmentExtractionService extractionService,
+            SegmentProcessor segmentProcessor,
             CaptureSegmentStore segmentStore,
             SegmentWorkQueue workQueue,
-            ExtractorProperties properties,
+            ExtractorProperties extractorProperties,
             Clock clock) {
-        this.extractionService = extractionService;
+        this.segmentProcessor = segmentProcessor;
         this.segmentStore = segmentStore;
         this.workQueue = workQueue;
-        this.properties = properties;
+        this.extractorProperties = extractorProperties;
         this.clock = clock;
     }
 
+    @Override
     public void handle(SegmentExtractionRequest request) {
         try {
             if (!"ready".equals(segmentStore.state(request))) {
-                extractionService.extract(request);
+                segmentProcessor.extract(request);
             }
         } catch (ExtractionException exception) {
-            boolean retry = exception.retryable() && request.attempt() + 1 < properties.maxAttempts();
+            boolean retry = exception.retryable()
+                    && request.attempt() + 1 < extractorProperties.maxAttempts();
             if (retry) {
                 workQueue.publish(request.nextAttempt());
             } else {
-                segmentStore.markError(request, exception, clock.instant());
+                segmentStore.markError(
+                        request,
+                        exception.code(),
+                        exception.getMessage(),
+                        clock.instant());
             }
         }
     }

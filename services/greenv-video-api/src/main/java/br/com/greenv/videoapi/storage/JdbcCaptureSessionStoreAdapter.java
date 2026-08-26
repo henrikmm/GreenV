@@ -1,9 +1,10 @@
 package br.com.greenv.videoapi.storage;
 
-import br.com.greenv.videoapi.api.ApiException;
 import br.com.greenv.videoapi.domain.CaptureSegmentDocument;
 import br.com.greenv.videoapi.domain.CaptureSessionDocument;
 import br.com.greenv.videoapi.port.CaptureSessionStore;
+import br.com.greenv.videoapi.service.ApplicationException;
+import br.com.greenv.videoapi.service.FailureKind;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
@@ -12,23 +13,23 @@ import java.util.Optional;
 import java.util.UUID;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 @Repository
 @ConditionalOnProperty(name = "greenv.adapters.database", havingValue = "jdbc", matchIfMissing = true)
-public class CaptureSessionRepository implements CaptureSessionStore {
+public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
 
-    private final JdbcTemplate jdbc;
+    private final JdbcTemplate jdbcTemplate;
 
-    public CaptureSessionRepository(JdbcTemplate jdbc) {
-        this.jdbc = jdbc;
+    public JdbcCaptureSessionStoreAdapter(JdbcTemplate jdbcTemplate) {
+        this.jdbcTemplate = jdbcTemplate;
     }
 
+    @Override
     public CaptureSessionDocument createSession(CaptureSessionDocument session) {
-        jdbc.update("""
+        jdbcTemplate.update("""
                 INSERT INTO capture_sessions (
                     session_id, device_id, state, started_at, created_at, updated_at, expires_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -43,37 +44,42 @@ public class CaptureSessionRepository implements CaptureSessionStore {
         return session;
     }
 
+    @Override
     public CaptureSessionDocument getSession(UUID sessionId) {
         return findSession(sessionId)
-                .orElseThrow(() -> new ApiException(
-                        HttpStatus.NOT_FOUND, "capture_session_not_found", "capture session does not exist"));
+                .orElseThrow(() -> new ApplicationException(
+                        FailureKind.NOT_FOUND, "capture_session_not_found", "capture session does not exist"));
     }
 
+    @Override
     public Optional<CaptureSessionDocument> findSession(UUID sessionId) {
-        return jdbc.query(
+        return jdbcTemplate.query(
                         "SELECT * FROM capture_sessions WHERE session_id = ?",
-                        CaptureSessionRepository::mapSession,
+                        JdbcCaptureSessionStoreAdapter::mapSession,
                         sessionId)
                 .stream()
                 .findFirst();
     }
 
+    @Override
     public Optional<CaptureSegmentDocument> findSegment(UUID sessionId, int segmentIndex) {
-        return jdbc.query(
+        return jdbcTemplate.query(
                         "SELECT * FROM capture_segments WHERE session_id = ? AND segment_index = ?",
-                        CaptureSessionRepository::mapSegment,
+                        JdbcCaptureSessionStoreAdapter::mapSegment,
                         sessionId,
                         segmentIndex)
                 .stream()
                 .findFirst();
     }
 
+    @Override
     public CaptureSegmentDocument getSegment(UUID sessionId, int segmentIndex) {
-        return findSegment(sessionId, segmentIndex).orElseThrow(() -> new ApiException(
-                HttpStatus.NOT_FOUND, "capture_segment_not_found", "capture segment does not exist"));
+        return findSegment(sessionId, segmentIndex).orElseThrow(() -> new ApplicationException(
+                FailureKind.NOT_FOUND, "capture_segment_not_found", "capture segment does not exist"));
     }
 
     @Transactional
+    @Override
     public CaptureSegmentDocument ensureSegment(
             UUID sessionId,
             int segmentIndex,
@@ -88,7 +94,7 @@ public class CaptureSessionRepository implements CaptureSessionStore {
             return existing.get();
         }
         try {
-            jdbc.update("""
+            jdbcTemplate.update("""
                     INSERT INTO capture_segments (
                         session_id, segment_index, state, idempotency_key, captured_at,
                         duration_millis, created_at, updated_at
@@ -109,6 +115,7 @@ public class CaptureSessionRepository implements CaptureSessionStore {
         return getSegment(sessionId, segmentIndex);
     }
 
+    @Override
     public CaptureSegmentDocument recordVideo(
             UUID sessionId,
             int segmentIndex,
@@ -116,7 +123,7 @@ public class CaptureSessionRepository implements CaptureSessionStore {
             String sha256,
             long bytes,
             Instant now) {
-        jdbc.update("""
+        jdbcTemplate.update("""
                 UPDATE capture_segments
                 SET video_object_key = ?, video_sha256 = ?, video_bytes = ?, state = 'uploading', updated_at = ?
                 WHERE session_id = ? AND segment_index = ?
@@ -124,6 +131,7 @@ public class CaptureSessionRepository implements CaptureSessionStore {
         return getSegment(sessionId, segmentIndex);
     }
 
+    @Override
     public CaptureSegmentDocument recordTelemetry(
             UUID sessionId,
             int segmentIndex,
@@ -131,7 +139,7 @@ public class CaptureSessionRepository implements CaptureSessionStore {
             String sha256,
             long bytes,
             Instant now) {
-        jdbc.update("""
+        jdbcTemplate.update("""
                 UPDATE capture_segments
                 SET telemetry_object_key = ?, telemetry_sha256 = ?, telemetry_bytes = ?, state = 'uploading', updated_at = ?
                 WHERE session_id = ? AND segment_index = ?
@@ -139,21 +147,23 @@ public class CaptureSessionRepository implements CaptureSessionStore {
         return getSegment(sessionId, segmentIndex);
     }
 
+    @Override
     public CaptureSegmentDocument markQueued(UUID sessionId, int segmentIndex, Instant now) {
-        jdbc.update("""
+        jdbcTemplate.update("""
                 UPDATE capture_segments SET state = 'queued', updated_at = ?, error_code = NULL, error_message = NULL
                 WHERE session_id = ? AND segment_index = ?
                 """, timestamp(now), sessionId, segmentIndex);
         return getSegment(sessionId, segmentIndex);
     }
 
+    @Override
     public CaptureSegmentDocument markQueueFailed(
             UUID sessionId,
             int segmentIndex,
             String errorCode,
             String errorMessage,
             Instant now) {
-        jdbc.update("""
+        jdbcTemplate.update("""
                 UPDATE capture_segments
                 SET state = 'failed', error_code = ?, error_message = ?, updated_at = ?
                 WHERE session_id = ? AND segment_index = ?
@@ -166,18 +176,19 @@ public class CaptureSessionRepository implements CaptureSessionStore {
         return getSegment(sessionId, segmentIndex);
     }
 
+    @Override
     public CaptureSessionDocument completeSession(UUID sessionId, int lastSegmentIndex, Instant endedAt, Instant now) {
-        jdbc.update("""
+        jdbcTemplate.update("""
                 UPDATE capture_sessions
                 SET state = 'processing', last_segment_index = ?, ended_at = ?, updated_at = ?
                 WHERE session_id = ? AND state IN ('recording', 'processing')
                 """, lastSegmentIndex, timestamp(endedAt), timestamp(now), sessionId);
-        Long ready = jdbc.queryForObject(
+        Long ready = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM capture_segments WHERE session_id = ? AND state = 'ready'",
                 Long.class,
                 sessionId);
         if (ready != null && ready == (long) lastSegmentIndex + 1) {
-            jdbc.update(
+            jdbcTemplate.update(
                     "UPDATE capture_sessions SET state = 'ready', updated_at = ? WHERE session_id = ?",
                     timestamp(now),
                     sessionId);
@@ -185,14 +196,16 @@ public class CaptureSessionRepository implements CaptureSessionStore {
         return getSession(sessionId);
     }
 
+    @Override
     public long segmentCount(UUID sessionId) {
-        Long value = jdbc.queryForObject(
+        Long value = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM capture_segments WHERE session_id = ?", Long.class, sessionId);
         return value == null ? 0 : value;
     }
 
+    @Override
     public long readySegmentCount(UUID sessionId) {
-        Long value = jdbc.queryForObject(
+        Long value = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM capture_segments WHERE session_id = ? AND state = 'ready'",
                 Long.class,
                 sessionId);
@@ -242,8 +255,8 @@ public class CaptureSessionRepository implements CaptureSessionStore {
         if (!existing.idempotencyKey().equals(idempotencyKey)
                 || !existing.capturedAt().equals(capturedAt)
                 || existing.durationMillis() != durationMillis) {
-            throw new ApiException(
-                    HttpStatus.CONFLICT,
+            throw new ApplicationException(
+                    FailureKind.CONFLICT,
                     "segment_identity_conflict",
                     "segment index already belongs to different capture metadata");
         }

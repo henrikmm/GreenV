@@ -14,7 +14,7 @@ local object-store adapter so API and worker can exchange files without a cloud 
 | Path | Responsibility |
 |---|---|
 | `src/main/java/.../api/` | HTTP request validation and response models |
-| `src/main/java/.../port/` | Cloud-neutral database, object-storage and queue contracts |
+| `src/main/java/.../port/` | Inbound use cases and cloud-neutral outbound contracts |
 | `src/main/java/.../service/` | Capture/job state machines and queue publication |
 | `src/main/java/.../storage/` | JDBC and local-filesystem output adapters |
 | `src/main/java/.../task/` | RabbitMQ and legacy-filesystem queue adapters |
@@ -256,24 +256,41 @@ and HTTP error responses. The full API-worker seam is covered by `services/captu
 
 ## Production boundary
 
-The application layer depends only on `CaptureSessionStore`, `CaptureObjectStorage`,
-`SegmentWorkQueue`, `LegacyJobStore` and `FrameWorkQueue`. The shipped adapters are JDBC,
-RabbitMQ and local filesystem; a cloud provider is added behind those ports and selected with the
-three `GREENV_*_ADAPTER` settings. Queue contract v2 contains opaque object keys and never a
-`file:`, `s3:` or provider URL. Do not put signed URLs in the queue because they can expire while a
-message is waiting or retrying.
+Dependency direction is explicit and uses constructor injection:
+
+```text
+HTTP controller -> inbound use-case interface -> application service
+application service -> outbound interface -> JDBC/RabbitMQ/object-storage adapter
+application failure -> HTTP exception mapper -> HTTP status
+```
+
+`CaptureSessionController` and `JobController` depend on `CaptureSessionUseCase` and
+`LegacyJobUseCase`, never on service implementations. The use-case interfaces expose domain
+values rather than HTTP DTOs. `CaptureSessionService`, `JobService` and cleanup orchestration
+depend on the narrow outbound ports `CaptureSessionStore`, `CaptureObjectStorage`,
+`SegmentWorkQueue`, `LegacyJobStore` and `FrameWorkQueue`; no service imports JDBC, RabbitMQ,
+filesystem or Spring HTTP types. Provider implementations end in `Adapter` so a concrete
+dependency is visible during review.
+
+The shipped adapters are JDBC, RabbitMQ and local filesystem; a cloud provider is added behind
+the same ports and selected with the three `GREENV_*_ADAPTER` settings. Queue contract v2 contains
+opaque object keys and never a `file:`, `s3:` or provider URL. Do not put signed URLs in the queue
+because they can expire while a message is waiting or retrying.
 
 Before an internet deployment, add authenticated device identity, authorization per session,
 rate limits, TLS, observability and retention cleanup. A production object adapter should issue
 presigned upload URLs where appropriate while retaining opaque keys in persisted state. Ephemeral
 worker disk is an FFmpeg workspace, not durable storage.
 
-To add a provider, implement the relevant interface in `port/`, register that implementation under
+To add a provider, implement the relevant outbound interface in `port/`, register that implementation under
 a new adapter value, and leave `service/` unchanged. API and worker object adapters must address
 the same bucket/container and interpret an object key identically. A queue adapter must provide
 durable at-least-once delivery; a database adapter must preserve the session/segment identity and
 atomic state transitions currently implemented by JDBC.
 
-Verification observed on 25 Aug 2026: `./gradlew.bat check --no-daemon --offline` completed
-successfully. The Compose smoke command was attempted on the same date but did not execute because
+Architecture tests also enforce the dependency direction, the absence of HTTP DTOs in inbound
+ports, provider-neutral object keys and adapter-to-port assignments.
+
+Verification observed on 26 Aug 2026: `./gradlew.bat check --no-daemon --offline` completed
+successfully. The Compose smoke command was attempted on 25 Aug 2026 but did not execute because
 the local Docker daemon was unavailable.

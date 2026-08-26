@@ -1,8 +1,9 @@
 package br.com.greenv.frameextractor.task;
 
+import br.com.greenv.frameextractor.config.ExtractorProperties;
 import br.com.greenv.frameextractor.domain.FrameExtractionRequest;
+import br.com.greenv.frameextractor.port.LegacyTaskInbox;
 import br.com.greenv.frameextractor.service.ExtractionException;
-import br.com.greenv.frameextractor.storage.LocalPipelineStore;
 import java.io.IOException;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
@@ -10,21 +11,31 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Comparator;
 import java.util.Optional;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 
 @Component
-public class LocalTaskInbox {
+@ConditionalOnProperty(
+        name = "greenv.extractor.local-polling-enabled",
+        havingValue = "true",
+        matchIfMissing = true)
+public class LocalLegacyTaskInboxAdapter implements LegacyTaskInbox {
 
     private final ObjectMapper objectMapper;
     private final Path tasksRoot;
 
-    public LocalTaskInbox(ObjectMapper objectMapper, LocalPipelineStore store) {
+    public LocalLegacyTaskInboxAdapter(ObjectMapper objectMapper, ExtractorProperties extractorProperties)
+            throws IOException {
         this.objectMapper = objectMapper;
-        this.tasksRoot = store.tasksRoot();
+        this.tasksRoot = extractorProperties.root().toAbsolutePath().normalize().resolve("tasks");
+        for (String state : java.util.List.of("pending", "processing", "done", "failed")) {
+            Files.createDirectories(tasksRoot.resolve(state));
+        }
     }
 
+    @Override
     public synchronized Optional<ClaimedTask> claim() {
         Path pending = tasksRoot.resolve("pending");
         try (var files = Files.list(pending)) {
@@ -37,28 +48,42 @@ public class LocalTaskInbox {
             Path processing = tasksRoot.resolve("processing").resolve(candidate.get().getFileName());
             move(candidate.get(), processing, false);
             return Optional.of(new ClaimedTask(
-                    processing,
+                    processing.toString(),
                     objectMapper.readValue(processing.toFile(), FrameExtractionRequest.class)));
         } catch (IOException exception) {
             throw new ExtractionException("task_claim_failed", "could not claim local extraction task", true, exception);
         }
     }
 
+    @Override
     public synchronized void complete(ClaimedTask task) {
-        moveTask(task.path(), tasksRoot.resolve("done").resolve(task.path().getFileName()));
+        Path taskPath = taskPath(task);
+        moveTask(taskPath, tasksRoot.resolve("done").resolve(taskPath.getFileName()));
     }
 
+    @Override
     public synchronized void fail(ClaimedTask task) {
-        moveTask(task.path(), tasksRoot.resolve("failed").resolve(task.path().getFileName()));
+        Path taskPath = taskPath(task);
+        moveTask(taskPath, tasksRoot.resolve("failed").resolve(taskPath.getFileName()));
     }
 
+    @Override
     public synchronized void retry(ClaimedTask task) {
+        Path taskPath = taskPath(task);
         try {
-            objectMapper.writeValue(task.path().toFile(), task.request().nextAttempt());
-            moveTask(task.path(), tasksRoot.resolve("pending").resolve(task.path().getFileName()));
+            objectMapper.writeValue(taskPath.toFile(), task.request().nextAttempt());
+            moveTask(taskPath, tasksRoot.resolve("pending").resolve(taskPath.getFileName()));
         } catch (JacksonException exception) {
             throw new ExtractionException("task_retry_failed", "could not requeue extraction task", true, exception);
         }
+    }
+
+    private Path taskPath(ClaimedTask task) {
+        Path taskPath = Path.of(task.receipt()).toAbsolutePath().normalize();
+        if (!taskPath.startsWith(tasksRoot)) {
+            throw new ExtractionException("invalid_task_receipt", "task receipt escapes the local inbox", false);
+        }
+        return taskPath;
     }
 
     private static void moveTask(Path source, Path destination) {
@@ -83,8 +108,5 @@ public class LocalTaskInbox {
                 Files.move(source, destination);
             }
         }
-    }
-
-    public record ClaimedTask(Path path, FrameExtractionRequest request) {
     }
 }

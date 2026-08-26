@@ -7,6 +7,7 @@ import static org.mockito.Mockito.when;
 import br.com.greenv.frameextractor.config.ExtractorProperties;
 import br.com.greenv.frameextractor.domain.SegmentExtractionRequest;
 import br.com.greenv.frameextractor.port.CaptureSegmentStore;
+import br.com.greenv.frameextractor.port.SegmentProcessor;
 import br.com.greenv.frameextractor.port.SegmentWorkQueue;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -19,39 +20,43 @@ class SegmentExtractionHandlerTest {
 
     @Test
     void republishesRetryableWorkThroughTheQueuePort() {
-        SegmentExtractionService extraction = mock(SegmentExtractionService.class);
+        SegmentProcessor segmentProcessor = mock(SegmentProcessor.class);
         CaptureSegmentStore segments = mock(CaptureSegmentStore.class);
         SegmentWorkQueue queue = mock(SegmentWorkQueue.class);
         SegmentExtractionRequest request = request(0);
         when(segments.state(request)).thenReturn("queued");
-        when(extraction.extract(request)).thenThrow(new ExtractionException("temporary", "try again", true));
+        when(segmentProcessor.extract(request)).thenThrow(new ExtractionException("temporary", "try again", true));
 
-        handler(extraction, segments, queue).handle(request);
+        handler(segmentProcessor, segments, queue).handle(request);
 
         verify(queue).publish(request.nextAttempt());
     }
 
     @Test
     void persistsTerminalFailureThroughTheDatabasePort() {
-        SegmentExtractionService extraction = mock(SegmentExtractionService.class);
+        SegmentProcessor segmentProcessor = mock(SegmentProcessor.class);
         CaptureSegmentStore segments = mock(CaptureSegmentStore.class);
         SegmentWorkQueue queue = mock(SegmentWorkQueue.class);
         SegmentExtractionRequest request = request(2);
         ExtractionException failure = new ExtractionException("invalid", "do not retry", false);
         when(segments.state(request)).thenReturn("queued");
-        when(extraction.extract(request)).thenThrow(failure);
+        when(segmentProcessor.extract(request)).thenThrow(failure);
 
-        handler(extraction, segments, queue).handle(request);
+        handler(segmentProcessor, segments, queue).handle(request);
 
-        verify(segments).markError(request, failure, Instant.parse("2026-08-25T12:00:00Z"));
+        verify(segments).markError(
+                request,
+                failure.code(),
+                failure.getMessage(),
+                Instant.parse("2026-08-25T12:00:00Z"));
     }
 
     private static SegmentExtractionHandler handler(
-            SegmentExtractionService extraction,
+            SegmentProcessor segmentProcessor,
             CaptureSegmentStore segments,
             SegmentWorkQueue queue) {
         return new SegmentExtractionHandler(
-                extraction,
+                segmentProcessor,
                 segments,
                 queue,
                 new ExtractorProperties(Path.of("build/test-pipeline"), "ffmpeg", "ffprobe", 300, 3, 1000, false),
