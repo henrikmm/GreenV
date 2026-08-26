@@ -3,6 +3,7 @@ import 'package:greenv_capture/src/bootstrap/app_dependencies.dart';
 import 'package:greenv_capture/src/capture/capture_coordinator.dart';
 import 'package:greenv_capture/src/capture/capture_ports.dart';
 import 'package:greenv_capture/src/domain/capture_models.dart';
+import 'package:greenv_capture/src/identifier/uuid_v7_identifier_adapter.dart';
 import 'package:greenv_capture/src/storage/memory_capture_queue.dart';
 import 'package:greenv_capture/src/upload/queue_uploader.dart';
 
@@ -22,6 +23,7 @@ Future<AppDependencies> createAppDependencies() async {
     uploader: uploader,
     foregroundLease: _NoopForegroundLease(),
     scheduler: _PreviewScheduler(),
+    identifierGenerator: UuidV7IdentifierAdapter(),
     monotonicNanos: () => DateTime.now().microsecondsSinceEpoch * 1000,
   );
   if (Uri.base.queryParameters['phase'] == 'preparing') {

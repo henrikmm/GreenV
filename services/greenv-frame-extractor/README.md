@@ -131,6 +131,8 @@ the segment anchor. The quaternion is relative gyroscope integration, not absolu
 
 The request, telemetry and manifest schemas in `src/main/resources/contracts/` must remain
 byte-for-byte equal to the API copies. SHA-256 values are the generation and idempotency boundary.
+The worker does not generate business identifiers: it preserves the session and job UUIDs received
+from the API. New producers use UUIDv7, while queued UUIDv4 captures remain valid during rollout.
 
 ## Persisted outputs
 

@@ -305,7 +305,9 @@ components:
         sessionId:
           type: string
           format: uuid
-          description: Client-assigned UUID used to recover an offline-first session
+          description: >-
+            Client-assigned UUIDv7 used to recover an offline-first session; UUIDv4 remains
+            accepted for captures queued before migration
         deviceId:
           type: string
           minLength: 1

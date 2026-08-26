@@ -6,6 +6,7 @@ import br.com.greenv.videoapi.domain.JobDocument;
 import br.com.greenv.videoapi.domain.JobState;
 import br.com.greenv.videoapi.domain.SamplingOptions;
 import br.com.greenv.videoapi.port.FrameWorkQueue;
+import br.com.greenv.videoapi.port.IdentifierGenerator;
 import br.com.greenv.videoapi.port.LegacyJobStore;
 import br.com.greenv.videoapi.port.LegacyJobUseCase;
 import java.io.InputStream;
@@ -20,16 +21,19 @@ public class JobService implements LegacyJobUseCase {
     private final LegacyJobStore jobStore;
     private final FrameWorkQueue frameWorkQueue;
     private final PipelineProperties pipelineProperties;
+    private final IdentifierGenerator identifierGenerator;
     private final Clock clock;
 
     public JobService(
             LegacyJobStore jobStore,
             FrameWorkQueue frameWorkQueue,
             PipelineProperties pipelineProperties,
+            IdentifierGenerator identifierGenerator,
             Clock clock) {
         this.jobStore = jobStore;
         this.frameWorkQueue = frameWorkQueue;
         this.pipelineProperties = pipelineProperties;
+        this.identifierGenerator = identifierGenerator;
         this.clock = clock;
     }
 
@@ -41,7 +45,7 @@ public class JobService implements LegacyJobUseCase {
         }
         Instant now = clock.instant();
         return jobStore.create(JobDocument.create(
-                UUID.randomUUID(),
+                identifierGenerator.next(),
                 safeFileName(fileName),
                 contentType,
                 sizeBytes,

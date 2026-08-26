@@ -2,11 +2,14 @@ package br.com.greenv.videoapi.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import br.com.greenv.videoapi.config.PipelineProperties;
 import br.com.greenv.videoapi.domain.FrameExtractionRequest;
 import br.com.greenv.videoapi.domain.JobState;
 import br.com.greenv.videoapi.domain.SamplingOptions;
+import br.com.greenv.videoapi.port.IdentifierGenerator;
 import br.com.greenv.videoapi.storage.LocalLegacyJobStoreAdapter;
 import br.com.greenv.videoapi.task.LocalFrameWorkQueueAdapter;
 import java.io.ByteArrayInputStream;
@@ -15,6 +18,7 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -30,6 +34,7 @@ class JobServiceTest {
     private PipelineProperties properties;
     private LocalLegacyJobStoreAdapter store;
     private JobService service;
+    private IdentifierGenerator identifierGenerator;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -40,10 +45,14 @@ class JobServiceTest {
                 1024 * 1024,
                 3);
         store = new LocalLegacyJobStoreAdapter(objectMapper, properties);
+        identifierGenerator = mock(IdentifierGenerator.class);
+        when(identifierGenerator.next())
+                .thenReturn(UUID.fromString("0198e6f8-5c15-7000-8000-000000000001"));
         service = new JobService(
                 store,
                 new LocalFrameWorkQueueAdapter(objectMapper, properties),
                 properties,
+                identifierGenerator,
                 Clock.fixed(Instant.parse("2026-08-16T12:00:00Z"), ZoneOffset.UTC));
     }
 

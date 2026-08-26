@@ -16,6 +16,7 @@ local object-store adapter so API and worker can exchange files without a cloud 
 | `src/main/java/.../api/` | HTTP request validation and response models |
 | `src/main/java/.../port/` | Inbound use cases and cloud-neutral outbound contracts |
 | `src/main/java/.../service/` | Capture/job state machines and queue publication |
+| `src/main/java/.../identifier/` | RFC 9562 UUIDv7 provider behind the identifier port |
 | `src/main/java/.../storage/` | JDBC and local-filesystem output adapters |
 | `src/main/java/.../task/` | RabbitMQ and legacy-filesystem queue adapters |
 | `src/main/resources/db/migration/` | Flyway schema for capture sessions and segments |
@@ -109,7 +110,7 @@ to the public internet.
 ## Mobile v2 data flow
 
 ```text
-phone creates UUID
+phone creates UUIDv7
   -> PUT segment video + checksum
   -> PUT matching telemetry + checksum
   -> POST segment complete
@@ -119,10 +120,24 @@ phone creates UUID
   -> phone closes the session with its last segment index
 ```
 
-A session can be created with a client UUID before network access. Each segment uses the same
+A session can be created with a client UUIDv7 before network access. Each segment uses the same
 idempotency key, captured-at time and duration for both objects; video and telemetry each carry
 their own lowercase SHA-256. A repeated upload with the same checksum is accepted. Reusing the
 same session, segment or object identity with conflicting metadata/checksum returns `409`.
+
+### Identifier ordering and compatibility
+
+The API generates RFC 9562 UUIDv7 values for new server-assigned capture sessions and legacy v1
+jobs. Its generator uses the 48-bit Unix-millisecond field plus a monotonic counter so identifiers
+from one process remain strictly ordered when several are created in the same millisecond or its
+clock moves backwards. The mobile client also assigns UUIDv7 before going online; that timestamp
+therefore represents capture creation on the phone clock, not database insertion time.
+
+Existing UUID database columns need no migration. The API deliberately continues to accept a
+client-assigned UUIDv4 so captures queued by an older mobile version can still be uploaded. Sort
+mixed historical data by the persisted `created_at` column. Exact insertion order across multiple
+processes requires a database sequencing field; UUIDv7 supplies time locality, not a global total
+order or a replacement for the authoritative event timestamp.
 
 ### Complete v2 request sequence
 
@@ -132,17 +147,16 @@ first make `source.mp4` and a schema-v1 `telemetry.json` whose `sessionId`, `seg
 
 ```bash
 API=http://127.0.0.1:8080
-SESSION_ID=$(cat /proc/sys/kernel/random/uuid)
 SEGMENT_INDEX=0
 CAPTURED_AT=2026-08-24T12:00:00Z
 DURATION_MS=10000
+
+SESSION_ID=$(curl -fsS "$API/v2/capture-sessions" \
+  -H 'content-type: application/json' \
+  -d "{\"deviceId\":\"manual-device\",\"startedAt\":\"$CAPTURED_AT\"}" | jq -r .sessionId)
 IDEMPOTENCY_KEY="mobile:${SESSION_ID}:${SEGMENT_INDEX}"
 VIDEO=/absolute/path/to/source.mp4
 TELEMETRY=/absolute/path/to/telemetry.json
-
-curl -fsS "$API/v2/capture-sessions" \
-  -H 'content-type: application/json' \
-  -d "{\"sessionId\":\"$SESSION_ID\",\"deviceId\":\"manual-device\",\"startedAt\":\"$CAPTURED_AT\"}" | jq
 
 VIDEO_SHA=$(sha256sum "$VIDEO" | cut -d ' ' -f 1)
 TELEMETRY_SHA=$(sha256sum "$TELEMETRY" | cut -d ' ' -f 1)
@@ -268,9 +282,9 @@ application failure -> HTTP exception mapper -> HTTP status
 `LegacyJobUseCase`, never on service implementations. The use-case interfaces expose domain
 values rather than HTTP DTOs. `CaptureSessionService`, `JobService` and cleanup orchestration
 depend on the narrow outbound ports `CaptureSessionStore`, `CaptureObjectStorage`,
-`SegmentWorkQueue`, `LegacyJobStore` and `FrameWorkQueue`; no service imports JDBC, RabbitMQ,
-filesystem or Spring HTTP types. Provider implementations end in `Adapter` so a concrete
-dependency is visible during review.
+`SegmentWorkQueue`, `LegacyJobStore`, `FrameWorkQueue` and `IdentifierGenerator`; no service
+imports JDBC, RabbitMQ, filesystem adapters, concrete identifier generators or Spring HTTP types.
+Provider implementations end in `Adapter` so a concrete dependency is visible during review.
 
 The shipped adapters are JDBC, RabbitMQ and local filesystem; a cloud provider is added behind
 the same ports and selected with the three `GREENV_*_ADAPTER` settings. Queue contract v2 contains

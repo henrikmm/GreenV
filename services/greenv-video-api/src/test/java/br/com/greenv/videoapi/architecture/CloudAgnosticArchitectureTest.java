@@ -6,9 +6,11 @@ import br.com.greenv.videoapi.api.CaptureSessionController;
 import br.com.greenv.videoapi.api.JobController;
 import br.com.greenv.videoapi.domain.CaptureObjectKeys;
 import br.com.greenv.videoapi.domain.SegmentExtractionRequest;
+import br.com.greenv.videoapi.identifier.MonotonicUuidV7IdentifierAdapter;
 import br.com.greenv.videoapi.port.CaptureObjectStorage;
 import br.com.greenv.videoapi.port.CaptureSessionStore;
 import br.com.greenv.videoapi.port.CaptureSessionUseCase;
+import br.com.greenv.videoapi.port.IdentifierGenerator;
 import br.com.greenv.videoapi.port.LegacyJobUseCase;
 import br.com.greenv.videoapi.port.SegmentWorkQueue;
 import br.com.greenv.videoapi.service.CaptureSessionService;
@@ -44,9 +46,11 @@ class CloudAgnosticArchitectureTest {
         assertThat(CaptureSessionStore.class).isAssignableFrom(JdbcCaptureSessionStoreAdapter.class);
         assertThat(CaptureObjectStorage.class).isAssignableFrom(LocalCaptureObjectStorageAdapter.class);
         assertThat(SegmentWorkQueue.class).isAssignableFrom(RabbitMqSegmentWorkQueueAdapter.class);
+        assertThat(IdentifierGenerator.class).isAssignableFrom(MonotonicUuidV7IdentifierAdapter.class);
         assertThat(JdbcCaptureSessionStoreAdapter.class.getSimpleName()).endsWith("Adapter");
         assertThat(LocalCaptureObjectStorageAdapter.class.getSimpleName()).endsWith("Adapter");
         assertThat(RabbitMqSegmentWorkQueueAdapter.class.getSimpleName()).endsWith("Adapter");
+        assertThat(MonotonicUuidV7IdentifierAdapter.class.getSimpleName()).endsWith("Adapter");
     }
 
     @Test

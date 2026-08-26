@@ -2,6 +2,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:greenv_capture/src/domain/capture_models.dart';
 
+abstract interface class IdentifierGenerator {
+  String next();
+}
+
 abstract interface class SegmentRecorder {
   bool get isInitialized;
   Widget buildPreview();

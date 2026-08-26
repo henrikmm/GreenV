@@ -42,6 +42,7 @@ Not implemented yet:
 | `lib/src/capture/capture_coordinator.dart` | Session lifecycle and ten-second rotation |
 | `lib/src/capture/camera_segment_recorder.dart` | Native camera initialization/start/stop |
 | `lib/src/capture/phone_telemetry_collector.dart` | GNSS and inertial sampling |
+| `lib/src/identifier/uuid_v7_identifier_adapter.dart` | RFC 9562 UUIDv7 generation behind the identifier port |
 | `lib/src/storage/persistent_capture_queue.dart` | Durable local files and queue index |
 | `lib/src/upload/queue_uploader.dart` | Serialized, idempotent upload and verification polling |
 | `lib/src/api/http_capture_backend.dart` | `/v2/capture-sessions` HTTP adapter |
@@ -168,7 +169,7 @@ web; iOS still requires Xcode on macOS.
 
 ```text
 press record
-  -> create local session UUID and persistent device UUID
+  -> create local session UUIDv7 and persistent device UUIDv7
   -> acquire wakelock and start camera + sensor subscriptions
   -> every 10 s: stop MP4, close telemetry, copy both into the queue, hash, start next segment
   -> upload video and telemetry with the same segment idempotency key
@@ -181,8 +182,11 @@ press stop/background
 ```
 
 Retries are serialized: a second sync request joins the active sync instead of uploading the same
-files in parallel. The session UUID is assigned before network access, so restarting offline keeps
-the API identity stable. The client syncs on startup and every five seconds while the UI is alive.
+files in parallel. The session UUIDv7 is assigned before network access, so restarting offline
+keeps the API identity stable. Its embedded time describes capture creation using the phone clock,
+not eventual server insertion. A device ID already persisted by an older app version is retained,
+and the API accepts older queued UUIDv4 sessions during the rollout. The client syncs on startup
+and every five seconds while the UI is alive.
 
 ## Local persisted data
 
@@ -192,7 +196,7 @@ The app uses its platform application-documents directory:
 capture-queue/
   device-id
   queue-v1.json
-  <session UUID>/
+  <session UUIDv7>/
     00000000/
       source.mp4
       telemetry.json
@@ -227,12 +231,16 @@ flutter build apk --debug
 flutter build web
 ```
 
-The tests cover ten-second rotation, queue persistence across restart, offline retry, deletion
-only after worker `ready`, normalized relative orientation, auth/navigation rendering, and the
-idle/recording Motiva states.
+The tests cover UUIDv7 version and same-millisecond ordering, ten-second rotation, queue
+persistence across restart, offline retry, deletion only after worker `ready`, normalized relative
+orientation, auth/navigation rendering, and the idle/recording Motiva states.
 
 The latest verified debug artifact is produced at
 `build/app/outputs/flutter-apk/app-debug.apk`. iOS cannot be compiled or signed on Windows.
+
+Verification observed on 26 Aug 2026: `flutter analyze` reported no issues and `flutter test`
+completed all 12 tests successfully. APK and web builds were not rerun for this identifier-only
+change.
 
 ## Troubleshooting
 

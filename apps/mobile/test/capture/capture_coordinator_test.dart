@@ -23,9 +23,9 @@ void main() {
         uploader: QueueUploader(queue: queue, backend: backend),
         foregroundLease: lease,
         scheduler: scheduler,
+        identifierGenerator: FakeIdentifierGenerator('session-1'),
         monotonicNanos: () => 123,
         utcNow: () => DateTime.utc(2026, 8, 23, 12),
-        newSessionId: () => 'session-1',
       );
       addTearDown(coordinator.dispose);
 
@@ -42,7 +42,9 @@ void main() {
         reason: 'the next segment starts after the durable queue accepts the previous one',
       );
       expect(coordinator.segmentIndex, 1);
-      expect((await queue.sessions()).single.segments.single.segmentIndex, 0);
+      final activeSession = (await queue.sessions()).single;
+      expect(activeSession.sessionId, 'session-1');
+      expect(activeSession.segments.single.segmentIndex, 0);
 
       await coordinator.stop();
       final session = (await queue.sessions()).single;
@@ -68,9 +70,9 @@ void main() {
       uploader: QueueUploader(queue: queue, backend: backend),
       foregroundLease: FakeLease(),
       scheduler: scheduler,
+      identifierGenerator: FakeIdentifierGenerator('background-session'),
       monotonicNanos: () => 123,
       utcNow: () => DateTime.utc(2026, 8, 23, 12),
-      newSessionId: () => 'background-session',
     );
     addTearDown(coordinator.dispose);
 

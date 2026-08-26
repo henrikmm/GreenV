@@ -44,6 +44,11 @@ cd apps/web && npm ci && npm run dev
 Each part has its own README with the detail. `AGENTS.md` is the working agreement — read it before
 changing anything.
 
+New capture sessions, legacy jobs and newly persisted mobile device identities use RFC 9562
+UUIDv7. This provides time-local identifiers without changing PostgreSQL's `UUID` columns. Older
+UUIDv4 mobile captures remain accepted during migration; the API and mobile READMEs document the
+ordering limits and compatibility behavior.
+
 ## Status
 
 The pieces above exist and are wired to each other locally. **The connection between the capture

@@ -9,6 +9,7 @@ import br.com.greenv.videoapi.domain.SegmentExtractionRequest;
 import br.com.greenv.videoapi.port.CaptureObjectStorage;
 import br.com.greenv.videoapi.port.CaptureSessionStore;
 import br.com.greenv.videoapi.port.CaptureSessionUseCase;
+import br.com.greenv.videoapi.port.IdentifierGenerator;
 import br.com.greenv.videoapi.port.SegmentWorkQueue;
 import java.io.InputStream;
 import java.time.Clock;
@@ -26,6 +27,7 @@ public class CaptureSessionService implements CaptureSessionUseCase {
     private final CaptureObjectStorage objectStorage;
     private final SegmentWorkQueue workQueue;
     private final CaptureProperties captureProperties;
+    private final IdentifierGenerator identifierGenerator;
     private final Clock clock;
 
     public CaptureSessionService(
@@ -33,11 +35,13 @@ public class CaptureSessionService implements CaptureSessionUseCase {
             CaptureObjectStorage objectStorage,
             SegmentWorkQueue workQueue,
             CaptureProperties captureProperties,
+            IdentifierGenerator identifierGenerator,
             Clock clock) {
         this.captureSessionStore = captureSessionStore;
         this.objectStorage = objectStorage;
         this.workQueue = workQueue;
         this.captureProperties = captureProperties;
+        this.identifierGenerator = identifierGenerator;
         this.clock = clock;
     }
 
@@ -51,7 +55,7 @@ public class CaptureSessionService implements CaptureSessionUseCase {
                     "invalid_capture_start",
                     "capture start cannot be more than five minutes in the future");
         }
-        UUID sessionId = requestedSessionId == null ? UUID.randomUUID() : requestedSessionId;
+        UUID sessionId = requestedSessionId == null ? identifierGenerator.next() : requestedSessionId;
         var existing = captureSessionStore.findSession(sessionId);
         if (existing.isPresent()) {
             CaptureSessionDocument session = existing.get();

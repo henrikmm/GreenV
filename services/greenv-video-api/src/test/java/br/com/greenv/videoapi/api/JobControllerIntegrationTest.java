@@ -60,6 +60,7 @@ class JobControllerIntegrationTest {
 
         assertThat(created.statusCode()).isEqualTo(201);
         String jobId = objectMapper.readTree(created.body()).path("jobId").asString();
+        assertThat(UUID.fromString(jobId).version()).isEqualTo(7);
 
         HttpResponse<Void> uploaded = client.send(
                 HttpRequest.newBuilder(URI.create(base + "/" + jobId + "/source"))

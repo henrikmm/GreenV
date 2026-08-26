@@ -6,7 +6,6 @@ import 'package:flutter/foundation.dart';
 import 'package:greenv_capture/src/capture/capture_ports.dart';
 import 'package:greenv_capture/src/domain/capture_models.dart';
 import 'package:greenv_capture/src/upload/queue_uploader.dart';
-import 'package:uuid/uuid.dart';
 
 enum CapturePhase { idle, preparing, recording, stopping, error }
 
@@ -19,9 +18,9 @@ final class CaptureCoordinator extends ChangeNotifier {
     required QueueUploader uploader,
     required ForegroundLease foregroundLease,
     required SegmentScheduler scheduler,
+    required IdentifierGenerator identifierGenerator,
     required int Function() monotonicNanos,
     DateTime Function()? utcNow,
-    String Function()? newSessionId,
     this.segmentDuration = const Duration(seconds: 10),
   }) : _recorder = recorder,
        _telemetry = telemetry,
@@ -29,9 +28,9 @@ final class CaptureCoordinator extends ChangeNotifier {
        _uploader = uploader,
        _foregroundLease = foregroundLease,
        _scheduler = scheduler,
+       _identifierGenerator = identifierGenerator,
        _monotonicNanos = monotonicNanos,
-       _utcNow = utcNow ?? (() => DateTime.now().toUtc()),
-       _newSessionId = newSessionId ?? (() => const Uuid().v4());
+       _utcNow = utcNow ?? (() => DateTime.now().toUtc());
 
   final String deviceId;
   final SegmentRecorder _recorder;
@@ -40,9 +39,9 @@ final class CaptureCoordinator extends ChangeNotifier {
   final QueueUploader _uploader;
   final ForegroundLease _foregroundLease;
   final SegmentScheduler _scheduler;
+  final IdentifierGenerator _identifierGenerator;
   final int Function() _monotonicNanos;
   final DateTime Function() _utcNow;
-  final String Function() _newSessionId;
   final Duration segmentDuration;
 
   CapturePhase phase = CapturePhase.idle;
@@ -67,7 +66,7 @@ final class CaptureCoordinator extends ChangeNotifier {
     errorMessage = null;
     notifyListeners();
     final startedAt = _utcNow();
-    final id = _newSessionId();
+    final id = _identifierGenerator.next();
     try {
       await _recorder.initialize();
       await _queue.beginSession(
