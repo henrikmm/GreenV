@@ -13,9 +13,9 @@ that consume its versioned manifest.
 | Path | Responsibility |
 |---|---|
 | `src/main/java/.../port/` | Inbound use cases and replaceable state, storage, queue, workspace and media contracts |
-| `src/main/java/.../task/` | RabbitMQ input/output adapters and legacy filesystem queue |
+| `src/main/java/.../task/` | RabbitMQ, SQS, Azure Queue and Service Bus input/output adapters |
 | `src/main/java/.../service/` | Validation, ffprobe association, FFmpeg extraction and publication |
-| `src/main/java/.../storage/` | JDBC, local object-storage and ephemeral-workspace adapters |
+| `src/main/java/.../storage/` | JDBC, local/S3/Azure object storage and ephemeral workspace adapters |
 | `src/main/resources/contracts/` | Queue, telemetry and manifest JSON Schemas copied from the API |
 | `src/test/` | Unit, contract and real-FFmpeg integration coverage |
 
@@ -85,6 +85,39 @@ first.
 | RabbitMQ credentials | `GREENV_RABBITMQ_USER`, `GREENV_RABBITMQ_PASSWORD` | `guest`, `guest` |
 | Rabbit listener | `GREENV_RABBITMQ_LISTENER_ENABLED` | `false` |
 | Exchange/queue/key | `GREENV_SEGMENT_EXCHANGE`, `GREENV_SEGMENT_QUEUE`, `GREENV_SEGMENT_ROUTING_KEY` | `greenv.capture`, `greenv.segment.extract.v2`, `segment.extract.v2` |
+
+### Cloud adapter selection
+
+Use the same `GREENV_OBJECT_STORAGE_ADAPTER` and `GREENV_SEGMENT_QUEUE_ADAPTER` values as the API.
+
+| Port | Adapter value | Worker-specific behavior |
+|---|---|---|
+| Object storage | `local` | Reads and writes below `GREENV_PIPELINE_ROOT` |
+| Object storage | `s3` | AWS S3 or an S3-compatible endpoint such as R2 |
+| Object storage | `azure-blob` | Azure Blob through connection string or managed identity |
+| Segment queue | `rabbitmq` | Spring AMQP listener plus retry publisher |
+| Segment queue | `sqs` | Long polling plus delete-after-success; supports standard and FIFO queues |
+| Segment queue | `azure-queue` | Visibility lease, delete-after-success and application poison queue |
+| Segment queue | `azure-service-bus` | Peek-lock receive, complete-after-success and abandon-on-failure |
+
+S3 and SQS use `GREENV_AWS_REGION`, optional endpoint overrides and either explicit
+`GREENV_AWS_ACCESS_KEY`/`GREENV_AWS_SECRET_KEY` values or the AWS default credential chain. Azure
+Blob and Queue use `GREENV_AZURE_STORAGE_CONNECTION_STRING`, or their endpoint plus
+`DefaultAzureCredential`. Service Bus uses a connection string or
+`GREENV_AZURE_SERVICE_BUS_NAMESPACE`. The API README lists all shared variable names.
+
+Cloud polling is controlled by `GREENV_CLOUD_QUEUE_POLL_DELAY_MS`. SQS additionally uses
+`GREENV_SQS_MAX_MESSAGES`, `GREENV_SQS_WAIT_SECONDS` and `GREENV_QUEUE_VISIBILITY_SECONDS`.
+Azure Queue uses `GREENV_AZURE_QUEUE_MAX_MESSAGES`, `GREENV_QUEUE_VISIBILITY_SECONDS`,
+`GREENV_AZURE_POISON_QUEUE_NAME` and `GREENV_AZURE_QUEUE_MAX_DEQUEUE_COUNT`. The poison queue is
+mandatory when that adapter is selected and defaults to `greenv-segment-extract-poison`. Service
+Bus uses `GREENV_AZURE_SERVICE_BUS_MAX_MESSAGES` and `GREENV_AZURE_SERVICE_BUS_WAIT_SECONDS`.
+Set `MANAGEMENT_HEALTH_RABBIT_ENABLED=false` whenever RabbitMQ is not the selected adapter.
+
+Configure an SQS redrive policy and a Service Bus maximum delivery count/DLQ on the cloud
+resource. Azure Queue Storage has no native DLQ, so this adapter copies an exhausted message to
+the configured poison queue before deleting it from the source. Until the threshold is reached,
+failed deliveries are left unacknowledged for the provider visibility timeout.
 
 Compose disables the legacy poller and enables the RabbitMQ listener. A standalone
 `./gradlew bootRun` enables only the legacy local poller unless these variables are overridden.
@@ -213,13 +246,15 @@ because adding one-implementation interfaces would not create a useful substitut
 The former local store with both v1 and v2 responsibilities was split into
 `LocalSegmentObjectStorageAdapter` and `LocalLegacyPipelineStoreAdapter`. Each implements one
 outbound port. The local legacy inbox now implements `LegacyTaskInbox` and exposes only an opaque
-receipt to its poller. The shipped provider adapters are local filesystem, JDBC and RabbitMQ.
-Cloud adapters can download into the same ephemeral workspace and publish the same v2 artifacts
-without changing extraction code.
+receipt to its poller. The shipped provider adapters are JDBC; local, S3-compatible and Azure Blob
+storage; and RabbitMQ, SQS, Azure Queue Storage and Azure Service Bus queues. Cloud storage
+adapters download into the same ephemeral workspace and publish the same v2 artifacts without
+changing extraction code.
 
 The v2 manifest is first stored with `sourceDeleted=false`, verified, and then rewritten with
 `sourceDeleted=true` after source cleanup. A redelivery completes this transition idempotently.
-Add metrics, tracing, a dead-letter policy, bounded concurrency and retention cleanup in production.
+Add metrics, tracing, bounded concurrency and retention cleanup in production. Keep each cloud
+queue's visibility/lock duration longer than the maximum expected FFmpeg attempt.
 FFmpeg is CPU work and must not run on the paid GPU service used by the depth model.
 
 To add a provider, implement the relevant interface in `port/`, register it under a new adapter
@@ -231,6 +266,7 @@ Architecture tests enforce inbound interface injection, service-to-adapter isola
 local storage adapter, provider-neutral object keys and API/worker schema equality. Handler tests
 cover success, retry exhaustion, acknowledgement, requeue and terminal failure.
 
-Verification observed on 26 Aug 2026: `./gradlew.bat check --no-daemon --offline` completed
-successfully. The Compose smoke command was attempted on 25 Aug 2026 but did not execute because
-the local Docker daemon was unavailable.
+Verification observed on 30 Aug 2026: `./gradlew.bat check --no-daemon` completed successfully,
+including cloud publisher/consumer acknowledgement, poison-queue, storage checksum, codec and
+architecture tests. The Compose smoke command was last attempted on 25 Aug 2026 but did not
+execute because the local Docker daemon was unavailable.

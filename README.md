@@ -44,6 +44,12 @@ cd apps/web && npm ci && npm run dev
 Each part has its own README with the detail. `AGENTS.md` is the working agreement — read it before
 changing anything.
 
+The capture API and frame worker can switch object storage between local files, S3-compatible
+storage (including Cloudflare R2) and Azure Blob, and can switch the segment queue between
+RabbitMQ, Amazon SQS, Azure Queue Storage and Azure Service Bus without changing application
+services. The recommended scale-to-zero MVP topology, alternatives, cost evidence and deployment
+sequence are in [`docs/INFRASTRUCTURE_MVP.md`](docs/INFRASTRUCTURE_MVP.md).
+
 New capture sessions, legacy jobs and newly persisted mobile device identities use RFC 9562
 UUIDv7. This provides time-local identifiers without changing PostgreSQL's `UUID` columns. Older
 UUIDv4 mobile captures remain accepted during migration; the API and mobile READMEs document the

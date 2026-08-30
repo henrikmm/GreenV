@@ -13,17 +13,25 @@ import br.com.greenv.videoapi.port.CaptureSessionUseCase;
 import br.com.greenv.videoapi.port.IdentifierGenerator;
 import br.com.greenv.videoapi.port.LegacyJobUseCase;
 import br.com.greenv.videoapi.port.SegmentWorkQueue;
+import br.com.greenv.videoapi.port.SegmentMessageSerializer;
 import br.com.greenv.videoapi.service.CaptureSessionService;
 import br.com.greenv.videoapi.service.JobService;
 import br.com.greenv.videoapi.service.TransientCleanupService;
 import br.com.greenv.videoapi.storage.JdbcCaptureSessionStoreAdapter;
 import br.com.greenv.videoapi.storage.LocalCaptureObjectStorageAdapter;
+import br.com.greenv.videoapi.storage.S3CaptureObjectStorageAdapter;
+import br.com.greenv.videoapi.storage.AzureBlobCaptureObjectStorageAdapter;
+import br.com.greenv.videoapi.task.AzureQueueSegmentWorkQueueAdapter;
+import br.com.greenv.videoapi.task.AzureServiceBusSegmentWorkQueueAdapter;
+import br.com.greenv.videoapi.task.JacksonSegmentMessageSerializerAdapter;
 import br.com.greenv.videoapi.task.RabbitMqSegmentWorkQueueAdapter;
+import br.com.greenv.videoapi.task.SqsSegmentWorkQueueAdapter;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.RecordComponent;
 import java.util.Arrays;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 
 class CloudAgnosticArchitectureTest {
 
@@ -45,11 +53,23 @@ class CloudAgnosticArchitectureTest {
     void providerAdaptersImplementOutboundPorts() {
         assertThat(CaptureSessionStore.class).isAssignableFrom(JdbcCaptureSessionStoreAdapter.class);
         assertThat(CaptureObjectStorage.class).isAssignableFrom(LocalCaptureObjectStorageAdapter.class);
+        assertThat(CaptureObjectStorage.class).isAssignableFrom(S3CaptureObjectStorageAdapter.class);
+        assertThat(CaptureObjectStorage.class).isAssignableFrom(AzureBlobCaptureObjectStorageAdapter.class);
         assertThat(SegmentWorkQueue.class).isAssignableFrom(RabbitMqSegmentWorkQueueAdapter.class);
+        assertThat(SegmentWorkQueue.class).isAssignableFrom(SqsSegmentWorkQueueAdapter.class);
+        assertThat(SegmentWorkQueue.class).isAssignableFrom(AzureQueueSegmentWorkQueueAdapter.class);
+        assertThat(SegmentWorkQueue.class).isAssignableFrom(AzureServiceBusSegmentWorkQueueAdapter.class);
+        assertThat(SegmentMessageSerializer.class)
+                .isAssignableFrom(JacksonSegmentMessageSerializerAdapter.class);
         assertThat(IdentifierGenerator.class).isAssignableFrom(MonotonicUuidV7IdentifierAdapter.class);
         assertThat(JdbcCaptureSessionStoreAdapter.class.getSimpleName()).endsWith("Adapter");
         assertThat(LocalCaptureObjectStorageAdapter.class.getSimpleName()).endsWith("Adapter");
+        assertThat(S3CaptureObjectStorageAdapter.class.getSimpleName()).endsWith("Adapter");
+        assertThat(AzureBlobCaptureObjectStorageAdapter.class.getSimpleName()).endsWith("Adapter");
         assertThat(RabbitMqSegmentWorkQueueAdapter.class.getSimpleName()).endsWith("Adapter");
+        assertThat(SqsSegmentWorkQueueAdapter.class.getSimpleName()).endsWith("Adapter");
+        assertThat(AzureQueueSegmentWorkQueueAdapter.class.getSimpleName()).endsWith("Adapter");
+        assertThat(AzureServiceBusSegmentWorkQueueAdapter.class.getSimpleName()).endsWith("Adapter");
         assertThat(MonotonicUuidV7IdentifierAdapter.class.getSimpleName()).endsWith("Adapter");
     }
 
@@ -64,6 +84,15 @@ class CloudAgnosticArchitectureTest {
         assertThat(TransientCleanupService.class.getDeclaredFields())
                 .extracting(field -> field.getType().getPackageName())
                 .noneMatch(this::isAdapterPackage);
+    }
+
+    @Test
+    void cloudAdaptersAreSelectedOnlyByExplicitConfigurationValues() {
+        assertAdapterValue(S3CaptureObjectStorageAdapter.class, "s3");
+        assertAdapterValue(AzureBlobCaptureObjectStorageAdapter.class, "azure-blob");
+        assertAdapterValue(SqsSegmentWorkQueueAdapter.class, "sqs");
+        assertAdapterValue(AzureQueueSegmentWorkQueueAdapter.class, "azure-queue");
+        assertAdapterValue(AzureServiceBusSegmentWorkQueueAdapter.class, "azure-service-bus");
     }
 
     @Test
@@ -101,5 +130,9 @@ class CloudAgnosticArchitectureTest {
                                 Arrays.stream(method.getParameterTypes())))
                         .map(Class::getPackageName))
                 .noneMatch(packageName -> packageName.startsWith(forbiddenPackage));
+    }
+
+    private static void assertAdapterValue(Class<?> adapter, String expected) {
+        assertThat(adapter.getAnnotation(ConditionalOnProperty.class).havingValue()).isEqualTo(expected);
     }
 }

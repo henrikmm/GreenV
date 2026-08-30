@@ -17,8 +17,8 @@ local object-store adapter so API and worker can exchange files without a cloud 
 | `src/main/java/.../port/` | Inbound use cases and cloud-neutral outbound contracts |
 | `src/main/java/.../service/` | Capture/job state machines and queue publication |
 | `src/main/java/.../identifier/` | RFC 9562 UUIDv7 provider behind the identifier port |
-| `src/main/java/.../storage/` | JDBC and local-filesystem output adapters |
-| `src/main/java/.../task/` | RabbitMQ and legacy-filesystem queue adapters |
+| `src/main/java/.../storage/` | JDBC, local, S3-compatible and Azure Blob adapters |
+| `src/main/java/.../task/` | RabbitMQ, SQS, Azure Queue, Service Bus and legacy queue adapters |
 | `src/main/resources/db/migration/` | Flyway schema for capture sessions and segments |
 | `src/main/resources/contracts/` | Versioned queue and manifest JSON Schemas |
 | `openapi.yaml` | Complete v1 and v2 HTTP contract |
@@ -100,6 +100,40 @@ Spring reads these environment variables in Compose and native runs:
 | Maximum segment | `GREENV_MAX_SEGMENT_BYTES` | 64 MiB |
 | Maximum telemetry | `GREENV_MAX_TELEMETRY_BYTES` | 4 MiB |
 | Exchange/queue/key | `GREENV_SEGMENT_EXCHANGE`, `GREENV_SEGMENT_QUEUE`, `GREENV_SEGMENT_ROUTING_KEY` | `greenv.capture`, `greenv.segment.extract.v2`, `segment.extract.v2` |
+
+### Cloud adapter selection
+
+The same application artifact supports every combination below. API and worker must select the
+same object store and queue and must point at the same bucket/container and queue.
+
+| Port | `GREENV_*_ADAPTER` value | Required configuration |
+|---|---|---|
+| Object storage | `local` | `GREENV_PIPELINE_ROOT` |
+| Object storage | `s3` | `GREENV_S3_BUCKET`; optional `GREENV_S3_ENDPOINT` for R2/MinIO/LocalStack |
+| Object storage | `azure-blob` | `GREENV_AZURE_BLOB_CONTAINER` and either a connection string or endpoint |
+| Segment queue | `rabbitmq` | Existing RabbitMQ settings |
+| Segment queue | `sqs` | `GREENV_SQS_QUEUE_URL`; optional endpoint for LocalStack |
+| Segment queue | `azure-queue` | `GREENV_AZURE_QUEUE_NAME` and either a connection string or endpoint |
+| Segment queue | `azure-service-bus` | Queue name and either a connection string or fully-qualified namespace |
+
+S3/SQS use `GREENV_AWS_REGION` and the AWS default credential chain when
+`GREENV_AWS_ACCESS_KEY`/`GREENV_AWS_SECRET_KEY` are empty. Explicit keys are intended for R2 and
+local emulators. Set `GREENV_S3_PATH_STYLE_ACCESS=true` only for an endpoint that requires it.
+
+Azure Blob and Queue share `GREENV_AZURE_STORAGE_CONNECTION_STRING` for local development. In
+Azure, omit it and set `GREENV_AZURE_BLOB_ENDPOINT` and/or `GREENV_AZURE_QUEUE_ENDPOINT`; the SDK
+then uses `DefaultAzureCredential`, including a Container Apps managed identity. Service Bus uses
+`GREENV_AZURE_SERVICE_BUS_QUEUE` plus either `GREENV_AZURE_SERVICE_BUS_CONNECTION_STRING` or
+`GREENV_AZURE_SERVICE_BUS_NAMESPACE` with managed identity. Resource auto-creation is off by
+default; `GREENV_AZURE_BLOB_CREATE_CONTAINER` and `GREENV_AZURE_QUEUE_CREATE` exist only for local
+or disposable environments.
+
+For Cloudflare R2, select `s3`, use the R2 S3 endpoint, keep the region at `auto` if required by the
+account, and provide an R2 access-key pair. Persisted records and queue messages still contain
+opaque object keys, never provider URLs.
+
+When the selected queue is not RabbitMQ, set `MANAGEMENT_HEALTH_RABBIT_ENABLED=false` so the
+Actuator readiness result does not probe an intentionally unused RabbitMQ connection.
 
 `./gradlew bootRun` uses H2 and the local directory defaults for the legacy v1 flow. Use Compose
 for v2 so PostgreSQL, RabbitMQ, API and worker share one tested configuration.
@@ -274,7 +308,7 @@ Dependency direction is explicit and uses constructor injection:
 
 ```text
 HTTP controller -> inbound use-case interface -> application service
-application service -> outbound interface -> JDBC/RabbitMQ/object-storage adapter
+application service -> outbound interface -> selected database/queue/object-storage adapter
 application failure -> HTTP exception mapper -> HTTP status
 ```
 
@@ -286,8 +320,9 @@ depend on the narrow outbound ports `CaptureSessionStore`, `CaptureObjectStorage
 imports JDBC, RabbitMQ, filesystem adapters, concrete identifier generators or Spring HTTP types.
 Provider implementations end in `Adapter` so a concrete dependency is visible during review.
 
-The shipped adapters are JDBC, RabbitMQ and local filesystem; a cloud provider is added behind
-the same ports and selected with the three `GREENV_*_ADAPTER` settings. Queue contract v2 contains
+The shipped adapters are JDBC; local, S3-compatible and Azure Blob storage; and RabbitMQ, SQS,
+Azure Queue Storage and Azure Service Bus queues. They are selected with the three
+`GREENV_*_ADAPTER` settings. Queue contract v2 contains
 opaque object keys and never a `file:`, `s3:` or provider URL. Do not put signed URLs in the queue
 because they can expire while a message is waiting or retrying.
 
@@ -305,6 +340,7 @@ atomic state transitions currently implemented by JDBC.
 Architecture tests also enforce the dependency direction, the absence of HTTP DTOs in inbound
 ports, provider-neutral object keys and adapter-to-port assignments.
 
-Verification observed on 26 Aug 2026: `./gradlew.bat check --no-daemon --offline` completed
-successfully. The Compose smoke command was attempted on 25 Aug 2026 but did not execute because
-the local Docker daemon was unavailable.
+Verification observed on 30 Aug 2026: `./gradlew.bat check --no-daemon` completed successfully,
+including the cloud adapter, codec, checksum, conditional-write and architecture tests. The
+Compose smoke command was last attempted on 25 Aug 2026 but did not execute because the local
+Docker daemon was unavailable.
