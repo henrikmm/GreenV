@@ -1,5 +1,6 @@
 package br.com.greenv.frameextractor.api;
 
+import br.com.greenv.frameextractor.config.ConditionalOnLocalPipeline;
 import br.com.greenv.frameextractor.domain.FrameExtractionRequest;
 import br.com.greenv.frameextractor.port.LegacyExtractionUseCase;
 import jakarta.validation.Valid;
@@ -11,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
+@ConditionalOnLocalPipeline
 @RequestMapping("/internal/v1/extractions")
 public class ExtractionController {
 

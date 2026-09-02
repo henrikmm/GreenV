@@ -52,7 +52,11 @@ public class CaptureSessionController {
         return CaptureSegmentResponse.from(captureSessionUseCase.getSegment(sessionId, segmentIndex), baseUrl());
     }
 
-    @PutMapping(path = "/{sessionId}/segments/{segmentIndex}/video", consumes = "video/mp4")
+    // A phone records MP4; a browser's MediaRecorder records WebM. Both are accepted because the
+    // worker probes the container rather than trusting the name it stores the object under.
+    @PutMapping(
+            path = "/{sessionId}/segments/{segmentIndex}/video",
+            consumes = {"video/mp4", "video/webm"})
     CaptureSegmentResponse uploadVideo(
             @PathVariable UUID sessionId,
             @PathVariable int segmentIndex,

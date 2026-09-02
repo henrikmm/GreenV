@@ -87,6 +87,7 @@ Spring reads these environment variables in Compose and native runs:
 | Object-storage adapter | `GREENV_OBJECT_STORAGE_ADAPTER` | `local` |
 | Segment-queue adapter | `GREENV_SEGMENT_QUEUE_ADAPTER` | `rabbitmq` |
 | API Bearer token | `GREENV_API_TOKEN` | Required, at least 32 characters |
+| Browser CORS origins | `GREENV_ALLOWED_ORIGINS` | Empty, which blocks cross-origin browser calls |
 | Bind address/port | `SERVER_ADDRESS`, `PORT` | `127.0.0.1:8080` |
 | Pipeline root | `GREENV_PIPELINE_ROOT` | OS temp directory under `greenv-pipeline` |
 | Saved v1 runs | `GREENV_SAVED_ROOT` | `~/verge-runs` |
@@ -165,7 +166,26 @@ API_URL=https://greenvapi.matomomitsu.com bash scripts/test-api-auth.sh
 unset GREENV_API_TOKEN
 ```
 
-The check is read-only: it expects health `200`, missing/invalid credentials `401`, and a valid
+### Cross-origin browser clients
+
+`GREENV_ALLOWED_ORIGINS` is an empty, comma-separated list by default, and an empty list leaves
+CORS off entirely. A phone never needs it. A browser does: it refuses to send the segment upload
+at all until a preflight succeeds, because the upload carries `X-Idempotency-Key`,
+`X-Content-SHA256`, `X-Captured-At` and `X-Duration-Millis`.
+
+```
+GREENV_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+```
+
+Origins must match exactly, port included. Spring Security answers the preflight in its CORS
+filter, ahead of authorization, which is why an unauthenticated `OPTIONS` succeeds while every
+real request still needs the Bearer token. Credentials are not allowed on cross-origin requests:
+the client authenticates with a header, never a cookie.
+
+CORS decides which pages a browser lets read a response. It is not access control, and widening
+this list never widens what an unauthenticated caller can do.
+
+The auth check is read-only: it expects health `200`, missing/invalid credentials `401`, and a valid
 credential to reach a deliberately absent capture and return `404`. Never commit, echo or pass the
 token as a command-line argument. This shared MVP credential does not identify an individual
 device; replace it with short-lived, per-user/device JWTs before distributing the app outside the
@@ -207,7 +227,11 @@ order or a replacement for the authoritative event timestamp.
 
 The generated smoke client is the shortest executable example. To call the contract manually,
 first make `source.mp4` and a schema-v1 `telemetry.json` whose `sessionId`, `segmentIndex`,
-`capturedAtUtc` and duration describe the same segment. Then:
+`capturedAtUtc` and duration describe the same segment.
+
+The video endpoint accepts `video/mp4` and `video/webm`. A phone records MP4; a browser's
+`MediaRecorder` records WebM. The worker probes the container rather than trusting a name, so both
+extract identically, and the stored object keeps its `source.mp4` key either way. Then:
 
 ```bash
 API=http://127.0.0.1:8080
@@ -336,6 +360,7 @@ and HTTP error responses. The full API-worker seam is covered by `services/captu
 | Database connection refused | PostgreSQL is healthy and `GREENV_DATABASE_URL` uses host `postgres` inside Compose |
 | Segment remains `queued` | Worker and RabbitMQ are healthy; inspect `docker compose logs frame-worker rabbitmq` |
 | API returns `401` | Send `Authorization: Bearer $GREENV_API_TOKEN`; retrieve the cloud token from the sensitive Terraform output |
+| Browser reports a CORS error | Add the page's exact origin, port included, to `GREENV_ALLOWED_ORIGINS` |
 | Upload returns checksum error | Hash the exact transmitted file and send 64 lowercase hexadecimal characters |
 | Retry returns `409` | The same session/segment identity was reused with different metadata or object bytes |
 | Manifest returns `409` | Poll segment state; only `ready` has a published manifest |

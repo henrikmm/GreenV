@@ -3,10 +3,57 @@
 The Frame Extractor is the CPU worker for mobile segments and legacy whole videos. For each mobile
 segment it verifies both inputs, probes every encoded presentation timestamp, associates eligible
 GNSS and inertial samples with every frame, extracts representative JPEGs across the full segment,
-checks every output, publishes the manifest last, and only then deletes the source MP4.
+checks every output and publishes the manifest last. It keeps the source MP4.
 
 It does not identify grass, estimate height, or call the depth model. Those are downstream stages
 that consume its versioned manifest.
+
+## Two frame counts, and only one of them is images
+
+A manifest reports both, and confusing them makes the sampling look far denser or far sparser than
+it is.
+
+- **`encodedFrameCount`** is every frame the camera encoded, read from the presentation timestamps
+  by ffprobe. No image is produced for these. Each one becomes a row in `frame-metadata-v2.json`
+  carrying its timestamp, the GNSS and motion samples eligible for it, and a quality stamp. It
+  tracks the camera: a 30 fps phone gives about 300 rows for a ten-second segment.
+- **`sampledFrames`** is the JPEGs actually written to object storage, and it is the number that
+  matters downstream.
+
+Sampling is fixed at **10 fps, at most 112 frames, 1024 px long edge**, which are Verge Studio's
+numbers rather than this worker's. The depth model recovers geometry by comparing many views of one
+scene, so the frame rate is the accuracy knob, and `measurement/MEASUREMENTS.md` grades 112 frames
+at 504 px as the best setting tried. The cap keeps a long segment off the GPU's memory ceiling; an
+L4 fits 0.0700 GiB per frame plus 9.39 GiB and fails above 144 frames. When the cap binds,
+`SamplingPlanner` lowers the rate rather than truncating the clip, so the frames still span the
+whole segment — never "N frames spread across it".
+
+A ten-second segment therefore publishes about 100 JPEGs. At 1024 px that is roughly 5 MB, against
+about 3.4 MB for the MP4 they came from, so the frames now cost more storage than the source.
+
+## The source segment is kept
+
+The worker used to delete the source MP4 as its last act, and `sourceDeleted` in the manifest
+recorded that. It no longer does, and that field is now always `false`.
+
+Sampled frames are a derivative at one rate and one resolution. The measurement stage that consumes
+them may want another — a different frame budget for the GPU's memory ceiling, or a different long
+edge — and it cannot ask for it once the only copy is gone. Keeping a 3.4 MB segment is also
+cheaper than the 5 MB of frames already kept from it.
+
+**Nothing expires capture objects.** `expires_at` is written to the database and returned by the
+API, but no scheduler acts on it, and the API's `TransientCleanupService` covers only legacy v1
+jobs. R2 has no lifecycle rule either. Deleting the source was the only bound on growth, so storage
+now grows with every capture until a retention rule exists. At roughly 8.5 MB per ten-second
+segment, an hour of driving is about 3 GB, against R2's 10 GB free tier.
+
+The legacy whole-video path resolves every artifact to a path under `GREENV_PIPELINE_ROOT`, so it
+exists only while `GREENV_OBJECT_STORAGE_ADAPTER` is `local`. `@ConditionalOnLocalPipeline` removes
+that controller, handler and service together with the local store they depend on; a cloud
+deployment runs the segment path alone. Wiring them unconditionally is what made the deployed
+worker fail to start with "No qualifying bean of type LegacyPipelineStore", which left every
+uploaded segment sitting in `queued` — `CloudProfileApplicationTest` now boots the cloud adapter
+set to keep that from returning.
 
 ## Code map
 

@@ -1,13 +1,14 @@
 package br.com.greenv.frameextractor.service;
 
+import br.com.greenv.frameextractor.config.ConditionalOnLocalPipeline;
 import br.com.greenv.frameextractor.config.ExtractorProperties;
 import br.com.greenv.frameextractor.domain.FrameExtractionRequest;
 import br.com.greenv.frameextractor.domain.FrameManifest;
 import br.com.greenv.frameextractor.domain.FrameRecord;
 import br.com.greenv.frameextractor.domain.SamplingPlan;
 import br.com.greenv.frameextractor.port.FrameSampler;
-import br.com.greenv.frameextractor.port.LegacyPipelineStore;
 import br.com.greenv.frameextractor.port.LegacyFrameProcessor;
+import br.com.greenv.frameextractor.port.LegacyPipelineStore;
 import br.com.greenv.frameextractor.port.VideoProbe;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -19,6 +20,7 @@ import java.util.List;
 import org.springframework.stereotype.Service;
 
 @Service
+@ConditionalOnLocalPipeline
 public class ExtractionService implements LegacyFrameProcessor {
 
     private final ExtractorProperties extractorProperties;

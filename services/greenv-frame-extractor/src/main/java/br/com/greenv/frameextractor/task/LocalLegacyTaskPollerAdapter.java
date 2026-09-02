@@ -1,5 +1,6 @@
 package br.com.greenv.frameextractor.task;
 
+import br.com.greenv.frameextractor.config.ConditionalOnLocalPipeline;
 import br.com.greenv.frameextractor.port.LegacyExtractionUseCase;
 import br.com.greenv.frameextractor.port.LegacyTaskInbox;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -7,6 +8,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 @Component
+@ConditionalOnLocalPipeline
 @ConditionalOnProperty(
         name = "greenv.extractor.local-polling-enabled",
         havingValue = "true",

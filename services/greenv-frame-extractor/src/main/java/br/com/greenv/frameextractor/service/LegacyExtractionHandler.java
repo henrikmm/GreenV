@@ -1,5 +1,6 @@
 package br.com.greenv.frameextractor.service;
 
+import br.com.greenv.frameextractor.config.ConditionalOnLocalPipeline;
 import br.com.greenv.frameextractor.config.ExtractorProperties;
 import br.com.greenv.frameextractor.domain.FrameExtractionRequest;
 import br.com.greenv.frameextractor.port.LegacyExtractionResult;
@@ -10,6 +11,7 @@ import java.time.Clock;
 import org.springframework.stereotype.Service;
 
 @Service
+@ConditionalOnLocalPipeline
 public class LegacyExtractionHandler implements LegacyExtractionUseCase {
 
     private final LegacyFrameProcessor frameProcessor;

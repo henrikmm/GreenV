@@ -25,9 +25,25 @@ import org.springframework.stereotype.Service;
 @Service
 public class SegmentExtractionService implements SegmentProcessor {
 
-    private static final double SAMPLE_FPS = 2.0;
-    private static final int MAX_SAMPLE_FRAMES = 64;
-    private static final int SAMPLE_LONG_EDGE = 1280;
+    // Matched to Verge Studio, which is what consumes these frames. Its depth model recovers
+    // geometry by comparing many views of one scene, so the frame rate is the accuracy knob:
+    // measurement/AGENTS.md requires sampling by frames-per-second across the whole clip rather
+    // than "N frames spread across it", and measurement/MEASUREMENTS.md grades 112 frames at
+    // 504 px as the best setting tried (0.061 m raw error, against 0.193 m at 356 px / 256
+    // frames). The previous 2.0 fps produced 20 frames for a ten-second segment, well under the
+    // baseline that mechanism needs.
+    //
+    // 10 fps is Verge Studio's own extraction default (measurement/scripts/extract-frames.mjs).
+    // The cap is what keeps a long segment off the GPU's memory ceiling: an L4 fits
+    // 0.0700 GiB per frame plus 9.39 GiB and runs out above 144 frames at 504 px
+    // (measurement/docs/REGISTRY.md). SamplingPlanner lowers the rate instead of truncating, so
+    // a capped segment still spans its whole duration.
+    //
+    // 1024 px is a transport size, not a quality choice: the model resizes to 504 px internally,
+    // so larger frames only cost bytes. Verge Studio extracts at the same long edge.
+    private static final double SAMPLE_FPS = 10.0;
+    private static final int MAX_SAMPLE_FRAMES = 112;
+    private static final int SAMPLE_LONG_EDGE = 1024;
 
     private final ExtractorProperties extractorProperties;
     private final SegmentObjectStorage objectStorage;
@@ -71,15 +87,8 @@ public class SegmentExtractionService implements SegmentProcessor {
             SegmentManifest existing = objectStorage.readJson(manifestKey, SegmentManifest.class);
             requireGeneration(existing, request);
             verifyPublished(request.outputPrefix(), existing);
-            if (!existing.sourceDeleted() || objectStorage.exists(request.videoObjectKey())) {
-                objectStorage.delete(request.videoObjectKey());
-            }
-            SegmentManifest published = existing.sourceDeleted() ? existing : markSourceDeleted(existing);
-            if (!existing.sourceDeleted()) {
-                objectStorage.putJson(manifestKey, published);
-            }
-            segmentStore.markReady(request, manifestKey, published.encodedFrameCount(), clock.instant());
-            return published;
+            segmentStore.markReady(request, manifestKey, existing.encodedFrameCount(), clock.instant());
+            return existing;
         }
 
         Path workspace = processingWorkspace.create(request);
@@ -135,7 +144,7 @@ public class SegmentExtractionService implements SegmentProcessor {
                 requestedSampling.effectiveFps(),
                 probe.durationSeconds());
 
-        SegmentManifest unpublished = new SegmentManifest(
+        SegmentManifest manifest = new SegmentManifest(
                 2,
                 request.sessionId(),
                 request.segmentIndex(),
@@ -152,16 +161,15 @@ public class SegmentExtractionService implements SegmentProcessor {
                 metadata.sha256(),
                 metadata.bytes(),
                 sampledFrames,
+                // The source segment is kept. Sampled frames are a derivative at one rate and one
+                // resolution; the measurement stage that consumes them may want another, and it
+                // cannot ask for it once the only copy is gone. Nothing expires capture objects
+                // yet, so this grows without bound until a retention rule exists.
                 false,
                 clock.instant());
-        objectStorage.putJson(manifestKey, unpublished);
-        SegmentManifest verified = objectStorage.readJson(manifestKey, SegmentManifest.class);
-        verifyPublished(request.outputPrefix(), verified);
-
-        objectStorage.delete(request.videoObjectKey());
-        SegmentManifest published = markSourceDeleted(verified);
-        objectStorage.putJson(manifestKey, published);
-        verifyPublished(request.outputPrefix(), objectStorage.readJson(manifestKey, SegmentManifest.class));
+        objectStorage.putJson(manifestKey, manifest);
+        SegmentManifest published = objectStorage.readJson(manifestKey, SegmentManifest.class);
+        verifyPublished(request.outputPrefix(), published);
         segmentStore.markReady(request, manifestKey, frames.size(), clock.instant());
         return published;
     }
@@ -297,28 +305,6 @@ public class SegmentExtractionService implements SegmentProcessor {
                 throw new ExtractionException("sampled_frame_verify_failed", "sampled frame verification failed", true);
             }
         }
-    }
-
-    private static SegmentManifest markSourceDeleted(SegmentManifest manifest) {
-        return new SegmentManifest(
-                manifest.schemaVersion(),
-                manifest.sessionId(),
-                manifest.segmentIndex(),
-                manifest.sourceGeneration(),
-                manifest.telemetryGeneration(),
-                manifest.durationMillis(),
-                manifest.encodedFrameCount(),
-                manifest.goodLocationFrames(),
-                manifest.degradedLocationFrames(),
-                manifest.unavailableLocationFrames(),
-                manifest.locationSampleCount(),
-                manifest.motionSampleCount(),
-                manifest.frameMetadataObjectKey(),
-                manifest.frameMetadataSha256(),
-                manifest.frameMetadataBytes(),
-                manifest.sampledFrames(),
-                true,
-                manifest.createdAt());
     }
 
     private static int countQuality(List<FrameTelemetry> frames, String quality) {

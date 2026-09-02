@@ -1,5 +1,6 @@
 package br.com.greenv.frameextractor.task;
 
+import br.com.greenv.frameextractor.config.ConditionalOnLocalPipeline;
 import br.com.greenv.frameextractor.config.ExtractorProperties;
 import br.com.greenv.frameextractor.domain.FrameExtractionRequest;
 import br.com.greenv.frameextractor.port.LegacyTaskInbox;
@@ -17,6 +18,7 @@ import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 
 @Component
+@ConditionalOnLocalPipeline
 @ConditionalOnProperty(
         name = "greenv.extractor.local-polling-enabled",
         havingValue = "true",

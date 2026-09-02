@@ -95,10 +95,12 @@ class SegmentExtractionServiceTest {
         assertThat(first).isEqualTo(redelivered);
         assertThat(first.schemaVersion()).isEqualTo(2);
         assertThat(first.encodedFrameCount()).isEqualTo(2);
-        assertThat(first.sampledFrames()).hasSize(2);
-        assertThat(first.sourceDeleted()).isTrue();
+        // 10 fps across the probed one-second clip, under the 112-frame cap.
+        assertThat(first.sampledFrames()).hasSize(10);
+        assertThat(first.sourceDeleted()).isFalse();
         assertThat(first.frameMetadataObjectKey()).isEqualTo(prefix + "/frame-metadata-v2.json");
-        assertThat(objects.exists(request.videoObjectKey())).isFalse();
+        // The source segment survives extraction, so a later stage can re-sample it.
+        assertThat(objects.exists(request.videoObjectKey())).isTrue();
         assertThat(segments.readyCount).isEqualTo(2);
     }
 

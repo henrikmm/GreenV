@@ -83,8 +83,8 @@ class SegmentExtractionServiceIntegrationTest {
         assertThat(manifest.schemaVersion()).isEqualTo(2);
         assertThat(manifest.frameMetadataObjectKey()).isEqualTo(prefix + "/frame-metadata-v2.json");
         assertThat(manifest.frameMetadataObjectKey()).doesNotContain("://");
-        assertThat(manifest.sourceDeleted()).isTrue();
-        assertThat(objects.exists(request.videoObjectKey())).isFalse();
+        assertThat(manifest.sourceDeleted()).isFalse();
+        assertThat(objects.exists(request.videoObjectKey())).isTrue();
         assertThat(objects.exists(prefix + "/segment-manifest-v2.json")).isTrue();
         assertThat(segments.manifestObjectKey).isEqualTo(prefix + "/segment-manifest-v2.json");
     }

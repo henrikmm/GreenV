@@ -1,5 +1,6 @@
 package br.com.greenv.frameextractor.storage;
 
+import br.com.greenv.frameextractor.config.ConditionalOnLocalPipeline;
 import br.com.greenv.frameextractor.config.ExtractorProperties;
 import br.com.greenv.frameextractor.domain.FrameManifest;
 import br.com.greenv.frameextractor.port.LegacyPipelineStore;
@@ -19,14 +20,13 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import org.springframework.stereotype.Component;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
 
 @Component
-@ConditionalOnProperty(name = "greenv.adapters.object-storage", havingValue = "local", matchIfMissing = true)
+@ConditionalOnLocalPipeline
 public class LocalLegacyPipelineStoreAdapter implements LegacyPipelineStore {
 
     private final ObjectMapper objectMapper;
