@@ -4,6 +4,7 @@ resource "azurerm_container_app" "api" {
   resource_group_name          = azurerm_resource_group.this.name
   revision_mode                = "Single"
   max_inactive_revisions       = 1
+  workload_profile_name        = "Consumption"
   tags                         = local.default_tags
 
   identity {
@@ -54,6 +55,20 @@ resource "azurerm_container_app" "api" {
     target_port                = 8080
     transport                  = "http"
 
+    # `proxied = true` on its own hides nothing: the Azure origin FQDN stays publicly resolvable
+    # and reachable. Only these restrictions make Cloudflare the sole path to the API. Container
+    # Apps denies every address outside the list once any Allow rule exists.
+    dynamic "ip_security_restriction" {
+      for_each = var.restrict_api_origin_to_cloudflare ? local.cloudflare_ipv4_cidrs : {}
+
+      content {
+        name             = ip_security_restriction.key
+        ip_address_range = ip_security_restriction.value
+        action           = "Allow"
+        description      = "Allow requests from Cloudflare"
+      }
+    }
+
     traffic_weight {
       latest_revision = true
       percentage      = 100
@@ -61,8 +76,14 @@ resource "azurerm_container_app" "api" {
   }
 
   template {
-    min_replicas                     = 0
-    max_replicas                     = var.api_max_replicas
+    min_replicas = 0
+    max_replicas = var.api_max_replicas
+
+    # Container Apps does not retry a revision it has already marked ActivationFailed, so a bad
+    # registry credential leaves one stuck even after the credential is fixed. Changing this rolls
+    # a fresh revision, which is the declarative way out of that state.
+    revision_suffix = var.deployment_revision
+
     cooldown_period_in_seconds       = 300
     termination_grace_period_seconds = 30
 
@@ -134,6 +155,7 @@ resource "azurerm_container_app" "worker" {
   resource_group_name          = azurerm_resource_group.this.name
   revision_mode                = "Single"
   max_inactive_revisions       = 1
+  workload_profile_name        = "Consumption"
   tags                         = local.default_tags
 
   identity {
@@ -174,8 +196,10 @@ resource "azurerm_container_app" "worker" {
   }
 
   template {
-    min_replicas                     = 0
-    max_replicas                     = var.worker_max_replicas
+    min_replicas    = 0
+    max_replicas    = var.worker_max_replicas
+    revision_suffix = var.deployment_revision
+
     polling_interval_in_seconds      = 10
     cooldown_period_in_seconds       = 300
     termination_grace_period_seconds = 120

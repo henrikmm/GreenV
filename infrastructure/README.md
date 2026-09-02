@@ -148,11 +148,154 @@ export TF_VAR_container_registry="{\"server\":\"ghcr.io\",\"username\":\"Matomom
 unset GHCR_READ_TOKEN
 ```
 
-Set `api_hostname = null` and `cloudflare_zone_id = null` to deploy without a custom domain. When
-the hostname is enabled, Terraform deliberately creates DNS-only records because Azure managed
-certificate issuance and renewal must reach the Container Apps origin directly. A one-minute
-propagation guard separates DNS creation from Azure domain validation. Do not enable the Cloudflare
-proxy until renewal behavior has been verified.
+Set `api_hostname = null` and `cloudflare_zone_id = null` to deploy without a custom domain.
+
+## The custom hostname takes two applies
+
+Azure issues the managed certificate by reaching the Container Apps origin directly, and an
+intermediate proxy can block that. So the DNS record starts unproxied, the certificate is issued,
+and only then does the edge protection go on. Trying to do both in one apply is what leaves the
+hostname resolving to an origin that resets the TLS handshake.
+
+**Phase one — DNS-only, so the certificate can be issued.** Keep these at their defaults:
+
+```hcl
+cloudflare_proxy_enabled          = false
+restrict_api_origin_to_cloudflare = false
+cloudflare_api_waf_enabled        = false
+cloudflare_api_rate_limit_enabled = false
+```
+
+```bash
+terraform plan -out=bootstrap.tfplan
+terraform show bootstrap.tfplan
+terraform apply bootstrap.tfplan
+```
+
+That creates the DNS-only CNAME, the `asuid` ownership TXT record, the Azure custom domain, the
+managed certificate and its binding, in that order — Azure refuses to issue a certificate for a
+hostname that is not registered yet. Nothing else, so the Cloudflare token needs only
+**Zone → DNS → Edit** for this phase.
+
+**This apply needs the Azure CLI signed in on the machine running Terraform**, because the binding
+is a `local-exec`. The provider cannot do it: `container_app_environment_certificate_id` parses
+only an environment certificate id (`.../certificates/<name>`) and rejects a managed certificate id
+(`.../managedCertificates/<name>`) at plan time. Both certificate fields are therefore in
+`ignore_changes`, as the provider documents, and `terraform_data.api_certificate_binding` runs the
+one command that completes the hostname:
+
+```bash
+az containerapp hostname bind --resource-group rg-greenv-mvp --name ca-greenv-mvp-api \
+  --hostname greenvapi.matomomitsu.com --environment cae-greenv-mvp-eqvs07 \
+  --certificate mc-greenvapi-matomomitsu-com
+```
+
+Binding is create-or-update, so it is safe to repeat; Terraform re-runs it only when the
+certificate or the container app is replaced. If Terraform runs somewhere without the CLI — CI
+using `ARM_*` service-principal variables, for instance — run that command by hand once instead.
+
+Confirm the binding before going further:
+
+```bash
+az containerapp hostname list \
+  --resource-group rg-greenv-mvp \
+  --name ca-greenv-mvp-api \
+  --output table
+
+curl -I https://greenvapi.matomomitsu.com/actuator/health
+```
+
+`bindingType` must read `SniEnabled`. A TLS handshake that resets means the certificate is not
+bound: Azure's ingress rejects the SNI for a hostname it has registered but has no certificate for,
+which looks like a network fault rather than a configuration one. Wait and repeat; do not move on.
+
+### How the certificate is issued
+
+`azurerm_container_app_environment_managed_certificate.api` requests it and
+`azurerm_container_app_custom_domain.api` binds it. Azure issues and renews it for free, validating
+ownership from public DNS: the `asuid.<hostname>` TXT record proves ownership and the CNAME must
+resolve to the Container App.
+
+Two consequences follow, and both are easy to get wrong:
+
+- **The record must be DNS-only while the certificate is issued.** A proxied record answers with
+  Cloudflare's addresses, and CNAME validation has nothing to match. This is the whole reason the
+  rollout is split in two phases.
+- **Renewal validates again.** The constraint therefore applies for the certificate's whole life,
+  not only its first issue. Verify renewal behaviour before leaving the proxy on permanently; if
+  renewal fails behind the proxy, switch `cloudflare_proxy_enabled` back to `false` long enough for
+  Azure to renew.
+
+The provider documents putting `certificate_binding_type` and `container_app_environment_certificate_id`
+in `ignore_changes` when a managed certificate is used, because Azure sets them asynchronously.
+This stack sets them explicitly instead. Following that advice is what left the hostname registered
+but unbound for weeks: with both ignored and no certificate resource, nothing ever bound anything.
+If Azure does churn those fields between applies, add the `ignore_changes` block back **after** the
+first successful bind, not before it.
+
+**Phase two — proxy the record and close the origin.** Only after the certificate is bound:
+
+```hcl
+cloudflare_proxy_enabled          = true
+restrict_api_origin_to_cloudflare = true
+cloudflare_api_waf_enabled        = true
+cloudflare_api_rate_limit_enabled = true
+```
+
+```bash
+terraform plan -out=edge-security.tfplan
+terraform show edge-security.tfplan
+terraform apply edge-security.tfplan
+```
+
+This phase creates Cloudflare rulesets, so the token needs more than DNS. Add **Zone → Cache Rules
+→ Edit** for the cache-bypass rule and **Zone → Zone WAF → Edit** for the firewall and rate-limit
+rules. A token without them fails the apply with `403 Forbidden` and Cloudflare error code 10000,
+which reads as "Authentication error" even though the token itself is valid — the DNS records in
+phase one will have applied first.
+
+Then check that the public hostname works and the origin no longer answers anyone else:
+
+```bash
+curl -i https://greenvapi.matomomitsu.com/actuator/health
+
+API_ORIGIN="$(terraform output -raw api_origin_url)"
+curl -i "$API_ORIGIN/actuator/health"
+```
+
+The custom domain must answer; the direct origin must be rejected. If both still answer, the
+origin restriction did not apply and the API is still reachable around Cloudflare.
+`terraform output edge_security_state` names the phase the configuration is in.
+
+### What the edge does and does not do
+
+- **`proxied = true` alone protects nothing.** The Azure origin FQDN stays public and resolvable.
+  The configuration is only complete when the record is proxied *and*
+  `restrict_api_origin_to_cloudflare` has allowed only Cloudflare's ranges on the Container App.
+  Container Apps denies every other address once any Allow rule exists.
+- **The Cloudflare proxy is not authentication.** Every route except `/actuator/health` still
+  requires the Bearer token, and that stays true whichever way a request arrives.
+- **Never put a Cloudflare service token in the mobile app.** A shipped client cannot hold a
+  secret; anyone who unpacks the build reads it.
+- **The rules arrive with the proxy, not before it.** All three rulesets are created only when
+  `cloudflare_proxy_enabled` is true, which keeps phase one to DNS permissions alone. A DNS-only
+  record is never proxied and therefore never cached, so nothing is exposed by waiting.
+- **Cloudflare allows one entry-point ruleset per zone phase.** If the zone already has a ruleset
+  in `http_request_cache_settings`, `http_request_firewall_custom` or `http_ratelimit`, import it
+  (`terraform import cloudflare_ruleset.api_cache_bypass zones/<zone id>/<ruleset id>`) and add
+  the rule inside it rather than creating a second, conflicting entry point.
+- **WAF and rate limiting depend on the Cloudflare plan.** Both are off by default. The custom
+  rules declared here avoid Managed Rules, which need a paid entitlement; confirm plan support
+  before enabling them in `terraform.tfvars`.
+- **`manage_cloudflare_zone_security_settings` is zone-wide.** Strict SSL, a TLS 1.2 minimum and
+  TLS 1.3 apply to every hostname in `matomomitsu.com`, not just the API. It stays off by default
+  for that reason.
+- **To recreate the custom domain from scratch**, set the flags back to the phase-one values,
+  apply, let Azure reissue the certificate, then repeat phase two.
+
+`api_allowed_origins` is a separate concern from all of the above. It fills `GREENV_ALLOWED_ORIGINS`
+on the API container, which is what lets a browser page read an API response at all. Leave it empty
+for a phone-only deployment.
 
 The examples use `eastus2`, Neon `aws-us-east-2` and the R2 bootstrap hint `enam`. This keeps the
 three data-plane services relatively close. Region availability and price change; override the
@@ -203,6 +346,32 @@ inspection; moving or deleting one is an operational decision, not an automatic 
 
 - `terraform plan` before every apply; apply a saved plan so the reviewed graph is the deployed
   graph.
+- **The worker's queue scale rule always shows as a change, and that is expected.** Azure stores it
+  as a native `azureQueue` rule, and the provider reads that back as `azure_queue_scale_rule`,
+  which never matches the declared `custom_scale_rule`. The declaration cannot change:
+  `azure_queue_scale_rule` requires an `authentication` block with a storage connection string
+  secret and has no identity option, so `custom_scale_rule` with `custom_rule_type = "azure-queue"`
+  is the only way to scale on managed identity. Applying it rewrites the same values, identity
+  included. Do not "fix" the diff by switching blocks; that would replace the identity with a
+  connection string.
+- **A revision stuck at `ActivationFailed` needs a new revision, not a retry.** Container Apps
+  never re-attempts a revision it has already failed, so a wrong registry credential leaves the
+  workload dead even after the credential is corrected — and a further `terraform apply` changes
+  nothing, because the declared state already matches. `az containerapp revision restart` does not
+  help either; with `min_replicas = 0` the platform has no reason to try. Change
+  `deployment_revision` and apply: it rolls a fresh revision of both workloads and nothing else.
+
+  ```bash
+  az containerapp revision list -n ca-greenv-mvp-worker -g rg-greenv-mvp -o table
+  ```
+
+  Verify the registry credential before rolling, or the new revision fails the same way:
+
+  ```bash
+  tok=$(printf '%s' "$TF_VAR_container_registry" | sed -E 's/.*"password" *: *"([^"]*)".*/\1/')
+  curl -s -o /dev/null -w "GHCR: HTTP %{http_code}\n" -u "Matomomitsu:$tok" \
+    "https://ghcr.io/token?scope=repository:matomomitsu/greenv-video-api:pull&service=ghcr.io"
+  ```
 - A failed apply does not roll back resources that were already created. Inspect `terraform state
   list`, correct the configuration, and create a new saved plan; never reuse the plan from the
   failed apply.
@@ -217,8 +386,11 @@ inspection; moving or deleting one is an operational decision, not an automatic 
   are the idempotency boundary.
 - Keep the queue visibility timeout above the measured worst FFmpeg attempt. The MVP default is
   300 seconds (five minutes) and must be changed from evidence, not guesswork.
-- R2 has no automatic artifact expiration here. The worker removes transient source objects, while
-  frames and manifests are business records. Add lifecycle deletion only after retention is agreed.
+- **Nothing deletes capture artifacts.** R2 has no lifecycle rule, `expires_at` is recorded but no
+  scheduler acts on it, and the worker keeps the source segment so a later measurement stage can
+  re-sample it. Source, frames and manifests all accumulate: roughly 8.5 MB per ten-second segment,
+  about 3 GB per hour of driving, against R2's 10 GB free tier. Agree a retention rule and add
+  lifecycle deletion before a pilot runs for more than a few hours.
 - The capture and state buckets use `prevent_destroy`. To retire the environment, export the data,
   remove that guard in a reviewed change and run a fresh plan before deletion.
 - The API uses Neon's pooled endpoint for normal JDBC traffic and its direct endpoint for Flyway.

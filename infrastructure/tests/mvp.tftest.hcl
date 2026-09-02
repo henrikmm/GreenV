@@ -33,6 +33,24 @@ override_resource {
   }
 }
 
+# The assembled managed-certificate identifier is only checkable when the environment has a known
+# id, which a mocked provider does not give during plan.
+override_resource {
+  target          = azurerm_container_app_environment.this
+  override_during = plan
+  values = {
+    id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.App/managedEnvironments/cae-test"
+  }
+}
+
+override_resource {
+  target          = azurerm_container_app_environment_managed_certificate.api[0]
+  override_during = plan
+  values = {
+    id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.App/managedEnvironments/cae-test/managedCertificates/mc-api-example-com"
+  }
+}
+
 override_data {
   target          = data.cloudflare_r2_bucket.captures
   override_during = plan
@@ -84,6 +102,23 @@ run "plans_cost_conscious_mvp_defaults" {
   assert {
     condition     = azurerm_container_app_environment.this.logs_destination == "log-analytics"
     error_message = "The Container Apps environment must explicitly send logs to its Log Analytics workspace."
+  }
+
+  assert {
+    condition = (
+      one([for profile in azurerm_container_app_environment.this.workload_profile : profile.workload_profile_type]) == "Consumption" &&
+      azurerm_container_app.api.workload_profile_name == "Consumption" &&
+      azurerm_container_app.worker.workload_profile_name == "Consumption"
+    )
+    error_message = "Leaving the profile undeclared makes every plan propose removing it, which cannot be applied safely."
+  }
+
+  assert {
+    condition = (
+      azurerm_container_app.worker.template[0].custom_scale_rule[0].custom_rule_type == "azure-queue" &&
+      azurerm_container_app.worker.template[0].custom_scale_rule[0].metadata.queueLength == "1"
+    )
+    error_message = "Queue scaling must stay a custom azure-queue rule, which is the only shape that carries a managed identity."
   }
 
   assert {
@@ -184,5 +219,276 @@ run "plans_dns_only_custom_domain" {
   assert {
     condition     = azurerm_container_app.api.registry[0].server == "ghcr.io" && azurerm_container_app.worker.registry[0].server == "ghcr.io"
     error_message = "Private registry credentials must configure both workloads."
+  }
+}
+
+run "plans_dns_only_edge_defaults" {
+  command = plan
+
+  variables {
+    cloudflare_account_id             = "00000000000000000000000000000000"
+    cloudflare_zone_id                = "11111111111111111111111111111111"
+    api_hostname                      = "api.example.com"
+    r2_bucket_name                    = "greenv-mvp-captures-test"
+    r2_access_key_id                  = "test-access-key"
+    r2_secret_access_key              = "test-secret-key"
+    api_image                         = "ghcr.io/example/greenv-video-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    worker_image                      = "ghcr.io/example/greenv-frame-extractor@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    cloudflare_proxy_enabled          = false
+    restrict_api_origin_to_cloudflare = false
+  }
+
+  assert {
+    condition     = cloudflare_dns_record.api_cname[0].proxied == false
+    error_message = "Phase one must stay DNS-only so Azure can issue the managed certificate."
+  }
+
+  assert {
+    condition     = cloudflare_dns_record.api_verification[0].proxied == false
+    error_message = "The asuid ownership TXT record must never be proxied."
+  }
+
+  assert {
+    condition     = length(azurerm_container_app.api.ingress[0].ip_security_restriction) == 0
+    error_message = "The origin must accept direct traffic while the certificate is still being issued."
+  }
+
+  assert {
+    condition     = length(cloudflare_ruleset.api_waf) == 0 && length(cloudflare_ruleset.api_rate_limit) == 0
+    error_message = "WAF and rate limiting must stay off until they are explicitly enabled."
+  }
+
+  assert {
+    condition     = length(cloudflare_ruleset.api_cache_bypass) == 0
+    error_message = "Phase one must need only DNS permissions on the Cloudflare token."
+  }
+
+  assert {
+    condition     = local.api_environment.GREENV_ALLOWED_ORIGINS == ""
+    error_message = "CORS must stay disabled unless an origin is configured."
+  }
+}
+
+run "plans_protected_edge_configuration" {
+  command = plan
+
+  variables {
+    cloudflare_account_id               = "00000000000000000000000000000000"
+    cloudflare_zone_id                  = "11111111111111111111111111111111"
+    api_hostname                        = "api.example.com"
+    r2_bucket_name                      = "greenv-mvp-captures-test"
+    r2_access_key_id                    = "test-access-key"
+    r2_secret_access_key                = "test-secret-key"
+    api_image                           = "ghcr.io/example/greenv-video-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    worker_image                        = "ghcr.io/example/greenv-frame-extractor@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    api_allowed_origins                 = ["http://localhost:5173"]
+    cloudflare_proxy_enabled            = true
+    restrict_api_origin_to_cloudflare   = true
+    cloudflare_api_cache_bypass_enabled = true
+    cloudflare_api_waf_enabled          = true
+    cloudflare_api_rate_limit_enabled   = true
+  }
+
+  assert {
+    condition     = cloudflare_dns_record.api_cname[0].proxied == true
+    error_message = "Phase two must proxy the API record through Cloudflare."
+  }
+
+  assert {
+    condition     = length(azurerm_container_app.api.ingress[0].ip_security_restriction) == 15
+    error_message = "The origin must allow every published Cloudflare IPv4 range and nothing else."
+  }
+
+  assert {
+    condition = alltrue([
+      for restriction in azurerm_container_app.api.ingress[0].ip_security_restriction :
+      restriction.action == "Allow"
+    ])
+    error_message = "Mixing Allow and Deny rules would stop Azure denying every other address implicitly."
+  }
+
+  assert {
+    condition     = cloudflare_ruleset.api_cache_bypass[0].rules[0].action_parameters.cache == false
+    error_message = "The API hostname must bypass the Cloudflare cache."
+  }
+
+  assert {
+    condition = (
+      cloudflare_ruleset.api_cache_bypass[0].phase == "http_request_cache_settings" &&
+      cloudflare_ruleset.api_cache_bypass[0].rules[0].expression == "http.host eq \"api.example.com\""
+    )
+    error_message = "Cache bypass must be limited to the API hostname, not applied zone-wide."
+  }
+
+  assert {
+    condition     = strcontains(cloudflare_ruleset.api_waf[0].rules[0].expression, "http.host eq \"api.example.com\"")
+    error_message = "The WAF rule must be scoped to the API hostname."
+  }
+
+  assert {
+    condition     = cloudflare_ruleset.api_waf[0].rules[0].action == "block"
+    error_message = "Unexpected HTTP methods must be blocked, not logged."
+  }
+
+  assert {
+    condition = (
+      cloudflare_ruleset.api_rate_limit[0].rules[0].expression == "http.host eq \"api.example.com\"" &&
+      cloudflare_ruleset.api_rate_limit[0].rules[0].ratelimit.requests_per_period == 120 &&
+      cloudflare_ruleset.api_rate_limit[0].rules[0].ratelimit.period == 60
+    )
+    error_message = "Rate limiting must apply the documented per-hostname ceiling."
+  }
+
+  assert {
+    condition     = local.api_environment.GREENV_ALLOWED_ORIGINS == "http://localhost:5173"
+    error_message = "Configured browser origins must reach the API container."
+  }
+
+  assert {
+    condition     = length(cloudflare_zone_setting.ssl_strict) == 0
+    error_message = "Zone-wide TLS settings must stay untouched without their own flag."
+  }
+}
+
+run "rejects_origin_restriction_without_the_proxy" {
+  command = plan
+
+  variables {
+    cloudflare_account_id             = "00000000000000000000000000000000"
+    cloudflare_zone_id                = "11111111111111111111111111111111"
+    api_hostname                      = "api.example.com"
+    r2_bucket_name                    = "greenv-mvp-captures-test"
+    r2_access_key_id                  = "test-access-key"
+    r2_secret_access_key              = "test-secret-key"
+    api_image                         = "ghcr.io/example/greenv-video-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    worker_image                      = "ghcr.io/example/greenv-frame-extractor@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    cloudflare_proxy_enabled          = false
+    restrict_api_origin_to_cloudflare = true
+  }
+
+  expect_failures = [var.restrict_api_origin_to_cloudflare]
+}
+
+run "manages_zone_tls_only_behind_its_flag" {
+  command = plan
+
+  variables {
+    cloudflare_account_id                    = "00000000000000000000000000000000"
+    cloudflare_zone_id                       = "11111111111111111111111111111111"
+    api_hostname                             = "api.example.com"
+    r2_bucket_name                           = "greenv-mvp-captures-test"
+    r2_access_key_id                         = "test-access-key"
+    r2_secret_access_key                     = "test-secret-key"
+    api_image                                = "ghcr.io/example/greenv-video-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    worker_image                             = "ghcr.io/example/greenv-frame-extractor@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    manage_cloudflare_zone_security_settings = true
+  }
+
+  assert {
+    condition = (
+      cloudflare_zone_setting.ssl_strict[0].value == "strict" &&
+      cloudflare_zone_setting.minimum_tls_version[0].value == "1.2" &&
+      cloudflare_zone_setting.tls_1_3[0].value == "on"
+    )
+    error_message = "The flag must apply strict SSL, TLS 1.2 minimum and TLS 1.3."
+  }
+
+  assert {
+    condition     = azurerm_container_app.api.ingress[0].allow_insecure_connections == false
+    error_message = "The Azure origin must keep refusing plaintext."
+  }
+}
+
+run "rolls_both_workloads_on_a_new_deployment_revision" {
+  command = plan
+
+  variables {
+    cloudflare_account_id = "00000000000000000000000000000000"
+    r2_bucket_name        = "greenv-mvp-captures-test"
+    r2_access_key_id      = "test-access-key"
+    r2_secret_access_key  = "test-secret-key"
+    api_image             = "ghcr.io/example/greenv-video-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    worker_image          = "ghcr.io/example/greenv-frame-extractor@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    deployment_revision   = "keep-source"
+  }
+
+  assert {
+    condition = (
+      azurerm_container_app.api.template[0].revision_suffix == "keep-source" &&
+      azurerm_container_app.worker.template[0].revision_suffix == "keep-source"
+    )
+    error_message = "One suffix must roll both workloads, so a stuck revision is recovered in a single apply."
+  }
+
+  assert {
+    condition     = length("${azurerm_container_app.worker.name}--${var.deployment_revision}") <= 64
+    error_message = "The revision name must satisfy Azure's 64-character limit."
+  }
+}
+
+run "issues_and_binds_a_managed_certificate_for_the_custom_hostname" {
+  command = plan
+
+  variables {
+    cloudflare_account_id = "00000000000000000000000000000000"
+    cloudflare_zone_id    = "11111111111111111111111111111111"
+    api_hostname          = "api.example.com"
+    r2_bucket_name        = "greenv-mvp-captures-test"
+    r2_access_key_id      = "test-access-key"
+    r2_secret_access_key  = "test-secret-key"
+    api_image             = "ghcr.io/example/greenv-video-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    worker_image          = "ghcr.io/example/greenv-frame-extractor@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  }
+
+  assert {
+    condition     = azurerm_container_app_environment_managed_certificate.api[0].subject_name == "api.example.com"
+    error_message = "The managed certificate must cover the API hostname."
+  }
+
+  assert {
+    condition     = azurerm_container_app_environment_managed_certificate.api[0].domain_control_validation == "CNAME"
+    error_message = "Ownership must be proven from public DNS, which is why the record stays unproxied."
+  }
+
+  assert {
+    condition     = azurerm_container_app_custom_domain.api[0].name == "api.example.com"
+    error_message = "The registered hostname must be the configured one."
+  }
+
+  assert {
+    condition     = azurerm_container_app_environment_managed_certificate.api[0].name == local.api_certificate_name
+    error_message = "The certificate must be named after the hostname it covers."
+  }
+
+  assert {
+    condition = alltrue([
+      for fragment in [
+        "az containerapp hostname bind",
+        "--hostname api.example.com",
+        "--certificate /subscriptions/",
+      ] : strcontains(local.api_certificate_bind_command, fragment)
+    ])
+    error_message = "The provider cannot bind a managed certificate, so the CLI call is the only thing that completes the hostname."
+  }
+}
+
+run "omits_the_certificate_without_a_custom_hostname" {
+  command = plan
+
+  variables {
+    cloudflare_account_id = "00000000000000000000000000000000"
+    r2_bucket_name        = "greenv-mvp-captures-test"
+    r2_access_key_id      = "test-access-key"
+    r2_secret_access_key  = "test-secret-key"
+    api_image             = "ghcr.io/example/greenv-video-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    worker_image          = "ghcr.io/example/greenv-frame-extractor@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  }
+
+  assert {
+    condition = (
+      length(azurerm_container_app_environment_managed_certificate.api) == 0 &&
+      length(azurerm_container_app_custom_domain.api) == 0
+    )
+    error_message = "A deployment without a custom hostname must not request a certificate."
   }
 }

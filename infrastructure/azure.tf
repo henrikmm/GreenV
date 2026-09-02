@@ -22,6 +22,17 @@ resource "azurerm_container_app_environment" "this" {
   log_analytics_workspace_id = azurerm_log_analytics_workspace.this.id
   public_network_access      = "Enabled"
   tags                       = local.default_tags
+
+  # Azure creates this profile with the environment and keeps re-adding it. Leaving it undeclared
+  # made every plan propose removing it, which is not a change anyone wants applied: an environment
+  # cannot be converted back to the Consumption-only shape in place. Declaring it makes the plan
+  # describe reality. Consumption bills only for what the replicas use, so this adds no cost.
+  workload_profile {
+    name                  = "Consumption"
+    workload_profile_type = "Consumption"
+    minimum_count         = 0
+    maximum_count         = 0
+  }
 }
 
 resource "azurerm_storage_account" "queue" {

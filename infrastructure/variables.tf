@@ -220,3 +220,113 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "api_allowed_origins" {
+  description = "Browser origins allowed to call the API cross-origin. Empty keeps CORS disabled."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition = alltrue([
+      for origin in var.api_allowed_origins :
+      can(regex("^https?://[a-z0-9.-]+(:[0-9]{1,5})?$", origin))
+    ])
+    error_message = "Each api_allowed_origins entry must be scheme://host[:port] with no trailing path."
+  }
+}
+
+variable "cloudflare_proxy_enabled" {
+  description = "Whether Cloudflare proxies the API DNS record."
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = !var.cloudflare_proxy_enabled || var.api_hostname != null
+    error_message = "cloudflare_proxy_enabled requires api_hostname."
+  }
+}
+
+variable "restrict_api_origin_to_cloudflare" {
+  description = "Whether the API origin only accepts Cloudflare source IP ranges."
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = !var.restrict_api_origin_to_cloudflare || var.cloudflare_proxy_enabled
+    error_message = "Origin restriction requires cloudflare_proxy_enabled to be true."
+  }
+}
+
+variable "cloudflare_api_cache_bypass_enabled" {
+  description = "Whether Cloudflare bypasses cache for the API hostname. Takes effect with the proxy."
+  type        = bool
+  default     = true
+}
+
+variable "cloudflare_api_waf_enabled" {
+  description = "Whether hostname-specific Cloudflare WAF rules are enabled."
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = !var.cloudflare_api_waf_enabled || var.cloudflare_proxy_enabled
+    error_message = "cloudflare_api_waf_enabled requires cloudflare_proxy_enabled to be true."
+  }
+}
+
+variable "cloudflare_api_rate_limit_enabled" {
+  description = "Whether rate limiting is enabled for the API hostname."
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = !var.cloudflare_api_rate_limit_enabled || var.cloudflare_proxy_enabled
+    error_message = "cloudflare_api_rate_limit_enabled requires cloudflare_proxy_enabled to be true."
+  }
+}
+
+variable "cloudflare_api_rate_limit_requests" {
+  description = "Maximum requests allowed during the rate-limit period."
+  type        = number
+  default     = 120
+
+  validation {
+    condition     = var.cloudflare_api_rate_limit_requests > 0
+    error_message = "cloudflare_api_rate_limit_requests must be greater than zero."
+  }
+}
+
+variable "cloudflare_api_rate_limit_period_seconds" {
+  description = "Rate-limit evaluation period in seconds."
+  type        = number
+  default     = 60
+
+  validation {
+    # Cloudflare accepts only these counting periods for a rate-limiting rule.
+    condition     = contains([10, 60, 600, 3600], var.cloudflare_api_rate_limit_period_seconds)
+    error_message = "cloudflare_api_rate_limit_period_seconds must be 10, 60, 600 or 3600."
+  }
+}
+
+variable "manage_cloudflare_zone_security_settings" {
+  description = "Whether Terraform manages zone-wide Cloudflare TLS settings."
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = !var.manage_cloudflare_zone_security_settings || var.cloudflare_zone_id != null
+    error_message = "manage_cloudflare_zone_security_settings requires cloudflare_zone_id."
+  }
+}
+
+variable "deployment_revision" {
+  description = "Suffix appended to the Container Apps revision names. Change it to roll a fresh revision of both workloads without changing anything else, which is how a revision left stuck by a failed image pull is recovered."
+  type        = string
+  default     = null
+  nullable    = true
+
+  validation {
+    condition     = var.deployment_revision == null || can(regex("^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$", var.deployment_revision))
+    error_message = "deployment_revision must be 1 to 32 lowercase alphanumeric characters or hyphens, starting and ending alphanumeric."
+  }
+}

@@ -26,6 +26,26 @@ worker_image = "ghcr.io/matomomitsu/greenv-frame-extractor@sha256:aed92fada08fc0
 # not define container_registry in this file: export TF_VAR_container_registry
 # as documented in README.md so this file cannot override the secret input.
 
+# Change this to roll a fresh revision of both Container Apps without changing anything else.
+# Container Apps never retries a revision it marked ActivationFailed, so this is how a workload
+# stuck behind a bad registry credential is recovered once the credential is fixed.
+# deployment_revision = "rollout-1"
+
+# Browser origins allowed to call the API cross-origin. Leave empty for a phone-only deployment;
+# the Flutter web capture build needs its exact origin, port included.
+api_allowed_origins = []
+
+# Phase 1: keep both false until Azure issues the managed certificate.
+cloudflare_proxy_enabled          = false
+restrict_api_origin_to_cloudflare = false
+
+# Enable after confirming Cloudflare plan support.
+cloudflare_api_waf_enabled        = false
+cloudflare_api_rate_limit_enabled = false
+
+# Zone-wide: may affect unrelated hostnames.
+manage_cloudflare_zone_security_settings = false
+
 budget_amount         = 30
 budget_contact_emails = ["finops@example.com"]
 

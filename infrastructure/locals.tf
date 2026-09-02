@@ -8,7 +8,45 @@ locals {
   segment_queue_name   = "greenv-segment-extract-v2"
   poison_queue_name    = "greenv-segment-extract-poison"
   r2_endpoint          = "https://${var.cloudflare_account_id}.r2.cloudflarestorage.com"
-  api_bearer_token     = var.api_bearer_token == null ? random_password.api_bearer_token[0].result : var.api_bearer_token
+
+  # Every edge rule is scoped to this one hostname. The zone holds unrelated subdomains and a
+  # zone-wide rule would reach all of them.
+  api_host_expression = var.api_hostname == null ? "" : "http.host eq \"${var.api_hostname}\""
+
+  api_certificate_name = var.api_hostname == null ? "" : "mc-${replace(var.api_hostname, ".", "-")}"
+
+  # The one step Azure requires that the provider cannot express. Kept here rather than inline in
+  # the provisioner so it is readable and can be asserted on.
+  api_certificate_bind_command = join(" ", [
+    "az containerapp hostname bind",
+    "--resource-group ${azurerm_resource_group.this.name}",
+    "--name ${azurerm_container_app.api.name}",
+    "--hostname ${var.api_hostname == null ? "" : var.api_hostname}",
+    "--environment ${azurerm_container_app_environment.this.name}",
+    "--certificate ${try(azurerm_container_app_environment_managed_certificate.api[0].id, "")}",
+    "--output none",
+  ])
+
+  # Published at https://www.cloudflare.com/ips-v4; this copy matched it on 2 September 2026.
+  # Keyed by a stable name so adding or removing a range does not renumber the others in state.
+  cloudflare_ipv4_cidrs = {
+    cf_01 = "173.245.48.0/20"
+    cf_02 = "103.21.244.0/22"
+    cf_03 = "103.22.200.0/22"
+    cf_04 = "103.31.4.0/22"
+    cf_05 = "141.101.64.0/18"
+    cf_06 = "108.162.192.0/18"
+    cf_07 = "190.93.240.0/20"
+    cf_08 = "188.114.96.0/20"
+    cf_09 = "197.234.240.0/22"
+    cf_10 = "198.41.128.0/17"
+    cf_11 = "162.158.0.0/15"
+    cf_12 = "104.16.0.0/13"
+    cf_13 = "104.24.0.0/14"
+    cf_14 = "172.64.0.0/13"
+    cf_15 = "131.0.72.0/22"
+  }
+  api_bearer_token = var.api_bearer_token == null ? random_password.api_bearer_token[0].result : var.api_bearer_token
 
   database_url        = "jdbc:postgresql://${neon_project.database.database_host_pooler}/${neon_project.database.database_name}?sslmode=require"
   flyway_database_url = "jdbc:postgresql://${neon_project.database.database_host}/${neon_project.database.database_name}?sslmode=require"
@@ -37,6 +75,10 @@ locals {
     SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE = "5"
     SPRING_FLYWAY_URL                          = local.flyway_database_url
     SPRING_FLYWAY_USER                         = neon_project.database.database_user
+
+    # Empty leaves CORS disabled, which is what a phone-only deployment wants. A browser client
+    # needs its exact origin listed; this never replaces the Bearer token.
+    GREENV_ALLOWED_ORIGINS = join(",", var.api_allowed_origins)
   })
 
   worker_environment = merge(local.common_environment, {

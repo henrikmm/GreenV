@@ -53,3 +53,31 @@ output "neon_project_id" {
   description = "Neon database project identifier."
   value       = neon_project.database.id
 }
+
+output "cloudflare_proxy_enabled" {
+  description = "Whether the API DNS record is proxied by Cloudflare."
+  value       = var.cloudflare_proxy_enabled
+}
+
+output "api_origin_restricted_to_cloudflare" {
+  description = "Whether the Azure origin accepts only Cloudflare source addresses."
+  value       = var.restrict_api_origin_to_cloudflare
+}
+
+output "edge_security_state" {
+  description = "Which of the two deployment phases the edge configuration is in."
+  value = var.api_hostname == null ? "no custom hostname" : (
+    var.cloudflare_proxy_enabled
+    ? (var.restrict_api_origin_to_cloudflare
+      ? "phase 2: proxied, origin restricted to Cloudflare"
+    : "phase 2 incomplete: proxied but the Azure origin still accepts direct traffic")
+    : "phase 1: DNS-only, waiting for the Azure managed certificate"
+  )
+}
+
+output "api_certificate_binding" {
+  description = "The managed certificate bound to the custom hostname, if one is configured."
+  value = var.api_hostname == null ? "no custom hostname" : format(
+    "%s bound to %s", var.api_hostname, local.api_certificate_name
+  )
+}
