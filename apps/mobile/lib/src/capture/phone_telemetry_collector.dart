@@ -51,41 +51,56 @@ final class PhoneTelemetryCollector implements TelemetryCollector {
     _orientation.reset();
     _lastMotionNanos = null;
 
-    _subscriptions
-      ..add(
-        accelerometerEventStream(samplingPeriod: SensorInterval.gameInterval)
-            .listen((event) => _gravity = event, onError: (_) {}),
-      )
-      ..add(
-        userAccelerometerEventStream(
-          samplingPeriod: SensorInterval.gameInterval,
-        ).listen((event) => _userAcceleration = event, onError: (_) {}),
-      )
-      ..add(
-        gyroscopeEventStream(samplingPeriod: SensorInterval.gameInterval)
-            .listen(_recordMotion, onError: (_) {}),
-      );
+    _startMotion();
     await _startLocation();
   }
 
+  /// A workstation browser exposes no inertial sensors, and asking for one there throws instead of
+  /// returning an empty stream. Motion is optional evidence: a segment without it still carries
+  /// video and GNSS, so the failure must not end the capture.
+  void _startMotion() {
+    try {
+      _subscriptions
+        ..add(
+          accelerometerEventStream(samplingPeriod: SensorInterval.gameInterval)
+              .listen((event) => _gravity = event, onError: (_) {}),
+        )
+        ..add(
+          userAccelerometerEventStream(
+            samplingPeriod: SensorInterval.gameInterval,
+          ).listen((event) => _userAcceleration = event, onError: (_) {}),
+        )
+        ..add(
+          gyroscopeEventStream(samplingPeriod: SensorInterval.gameInterval)
+              .listen(_recordMotion, onError: (_) {}),
+        );
+    } on Object {
+      // No motion samples for this segment.
+    }
+  }
+
   Future<void> _startLocation() async {
-    if (!await Geolocator.isLocationServiceEnabled()) return;
-    var permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) return;
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        return;
+      }
+      _subscriptions.add(
+        Geolocator.getPositionStream(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.bestForNavigation,
+            distanceFilter: 0,
+          ),
+        ).listen(_recordLocation, onError: (_) {}),
+      );
+    } on Object {
+      // Capture continues without GNSS; affected frames carry unavailable location evidence.
     }
-    if (permission == LocationPermission.denied ||
-        permission == LocationPermission.deniedForever) {
-      return;
-    }
-    _subscriptions.add(
-      Geolocator.getPositionStream(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.bestForNavigation,
-          distanceFilter: 0,
-        ),
-      ).listen(_recordLocation, onError: (_) {}),
-    );
   }
 
   void _recordLocation(Position position) {

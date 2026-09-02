@@ -130,6 +130,7 @@ final class CaptureCoordinator extends ChangeNotifier {
         capturedAtUtc: _segmentCapturedAt!,
         durationMillis: video.durationMillis,
         sourceVideoPath: video.path,
+        videoContentType: video.contentType,
         telemetry: telemetry,
       );
       _uploader.syncSoon();

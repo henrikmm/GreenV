@@ -18,22 +18,22 @@ void main() {
     );
     expect(find.bySemanticsLabel('motiva'), findsOneWidget);
     expect(find.bySemanticsLabel('GreenV'), findsOneWidget);
-    expect(find.text('ENTRAR'), findsOneWidget);
+    expect(find.text('Entrar'), findsOneWidget);
 
     await tester.tap(find.text('Esqueceu a senha?'));
     await tester.pumpAndSettle();
-    expect(find.text('ENVIAR EMAIL'), findsOneWidget);
+    expect(find.text('Enviar código'), findsOneWidget);
 
-    await tester.tap(find.text('ENVIAR EMAIL'));
+    await tester.tap(find.text('Enviar código'));
     await tester.pumpAndSettle();
     expect(
-      find.text('Digite o código enviado por email para acessar sua conta'),
+      find.text('Enviamos seis dígitos para o seu e-mail corporativo.'),
       findsOneWidget,
     );
 
-    await tester.tap(find.text('ENTRAR'));
+    await tester.tap(find.text('Confirmar e entrar'));
     await tester.pumpAndSettle();
-    expect(find.text('Olá, Nome'), findsOneWidget);
+    expect(find.text('Olá, equipe de campo'), findsOneWidget);
   });
 
   testWidgets('navigates home, upload, network summary and map', (
@@ -48,19 +48,20 @@ void main() {
         initialPage: MotivaPage.home,
       ),
     );
-    expect(find.text('Visão Geral da Malha'), findsOneWidget);
+    expect(find.text('Malha monitorada'), findsOneWidget);
 
-    await tester.tap(find.byKey(const Key('network-preview')));
+    await tester.ensureVisible(find.text('Ver mapa'));
+    await tester.tap(find.text('Ver mapa'));
     await tester.pumpAndSettle();
     expect(find.text('RESUMO DA MALHA'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('nav-mapa')));
     await tester.pumpAndSettle();
-    expect(find.text('Search route or area...'), findsOneWidget);
+    expect(find.text('Buscar rodovia, trecho ou km'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('nav-upload')));
     await tester.pumpAndSettle();
-    expect(find.text('Faça upload para\nreconhecimento'), findsOneWidget);
+    expect(find.text('Grave o trecho da rodovia'), findsOneWidget);
   });
 
   testWidgets('shows upload queue and recording states', (tester) async {
@@ -73,7 +74,7 @@ void main() {
         initialPage: MotivaPage.upload,
       ),
     );
-    expect(find.text('Iniciar gravação'), findsOneWidget);
+    expect(find.text('Iniciar coleta'), findsOneWidget);
     expect(find.text('Tudo enviado'), findsOneWidget);
 
     await tester.ensureVisible(find.byKey(const Key('record-button')));
@@ -97,7 +98,7 @@ void main() {
       ),
     );
     expect(find.bySemanticsLabel('motiva'), findsOneWidget);
-    expect(find.text('ENTRAR'), findsNothing);
+    expect(find.text('Entrar'), findsNothing);
   });
 }
 

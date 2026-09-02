@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:greenv_capture/src/api/http_capture_backend.dart';
 import 'package:greenv_capture/src/bootstrap/app_dependencies.dart';
+import 'package:greenv_capture/src/bootstrap/capture_configuration.dart';
 import 'package:greenv_capture/src/capture/camera_segment_recorder.dart';
 import 'package:greenv_capture/src/capture/capture_coordinator.dart';
 import 'package:greenv_capture/src/capture/capture_runtime.dart';
@@ -22,16 +23,16 @@ Future<AppDependencies> createAppDependencies() async {
     '${captureRoot.path}${Platform.pathSeparator}device-id',
   );
   final deviceId = await _deviceId(deviceFile);
-  const configuredApi = String.fromEnvironment(
-    'GREENV_API_URL',
-    defaultValue: 'http://10.0.2.2:8080',
-  );
   final monotonicClock = MonotonicClock();
   final recorder = CameraSegmentRecorder();
   final telemetry = PhoneTelemetryCollector(monotonicClock.nowNanos);
   final uploader = QueueUploader(
     queue: queue,
-    backend: HttpCaptureBackend(Uri.parse(configuredApi)),
+    backend: HttpCaptureBackend(
+      baseUri: CaptureConfiguration.apiUri,
+      content: queue,
+      bearerToken: CaptureConfiguration.apiToken,
+    ),
   );
   final coordinator = CaptureCoordinator(
     deviceId: deviceId,

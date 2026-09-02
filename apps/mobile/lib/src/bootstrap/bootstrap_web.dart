@@ -1,12 +1,64 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:greenv_capture/src/api/http_capture_backend.dart';
 import 'package:greenv_capture/src/bootstrap/app_dependencies.dart';
+import 'package:greenv_capture/src/bootstrap/capture_configuration.dart';
+import 'package:greenv_capture/src/capture/browser_camera_recorder.dart';
 import 'package:greenv_capture/src/capture/capture_coordinator.dart';
 import 'package:greenv_capture/src/capture/capture_ports.dart';
+import 'package:greenv_capture/src/capture/capture_runtime.dart';
+import 'package:greenv_capture/src/capture/phone_telemetry_collector.dart';
 import 'package:greenv_capture/src/domain/capture_models.dart';
+import 'package:greenv_capture/src/storage/browser_capture_queue.dart';
 import 'package:greenv_capture/src/storage/memory_capture_queue.dart';
 import 'package:greenv_capture/src/upload/queue_uploader.dart';
+import 'package:uuid/uuid.dart';
 
-Future<AppDependencies> createAppDependencies() async {
+Future<AppDependencies> createAppDependencies() async =>
+    CaptureConfiguration.webCaptureEnabled
+    ? _createBrowserCaptureDependencies()
+    : _createPreviewDependencies();
+
+/// The workstation capture build. It opens the real webcam, samples whatever GNSS the browser
+/// offers and uploads to the configured API, so a laptop can exercise the deployed pipeline end to
+/// end. Its queue lives in memory: a reload discards anything the worker has not yet verified.
+Future<AppDependencies> _createBrowserCaptureDependencies() async {
+  final queue = BrowserCaptureQueue();
+  final monotonicClock = MonotonicClock();
+  final uploader = QueueUploader(
+    queue: queue,
+    backend: HttpCaptureBackend(
+      baseUri: CaptureConfiguration.apiUri,
+      content: queue,
+      bearerToken: CaptureConfiguration.apiToken,
+    ),
+  );
+  // `?session=<uuid>` pins the session identifier so a capture started here can be followed from
+  // outside the browser with `GET /v2/capture-sessions/<uuid>`.
+  final requestedSession = Uri.base.queryParameters['session'];
+  final capture = CaptureCoordinator(
+    deviceId: 'greenv-browser-${const Uuid().v4()}',
+    recorder: BrowserCameraRecorder(
+      preferredLabel: Uri.base.queryParameters['camera'],
+    ),
+    telemetry: PhoneTelemetryCollector(monotonicClock.nowNanos),
+    queue: queue,
+    uploader: uploader,
+    foregroundLease: _NoopForegroundLease(),
+    scheduler: TimerSegmentScheduler(),
+    monotonicNanos: monotonicClock.nowNanos,
+    newSessionId: requestedSession == null || requestedSession.isEmpty
+        ? null
+        : () => requestedSession,
+  );
+  uploader.syncSoon();
+  // `?autostart=1` records without a click, so an automated browser can drive a whole capture.
+  if (Uri.base.queryParameters['autostart'] == '1') unawaited(capture.start());
+  return AppDependencies(capture: capture);
+}
+
+Future<AppDependencies> _createPreviewDependencies() async {
   final queue = MemoryCaptureQueue();
   final recorder = _PreviewRecorder();
   final offline = Uri.base.queryParameters['offline'] == '1';

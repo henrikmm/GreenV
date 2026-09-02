@@ -1,17 +1,21 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:greenv_capture/src/bootstrap/app_dependencies.dart';
 import 'package:greenv_capture/src/capture/capture_coordinator.dart';
 
-const motivaPurple = Color(0xFF6422F4);
-const motivaPurpleDark = Color(0xFF4B16C9);
-const motivaLilac = Color(0xFFF0E9FF);
-const motivaGreen = Color(0xFF086B3C);
-const motivaInk = Color(0xFF242027);
-const motivaCanvas = Color(0xFFF9F7FA);
-const motivaLine = Color(0xFFE5DEE8);
+const motivaPurple = Color(0xFF6546D7);
+const motivaPurpleDark = Color(0xFF4E34B5);
+const motivaLilac = Color(0xFFF0ECFF);
+const motivaGreen = Color(0xFF0C6B4F);
+const greenvForest = Color(0xFF123E31);
+const greenvLeaf = Color(0xFF2D8A62);
+const greenvMint = Color(0xFFE7F3EC);
+const greenvAmber = Color(0xFFE59A33);
+const motivaInk = Color(0xFF17231E);
+const motivaMuted = Color(0xFF66736C);
+const motivaCanvas = Color(0xFFF3F6F2);
+const motivaLine = Color(0xFFDCE5DE);
 
 enum MotivaPage {
   splash,
@@ -25,11 +29,7 @@ enum MotivaPage {
 }
 
 final class CaptureApp extends StatelessWidget {
-  const CaptureApp({
-    required this.dependencies,
-    this.initialPage,
-    super.key,
-  });
+  const CaptureApp({required this.dependencies, this.initialPage, super.key});
 
   final AppDependencies dependencies;
   final MotivaPage? initialPage;
@@ -41,50 +41,80 @@ final class CaptureApp extends StatelessWidget {
     theme: ThemeData(
       useMaterial3: true,
       colorScheme: ColorScheme.fromSeed(
-        seedColor: motivaPurple,
-        primary: motivaPurple,
+        seedColor: greenvForest,
+        primary: greenvForest,
+        secondary: motivaPurple,
         surface: Colors.white,
       ),
-      scaffoldBackgroundColor: const Color(0xFF201F20),
-      fontFamily: 'Arial',
+      scaffoldBackgroundColor: const Color(0xFF18231E),
       textTheme: const TextTheme(
-        bodyMedium: TextStyle(color: motivaInk),
-        titleMedium: TextStyle(
+        headlineSmall: TextStyle(
           color: motivaInk,
-          fontWeight: FontWeight.w700,
+          fontSize: 24,
+          height: 1.15,
+          fontWeight: FontWeight.w800,
+          letterSpacing: -0.5,
         ),
+        titleLarge: TextStyle(
+          color: motivaInk,
+          fontSize: 18,
+          fontWeight: FontWeight.w800,
+          letterSpacing: -0.2,
+        ),
+        titleMedium: TextStyle(color: motivaInk, fontWeight: FontWeight.w700),
+        bodyLarge: TextStyle(color: motivaInk, fontSize: 16, height: 1.45),
+        bodyMedium: TextStyle(color: motivaInk, fontSize: 14, height: 1.4),
+        bodySmall: TextStyle(color: motivaMuted, fontSize: 12, height: 1.35),
+        labelLarge: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          minimumSize: const Size.fromHeight(44),
-          backgroundColor: motivaPurple,
+          minimumSize: const Size.fromHeight(52),
+          backgroundColor: greenvForest,
           foregroundColor: Colors.white,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(11),
+            borderRadius: BorderRadius.circular(16),
           ),
-          textStyle: const TextStyle(
-            fontSize: 12,
-            letterSpacing: 0.2,
-            fontWeight: FontWeight.w800,
+          textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          minimumSize: const Size.fromHeight(52),
+          foregroundColor: greenvForest,
+          side: const BorderSide(color: motivaLine),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
           ),
+          textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: motivaPurpleDark,
+          minimumSize: const Size(44, 44),
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
-        isDense: true,
         filled: true,
-        fillColor: const Color(0xFFF9F9FA),
+        fillColor: Colors.white,
         contentPadding: const EdgeInsets.symmetric(
-          horizontal: 12,
-          vertical: 12,
+          horizontal: 16,
+          vertical: 16,
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(7),
-          borderSide: const BorderSide(color: Color(0xFF333036)),
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: motivaLine),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(7),
-          borderSide: const BorderSide(color: motivaPurple, width: 1.5),
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: greenvForest, width: 1.5),
         ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: Color(0xFFC43E4D)),
+        ),
+        hintStyle: const TextStyle(color: motivaMuted, fontSize: 14),
       ),
     ),
     home: _MotivaFlow(
@@ -178,14 +208,14 @@ final class _PhoneFrame extends StatelessWidget {
   Widget build(BuildContext context) => Scaffold(
     body: Center(
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 390),
+        constraints: const BoxConstraints(maxWidth: 430),
         child: Semantics(
           label: 'mobile-app-frame',
           container: true,
           explicitChildNodes: true,
           child: ColoredBox(
             color: background,
-            child: SafeArea(top: false, child: child),
+            child: SafeArea(bottom: false, child: child),
           ),
         ),
       ),
@@ -197,9 +227,73 @@ final class _SplashScreen extends StatelessWidget {
   const _SplashScreen();
 
   @override
-  Widget build(BuildContext context) => const _PhoneFrame(
-    background: Color(0xFF5D1FF5),
-    child: Center(child: _MotivaLogo(color: Colors.white, large: true)),
+  Widget build(BuildContext context) => _PhoneFrame(
+    background: greenvForest,
+    child: Stack(
+      fit: StackFit.expand,
+      children: [
+        Positioned(
+          top: -110,
+          right: -95,
+          child: Container(
+            width: 280,
+            height: 280,
+            decoration: const BoxDecoration(
+              color: Color(0x286546D7),
+              shape: BoxShape.circle,
+            ),
+          ),
+        ),
+        Positioned(
+          bottom: -150,
+          left: -100,
+          child: Container(
+            width: 330,
+            height: 330,
+            decoration: const BoxDecoration(
+              color: Color(0x1F58B584),
+              shape: BoxShape.circle,
+            ),
+          ),
+        ),
+        const Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _MotivaLogo(color: Colors.white, large: true),
+              SizedBox(height: 22),
+              SizedBox(width: 44, child: Divider(color: Color(0x66FFFFFF))),
+              SizedBox(height: 16),
+              _GreenVLogo(fontSize: 28, light: true),
+              SizedBox(height: 12),
+              Text(
+                'Tecnologia para cuidar de cada trecho',
+                style: TextStyle(
+                  color: Color(0xBFFFFFFF),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const Positioned(
+          left: 0,
+          right: 0,
+          bottom: 28,
+          child: Text(
+            'OPERAÇÃO DE CAMPO',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Color(0x99FFFFFF),
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 1.8,
+            ),
+          ),
+        ),
+      ],
+    ),
   );
 }
 
@@ -210,13 +304,13 @@ final class _AuthPattern extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => _PhoneFrame(
-    background: const Color(0xFFF8F7F9),
+    background: motivaCanvas,
     child: Stack(
       fit: StackFit.expand,
       children: [
         CustomPaint(painter: _PatternPainter()),
         Padding(
-          padding: const EdgeInsets.fromLTRB(20, 64, 20, 28),
+          padding: const EdgeInsets.fromLTRB(20, 32, 20, 24),
           child: child,
         ),
       ],
@@ -233,22 +327,28 @@ final class _AuthCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
     decoration: BoxDecoration(
-      color: const Color(0xFFFAFAFB),
-      borderRadius: BorderRadius.circular(23),
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(28),
+      border: Border.all(color: const Color(0xAFFFFFFF)),
       boxShadow: const [
         BoxShadow(
-          color: Color(0x14000000),
-          blurRadius: 16,
-          offset: Offset(0, 6),
+          color: Color(0x180B2E23),
+          blurRadius: 32,
+          offset: Offset(0, 14),
         ),
       ],
     ),
-    padding: const EdgeInsets.fromLTRB(30, 38, 30, 22),
+    padding: const EdgeInsets.fromLTRB(26, 30, 26, 18),
     child: Column(
       children: [
-        const _MotivaLogo(color: motivaPurple),
-        const SizedBox(height: 14),
-        const _GreenVLogo(),
+        const Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            _MotivaLogo(color: motivaPurple),
+            SizedBox(height: 34, child: VerticalDivider(width: 28)),
+            _GreenVLogo(fontSize: 22),
+          ],
+        ),
         const Spacer(),
         ...children,
         const Spacer(),
@@ -268,18 +368,35 @@ final class _LoginScreen extends StatelessWidget {
     child: _AuthCard(
       footer: TextButton.icon(
         onPressed: () {},
-        icon: const Icon(Icons.corporate_fare_outlined, size: 16),
-        label: const Text('Ver últimas notícias'),
+        icon: const Icon(Icons.newspaper_outlined, size: 17),
+        label: const Text('Notícias da operação'),
       ),
       children: [
+        Text('Bem-vindo', style: Theme.of(context).textTheme.headlineSmall),
+        const SizedBox(height: 7),
+        const Text(
+          'Entre para iniciar e acompanhar as coletas em campo.',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: motivaMuted, fontSize: 13, height: 1.4),
+        ),
+        const SizedBox(height: 28),
         const TextField(
           key: Key('email-field'),
-          decoration: InputDecoration(hintText: 'Email'),
+          keyboardType: TextInputType.emailAddress,
+          decoration: InputDecoration(
+            labelText: 'E-mail',
+            hintText: 'nome@empresa.com.br',
+            prefixIcon: Icon(Icons.mail_outline_rounded, size: 20),
+          ),
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 12),
         const TextField(
           obscureText: true,
-          decoration: InputDecoration(hintText: 'Senha'),
+          decoration: InputDecoration(
+            labelText: 'Senha',
+            prefixIcon: Icon(Icons.lock_outline_rounded, size: 20),
+            suffixIcon: Icon(Icons.visibility_outlined, size: 20),
+          ),
         ),
         Align(
           alignment: Alignment.centerRight,
@@ -287,18 +404,15 @@ final class _LoginScreen extends StatelessWidget {
             onPressed: () => onNavigate(MotivaPage.forgotEmail),
             child: const Text(
               'Esqueceu a senha?',
-              style: TextStyle(fontSize: 10),
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
             ),
           ),
         ),
-        const SizedBox(height: 24),
-        SizedBox(
-          width: 190,
-          child: FilledButton(
-            key: const Key('login-button'),
-            onPressed: () => onNavigate(MotivaPage.home),
-            child: const Text('ENTRAR'),
-          ),
+        const SizedBox(height: 18),
+        FilledButton(
+          key: const Key('login-button'),
+          onPressed: () => onNavigate(MotivaPage.home),
+          child: const Text('Entrar'),
         ),
       ],
     ),
@@ -314,32 +428,34 @@ final class _ForgotEmailScreen extends StatelessWidget {
   Widget build(BuildContext context) => _AuthPattern(
     child: _AuthCard(
       children: [
-        const Text(
-          'Para recuperar a senha é necessário confirmar seu email para o envio do código',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 12,
-            height: 1.35,
-            color: Color(0xFF625B65),
-          ),
-        ),
-        const SizedBox(height: 24),
-        const TextField(decoration: InputDecoration(hintText: 'Email')),
-        const SizedBox(height: 48),
-        SizedBox(
-          width: 190,
-          child: FilledButton(
-            onPressed: () => onNavigate(MotivaPage.forgotCode),
-            child: const Text('ENVIAR EMAIL'),
-          ),
+        Text(
+          'Recuperar acesso',
+          style: Theme.of(context).textTheme.headlineSmall,
         ),
         const SizedBox(height: 8),
-        SizedBox(
-          width: 190,
-          child: OutlinedButton(
-            onPressed: () => onNavigate(MotivaPage.login),
-            child: const Text('VOLTAR'),
+        const Text(
+          'Informe seu e-mail corporativo para receber o código de acesso.',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 13, height: 1.4, color: motivaMuted),
+        ),
+        const SizedBox(height: 28),
+        const TextField(
+          keyboardType: TextInputType.emailAddress,
+          decoration: InputDecoration(
+            labelText: 'E-mail',
+            hintText: 'nome@empresa.com.br',
+            prefixIcon: Icon(Icons.mail_outline_rounded, size: 20),
           ),
+        ),
+        const SizedBox(height: 32),
+        FilledButton(
+          onPressed: () => onNavigate(MotivaPage.forgotCode),
+          child: const Text('Enviar código'),
+        ),
+        const SizedBox(height: 10),
+        OutlinedButton(
+          onPressed: () => onNavigate(MotivaPage.login),
+          child: const Text('Voltar'),
         ),
       ],
     ),
@@ -355,14 +471,15 @@ final class _ForgotCodeScreen extends StatelessWidget {
   Widget build(BuildContext context) => _AuthPattern(
     child: _AuthCard(
       children: [
+        Text(
+          'Digite o código',
+          style: Theme.of(context).textTheme.headlineSmall,
+        ),
+        const SizedBox(height: 8),
         const Text(
-          'Digite o código enviado por email para acessar sua conta',
+          'Enviamos seis dígitos para o seu e-mail corporativo.',
           textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 12,
-            height: 1.35,
-            color: Color(0xFF625B65),
-          ),
+          style: TextStyle(fontSize: 13, height: 1.4, color: motivaMuted),
         ),
         const SizedBox(height: 28),
         Row(
@@ -370,24 +487,26 @@ final class _ForgotCodeScreen extends StatelessWidget {
           children: List.generate(
             6,
             (index) => Container(
-              width: 38,
-              height: 52,
-              margin: const EdgeInsets.symmetric(horizontal: 3),
+              width: 40,
+              height: 54,
+              margin: const EdgeInsets.symmetric(horizontal: 2),
               decoration: BoxDecoration(
-                color: const Color(0xFFF9F9FA),
-                border: Border.all(color: const Color(0xFF302C32)),
-                borderRadius: BorderRadius.circular(8),
+                color: Colors.white,
+                border: Border.all(color: motivaLine, width: 1.5),
+                borderRadius: BorderRadius.circular(12),
               ),
             ),
           ),
         ),
-        const SizedBox(height: 54),
-        SizedBox(
-          width: 190,
-          child: FilledButton(
-            onPressed: () => onNavigate(MotivaPage.home),
-            child: const Text('ENTRAR'),
-          ),
+        const SizedBox(height: 38),
+        FilledButton(
+          onPressed: () => onNavigate(MotivaPage.home),
+          child: const Text('Confirmar e entrar'),
+        ),
+        const SizedBox(height: 8),
+        TextButton(
+          onPressed: () => onNavigate(MotivaPage.forgotEmail),
+          child: const Text('Reenviar código'),
         ),
       ],
     ),
@@ -399,17 +518,88 @@ final class _AppHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    height: 62,
-    padding: const EdgeInsets.fromLTRB(18, 15, 14, 9),
+    height: 68,
+    padding: const EdgeInsets.fromLTRB(20, 10, 14, 8),
     decoration: const BoxDecoration(
-      color: Color(0xFFFCF7FC),
-      border: Border(bottom: BorderSide(color: Color(0xFFF1EAF1))),
+      color: motivaCanvas,
+      border: Border(bottom: BorderSide(color: motivaLine)),
     ),
     child: Row(
-      children: const [
-        _GreenVLogo(fontSize: 25),
+      children: [
+        _GreenVLogo(fontSize: 26),
+        SizedBox(width: 10),
+        _EnvironmentBadge(),
         Spacer(),
+        _HeaderAction(
+          icon: Icons.notifications_none_rounded,
+          semanticsLabel: 'Notificações',
+        ),
+        SizedBox(width: 8),
+        CircleAvatar(
+          radius: 18,
+          backgroundColor: greenvForest,
+          child: Text(
+            'OP',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
       ],
+    ),
+  );
+}
+
+final class _EnvironmentBadge extends StatelessWidget {
+  const _EnvironmentBadge();
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+    decoration: BoxDecoration(
+      color: greenvMint,
+      borderRadius: BorderRadius.circular(99),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(Icons.eco_outlined, size: 13, color: motivaGreen),
+        SizedBox(width: 4),
+        Text(
+          'CAMPO',
+          style: TextStyle(
+            color: motivaGreen,
+            fontSize: 9,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 0.8,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+final class _HeaderAction extends StatelessWidget {
+  const _HeaderAction({required this.icon, required this.semanticsLabel});
+
+  final IconData icon;
+  final String semanticsLabel;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    label: semanticsLabel,
+    child: Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        shape: BoxShape.circle,
+        border: Border.all(color: motivaLine),
+      ),
+      child: Icon(icon, size: 20, color: motivaInk),
     ),
   );
 }
@@ -447,26 +637,26 @@ final class _HomeScreen extends StatelessWidget {
     page: MotivaPage.home,
     onNavigate: onNavigate,
     body: SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(18, 14, 18, 16),
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Text(
-            'Olá, Nome',
-            style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+          Text(
+            'Olá, equipe de campo',
+            style: Theme.of(context).textTheme.headlineSmall,
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 6),
           const Text(
-            'Sua eficiência hoje está 12% acima da média semanal',
-            style: TextStyle(
-              fontSize: 11,
-              height: 1.3,
-              color: Color(0xFF6E6870),
-            ),
+            'Acompanhe a malha e registre um novo trecho.',
+            style: TextStyle(fontSize: 13, height: 1.4, color: motivaMuted),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 20),
+          _HomeCaptureCard(onTap: () => onNavigate(MotivaPage.upload)),
+          const SizedBox(height: 24),
+          const _SectionTitle(title: 'Resumo da operação'),
+          const SizedBox(height: 12),
           const _KilometerCard(),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           const Row(
             children: [
               Expanded(
@@ -488,39 +678,160 @@ final class _HomeScreen extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 17),
+          const SizedBox(height: 26),
           _SectionTitle(
-            title: 'Visão Geral da Malha',
-            icon: Icons.map_outlined,
+            title: 'Malha monitorada',
+            action: 'Ver mapa',
             onTap: () => onNavigate(MotivaPage.network),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
           GestureDetector(
             key: const Key('network-preview'),
             onTap: () => onNavigate(MotivaPage.network),
-            child: const _RouteMap(height: 205, compact: true),
+            child: Stack(
+              children: [
+                const _RouteMap(height: 200, compact: true),
+                Positioned(
+                  left: 12,
+                  top: 12,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 7,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(99),
+                      boxShadow: const [
+                        BoxShadow(color: Color(0x14000000), blurRadius: 8),
+                      ],
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(
+                          Icons.route_rounded,
+                          size: 15,
+                          color: greenvForest,
+                        ),
+                        SizedBox(width: 6),
+                        Text(
+                          '291 trechos acompanhados',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 17),
-          const _SectionTitle(title: 'Últimos Uploads'),
-          const SizedBox(height: 8),
+          const SizedBox(height: 26),
+          const _SectionTitle(title: 'Atividade recente'),
+          const SizedBox(height: 12),
           const _RecentUpload(
-            name: 'Rodovia BR-101',
+            name: 'BR-101 · sentido norte',
             status: 'Concluído',
             complete: true,
           ),
-          const SizedBox(height: 8),
-          const _RecentUpload(
-            name: 'Av. das Américas',
-            status: 'Processando',
-          ),
           const SizedBox(height: 10),
-          FilledButton.icon(
-            onPressed: () => onNavigate(MotivaPage.upload),
-            icon: const Icon(Icons.add_circle_outline, size: 18),
-            label: const Text('INICIAR NOVA ANÁLISE'),
-          ),
+          const _RecentUpload(name: 'BR-116 · km 214', status: 'Processando'),
         ],
       ),
+    ),
+  );
+}
+
+final class _HomeCaptureCard extends StatelessWidget {
+  const _HomeCaptureCard({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    decoration: BoxDecoration(
+      gradient: const LinearGradient(
+        colors: [greenvForest, Color(0xFF1D604A)],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      ),
+      borderRadius: BorderRadius.circular(24),
+      boxShadow: const [
+        BoxShadow(
+          color: Color(0x26123E31),
+          blurRadius: 24,
+          offset: Offset(0, 12),
+        ),
+      ],
+    ),
+    child: Stack(
+      children: [
+        const Positioned.fill(
+          child: ClipRRect(
+            borderRadius: BorderRadius.all(Radius.circular(24)),
+            child: CustomPaint(painter: _FieldRoutePainter()),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0x24FFFFFF),
+                  borderRadius: BorderRadius.circular(99),
+                ),
+                child: const Text(
+                  'PRONTO PARA COLETAR',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 1,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 32),
+              const Text(
+                'Registre um novo\ntrecho da rodovia',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 23,
+                  height: 1.12,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.4,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Vídeo, localização e sensores em uma única coleta.',
+                style: TextStyle(
+                  color: Color(0xCFFFFFFF),
+                  fontSize: 12,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: 178,
+                child: FilledButton.icon(
+                  onPressed: onTap,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: greenvForest,
+                  ),
+                  icon: const Icon(Icons.videocam_rounded, size: 19),
+                  label: const Text('Iniciar coleta'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     ),
   );
 }
@@ -530,42 +841,67 @@ final class _KilometerCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.fromLTRB(14, 10, 14, 13),
-    decoration: _cardDecoration(),
-    child: const Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    padding: const EdgeInsets.all(16),
+    decoration: _cardDecoration(radius: 18),
+    child: Row(
       children: [
-        Row(
-          children: [
-            Text(
-              'KM MONITORADOS',
-              style: TextStyle(
-                fontSize: 9,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF68616B),
-              ),
-            ),
-            Spacer(),
-            Icon(Icons.route_outlined, size: 18, color: motivaPurple),
-          ],
+        Container(
+          width: 46,
+          height: 46,
+          decoration: BoxDecoration(
+            color: greenvMint,
+            borderRadius: BorderRadius.all(Radius.circular(14)),
+          ),
+          child: Icon(Icons.route_rounded, size: 23, color: motivaGreen),
         ),
-        SizedBox(height: 2),
-        Text.rich(
-          TextSpan(
+        const SizedBox(width: 14),
+        const Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              TextSpan(
-                text: '1.240',
+              Text(
+                'QUILÔMETROS MONITORADOS',
                 style: TextStyle(
-                  fontSize: 24,
+                  fontSize: 10,
+                  letterSpacing: 0.7,
                   fontWeight: FontWeight.w800,
-                  color: motivaPurple,
+                  color: motivaMuted,
                 ),
               ),
-              TextSpan(
-                text: ' km',
-                style: TextStyle(fontSize: 13, color: motivaPurple),
+              SizedBox(height: 3),
+              Text.rich(
+                TextSpan(
+                  children: [
+                    TextSpan(
+                      text: '1.240',
+                      style: TextStyle(
+                        fontSize: 25,
+                        fontWeight: FontWeight.w900,
+                        color: greenvForest,
+                      ),
+                    ),
+                    TextSpan(
+                      text: ' km',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: motivaMuted,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
+          ),
+        ),
+        const Icon(Icons.arrow_upward_rounded, size: 18, color: greenvLeaf),
+        const SizedBox(width: 3),
+        const Text(
+          '12%',
+          style: TextStyle(
+            color: greenvLeaf,
+            fontSize: 12,
+            fontWeight: FontWeight.w800,
           ),
         ),
       ],
@@ -591,21 +927,28 @@ final class _MetricCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final background = danger
-        ? const Color(0xFFFFDAD5)
+        ? const Color(0xFFFFECE9)
         : green
-        ? const Color(0xFF3F7850)
+        ? greenvMint
         : Colors.white;
-    final foreground = green
-        ? Colors.white
-        : danger
+    final foreground = danger
         ? const Color(0xFFC72F2F)
+        : green
+        ? motivaGreen
         : motivaInk;
     return Container(
-      height: 94,
-      padding: const EdgeInsets.all(13),
+      height: 108,
+      padding: const EdgeInsets.all(15),
       decoration: BoxDecoration(
         color: background,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: danger
+              ? const Color(0xFFFFD5CF)
+              : green
+              ? const Color(0xFFCDE7D8)
+              : motivaLine,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -615,7 +958,8 @@ final class _MetricCard extends StatelessWidget {
               Text(
                 label,
                 style: TextStyle(
-                  fontSize: 9,
+                  fontSize: 10,
+                  letterSpacing: 0.6,
                   fontWeight: FontWeight.w800,
                   color: foreground,
                 ),
@@ -624,7 +968,7 @@ final class _MetricCard extends StatelessWidget {
               Icon(
                 danger ? Icons.warning_rounded : Icons.groups_outlined,
                 color: foreground,
-                size: 19,
+                size: 20,
               ),
             ],
           ),
@@ -632,12 +976,12 @@ final class _MetricCard extends StatelessWidget {
           Text(
             value,
             style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w800,
+              fontSize: 23,
+              fontWeight: FontWeight.w900,
               color: foreground,
             ),
           ),
-          Text(detail, style: TextStyle(fontSize: 10, color: foreground)),
+          Text(detail, style: TextStyle(fontSize: 11, color: foreground)),
         ],
       ),
     );
@@ -645,10 +989,10 @@ final class _MetricCard extends StatelessWidget {
 }
 
 final class _SectionTitle extends StatelessWidget {
-  const _SectionTitle({required this.title, this.icon, this.onTap});
+  const _SectionTitle({required this.title, this.action, this.onTap});
 
   final String title;
-  final IconData? icon;
+  final String? action;
   final VoidCallback? onTap;
 
   @override
@@ -659,10 +1003,29 @@ final class _SectionTitle extends StatelessWidget {
         Expanded(
           child: Text(
             title,
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+            style: const TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.2,
+            ),
           ),
         ),
-        if (icon != null) Icon(icon, size: 18, color: motivaInk),
+        if (action != null) ...[
+          Text(
+            action!,
+            style: const TextStyle(
+              color: motivaPurpleDark,
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(width: 2),
+          const Icon(
+            Icons.chevron_right_rounded,
+            size: 18,
+            color: motivaPurpleDark,
+          ),
+        ],
       ],
     ),
   );
@@ -681,48 +1044,42 @@ final class _RecentUpload extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-    decoration: _cardDecoration(radius: 12),
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+    decoration: _cardDecoration(radius: 16),
     child: Row(
       children: [
         Container(
-          width: 32,
-          height: 32,
+          width: 42,
+          height: 42,
           decoration: BoxDecoration(
-            color: motivaLilac,
-            borderRadius: BorderRadius.circular(9),
+            color: complete ? greenvMint : motivaLilac,
+            borderRadius: BorderRadius.circular(13),
           ),
           child: Icon(
-            complete
-                ? Icons.inventory_2_outlined
-                : Icons.cloud_upload_outlined,
-            color: motivaPurple,
-            size: 17,
+            complete ? Icons.check_circle_outline_rounded : Icons.sync_rounded,
+            color: complete ? motivaGreen : motivaPurple,
+            size: 20,
           ),
         ),
-        const SizedBox(width: 10),
+        const SizedBox(width: 12),
         Expanded(
           child: Text(
             name,
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
           ),
         ),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(
-            color: complete
-                ? const Color(0xFFD7F0DC)
-                : const Color(0xFFF0EDF1),
+            color: complete ? const Color(0xFFD7F0DC) : const Color(0xFFF0EDF1),
             borderRadius: BorderRadius.circular(99),
           ),
           child: Text(
             status,
             style: TextStyle(
-              fontSize: 9,
-              fontWeight: FontWeight.w700,
-              color: complete
-                  ? const Color(0xFF27733B)
-                  : const Color(0xFF777078),
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+              color: complete ? motivaGreen : motivaPurpleDark,
             ),
           ),
         ),
@@ -769,7 +1126,7 @@ final class _CaptureScreenState extends State<CaptureScreen> {
       page: MotivaPage.upload,
       onNavigate: widget.onNavigate,
       body: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -791,30 +1148,30 @@ final class _CaptureScreenState extends State<CaptureScreen> {
               const SizedBox(height: 12),
               _RecordControl(controller: widget.controller),
             ],
-            const SizedBox(height: 17),
-            const _SectionTitle(title: 'Imagens relacionadas ao vídeo'),
-            const SizedBox(height: 8),
+            const SizedBox(height: 26),
+            const _SectionTitle(title: 'Análises recentes'),
+            const SizedBox(height: 12),
             const _AnalysisItem(
               id: 'IV-8839',
-              title: 'Reconhecimento concluído',
-              detail: 'Objetos identificados com 98% de confiança.',
-              status: 'LEVEL 1',
+              title: 'BR-101 · sentido norte',
+              detail: 'km 82 · capturado hoje, 09:42',
+              status: 'BAIXO',
               tone: Color(0xFF47A45B),
             ),
             const SizedBox(height: 10),
             const _AnalysisItem(
               id: 'IV-8830',
-              title: 'Processando frames',
-              detail: 'O cálculo poderá demorar alguns minutos.',
-              status: 'LEVEL 2',
+              title: 'BR-116 · sentido sul',
+              detail: 'km 214 · processando imagens',
+              status: 'MÉDIO',
               tone: Color(0xFFD7A21C),
             ),
             const SizedBox(height: 10),
             const _AnalysisItem(
               id: 'IV-8831',
-              title: 'Erro de leitura',
-              detail: 'Formato de arquivo incompatível ou corrompido.',
-              status: 'LEVEL 3',
+              title: 'BR-040 · sentido norte',
+              detail: 'km 37 · requer nova coleta',
+              status: 'REVISAR',
               tone: Color(0xFFD74D52),
             ),
           ],
@@ -833,53 +1190,151 @@ final class _UploadHero extends StatelessWidget {
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      CustomPaint(
-        foregroundPainter: _DashedBorderPainter(),
-        child: Container(
-          height: 275,
-          padding: const EdgeInsets.fromLTRB(24, 28, 24, 25),
-          child: Column(
-            children: [
-              const CircleAvatar(
-                radius: 34,
-                backgroundColor: motivaLilac,
-                child: Icon(
-                  Icons.cloud_upload_outlined,
-                  color: motivaPurple,
-                  size: 34,
-                ),
-              ),
-              const Spacer(),
-              const Text(
-                'Faça upload para\nreconhecimento',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 18,
-                  height: 1.2,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 11),
-              const Text(
-                'Grave vídeos MP4 ou MOV para análise instantânea de fluxo e movimento.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 11,
-                  height: 1.35,
-                  color: Color(0xFF6F6872),
-                ),
-              ),
-              const Spacer(),
-              SizedBox(
-                width: 205,
-                child: _RecordControl(controller: controller),
-              ),
-            ],
-          ),
+      const Text(
+        'Nova coleta',
+        style: TextStyle(
+          color: motivaInk,
+          fontSize: 24,
+          fontWeight: FontWeight.w900,
+          letterSpacing: -0.5,
         ),
       ),
-      const SizedBox(height: 12),
+      const SizedBox(height: 6),
+      const Text(
+        'Posicione o telefone com segurança antes de começar.',
+        style: TextStyle(color: motivaMuted, fontSize: 13, height: 1.4),
+      ),
+      const SizedBox(height: 18),
+      Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: motivaLine),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x10123E31),
+              blurRadius: 18,
+              offset: Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            Container(
+              height: 172,
+              margin: const EdgeInsets.all(10),
+              clipBehavior: Clip.antiAlias,
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFFE8F2EC), Color(0xFFDDEBE3)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: const Stack(
+                fit: StackFit.expand,
+                children: [
+                  CustomPaint(painter: _FieldPreviewPainter()),
+                  Center(
+                    child: CircleAvatar(
+                      radius: 31,
+                      backgroundColor: greenvForest,
+                      child: Icon(
+                        Icons.videocam_rounded,
+                        color: Colors.white,
+                        size: 29,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 8, 18, 18),
+              child: Column(
+                children: [
+                  const Text(
+                    'Grave o trecho da rodovia',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: -0.2,
+                    ),
+                  ),
+                  const SizedBox(height: 7),
+                  const Text(
+                    'A câmera, o GPS e os sensores serão registrados juntos. A coleta continua mesmo sem internet.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 12,
+                      height: 1.45,
+                      color: motivaMuted,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Row(
+                    children: [
+                      Expanded(
+                        child: _ReadyIndicator(
+                          icon: Icons.camera_alt_outlined,
+                          label: 'Câmera',
+                        ),
+                      ),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: _ReadyIndicator(
+                          icon: Icons.location_on_outlined,
+                          label: 'Localização',
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  _RecordControl(controller: controller),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      const SizedBox(height: 14),
     ],
+  );
+}
+
+final class _ReadyIndicator extends StatelessWidget {
+  const _ReadyIndicator({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+    decoration: BoxDecoration(
+      color: greenvMint,
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(icon, size: 16, color: motivaGreen),
+        const SizedBox(width: 6),
+        Flexible(
+          child: Text(
+            label,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: motivaGreen,
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+      ],
+    ),
   );
 }
 
@@ -898,36 +1353,39 @@ final class _CaptureHeading extends StatelessWidget {
             const Text(
               'Rota em andamento',
               key: Key('capture-state'),
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+              style: TextStyle(
+                fontSize: 23,
+                fontWeight: FontWeight.w900,
+                letterSpacing: -0.4,
+              ),
             ),
-            const SizedBox(height: 2),
+            const SizedBox(height: 4),
             Text(
               'Segmento ${controller.segmentIndex + 1} sendo gravado',
-              style: const TextStyle(
-                fontSize: 11,
-                color: Color(0xFF746D77),
-              ),
+              style: const TextStyle(fontSize: 12, color: motivaMuted),
             ),
           ],
         ),
       ),
       Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
         decoration: BoxDecoration(
-          color: const Color(0xFFFFE5E5),
+          color: const Color(0xFFFFE8E8),
           borderRadius: BorderRadius.circular(99),
+          border: Border.all(color: const Color(0xFFFFD0D4)),
         ),
         child: const Row(
           children: [
-            Icon(
-              Icons.fiber_manual_record,
-              size: 10,
-              color: Color(0xFFD8334A),
-            ),
+            Icon(Icons.fiber_manual_record, size: 10, color: Color(0xFFD8334A)),
             SizedBox(width: 4),
             Text(
               'GRAVANDO',
-              style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800),
+              style: TextStyle(
+                color: Color(0xFFB52D42),
+                fontSize: 9,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0.6,
+              ),
             ),
           ],
         ),
@@ -943,7 +1401,7 @@ final class _CameraCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ClipRRect(
-    borderRadius: BorderRadius.circular(16),
+    borderRadius: BorderRadius.circular(22),
     child: AspectRatio(
       aspectRatio: 16 / 10,
       child: Stack(
@@ -1077,35 +1535,32 @@ final class _StatusTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(11),
-    decoration: _cardDecoration(radius: 12),
+    padding: const EdgeInsets.all(13),
+    decoration: _cardDecoration(radius: 16),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            Icon(icon, size: 15, color: motivaPurple),
-            const SizedBox(width: 5),
+            Icon(icon, size: 17, color: motivaGreen),
+            const SizedBox(width: 6),
             Text(
               label,
               style: const TextStyle(
-                fontSize: 8,
+                fontSize: 9,
                 letterSpacing: 0.7,
                 fontWeight: FontWeight.w800,
-                color: Color(0xFF817984),
+                color: motivaMuted,
               ),
             ),
           ],
         ),
-        const SizedBox(height: 7),
+        const SizedBox(height: 9),
         Text(
           value,
-          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900),
         ),
-        Text(
-          detail,
-          style: const TextStyle(fontSize: 9, color: Color(0xFF88808A)),
-        ),
+        Text(detail, style: const TextStyle(fontSize: 10, color: motivaMuted)),
       ],
     ),
   );
@@ -1121,20 +1576,25 @@ final class _QueueCard extends StatelessWidget {
     valueListenable: controller.backlog,
     builder: (context, backlog, _) => Container(
       key: const Key('queue-card'),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: motivaLilac,
-        borderRadius: BorderRadius.circular(12),
+        color: backlog == 0 ? greenvMint : motivaLilac,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: backlog == 0
+              ? const Color(0xFFCDE7D8)
+              : const Color(0xFFDED5FF),
+        ),
       ),
       child: Row(
         children: [
           const CircleAvatar(
             radius: 16,
-            backgroundColor: Colors.white,
+            backgroundColor: Color(0xCCFFFFFF),
             child: Icon(
-              Icons.cloud_upload_outlined,
+              Icons.cloud_done_outlined,
               size: 17,
-              color: motivaPurple,
+              color: motivaGreen,
             ),
           ),
           const SizedBox(width: 9),
@@ -1146,18 +1606,15 @@ final class _QueueCard extends StatelessWidget {
                   backlog == 0
                       ? 'Tudo enviado'
                       : '$backlog segmento${backlog == 1 ? '' : 's'} na fila',
-                  style: const TextStyle(
-                    fontSize: 12,
+                  style: TextStyle(
+                    fontSize: 13,
                     fontWeight: FontWeight.w800,
-                    color: motivaPurpleDark,
+                    color: backlog == 0 ? greenvForest : motivaPurpleDark,
                   ),
                 ),
                 const Text(
-                  'Arquivos locais saem só após a verificação do worker.',
-                  style: TextStyle(
-                    fontSize: 9,
-                    color: Color(0xFF705B7F),
-                  ),
+                  'Os arquivos ficam protegidos até a confirmação do envio.',
+                  style: TextStyle(fontSize: 10, color: motivaMuted),
                 ),
               ],
             ),
@@ -1180,7 +1637,8 @@ final class _RecordControl extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final busy = controller.phase == CapturePhase.preparing ||
+    final busy =
+        controller.phase == CapturePhase.preparing ||
         controller.phase == CapturePhase.stopping;
     final recording = controller.isRecording;
     return FilledButton.icon(
@@ -1191,7 +1649,7 @@ final class _RecordControl extends StatelessWidget {
           ? controller.stop
           : controller.start,
       style: FilledButton.styleFrom(
-        backgroundColor: recording ? const Color(0xFFB52D42) : motivaPurple,
+        backgroundColor: recording ? const Color(0xFFB52D42) : greenvForest,
       ),
       icon: busy
           ? const SizedBox.square(
@@ -1212,7 +1670,7 @@ final class _RecordControl extends StatelessWidget {
             ? 'Preparando…'
             : recording
             ? 'Encerrar coleta'
-            : 'Iniciar gravação',
+            : 'Iniciar coleta',
       ),
     );
   }
@@ -1225,10 +1683,11 @@ final class _ErrorCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(11),
+    padding: const EdgeInsets.all(14),
     decoration: BoxDecoration(
-      color: const Color(0xFFFFE7E7),
-      borderRadius: BorderRadius.circular(11),
+      color: const Color(0xFFFFECE9),
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: const Color(0xFFFFD5CF)),
     ),
     child: Row(
       children: [
@@ -1243,7 +1702,7 @@ final class _ErrorCard extends StatelessWidget {
             message,
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 10),
+            style: const TextStyle(fontSize: 12, height: 1.35),
           ),
         ),
       ],
@@ -1268,87 +1727,76 @@ final class _AnalysisItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    height: 88,
-    padding: const EdgeInsets.all(8),
-    decoration: _cardDecoration(radius: 11),
+    padding: const EdgeInsets.all(13),
+    decoration: _cardDecoration(radius: 17),
     child: Row(
       children: [
         Container(
-          width: 78,
+          width: 48,
+          height: 48,
           decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                tone.withValues(alpha: 0.30),
-                tone.withValues(alpha: 0.85),
-              ],
-            ),
-            borderRadius: BorderRadius.circular(8),
+            color: tone.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(14),
           ),
-          child: const Center(
+          child: Center(
             child: Icon(
-              Icons.landscape_outlined,
-              color: Colors.white,
-              size: 29,
+              status == 'REVISAR'
+                  ? Icons.error_outline_rounded
+                  : status == 'MÉDIO'
+                  ? Icons.hourglass_top_rounded
+                  : Icons.eco_outlined,
+              color: tone,
+              size: 23,
             ),
           ),
         ),
-        const SizedBox(width: 10),
+        const SizedBox(width: 12),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'ID: $id',
-                      style: const TextStyle(
-                        fontSize: 8,
-                        color: Color(0xFF69626B),
-                      ),
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 3,
-                    ),
-                    decoration: BoxDecoration(
-                      color: tone.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(99),
-                    ),
-                    child: Text(
-                      status,
-                      style: TextStyle(
-                        fontSize: 7,
-                        color: tone,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 3),
               Text(
                 title,
                 style: const TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w800,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w900,
                 ),
               ),
-              const SizedBox(height: 2),
+              const SizedBox(height: 4),
               Text(
                 detail,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
-                  fontSize: 8,
-                  height: 1.2,
-                  color: Color(0xFF777079),
+                  fontSize: 11,
+                  height: 1.3,
+                  color: motivaMuted,
                 ),
               ),
+              const SizedBox(height: 4),
+              Text(
+                'ID $id',
+                style: const TextStyle(fontSize: 9, color: motivaMuted),
+              ),
             ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+          decoration: BoxDecoration(
+            color: tone.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(99),
+          ),
+          child: Text(
+            status,
+            style: TextStyle(
+              fontSize: 8,
+              color: tone,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0.4,
+            ),
           ),
         ),
       ],
@@ -1367,19 +1815,17 @@ final class _NetworkScreen extends StatelessWidget {
     onNavigate: onNavigate,
     body: Stack(
       children: [
-        const Positioned.fill(
-          child: _RouteMap(height: double.infinity),
-        ),
+        const Positioned.fill(child: _RouteMap(height: double.infinity)),
         Positioned(
-          left: 16,
-          right: 16,
-          top: 12,
+          left: 18,
+          right: 18,
+          top: 16,
           child: _SearchBar(onMap: () => onNavigate(MotivaPage.map)),
         ),
         Positioned(
-          left: 16,
-          right: 16,
-          bottom: 14,
+          left: 18,
+          right: 18,
+          bottom: 18,
           child: _NetworkSheet(onMap: () => onNavigate(MotivaPage.map)),
         ),
       ],
@@ -1394,31 +1840,36 @@ final class _SearchBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    height: 42,
-    padding: const EdgeInsets.symmetric(horizontal: 12),
+    height: 52,
+    padding: const EdgeInsets.only(left: 15, right: 6),
     decoration: BoxDecoration(
       color: Colors.white,
-      borderRadius: BorderRadius.circular(99),
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: const Color(0xFFD5DED7)),
       boxShadow: const [
-        BoxShadow(color: Color(0x18000000), blurRadius: 8),
+        BoxShadow(
+          color: Color(0x1A123E31),
+          blurRadius: 16,
+          offset: Offset(0, 6),
+        ),
       ],
     ),
     child: Row(
       children: [
-        const Icon(Icons.search, size: 18, color: Color(0xFF777078)),
-        const SizedBox(width: 7),
+        const Icon(Icons.search_rounded, size: 20, color: motivaMuted),
+        const SizedBox(width: 9),
         const Expanded(
           child: Text(
-            'Search route or area...',
-            style: TextStyle(fontSize: 10, color: Color(0xFF8A838C)),
+            'Buscar rodovia, trecho ou km',
+            style: TextStyle(fontSize: 13, color: motivaMuted),
           ),
         ),
         IconButton(
           onPressed: onMap,
           icon: const Icon(
             Icons.mic_none_rounded,
-            color: motivaPurple,
-            size: 18,
+            color: motivaPurpleDark,
+            size: 20,
           ),
         ),
       ],
@@ -1433,12 +1884,16 @@ final class _NetworkSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+    padding: const EdgeInsets.fromLTRB(16, 11, 16, 18),
     decoration: BoxDecoration(
-      color: const Color(0xFFFBF8FC),
-      borderRadius: BorderRadius.circular(20),
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(24),
       boxShadow: const [
-        BoxShadow(color: Color(0x24000000), blurRadius: 16),
+        BoxShadow(
+          color: Color(0x29123E31),
+          blurRadius: 28,
+          offset: Offset(0, 12),
+        ),
       ],
     ),
     child: Column(
@@ -1450,65 +1905,67 @@ final class _NetworkSheet extends StatelessWidget {
             width: 48,
             height: 4,
             decoration: BoxDecoration(
-              color: const Color(0xFFD1C8D6),
+              color: const Color(0xFFCAD5CD),
               borderRadius: BorderRadius.circular(99),
             ),
           ),
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 14),
         GestureDetector(
           onTap: onMap,
           child: Container(
-            height: 62,
-            padding: const EdgeInsets.symmetric(horizontal: 13),
+            height: 72,
+            padding: const EdgeInsets.symmetric(horizontal: 15),
             decoration: BoxDecoration(
-              color: motivaPurple,
-              borderRadius: BorderRadius.circular(12),
+              gradient: const LinearGradient(
+                colors: [greenvForest, Color(0xFF1D604A)],
+              ),
+              borderRadius: BorderRadius.circular(17),
             ),
             child: const Row(
               children: [
                 CircleAvatar(
-                  radius: 18,
-                  backgroundColor: Color(0xFF7E48F7),
-                  child: Icon(Icons.route, color: Colors.white, size: 18),
+                  radius: 20,
+                  backgroundColor: Color(0x2FFFFFFF),
+                  child: Icon(Icons.route, color: Colors.white, size: 20),
                 ),
                 SizedBox(width: 10),
-                Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'MOTIVA',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800,
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Visão geral da malha',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w900,
+                        ),
                       ),
-                    ),
-                    Text(
-                      'GREEN V',
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 8,
-                        letterSpacing: 1.2,
+                      Text(
+                        'Toque para explorar o mapa',
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: Colors.white70, fontSize: 10),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ],
             ),
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 16),
         const Text(
           'RESUMO DA MALHA',
           style: TextStyle(
-            fontSize: 8,
-            fontWeight: FontWeight.w700,
-            color: Color(0xFF736C75),
+            fontSize: 10,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.8,
+            color: motivaMuted,
           ),
         ),
-        const SizedBox(height: 7),
+        const SizedBox(height: 10),
         const Row(
           children: [
             Expanded(
@@ -1534,10 +1991,15 @@ final class _NetworkSheet extends StatelessWidget {
             ),
           ],
         ),
-        const Divider(height: 22),
+        const Divider(height: 26),
         const Text(
           'NÍVEL DE VEGETAÇÃO (MÉDIO)',
-          style: TextStyle(fontSize: 8, color: Color(0xFF756E77)),
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.6,
+            color: motivaMuted,
+          ),
         ),
         const SizedBox(height: 4),
         const Text.rich(
@@ -1546,19 +2008,23 @@ final class _NetworkSheet extends StatelessWidget {
               TextSpan(
                 text: '2,6 m',
                 style: TextStyle(
-                  fontSize: 21,
-                  fontWeight: FontWeight.w800,
+                  fontSize: 25,
+                  fontWeight: FontWeight.w900,
                   color: Color(0xFF35723F),
                 ),
               ),
               TextSpan(
                 text: '  Médio',
-                style: TextStyle(fontSize: 9, color: Color(0xFFD9871E)),
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFFD9871E),
+                ),
               ),
             ],
           ),
         ),
-        const Divider(height: 22),
+        const Divider(height: 26),
         const Row(
           children: [
             Expanded(
@@ -1577,13 +2043,13 @@ final class _NetworkSheet extends StatelessWidget {
             ),
           ],
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 16),
         const Row(
           children: [
             _LegendDot(color: Color(0xFF46A65A), label: 'Baixo'),
-            SizedBox(width: 16),
+            SizedBox(width: 18),
             _LegendDot(color: Color(0xFFE3A622), label: 'Médio'),
-            SizedBox(width: 16),
+            SizedBox(width: 18),
             _LegendDot(color: Color(0xFFC9383E), label: 'Alto'),
           ],
         ),
@@ -1605,9 +2071,9 @@ final class _SummaryValue extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.only(left: 7),
+    padding: const EdgeInsets.only(left: 9),
     decoration: BoxDecoration(
-      border: Border(left: BorderSide(color: color, width: 2)),
+      border: Border(left: BorderSide(color: color, width: 3)),
     ),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1616,14 +2082,11 @@ final class _SummaryValue extends StatelessWidget {
           value,
           style: TextStyle(
             color: color,
-            fontSize: 13,
-            fontWeight: FontWeight.w800,
+            fontSize: 16,
+            fontWeight: FontWeight.w900,
           ),
         ),
-        Text(
-          label,
-          style: const TextStyle(fontSize: 8, color: Color(0xFF69626B)),
-        ),
+        Text(label, style: const TextStyle(fontSize: 10, color: motivaMuted)),
       ],
     ),
   );
@@ -1644,7 +2107,10 @@ final class _LegendDot extends StatelessWidget {
         decoration: BoxDecoration(color: color, shape: BoxShape.circle),
       ),
       const SizedBox(width: 4),
-      Text(label, style: const TextStyle(fontSize: 8)),
+      Text(
+        label,
+        style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700),
+      ),
     ],
   );
 }
@@ -1664,14 +2130,14 @@ final class _MapScreen extends StatelessWidget {
           child: _RouteMap(height: double.infinity, detailed: true),
         ),
         const Positioned(
-          left: 16,
-          right: 16,
-          top: 12,
+          left: 18,
+          right: 18,
+          top: 16,
           child: _SearchBar(onMap: _noop),
         ),
         Positioned(
-          right: 14,
-          top: 67,
+          right: 18,
+          top: 78,
           child: Column(
             children: [
               _MapTool(icon: Icons.add, onTap: () {}),
@@ -1686,11 +2152,65 @@ final class _MapScreen extends StatelessWidget {
             ],
           ),
         ),
+        const Positioned(
+          left: 18,
+          right: 18,
+          bottom: 18,
+          child: _MapLegendCard(),
+        ),
       ],
     ),
   );
 
   static void _noop() {}
+}
+
+final class _MapLegendCard extends StatelessWidget {
+  const _MapLegendCard();
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.fromLTRB(15, 13, 15, 14),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(18),
+      border: Border.all(color: motivaLine),
+      boxShadow: const [
+        BoxShadow(
+          color: Color(0x24123E31),
+          blurRadius: 20,
+          offset: Offset(0, 8),
+        ),
+      ],
+    ),
+    child: const Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Nível de vegetação',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900),
+              ),
+            ),
+            Icon(Icons.tune_rounded, size: 18, color: motivaPurpleDark),
+          ],
+        ),
+        SizedBox(height: 10),
+        Row(
+          children: [
+            _LegendDot(color: Color(0xFF46A65A), label: 'Baixo'),
+            SizedBox(width: 18),
+            _LegendDot(color: Color(0xFFE3A622), label: 'Médio'),
+            SizedBox(width: 18),
+            _LegendDot(color: Color(0xFFC9383E), label: 'Alto'),
+          ],
+        ),
+      ],
+    ),
+  );
 }
 
 final class _MapTool extends StatelessWidget {
@@ -1712,11 +2232,11 @@ final class _MapTool extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(5),
       child: SizedBox(
-        width: 36,
-        height: 36,
+        width: 42,
+        height: 42,
         child: Icon(
           icon,
-          size: 19,
+          size: 20,
           color: purple ? motivaPurple : const Color(0xFF777078),
         ),
       ),
@@ -1872,10 +2392,7 @@ final class _RouteMapPainter extends CustomPainter {
 }
 
 final class _BottomNavigation extends StatelessWidget {
-  const _BottomNavigation({
-    required this.selected,
-    required this.onNavigate,
-  });
+  const _BottomNavigation({required this.selected, required this.onNavigate});
 
   final MotivaPage selected;
   final ValueChanged<MotivaPage> onNavigate;
@@ -1883,45 +2400,62 @@ final class _BottomNavigation extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
     decoration: const BoxDecoration(
-      color: Color(0xFFFFFAFF),
-      border: Border(top: BorderSide(color: Color(0xFFECE3EE))),
-    ),
-    padding: const EdgeInsets.fromLTRB(18, 7, 18, 8),
-    child: Row(
-      mainAxisAlignment: MainAxisAlignment.spaceAround,
-      children: [
-        _NavigationItem(
-          icon: Icons.cloud_upload_outlined,
-          label: 'Upload',
-          selected: selected == MotivaPage.upload,
-          onTap: () => onNavigate(MotivaPage.upload),
-        ),
-        _NavigationItem(
-          icon: Icons.home_outlined,
-          label: 'Home',
-          selected: selected == MotivaPage.home,
-          onTap: () => onNavigate(MotivaPage.home),
-        ),
-        _NavigationItem(
-          icon: Icons.map_outlined,
-          label: 'Mapa',
-          selected:
-              selected == MotivaPage.map || selected == MotivaPage.network,
-          onTap: () => onNavigate(MotivaPage.map),
+      color: Colors.white,
+      border: Border(top: BorderSide(color: motivaLine)),
+      boxShadow: [
+        BoxShadow(
+          color: Color(0x0F123E31),
+          blurRadius: 16,
+          offset: Offset(0, -5),
         ),
       ],
+    ),
+    child: SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 9, 20, 10),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          children: [
+            _NavigationItem(
+              keyName: 'nav-home',
+              icon: Icons.home_rounded,
+              label: 'Início',
+              selected: selected == MotivaPage.home,
+              onTap: () => onNavigate(MotivaPage.home),
+            ),
+            _NavigationItem(
+              keyName: 'nav-upload',
+              icon: Icons.videocam_rounded,
+              label: 'Coleta',
+              selected: selected == MotivaPage.upload,
+              onTap: () => onNavigate(MotivaPage.upload),
+            ),
+            _NavigationItem(
+              keyName: 'nav-mapa',
+              icon: Icons.map_rounded,
+              label: 'Mapa',
+              selected:
+                  selected == MotivaPage.map || selected == MotivaPage.network,
+              onTap: () => onNavigate(MotivaPage.map),
+            ),
+          ],
+        ),
+      ),
     ),
   );
 }
 
 final class _NavigationItem extends StatelessWidget {
   const _NavigationItem({
+    required this.keyName,
     required this.icon,
     required this.label,
     required this.selected,
     required this.onTap,
   });
 
+  final String keyName;
   final IconData icon;
   final String label;
   final bool selected;
@@ -1929,32 +2463,28 @@ final class _NavigationItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => InkWell(
-    key: Key('nav-${label.toLowerCase()}'),
+    key: Key(keyName),
     onTap: onTap,
     borderRadius: BorderRadius.circular(14),
     child: AnimatedContainer(
       duration: const Duration(milliseconds: 150),
-      width: 64,
-      padding: const EdgeInsets.symmetric(vertical: 5),
+      width: 88,
+      padding: const EdgeInsets.symmetric(vertical: 8),
       decoration: BoxDecoration(
-        color: selected ? motivaPurple : Colors.transparent,
-        borderRadius: BorderRadius.circular(14),
+        color: selected ? greenvMint : Colors.transparent,
+        borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            icon,
-            size: 18,
-            color: selected ? Colors.white : const Color(0xFF7D7580),
-          ),
-          const SizedBox(height: 1),
+          Icon(icon, size: 21, color: selected ? greenvForest : motivaMuted),
+          const SizedBox(height: 3),
           Text(
             label,
             style: TextStyle(
-              fontSize: 8,
-              fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
-              color: selected ? Colors.white : const Color(0xFF716A74),
+              fontSize: 10,
+              fontWeight: selected ? FontWeight.w900 : FontWeight.w600,
+              color: selected ? greenvForest : motivaMuted,
             ),
           ),
         ],
@@ -2026,9 +2556,10 @@ final class _MotivaMarkPainter extends CustomPainter {
 }
 
 final class _GreenVLogo extends StatelessWidget {
-  const _GreenVLogo({this.fontSize = 21});
+  const _GreenVLogo({this.fontSize = 21, this.light = false});
 
   final double fontSize;
+  final bool light;
 
   @override
   Widget build(BuildContext context) => Semantics(
@@ -2040,7 +2571,7 @@ final class _GreenVLogo extends StatelessWidget {
             TextSpan(
               text: 'Green',
               style: TextStyle(
-                color: const Color(0xFF075D37),
+                color: light ? Colors.white : const Color(0xFF075D37),
                 fontSize: fontSize,
                 fontFamily: 'serif',
                 fontWeight: FontWeight.w600,
@@ -2049,7 +2580,9 @@ final class _GreenVLogo extends StatelessWidget {
             TextSpan(
               text: 'V',
               style: TextStyle(
-                color: const Color(0xFF5E9A38),
+                color: light
+                    ? const Color(0xFF8ED081)
+                    : const Color(0xFF5E9A38),
                 fontSize: fontSize + 1,
                 fontFamily: 'serif',
                 fontStyle: FontStyle.italic,
@@ -2066,31 +2599,34 @@ final class _GreenVLogo extends StatelessWidget {
 final class _PatternPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
-    final purple = Paint()
-      ..color = const Color(0xFF7B47F7)
+    canvas.drawCircle(
+      Offset(size.width * .86, size.height * .08),
+      size.width * .34,
+      Paint()..color = const Color(0x176546D7),
+    );
+    canvas.drawCircle(
+      Offset(size.width * .08, size.height * .92),
+      size.width * .46,
+      Paint()..color = const Color(0x192D8A62),
+    );
+    final line = Paint()
+      ..color = const Color(0x184E34B5)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.1;
-    final green = Paint()
-      ..color = const Color(0xFF8AB64B)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.1;
-    const cell = 57.0;
-    for (var y = -cell; y < size.height + cell; y += cell) {
-      for (var x = -cell; x < size.width + cell; x += cell) {
-        final paint = y < size.height * .52 ? purple : green;
-        final path = Path()
-          ..moveTo(x, y + cell * .62)
-          ..cubicTo(
-            x + cell * .18,
-            y + cell * .62,
-            x + cell * .18,
-            y,
-            x + cell * .62,
-            y,
-          )
-          ..lineTo(x + cell, y);
-        canvas.drawPath(path, paint);
-      }
+      ..strokeWidth = 1.2;
+    for (var index = 0; index < 4; index++) {
+      final inset = index * 18.0;
+      canvas.drawArc(
+        Rect.fromLTWH(
+          size.width - 150 + inset,
+          -80 + inset,
+          220 - inset,
+          220 - inset,
+        ),
+        .7,
+        2.1,
+        false,
+        line,
+      );
     }
   }
 
@@ -2098,26 +2634,99 @@ final class _PatternPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
-final class _DashedBorderPainter extends CustomPainter {
+final class _FieldRoutePainter extends CustomPainter {
+  const _FieldRoutePainter();
+
   @override
   void paint(Canvas canvas, Size size) {
-    const radius = Radius.circular(15);
-    final path = Path()
-      ..addRRect(RRect.fromRectAndRadius(Offset.zero & size, radius));
-    final paint = Paint()
-      ..color = const Color(0xFFBDA2F9)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.4;
-    for (final metric in path.computeMetrics()) {
-      var distance = 0.0;
-      while (distance < metric.length) {
-        canvas.drawPath(
-          metric.extractPath(distance, math.min(distance + 6, metric.length)),
-          paint,
-        );
-        distance += 11;
-      }
-    }
+    final glow = Paint()..color = const Color(0x1458B584);
+    canvas.drawCircle(
+      Offset(size.width * .94, size.height * .08),
+      size.width * .38,
+      glow,
+    );
+    final road = Path()
+      ..moveTo(size.width * .80, size.height * 1.08)
+      ..cubicTo(
+        size.width * .66,
+        size.height * .75,
+        size.width * .98,
+        size.height * .54,
+        size.width * .78,
+        -size.height * .08,
+      );
+    canvas.drawPath(
+      road,
+      Paint()
+        ..color = const Color(0x1FFFFFFF)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 54
+        ..strokeCap = StrokeCap.round,
+    );
+    canvas.drawPath(
+      road,
+      Paint()
+        ..color = const Color(0x80FFFFFF)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..strokeCap = StrokeCap.round,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+final class _FieldPreviewPainter extends CustomPainter {
+  const _FieldPreviewPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final hill = Paint()..color = const Color(0xFFBFD9C7);
+    canvas.drawOval(
+      Rect.fromLTWH(
+        -45,
+        size.height * .46,
+        size.width * .72,
+        size.height * .65,
+      ),
+      hill,
+    );
+    canvas.drawOval(
+      Rect.fromLTWH(
+        size.width * .48,
+        size.height * .38,
+        size.width * .70,
+        size.height * .72,
+      ),
+      Paint()..color = const Color(0xFFA8CEB5),
+    );
+    final road = Path()
+      ..moveTo(size.width * .37, size.height * 1.05)
+      ..cubicTo(
+        size.width * .47,
+        size.height * .72,
+        size.width * .65,
+        size.height * .70,
+        size.width * .60,
+        size.height * .34,
+      );
+    canvas.drawPath(
+      road,
+      Paint()
+        ..color = const Color(0xFFD8DCD8)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 38
+        ..strokeCap = StrokeCap.round,
+    );
+    canvas.drawPath(
+      road,
+      Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..strokeCap = StrokeCap.round,
+    );
   }
 
   @override
@@ -2129,10 +2738,6 @@ BoxDecoration _cardDecoration({double radius = 15}) => BoxDecoration(
   borderRadius: BorderRadius.circular(radius),
   border: Border.all(color: motivaLine),
   boxShadow: const [
-    BoxShadow(
-      color: Color(0x09000000),
-      blurRadius: 6,
-      offset: Offset(0, 2),
-    ),
+    BoxShadow(color: Color(0x0D123E31), blurRadius: 14, offset: Offset(0, 6)),
   ],
 );

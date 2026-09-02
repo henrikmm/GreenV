@@ -47,6 +47,7 @@ abstract interface class CaptureQueue {
     required DateTime capturedAtUtc,
     required int durationMillis,
     required String sourceVideoPath,
+    required String videoContentType,
     required SegmentTelemetryDocument telemetry,
   });
   Future<void> closeSession(
@@ -57,6 +58,13 @@ abstract interface class CaptureQueue {
   Future<void> updateSegment(QueuedSegment segment);
   Future<void> removeVerifiedSegment(QueuedSegment segment);
   Future<void> markCompletionSent(String sessionId);
+}
+
+/// Reads a queued artifact back for upload. The phone resolves a reference to a file; the browser
+/// resolves it to bytes it is holding, because a page has no durable filesystem.
+abstract interface class SegmentContentStore {
+  Future<int> length(String reference);
+  Stream<List<int>> read(String reference);
 }
 
 abstract interface class CaptureBackend {
