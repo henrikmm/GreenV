@@ -86,6 +86,7 @@ Spring reads these environment variables in Compose and native runs:
 | Database adapter | `GREENV_DATABASE_ADAPTER` | `jdbc` |
 | Object-storage adapter | `GREENV_OBJECT_STORAGE_ADAPTER` | `local` |
 | Segment-queue adapter | `GREENV_SEGMENT_QUEUE_ADAPTER` | `rabbitmq` |
+| API Bearer token | `GREENV_API_TOKEN` | Required, at least 32 characters |
 | Bind address/port | `SERVER_ADDRESS`, `PORT` | `127.0.0.1:8080` |
 | Pipeline root | `GREENV_PIPELINE_ROOT` | OS temp directory under `greenv-pipeline` |
 | Saved v1 runs | `GREENV_SAVED_ROOT` | `~/verge-runs` |
@@ -132,14 +133,43 @@ For Cloudflare R2, select `s3`, use the R2 S3 endpoint, keep the region at `auto
 account, and provide an R2 access-key pair. Persisted records and queue messages still contain
 opaque object keys, never provider URLs.
 
+The MVP Terraform selects R2 together with Azure Queue and managed identity. A configuration
+context test starts both clients together so their bean names cannot silently collide again. See
+[`../../infrastructure/README.md`](../../infrastructure/README.md) for deployment variables.
+
 When the selected queue is not RabbitMQ, set `MANAGEMENT_HEALTH_RABBIT_ENABLED=false` so the
 Actuator readiness result does not probe an intentionally unused RabbitMQ connection.
 
-`./gradlew bootRun` uses H2 and the local directory defaults for the legacy v1 flow. Use Compose
-for v2 so PostgreSQL, RabbitMQ, API and worker share one tested configuration.
+`./gradlew bootRun` uses H2 and the local directory defaults for the legacy v1 flow. Set
+`GREENV_API_TOKEN` before starting it. Use Compose for v2 so PostgreSQL, RabbitMQ, API and worker
+share one tested configuration.
 
-The API binds only to loopback and has no authentication. Never expose this pilot adapter directly
-to the public internet.
+## API authentication
+
+Every `/v1/**`, `/v2/**` and non-health Actuator request requires
+`Authorization: Bearer <token>`. `/actuator/health` is deliberately public because Azure Container
+Apps uses it for startup, readiness and liveness probes. The service is stateless: it creates no
+HTTP session or cookie, disables form/basic authentication and compares the opaque token in
+constant time. Startup fails when `GREENV_API_TOKEN` is missing or shorter than 32 characters.
+
+Compose uses `greenv-local-only-bearer-token-000000000000` unless the host exports a different
+`GREENV_API_TOKEN`. Terraform generates 48 random alphanumeric characters when
+`api_bearer_token` is omitted, persists the value in protected remote state and mounts it as a
+Container Apps secret. Retrieve the deployed value only when needed:
+
+```bash
+cd ../../infrastructure
+export GREENV_API_TOKEN="$(terraform output -raw api_bearer_token)"
+cd ../services/greenv-video-api
+API_URL=https://greenvapi.matomomitsu.com bash scripts/test-api-auth.sh
+unset GREENV_API_TOKEN
+```
+
+The check is read-only: it expects health `200`, missing/invalid credentials `401`, and a valid
+credential to reach a deliberately absent capture and return `404`. Never commit, echo or pass the
+token as a command-line argument. This shared MVP credential does not identify an individual
+device; replace it with short-lived, per-user/device JWTs before distributing the app outside the
+pilot group.
 
 ## Mobile v2 data flow
 
@@ -181,11 +211,14 @@ first make `source.mp4` and a schema-v1 `telemetry.json` whose `sessionId`, `seg
 
 ```bash
 API=http://127.0.0.1:8080
+GREENV_API_TOKEN=greenv-local-only-bearer-token-000000000000
+AUTH=(-H "Authorization: Bearer $GREENV_API_TOKEN")
 SEGMENT_INDEX=0
 CAPTURED_AT=2026-08-24T12:00:00Z
 DURATION_MS=10000
 
 SESSION_ID=$(curl -fsS "$API/v2/capture-sessions" \
+  "${AUTH[@]}" \
   -H 'content-type: application/json' \
   -d "{\"deviceId\":\"manual-device\",\"startedAt\":\"$CAPTURED_AT\"}" | jq -r .sessionId)
 IDEMPOTENCY_KEY="mobile:${SESSION_ID}:${SEGMENT_INDEX}"
@@ -197,6 +230,7 @@ TELEMETRY_SHA=$(sha256sum "$TELEMETRY" | cut -d ' ' -f 1)
 SEGMENT="$API/v2/capture-sessions/$SESSION_ID/segments/$SEGMENT_INDEX"
 
 curl -fsS -X PUT "$SEGMENT/video" \
+  "${AUTH[@]}" \
   -H 'content-type: video/mp4' \
   -H "X-Idempotency-Key: $IDEMPOTENCY_KEY" \
   -H "X-Content-SHA256: $VIDEO_SHA" \
@@ -205,6 +239,7 @@ curl -fsS -X PUT "$SEGMENT/video" \
   --data-binary "@$VIDEO" | jq
 
 curl -fsS -X PUT "$SEGMENT/telemetry" \
+  "${AUTH[@]}" \
   -H 'content-type: application/json' \
   -H "X-Idempotency-Key: $IDEMPOTENCY_KEY" \
   -H "X-Content-SHA256: $TELEMETRY_SHA" \
@@ -212,14 +247,15 @@ curl -fsS -X PUT "$SEGMENT/telemetry" \
   -H "X-Duration-Millis: $DURATION_MS" \
   --data-binary "@$TELEMETRY" | jq
 
-curl -fsS -X POST "$SEGMENT/complete" | jq
+curl -fsS -X POST "${AUTH[@]}" "$SEGMENT/complete" | jq
 
 curl -fsS -X POST "$API/v2/capture-sessions/$SESSION_ID/complete" \
+  "${AUTH[@]}" \
   -H 'content-type: application/json' \
   -d '{"lastSegmentIndex":0}' | jq
 
-until [ "$(curl -fsS "$SEGMENT" | jq -r .state)" = ready ]; do sleep 1; done
-curl -fsS "$SEGMENT/manifest" | jq
+until [ "$(curl -fsS "${AUTH[@]}" "$SEGMENT" | jq -r .state)" = ready ]; do sleep 1; done
+curl -fsS "${AUTH[@]}" "$SEGMENT/manifest" | jq
 ```
 
 The manifest endpoint returns `409` until the segment reaches `ready`. A session start more than
@@ -259,16 +295,19 @@ Start API and worker with the same `GREENV_PIPELINE_ROOT`, then:
 ```bash
 VIDEO=/absolute/path/to/road-video.mp4
 SIZE=$(stat -c%s "$VIDEO")
+GREENV_API_TOKEN=greenv-local-only-bearer-token-000000000000
+AUTH=(-H "Authorization: Bearer $GREENV_API_TOKEN")
 
 JOB=$(curl -fsS http://127.0.0.1:8080/v1/jobs \
+  "${AUTH[@]}" \
   -H 'content-type: application/json' \
   -d "{\"fileName\":\"$(basename "$VIDEO")\",\"contentType\":\"video/mp4\",\"sizeBytes\":$SIZE,\"requestedFps\":10,\"maxFrames\":100,\"longEdge\":1024}")
 JOB_ID=$(printf '%s' "$JOB" | jq -r .jobId)
 
 curl -fsS -X PUT "http://127.0.0.1:8080/v1/jobs/$JOB_ID/source" \
-  -H 'content-type: video/mp4' --data-binary "@$VIDEO"
-curl -fsS -X POST "http://127.0.0.1:8080/v1/jobs/$JOB_ID/complete"
-curl -fsS "http://127.0.0.1:8080/v1/jobs/$JOB_ID" | jq
+  "${AUTH[@]}" -H 'content-type: video/mp4' --data-binary "@$VIDEO"
+curl -fsS -X POST "${AUTH[@]}" "http://127.0.0.1:8080/v1/jobs/$JOB_ID/complete"
+curl -fsS "${AUTH[@]}" "http://127.0.0.1:8080/v1/jobs/$JOB_ID" | jq
 ```
 
 When state is `frames_ready`, read `/v1/jobs/{jobId}/manifest`. Results remain transient unless
@@ -296,6 +335,7 @@ and HTTP error responses. The full API-worker seam is covered by `services/captu
 | `/actuator/health` is down | `docker compose ps` and `docker compose logs video-api` |
 | Database connection refused | PostgreSQL is healthy and `GREENV_DATABASE_URL` uses host `postgres` inside Compose |
 | Segment remains `queued` | Worker and RabbitMQ are healthy; inspect `docker compose logs frame-worker rabbitmq` |
+| API returns `401` | Send `Authorization: Bearer $GREENV_API_TOKEN`; retrieve the cloud token from the sensitive Terraform output |
 | Upload returns checksum error | Hash the exact transmitted file and send 64 lowercase hexadecimal characters |
 | Retry returns `409` | The same session/segment identity was reused with different metadata or object bytes |
 | Manifest returns `409` | Poll segment state; only `ready` has a published manifest |
@@ -326,8 +366,9 @@ Azure Queue Storage and Azure Service Bus queues. They are selected with the thr
 opaque object keys and never a `file:`, `s3:` or provider URL. Do not put signed URLs in the queue
 because they can expire while a message is waiting or retrying.
 
-Before an internet deployment, add authenticated device identity, authorization per session,
-rate limits, TLS, observability and retention cleanup. A production object adapter should issue
+Before a broader internet pilot, replace the shared Bearer token with authenticated device/user
+identity, authorization per session and short-lived credentials; add rate limits, observability
+and retention cleanup. TLS is already mandatory in the Terraform deployment. A production object adapter should issue
 presigned upload URLs where appropriate while retaining opaque keys in persisted state. Ephemeral
 worker disk is an FFmpeg workspace, not durable storage.
 
@@ -340,7 +381,8 @@ atomic state transitions currently implemented by JDBC.
 Architecture tests also enforce the dependency direction, the absence of HTTP DTOs in inbound
 ports, provider-neutral object keys and adapter-to-port assignments.
 
-Verification observed on 30 Aug 2026: `./gradlew.bat check --no-daemon` completed successfully,
-including the cloud adapter, codec, checksum, conditional-write and architecture tests. The
+Verification observed on 30 Aug 2026: `./gradlew.bat check --no-daemon` completed successfully
+with 35 tests, including Bearer authentication, the cloud adapter, codec, checksum,
+conditional-write and architecture tests. The
 Compose smoke command was last attempted on 25 Aug 2026 but did not execute because the local
 Docker daemon was unavailable.

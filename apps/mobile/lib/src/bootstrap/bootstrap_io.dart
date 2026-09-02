@@ -28,12 +28,16 @@ Future<AppDependencies> createAppDependencies() async {
     'GREENV_API_URL',
     defaultValue: 'http://10.0.2.2:8080',
   );
+  const configuredToken = String.fromEnvironment('GREENV_API_TOKEN');
   final monotonicClock = MonotonicClock();
   final recorder = CameraSegmentRecorder();
   final telemetry = PhoneTelemetryCollector(monotonicClock.nowNanos);
   final uploader = QueueUploader(
     queue: queue,
-    backend: HttpCaptureBackend(Uri.parse(configuredApi)),
+    backend: HttpCaptureBackend(
+      Uri.parse(configuredApi),
+      bearerToken: configuredToken,
+    ),
   );
   final coordinator = CaptureCoordinator(
     deviceId: deviceId,

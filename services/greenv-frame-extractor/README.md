@@ -114,6 +114,10 @@ mandatory when that adapter is selected and defaults to `greenv-segment-extract-
 Bus uses `GREENV_AZURE_SERVICE_BUS_MAX_MESSAGES` and `GREENV_AZURE_SERVICE_BUS_WAIT_SECONDS`.
 Set `MANAGEMENT_HEALTH_RABBIT_ENABLED=false` whenever RabbitMQ is not the selected adapter.
 
+The MVP Terraform selects R2 together with Azure Queue and managed identity. A configuration
+context test starts the S3 client plus both Azure Queue clients together. See
+[`../../infrastructure/README.md`](../../infrastructure/README.md) for the production settings.
+
 Configure an SQS redrive policy and a Service Bus maximum delivery count/DLQ on the cloud
 resource. Azure Queue Storage has no native DLQ, so this adapter copies an exhausted message to
 the configured poison queue before deleting it from the source. Until the threshold is reached,

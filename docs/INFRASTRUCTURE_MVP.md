@@ -6,57 +6,64 @@ cloud spend. Provisioning is a separate, billable action that requires explicit 
 ## Recommended topology
 
 Use Azure Container Apps Consumption for both Java containers, Azure Queue Storage for segment
-work, Azure Blob Storage for video and frame artifacts, and Neon PostgreSQL for relational state.
-Keep Cloudflare authoritative for DNS and expose only `api.<domain>`.
+work, Cloudflare R2 for private video and frame artifacts, and Neon PostgreSQL for relational
+state. Keep Cloudflare authoritative for DNS and expose only `api.<domain>`. Executable Terraform
+and the deployment runbook are in [`infrastructure/`](../infrastructure/README.md).
 
 ```text
 mobile -> Cloudflare DNS/TLS -> Video API Container App (HTTP, min replicas 0)
                                   |-> Neon PostgreSQL
-                                  |-> Azure Blob container
+                                  |-> Cloudflare R2 bucket
                                   `-> Azure Queue
 
 Azure Queue -> KEDA scale rule -> Frame Worker Container App (min replicas 0)
                                       |-> Neon PostgreSQL
-                                      `-> Azure Blob container
+                                      `-> Cloudflare R2 bucket
 ```
 
 This option is the first choice for the MVP because the existing containers run unchanged, both
-compute workloads scale to zero, one inexpensive Azure Storage account provides Blob and Queue,
-and Container Apps can scale the worker from Azure Queue with managed identity. The API has HTTP
-ingress; the worker has no public ingress.
+compute workloads scale to zero, R2 avoids direct object egress charges, and Container Apps can
+scale the worker from Azure Queue with managed identity. The Azure Storage account contains only
+queues. The API has HTTP ingress; the worker has no public ingress.
 
 Set both services to:
 
 ```text
 GREENV_DATABASE_ADAPTER=jdbc
-GREENV_OBJECT_STORAGE_ADAPTER=azure-blob
+GREENV_OBJECT_STORAGE_ADAPTER=s3
 GREENV_SEGMENT_QUEUE_ADAPTER=azure-queue
 MANAGEMENT_HEALTH_RABBIT_ENABLED=false
 ```
 
+Set the shared R2 endpoint, bucket, region `auto`, access key and secret key through the documented
+`GREENV_S3_*`/`GREENV_AWS_*` settings. R2 credentials cannot use the Azure managed identities.
+
 Also set `GREENV_LOCAL_POLLING_ENABLED=false` on the worker so the legacy whole-video filesystem
 poller is not scheduled in the cloud deployment.
 
-Use managed identity for Blob/Queue in production rather than storage connection strings. The API
-identity needs Blob Data Contributor and Queue Data Message Sender. The worker identity needs Blob
-Data Contributor and Queue Data Message Processor/Sender permissions for the source and poison
-queues. Database credentials remain Container Apps secrets; use Neon's pooled connection string
-and require TLS.
+Use managed identity for Azure Queue rather than storage connection strings. The API identity needs
+Queue Data Message Sender. The worker identity uses Queue Data Contributor so the application and
+KEDA can read queue length, receive, delete, retry and poison messages. R2 and database credentials
+remain Container Apps secrets; use Neon's pooled hostname for application traffic, its direct
+hostname for Flyway and require TLS for both.
 
 ## Cost-conscious alternatives
 
 | Option | Compute | Queue | Objects | Database | When to choose |
 |---|---|---|---|---|---|
-| A — recommended | Azure Container Apps | Azure Queue | Azure Blob | Neon | Lowest operational burden and native queue scaling |
-| B — lowest object egress | Azure Container Apps | Azure Queue | Cloudflare R2 through `s3` | Neon | Video volume or downloads make object egress material |
+| A — selected | Azure Container Apps | Azure Queue | Cloudflare R2 through `s3` | Neon | Low idle compute cost, native queue scaling and no direct R2 egress charge |
+| B — single-cloud fallback | Azure Container Apps | Azure Queue | Azure Blob | Neon | Fewer providers when operational simplicity matters more than object egress |
 | C — richer messaging | Azure Container Apps | Azure Service Bus | Azure Blob or R2 | Neon | Native DLQ, sessions or stronger broker features justify added cost |
 | D — AWS queue | Azure Container Apps | SQS | S3 or R2 | Neon | The team already operates AWS/IAM or expects a later AWS move |
 | E — current topology | Azure Container Apps | hosted RabbitMQ | R2 or Azure Blob | Neon | Fastest migration from Compose, but another broker vendor remains |
 
-Option B changes only `GREENV_OBJECT_STORAGE_ADAPTER=s3` and the S3 endpoint/credentials. R2's
+The selected option uses `GREENV_OBJECT_STORAGE_ADAPTER=s3` and R2 endpoint/credentials. R2's
 published Standard free tier includes 10 GB-month, one million Class A operations and ten million
 Class B operations per month, with no direct R2 egress charge. Beyond that, Standard storage is
 listed at USD 0.015/GB-month. See [Cloudflare R2 pricing](https://developers.cloudflare.com/r2/pricing/).
+This does not make the entire cross-cloud path egress-free: bytes sent from Azure Container Apps
+to R2 can count as Azure internet outbound transfer. Measure uploaded video and generated-frame
+bytes during the pilot and compare that charge with the Azure Blob fallback before scaling volume.
 
 SQS has no minimum fee and includes one million requests per month, but cross-cloud credentials
 and traffic make it less convenient than Azure Queue beside Container Apps. See the
@@ -85,25 +92,27 @@ be a later optimization, not a same-day MVP deployment.
 
 ## Same-day deployment sequence
 
-1. Create one resource group and a Container Apps Consumption environment in the nearest supported
-   region; do not attach a custom VNet for the MVP because it can add cost and complexity.
-2. Create one GPv2 LRS Storage account, a private Blob container, the segment queue and the poison
-   queue. Configure lifecycle deletion for source video only after the business retention decision.
-3. Create the Neon project in a region close to the Container Apps region. Run Flyway by starting
-   the API once against the pooled TLS JDBC URL, then verify both migration rows and API health.
-4. Publish the two Docker images to GHCR or another existing registry. Pin immutable image digests;
-   do not deploy `latest`.
-5. Deploy the API with external ingress on port 8080, `minReplicas=0`, `maxReplicas=3`, health probes,
-   1 vCPU and 2 GiB as the initial limit. Set a maximum request body above 64 MiB end-to-end.
-6. Deploy the worker without ingress, `minReplicas=0`, `maxReplicas=4`, 2 vCPU and 4 GiB initially.
-   Add an `azure-queue` KEDA rule with queue length 1 and managed identity. Set the queue visibility
-   timeout above the measured worst FFmpeg attempt.
-7. Add `api.<domain>` as the Container App custom domain. In Cloudflare create the validation TXT
-   and direct CNAME required by Azure. Azure warns that an intermediate proxied CNAME can block
-   managed-certificate issuance, so begin DNS-only; enable the Cloudflare proxy only after the
-   certificate is issued and renewal behavior is verified. See [custom domains](https://learn.microsoft.com/en-us/azure/container-apps/custom-domains-managed-certificates).
+1. Choose the Azure, Neon and R2 regions together, estimate pilot volume, publish both OCI images
+   and pin their immutable digests. Do not deploy `latest`.
+2. Run the Terraform bootstrap. It creates one private R2 state bucket and a separate private R2
+   application bucket. Issue one bucket-scoped S3 credential for each use, then migrate the
+   bootstrap state into R2.
+3. Configure the main root and save a Terraform plan. It covers the Azure resource group,
+   Consumption Container Apps environment, capped logs, LRS queue account, managed identities,
+   Neon project, R2 lookup, optional DNS and monthly budget. Review that plan before the billable
+   apply.
+4. Apply the reviewed plan. The API starts with external ingress on port 8080, `minReplicas=0`,
+   `maxReplicas=3`, 1 vCPU and 2 GiB. The worker has no ingress, `minReplicas=0`, `maxReplicas=4`,
+   2 vCPU and 4 GiB. No custom VNet is attached for this MVP.
+5. Wait for API health and verify that Flyway used Neon's direct TLS hostname while normal JDBC uses
+   the pooled hostname. Do not enqueue pilot work until the migration rows exist.
+6. Verify the `azure-queue` KEDA rule has queue length 1 and the worker identity. Set the visibility
+   timeout above the measured worst FFmpeg attempt before increasing workload volume.
+7. If `api_hostname` is set, confirm the Cloudflare validation TXT and direct CNAME. Terraform keeps
+   the CNAME DNS-only because an intermediate proxy can block Azure managed-certificate issuance;
+   enable the proxy only after renewal behavior is verified. See [custom domains](https://learn.microsoft.com/en-us/azure/container-apps/custom-domains-managed-certificates).
 8. Run `docker compose --profile test up --build capture-smoke` locally, then repeat the same capture
-   against the public hostname. Verify database state, Blob objects, empty source queue, empty poison
+   against the public hostname. Verify database state, R2 objects, empty source queue, empty poison
    queue and worker scale-back to zero.
 9. Add alerts for API 5xx, queue age/depth, poison messages, failed segments, database storage and
    cloud budget before inviting pilot users.
@@ -119,8 +128,8 @@ be a later optimization, not a same-day MVP deployment.
   DLQ.
 - Use one queue consumer per message. Duplicate delivery is expected; database state and object
   generation checks remain the idempotency boundary.
-- Keep object storage private, encrypt in transit, rotate credentials, cap retention and deny public
-  container/bucket access.
+- Keep both R2 buckets private, encrypt in transit, use distinct state and application credentials,
+  rotate credentials and decide artifact retention before adding lifecycle deletion.
 - Measure one real pilot batch before changing CPU/memory or concurrency. FFmpeg is CPU work; it
   must not wake the separately billed GPU measurement service.
 

@@ -1,0 +1,4 @@
+cloudflare_account_id   = "00000000000000000000000000000000"
+state_bucket_name       = "greenv-terraform-state-replace-me"
+application_bucket_name = "greenv-mvp-captures-replace-me"
+r2_location_hint        = "enam"

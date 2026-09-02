@@ -47,6 +47,7 @@ services:
       GREENV_RABBITMQ_USER: greenv
       GREENV_RABBITMQ_PASSWORD: greenv-local-only
       GREENV_RABBITMQ_DYNAMIC: "true"
+      GREENV_API_TOKEN: ${GREENV_API_TOKEN:-greenv-local-only-bearer-token-000000000000}
       GREENV_PIPELINE_ROOT: /data/pipeline
     ports:
       - "127.0.0.1:8080:8080"
@@ -93,6 +94,7 @@ services:
       context: services/capture-smoke
     environment:
       API_URL: http://video-api:8080
+      GREENV_API_TOKEN: ${GREENV_API_TOKEN:-greenv-local-only-bearer-token-000000000000}
     depends_on:
       video-api:
         condition: service_started

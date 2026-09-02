@@ -24,9 +24,12 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import tools.jackson.databind.ObjectMapper;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = "greenv.security.api-token=greenv-test-only-bearer-token-000000000000")
 class CaptureSessionControllerIntegrationTest {
 
+    private static final String TEST_API_TOKEN = "greenv-test-only-bearer-token-000000000000";
     private static final String TEST_ID = UUID.randomUUID().toString();
     private static final Path TEST_ROOT = Path.of(
             System.getProperty("java.io.tmpdir"),
@@ -205,7 +208,9 @@ class CaptureSessionControllerIntegrationTest {
     }
 
     private static HttpResponse<String> send(HttpClient client, HttpRequest.Builder request) throws Exception {
-        return client.send(request.build(), HttpResponse.BodyHandlers.ofString());
+        return client.send(
+                request.header("Authorization", "Bearer " + TEST_API_TOKEN).build(),
+                HttpResponse.BodyHandlers.ofString());
     }
 
     private static String sha256(byte[] value) throws Exception {

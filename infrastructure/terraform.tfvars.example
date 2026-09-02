@@ -1,0 +1,34 @@
+# Copy this file to terraform.tfvars and replace every example value. Never put
+# credentials in this file; provide them through the environment as documented
+# in README.md.
+
+project_name = "greenv"
+environment  = "mvp"
+
+# These defaults place the runtime and database in eastern North America.
+# Change both together after checking current region support.
+azure_location = "brazilsouth"
+neon_region_id = "aws-sa-east-1"
+
+cloudflare_account_id = "00000000000000000000000000000000"
+cloudflare_zone_id    = "00000000000000000000000000000000"
+api_hostname          = "api.example.com"
+r2_bucket_name        = "greenv-mvp-captures-replace-me"
+
+# Use immutable digests produced by the image publishing workflow.
+api_image    = "ghcr.io/matomomitsu/greenv-video-api@sha256:7c38a8595b934f2214a0b452fe659949358aa1fca75e84402231a15839266d5c"
+worker_image = "ghcr.io/matomomitsu/greenv-frame-extractor@sha256:aed92fada08fc0496bf72468fc93d450faa528c836e8a021848059e3268d0415"
+
+# Optional. Omit to let Terraform create and persist a 48-character token.
+# api_bearer_token = "replace-with-at-least-32-random-characters"
+
+# The variable defaults to public registry access. For a private registry, do
+# not define container_registry in this file: export TF_VAR_container_registry
+# as documented in README.md so this file cannot override the secret input.
+
+budget_amount         = 30
+budget_contact_emails = ["finops@example.com"]
+
+tags = {
+  owner = "green-v-team"
+}

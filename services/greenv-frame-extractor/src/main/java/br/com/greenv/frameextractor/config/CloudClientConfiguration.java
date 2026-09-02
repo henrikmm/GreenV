@@ -26,7 +26,7 @@ import software.amazon.awssdk.services.sqs.SqsClient;
 @Configuration
 public class CloudClientConfiguration {
 
-    @Bean("azureSegmentQueueClient")
+    @Bean
     @ConditionalOnProperty(name = "greenv.adapters.object-storage", havingValue = "s3")
     S3Client s3Client(S3StorageProperties properties) {
         requireText(properties.bucket(), "greenv.storage.s3.bucket");
@@ -75,7 +75,7 @@ public class CloudClientConfiguration {
         return client;
     }
 
-    @Bean
+    @Bean("azureSegmentQueueClient")
     @ConditionalOnProperty(name = "greenv.adapters.segment-queue", havingValue = "azure-queue")
     QueueClient azureQueueClient(AzureQueueProperties properties) {
         requireText(properties.queue(), "greenv.queue.azure-queue.queue");

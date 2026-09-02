@@ -17,6 +17,7 @@ apps/web/         the map dashboard          React, Vite, Leaflet
 apps/mobile/      the capture client         Flutter
 services/         the API and the workers    Spring Boot, Java 21
 measurement/      Verge Studio               a git subtree; metric height from video
+infrastructure/   the cloud MVP               Terraform, Azure, R2, Neon
 compose.yaml      the local stack            PostgreSQL, RabbitMQ, API, worker 1
 ```
 
@@ -49,6 +50,9 @@ storage (including Cloudflare R2) and Azure Blob, and can switch the segment que
 RabbitMQ, Amazon SQS, Azure Queue Storage and Azure Service Bus without changing application
 services. The recommended scale-to-zero MVP topology, alternatives, cost evidence and deployment
 sequence are in [`docs/INFRASTRUCTURE_MVP.md`](docs/INFRASTRUCTURE_MVP.md).
+The executable Terraform, R2 remote-state bootstrap and deployment runbook are in
+[`infrastructure/`](infrastructure/README.md). Validation and native infrastructure tests use
+mocked providers and create no cloud resources.
 
 New capture sessions, legacy jobs and newly persisted mobile device identities use RFC 9562
 UUIDv7. This provides time-local identifiers without changing PostgreSQL's `UUID` columns. Older

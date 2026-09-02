@@ -4,6 +4,8 @@ info:
   version: 2.0.0
 servers:
   - url: http://127.0.0.1:8080
+security:
+  - bearerAuth: []
 paths:
   /v1/jobs:
     post:
@@ -245,6 +247,11 @@ paths:
         '409':
           description: Worker manifest is not ready
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
   parameters:
     JobId:
       name: jobId

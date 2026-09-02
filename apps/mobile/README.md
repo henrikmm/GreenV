@@ -28,8 +28,8 @@ Implemented:
 
 Not implemented yet:
 
-- Real authentication or password recovery; those screens currently navigate local presentation
-  state only.
+- Real user/device identity or password recovery; those screens currently navigate local
+  presentation state only. Capture uploads use the shared MVP Bearer token described below.
 - Dashboard, recent-upload and map APIs; the values on those screens are presentation fixtures.
 - Background recording. Leaving the foreground intentionally closes the current segment and stops.
 - Hardware timestamps for each camera frame or absolute device attitude.
@@ -76,7 +76,8 @@ Then, from this directory:
 
 ```bash
 flutter pub get
-flutter run
+flutter run \
+  --dart-define=GREENV_API_TOKEN=greenv-local-only-bearer-token-000000000000
 ```
 
 The first press on **Iniciar gravação** asks for camera and location permission. Video still
@@ -108,11 +109,12 @@ database, queue and capture volumes.
 
 ### Android emulator
 
-No extra option is required. The compiled default is `http://10.0.2.2:8080`, Android's alias for
-the development host:
+No API URL override is required. The compiled default is `http://10.0.2.2:8080`, Android's alias
+for the development host; pass the Compose development token:
 
 ```bash
-flutter run -d emulator
+flutter run -d emulator \
+  --dart-define=GREENV_API_TOKEN=greenv-local-only-bearer-token-000000000000
 ```
 
 ### Android phone over USB
@@ -121,7 +123,9 @@ USB port reversal keeps the Compose API bound to host loopback:
 
 ```bash
 adb reverse tcp:8080 tcp:8080
-flutter run --dart-define=GREENV_API_URL=http://127.0.0.1:8080
+flutter run \
+  --dart-define=GREENV_API_URL=http://127.0.0.1:8080 \
+  --dart-define=GREENV_API_TOKEN=greenv-local-only-bearer-token-000000000000
 ```
 
 Remove the reversal after testing with `adb reverse --remove tcp:8080`.
@@ -132,7 +136,9 @@ Run from macOS. The simulator can use host loopback; a phone needs a deliberatel
 or development-network endpoint:
 
 ```bash
-flutter run --dart-define=GREENV_API_URL=http://127.0.0.1:8080
+flutter run \
+  --dart-define=GREENV_API_URL=http://127.0.0.1:8080 \
+  --dart-define=GREENV_API_TOKEN=greenv-local-only-bearer-token-000000000000
 ```
 
 ### Browser presentation preview
@@ -151,15 +157,39 @@ states. The repository review command builds web first, then runs from the repos
 node scripts/capture-mobile-review.mjs
 ```
 
-`GREENV_API_URL` is a compile-time setting, not a runtime environment variable. A physical phone
-on the development network must receive an address it can reach:
+`GREENV_API_URL` and `GREENV_API_TOKEN` are compile-time settings, not runtime environment
+variables. A physical phone on the development network must receive an address it can reach:
 
 ```bash
-flutter run --dart-define=GREENV_API_URL=http://192.168.1.20:8080
+flutter run \
+  --dart-define=GREENV_API_URL=http://192.168.1.20:8080 \
+  --dart-define=GREENV_API_TOKEN=greenv-local-only-bearer-token-000000000000
 ```
 
 The local Compose API binds to loopback by default. Bind or proxy it deliberately before testing
-from a physical device; do not expose this unauthenticated pilot API to the public internet.
+from a physical device.
+
+### Deployed MVP API
+
+Terraform generates the deployed API token and stores it as an Azure Container Apps secret. Read
+the sensitive output into the shell without printing it, then provide it to the debug build:
+
+```bash
+cd ../../infrastructure
+export GREENV_API_TOKEN="$(terraform output -raw api_bearer_token)"
+export GREENV_API_URL="$(terraform output -raw api_public_url)"
+cd ../apps/mobile
+flutter run \
+  --dart-define=GREENV_API_URL="$GREENV_API_URL" \
+  --dart-define=GREENV_API_TOKEN="$GREENV_API_TOKEN"
+unset GREENV_API_TOKEN
+```
+
+`HttpCaptureBackend` adds the token to session creation, video/telemetry uploads, completion and
+polling. It refuses to start with a token shorter than 32 characters. A value compiled with
+`--dart-define` can still be extracted from an APK; this is acceptable only for the closed MVP
+pilot. Production must exchange the login for a short-lived per-user/device token instead of
+shipping a long-lived shared secret.
 
 Android declares camera, fine/coarse location, network and wakelock permissions. iOS declares
 camera and when-in-use location descriptions. The current workstation can compile Android and
@@ -232,14 +262,15 @@ flutter build web
 ```
 
 The tests cover UUIDv7 version and same-millisecond ordering, ten-second rotation, queue
-persistence across restart, offline retry, deletion only after worker `ready`, normalized relative
+persistence across restart, offline retry, Bearer headers on JSON and binary requests, rejection
+of missing token configuration, deletion only after worker `ready`, normalized relative
 orientation, auth/navigation rendering, and the idle/recording Motiva states.
 
 The latest verified debug artifact is produced at
 `build/app/outputs/flutter-apk/app-debug.apk`. iOS cannot be compiled or signed on Windows.
 
-Verification observed on 26 Aug 2026: `flutter analyze` reported no issues and `flutter test`
-completed all 12 tests successfully. APK and web builds were not rerun for this identifier-only
+Verification observed on 30 Aug 2026: `flutter analyze` reported no issues and `flutter test`
+completed all 15 tests successfully. APK and web builds were not rerun for this authentication
 change.
 
 ## Troubleshooting
@@ -247,6 +278,7 @@ change.
 | Symptom | Check |
 |---|---|
 | API connection fails in Android emulator | Compose is running and `http://10.0.2.2:8080/actuator/health` is reachable from the emulator |
+| API returns `401` | Rebuild with the same `GREENV_API_TOKEN` configured in Compose or exposed by Terraform |
 | USB phone cannot reach API | Run `adb reverse tcp:8080 tcp:8080` and compile with the loopback `GREENV_API_URL` above |
 | Camera action reports a permission error | Grant camera permission in platform settings, then retry; the action remains available |
 | GPS stays unavailable | Enable the device location service and precise/when-in-use permission; video capture is independent |
