@@ -346,6 +346,8 @@ interface Observation {
   distIndex: number;
   voxelKey: string;
   heightM: number;
+  /** Source pixel on the depth grid. Only populated when provenance was asked for. */
+  pixelIndex: number;
 }
 
 /**
@@ -405,6 +407,7 @@ function observationsFor(
   road: RoadFrame,
   options: Required<GrassHeightGridOptions>,
   verticalScale: number,
+  collectPixelIndices: boolean,
 ): Observation[] {
   const { plane, planeRmseM } = { plane: input.ground.plane, planeRmseM: input.ground.planeRmseM };
   const onGrid = maskOnDepthGrid(frame);
@@ -415,12 +418,15 @@ function observationsFor(
     erodeRadius: 0, // already eroded, so the confidence floor is taken over the pixels actually used
     minConfidence,
     maxRelativeDepthStep: 0.05,
+    collectPixelIndices,
   });
+  const sourcePixels = backprojected.pixelIndices;
   const world = transformPoints(backprojected.points, input.worldFromDa3);
 
   const belowGroundLimit = -3 * Math.abs(planeRmseM);
   const observations: Observation[] = [];
   for (let i = 0; i + 2 < world.length; i += 3) {
+    const pixelIndex = sourcePixels ? sourcePixels[i / 3] : -1;
     const point: Vec3 = [world[i], world[i + 1], world[i + 2]];
     const perpendicular = signedHeight(plane, point);
     if (!Number.isFinite(perpendicular)) continue;
@@ -449,6 +455,7 @@ function observationsFor(
       distIndex: cellIndex(station.distanceFromRoadM, options.cellSizeM, options.maxDistanceFromRoadM),
       voxelKey: `${vx},${vy},${vz}`,
       heightM: height,
+      pixelIndex,
     });
   }
   return observations;
@@ -508,13 +515,68 @@ function resolveOptions(options: GrassHeightGridOptions | undefined): Required<G
 }
 
 /**
- * Measure roadside grass height into a grid of road-local cells.
+ * Which pixels a cell's numbers were computed from.
  *
- * Pure: no clock, no filesystem, no network. The result always carries a PENDING review
- * with null reviewer fields — this function never marks its own work accepted, and never
- * reports anything but `validationStatus: "unvalidated"`.
+ * The overlays exist to answer one question the JSON cannot: is this cell's 1.18 m grass, or is
+ * it a fence post? Only the source pixels drawn back onto the photograph answer that, and a
+ * compacted point array has already thrown away which pixel each point was. So this is collected
+ * on request, alongside the measurement rather than instead of it — the same run, not a re-run.
+ *
+ * These are the pixels that survived every filter and landed in the cell, BEFORE voxel
+ * deduplication. That is deliberate: dedup decides how much a pixel counts, and the question
+ * being asked here is which pixels were looked at.
  */
-export function measureGrassHeightGrid(input: GrassHeightGridInput): GrassHeightAssessmentV1 {
+export interface GrassCellProvenance {
+  coordinate: GrassCellCoordinate;
+  /** Source pixel indices on the depth grid, keyed by the frame they belong to. */
+  pixelsByFrame: Map<number, Uint32Array>;
+  pixelCount: number;
+}
+
+/** Keyed exactly as the cells are: `${alongIndex},${distIndex}`. */
+export type GrassProvenance = Map<string, GrassCellProvenance>;
+
+/** Ask the staged calculation for more than it needs. Never used by the measurement path. */
+export interface GrassHeightDebugOptions {
+  collectProvenance?: boolean;
+}
+
+/** What the calculation is doing, for a caller that wants to watch it happen. */
+export type GrassGridPhase = "reading-frames" | "gridding" | "done";
+
+export interface GrassHeightProgress {
+  phase: GrassGridPhase;
+  /** Frames finished, out of the total. Counted, never estimated. */
+  framesDone: number;
+  frameTotal: number;
+  /** The frame just finished. Null before the first one and on the closing steps. */
+  frameIndex: number | null;
+  /** Observations that frame contributed, and the running total across frames. */
+  frameObservations: number;
+  observationsRetained: number;
+  /** Distinct cells touched so far. Rises as coverage grows, never falls. */
+  cellsTouched: number;
+  /** Present only on the `done` step. */
+  assessment: GrassHeightAssessmentV1 | null;
+  /** Present only on the `done` step, and only when provenance was asked for. */
+  provenance: GrassProvenance | null;
+}
+
+/**
+ * The calculation, one frame at a time.
+ *
+ * Same code as `measureGrassHeightGrid` — that function drains this one — because an
+ * interface watching a computation must be watching the computation, not a second
+ * implementation of it that can drift. This is the same rule the inspector follows.
+ *
+ * Every number a consumer can draw from here is counted: frames finished out of frames
+ * given, observations kept, cells touched. None of it is a clock or an estimate, which
+ * is what lets a progress bar be drawn from it at all (docs/DESIGN.md, honesty rule 5).
+ */
+export function* measureGrassHeightGridStaged(
+  input: GrassHeightGridInput,
+  debug: GrassHeightDebugOptions = {},
+): Generator<GrassHeightProgress, GrassHeightAssessmentV1, void> {
   const options = resolveOptions(input.options);
 
   if (input.worldFromDa3.length !== 16) {
@@ -554,8 +616,15 @@ export function measureGrassHeightGrid(input: GrassHeightGridInput): GrassHeight
   const road = buildRoadFrame(input.roadEdgeWorld, input.ground.plane);
 
   const cells = new Map<string, CellAccumulator>();
+  const collectProvenance = debug.collectProvenance === true;
+  const pixelTrail = collectProvenance ? new Map<string, Map<number, number[]>>() : null;
+  const frameTotal = input.frames.length;
+  let framesDone = 0;
+  let observationsRetained = 0;
+
   for (const frame of input.frames) {
-    for (const observation of observationsFor(frame, input, road, options, verticalScale)) {
+    const observations = observationsFor(frame, input, road, options, verticalScale, collectProvenance);
+    for (const observation of observations) {
       const key = `${observation.alongIndex},${observation.distIndex}`;
       let cell = cells.get(key);
       if (!cell) {
@@ -572,9 +641,109 @@ export function measureGrassHeightGrid(input: GrassHeightGridInput): GrassHeight
         observation.voxelKey,
         existing === undefined ? observation.heightM : Math.min(existing, observation.heightM),
       );
+      if (pixelTrail) {
+        let byFrame = pixelTrail.get(key);
+        if (!byFrame) {
+          byFrame = new Map();
+          pixelTrail.set(key, byFrame);
+        }
+        const list = byFrame.get(frame.frameIndex);
+        if (list) list.push(observation.pixelIndex);
+        else byFrame.set(frame.frameIndex, [observation.pixelIndex]);
+      }
     }
+    framesDone += 1;
+    observationsRetained += observations.length;
+    yield {
+      phase: "reading-frames",
+      framesDone,
+      frameTotal,
+      frameIndex: frame.frameIndex,
+      frameObservations: observations.length,
+      observationsRetained,
+      cellsTouched: cells.size,
+      assessment: null,
+      provenance: null,
+    };
   }
 
+  yield {
+    phase: "gridding",
+    framesDone,
+    frameTotal,
+    frameIndex: null,
+    frameObservations: 0,
+    observationsRetained,
+    cellsTouched: cells.size,
+    assessment: null,
+    provenance: null,
+  };
+
+  const assessment = reduceCells(cells, input.runId, options);
+  yield {
+    phase: "done",
+    framesDone,
+    frameTotal,
+    frameIndex: null,
+    frameObservations: 0,
+    observationsRetained,
+    cellsTouched: cells.size,
+    assessment,
+    provenance: pixelTrail ? freezeProvenance(pixelTrail, cells, options) : null,
+  };
+  return assessment;
+}
+
+/**
+ * Measure roadside grass height into a grid of road-local cells.
+ *
+ * Pure: no clock, no filesystem, no network. The result always carries a PENDING review
+ * with null reviewer fields — this function never marks its own work accepted, and never
+ * reports anything but `validationStatus: "unvalidated"`.
+ */
+export function measureGrassHeightGrid(input: GrassHeightGridInput): GrassHeightAssessmentV1 {
+  const steps = measureGrassHeightGridStaged(input);
+  let step = steps.next();
+  while (!step.done) step = steps.next();
+  return step.value;
+}
+
+/** Growable pixel lists become typed arrays once nothing more can be added to them. */
+function freezeProvenance(
+  trail: Map<string, Map<number, number[]>>,
+  cells: Map<string, CellAccumulator>,
+  options: Required<GrassHeightGridOptions>,
+): GrassProvenance {
+  const out: GrassProvenance = new Map();
+  for (const [key, byFrame] of trail) {
+    const cell = cells.get(key);
+    if (!cell) continue;
+    const pixelsByFrame = new Map<number, Uint32Array>();
+    let pixelCount = 0;
+    for (const [frameIndex, list] of byFrame) {
+      // Ascending, so a consumer painting them walks the image in raster order rather than
+      // in whatever order the backprojection happened to emit.
+      pixelsByFrame.set(frameIndex, Uint32Array.from(list).sort());
+      pixelCount += list.length;
+    }
+    out.set(key, {
+      coordinate: {
+        alongRoadM: cellCentre(cell.alongIndex, options.cellSizeM),
+        distanceFromRoadM: cellCentre(cell.distIndex, options.cellSizeM),
+      },
+      pixelsByFrame,
+      pixelCount,
+    });
+  }
+  return out;
+}
+
+/** Votes, percentiles and abstentions, once every frame has been read. */
+function reduceCells(
+  cells: Map<string, CellAccumulator>,
+  runId: string,
+  options: Required<GrassHeightGridOptions>,
+): GrassHeightAssessmentV1 {
   const measurements: GrassCellMeasurement[] = [];
   for (const cell of cells.values()) {
     const votes: FrameVote[] = [];
@@ -641,7 +810,7 @@ export function measureGrassHeightGrid(input: GrassHeightGridInput): GrassHeight
 
   return {
     schemaVersion: GRASS_HEIGHT_ASSESSMENT_SCHEMA,
-    runId: input.runId,
+    runId,
     coordinateFrame: "road-local-metres",
     validationStatus: "unvalidated",
     band: {

@@ -21,10 +21,13 @@ import { describe, expect, it } from "vitest";
 import {
   GrassHeightInputError,
   measureGrassHeightGrid,
+  measureGrassHeightGridStaged,
   recordGrassHeightReview,
   type GrassHeightAssessmentV1,
   type GrassHeightFrameInput,
   type GrassHeightGridInput,
+  type GrassHeightProgress,
+  type GrassProvenance,
   type GrassHeightReviewDecision,
 } from "./grass-height-grid";
 import type { Plane, Vec3 } from "./types";
@@ -814,5 +817,148 @@ describe("human review", () => {
     const restored = JSON.parse(JSON.stringify(assessment)) as GrassHeightAssessmentV1;
     expect(restored).toEqual(assessment);
     expect(restored.measurements[0].coordinate).toEqual(assessment.measurements[0].coordinate);
+  });
+});
+
+describe("watching it happen", () => {
+  it("reaches the same answer one frame at a time as it does in one call", () => {
+    const scene = threeFrameScene();
+    const steps = measureGrassHeightGridStaged(scene);
+    let step = steps.next();
+    while (!step.done) step = steps.next();
+    // Byte-for-byte, because the staged path is the one-shot path — not a second
+    // implementation that could drift from it.
+    expect(JSON.stringify(step.value)).toBe(JSON.stringify(measureGrassHeightGrid(scene)));
+  });
+
+  it("counts frames, observations and cells, and never counts down", () => {
+    const scene = threeFrameScene();
+    const progress = [...measureGrassHeightGridStaged(scene)];
+
+    expect(progress.map((p) => p.phase)).toEqual([
+      "reading-frames",
+      "reading-frames",
+      "reading-frames",
+      "gridding",
+      "done",
+    ]);
+    expect(progress.map((p) => p.framesDone)).toEqual([1, 2, 3, 3, 3]);
+    for (const step of progress) expect(step.frameTotal).toBe(3);
+    expect(progress.slice(0, 3).map((p) => p.frameIndex)).toEqual([0, 1, 2]);
+
+    for (let i = 1; i < progress.length; i++) {
+      expect(progress[i].observationsRetained).toBeGreaterThanOrEqual(progress[i - 1].observationsRetained);
+      expect(progress[i].cellsTouched).toBeGreaterThanOrEqual(progress[i - 1].cellsTouched);
+    }
+    // Every frame in this scene sees the same ground, so each contributes real evidence.
+    for (const step of progress.slice(0, 3)) expect(step.frameObservations).toBeGreaterThan(0);
+  });
+
+  it("carries the finished assessment on the last step and nowhere earlier", () => {
+    const progress = [...measureGrassHeightGridStaged(threeFrameScene())];
+    const last = progress[progress.length - 1];
+    expect(last.phase).toBe("done");
+    expect(last.assessment?.review.status).toBe("pending");
+    expect(last.assessment?.validationStatus).toBe("unvalidated");
+    expect(last.cellsTouched).toBe(last.assessment?.measurements.length);
+    for (const step of progress.slice(0, -1)) expect(step.assessment).toBeNull();
+  });
+
+  it("refuses bad input before yielding anything at all", () => {
+    const scene = threeFrameScene();
+    const steps = measureGrassHeightGridStaged({ ...scene, roadEdgeWorld: [[0, 0, 0]] });
+    // A generator body does not run until the first next(), so the throw must land there
+    // rather than leaving a consumer to draw a progress row for a run that cannot start.
+    expect(() => steps.next()).toThrow(GrassHeightInputError);
+  });
+});
+
+describe("provenance", () => {
+  /** Drain the staged calculation and hand back its closing step. */
+  function finalStep(scene: GrassHeightGridInput, collectProvenance: boolean): GrassHeightProgress {
+    const steps = measureGrassHeightGridStaged(scene, { collectProvenance });
+    const progress = [...steps];
+    return progress[progress.length - 1];
+  }
+
+  function cellProvenance(
+    provenance: GrassProvenance,
+    coordinate: { alongRoadM: number; distanceFromRoadM: number },
+  ) {
+    for (const entry of provenance.values()) {
+      if (
+        entry.coordinate.alongRoadM === coordinate.alongRoadM &&
+        entry.coordinate.distanceFromRoadM === coordinate.distanceFromRoadM
+      ) {
+        return entry;
+      }
+    }
+    return undefined;
+  }
+
+  it("costs nothing and returns nothing unless asked for", () => {
+    const scene = threeFrameScene();
+    expect(finalStep(scene, false).provenance).toBeNull();
+    expect(finalStep(scene, true).provenance).not.toBeNull();
+  });
+
+  it("does not change a single measured number", () => {
+    const scene = threeFrameScene();
+    expect(JSON.stringify(finalStep(scene, true).assessment)).toBe(
+      JSON.stringify(measureGrassHeightGrid(scene)),
+    );
+  });
+
+  it("attributes every pixel to the cell it actually landed in", () => {
+    const provenance = finalStep(threeFrameScene(), true).provenance as GrassProvenance;
+
+    // The scene's frames are the plain nadir grid, so a pixel's world position is arithmetic
+    // this test can do without the pipeline's help. That makes "is this pixel really in this
+    // cell" an independent check rather than a restatement of the code under test.
+    const columns = 125;
+    const xMin = 0.5 + HALF_VOXEL;
+    const zMin = 0.0 + HALF_VOXEL;
+
+    let checked = 0;
+    for (const cell of provenance.values()) {
+      const alongLow = cell.coordinate.alongRoadM - CELL_M / 2;
+      const distLow = cell.coordinate.distanceFromRoadM - CELL_M / 2;
+      for (const pixels of cell.pixelsByFrame.values()) {
+        for (const index of pixels) {
+          const x = xMin + (index % columns) * PIXEL_M;
+          const z = zMin + Math.floor(index / columns) * PIXEL_M;
+          expect(x).toBeGreaterThanOrEqual(alongLow);
+          expect(x).toBeLessThan(alongLow + CELL_M);
+          expect(z).toBeGreaterThanOrEqual(distLow);
+          expect(z).toBeLessThan(distLow + CELL_M);
+          checked += 1;
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(1000);
+  });
+
+  it("covers every cell, with at least as many pixels as the cell counted samples", () => {
+    const step = finalStep(threeFrameScene(), true);
+    const provenance = step.provenance as GrassProvenance;
+    const assessment = step.assessment as GrassHeightAssessmentV1;
+
+    expect(provenance.size).toBe(assessment.measurements.length);
+    for (const cell of assessment.measurements) {
+      const entry = cellProvenance(provenance, cell.coordinate);
+      expect(entry).toBeDefined();
+      // Pixels are counted before voxel deduplication, so they can only outnumber the voxels.
+      expect(entry?.pixelCount).toBeGreaterThanOrEqual(cell.sampleCount);
+      expect(entry?.pixelsByFrame.size ?? 0).toBeGreaterThan(0);
+    }
+  });
+
+  it("sorts each frame's pixels into raster order", () => {
+    const provenance = finalStep(threeFrameScene(), true).provenance as GrassProvenance;
+    for (const cell of provenance.values()) {
+      for (const pixels of cell.pixelsByFrame.values()) {
+        for (let i = 1; i < pixels.length; i++) expect(pixels[i]).toBeGreaterThan(pixels[i - 1]);
+      }
+    }
   });
 });
