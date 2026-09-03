@@ -227,54 +227,64 @@ the measurement and the reason. The browser pane still cannot do this; do not re
 
 ## Later
 
-### 4. Decide what measuring a lawn means, then build it
+### 4. Give the grass grid real masks and a real road edge
 
-**Why.** There are two different jobs hiding under the word "grass", and only one of them is done.
+**Why.** The measurement half of roadside grass exists and is gated: `geometry/grass-height-grid.ts`
+turns frames, grass masks, an accepted ground plane and an ordered road-edge polyline into H50, H90
+and H95 per half-metre cell in road-local coordinates, abstains where the support is thin, and
+carries its own bounded review set. What it does NOT have is either of its two semantic inputs.
 
-**Measuring one plant** — a clump with leaf tips you can hold a tape against — works. Two of them
-are graded: 0.980 m read to +1.9%, 0.450 m to +5.6%. Both stand on raised beds and both still came
-out right, because the app measures a thing's own top against its own bottom, so the bed's height
-cancels out. Making that more reliable is task 10, not this one.
+**Both are supplied by hand today, and that is the whole gap.** The grass mask comes from SlimSAM,
+which is click-prompted and returns "the textured thing I clicked" — on vegetation that is a row of
+separate clumps at different distances (task 10). The road-edge polyline comes from nowhere at all:
+the API takes one because a future extractor must be swappable without touching measurement, and
+the only polyline ever passed to it was written by hand in a smoke check.
 
-**Measuring a lawn** is the job nobody has started. A mown lawn has no single top to put a tape
-on: press harder and you get a smaller number. So the question is not "how tall is it" but "what
-number are we claiming, and how would a person check it" — and that has to be answered before any
-code is written.
+Two consequences follow, and they are the reason this task is not "wire up a model":
 
-Two measured constraints the design has to respect:
+- **Nothing has been graded against a lawn.** Every result the grid produces is stamped
+  `validationStatus: "unvalidated"`, and human acceptance deliberately does not change that. A
+  mown surface has no single top to tape, so the reference protocol is still unwritten.
+- **The delivered product must run without a person in the loop.** The review API is a development
+  instrument — it is how we find out whether masks and bands are right while we still have someone
+  to ask. What ships has to abstain honestly instead, which raises the bar on segmentation rather
+  than lowering it.
 
-- **The vertical matters much more here than for furniture.** Measured against the gravity estimate
-  instead of the fitted floor normal, rigid objects move 0.6–4.0 cm and clumping plants move
-  7.3–8.2 cm, with one automatic-mask trial at 24.3 cm. A few degrees of tilt sweeps different
-  parts of a sprawling canopy into the top and bottom bands.
-- **Outdoor ground is the easy half.** Both outdoor clips fitted a better floor than the indoor
-  one — 34.2% and 27.8% support against 10.7%, all stable across eight seeds. The floor under a
-  lawn is not what will make this hard.
+**Gate.** Three, in order, and the third is the one that matters:
 
-**Gate.** The definition and the physical reference protocol are agreed with the user first. Then
-the raster is built and checked against a real reference, reporting its error, how much of the
-area had enough evidence, and how often it abstained.
+1. Grass and road masks are produced automatically from a clip, with no click, and the road-edge
+   polyline is derived from the road mask rather than typed. Measured on a real roadside clip.
+2. The grid run on those inputs is reviewed against the three checks it already asks — correct
+   grass and band, plausible height pattern, coverage understood — and the reviewer's verdict is
+   recorded through `recordGrassHeightReview` rather than in a conversation.
+3. A physical reference protocol for lawn height is agreed with the user, then executed, and the
+   reading is graded in `MEASUREMENTS.md` with its coverage and abstention rate beside it. Only
+   this step can move anything off `unvalidated`.
 
-**Regression.** The existing object measurement path must keep working. This adds a second way to
-measure, and must not disturb the one that is already graded against tape — `node
-scripts/collect-evidence.mjs` must still replay all 26 trials with no failures.
+**Regression.** The object measurement path must not move: `node scripts/collect-evidence.mjs`
+replays all 26 trials with no failures. The grid's own 33 tests must keep passing unchanged — they
+pin exact percentiles, band edges, rigid-transform invariance and byte-for-byte determinism, and a
+segmentation change has no business altering any of them.
 
-**Approval.** `user confirmation` of what is being measured and how it will be checked, before any
-code. This is a definition problem before it is an engineering one.
+**Approval.** `user confirmation` of the reference protocol before step 3, because it decides what
+number we are claiming. `cloud spend + user confirmation` if a new roadside clip has to be
+reconstructed. Steps 1 and 2 are local and free on runs already on disk.
 
-**Start.** `donor/` has a worked version of the cell-and-percentile approach and is the template.
-`Test_Grass2.mp4` (`20260814-174814-b245bc`) is the best scene evidence on disk: it has a mown lawn
-in the foreground, a graded 0.300 m rigid object standing on that lawn, and a floor fitted to 27.8%
-support. No lawn height has been taped in it.
+**Start.** `geometry/grass-height-grid.ts` is the contract and its header states every convention
+it chose. `geometry/grass-height-grid.test.ts` shows how to build a scene whose answer is known.
+REGISTRY section 3, "Roadside grass is measured in road-local cells", has what V1 established and
+what it cannot do. `app/src/measurement/segmenter.ts` is the current SlimSAM path.
 
-- [ ] Agree with the user what number we are claiming and how a person could check it.
-- [ ] Lay a grid on the local ground; take a robust height statistic per cell.
-- [ ] Gate each cell on coverage and confidence, and abstain where the evidence is thin. Do not
-      try to find individual plants.
-- [ ] Decide which vertical the cell statistic is taken along, and justify it against the 7–24 cm
-      sensitivity measured above. This is a decision, not a default.
-- [ ] Output a heat map, not a list of objects.
-- [ ] Check it against the physical reference and report error, coverage and abstention rate.
+- [ ] Decide what produces the grass and road masks. SAM 2 propagates a mask across a video, which
+      is the shape of this problem; SlimSAM is a per-frame prompt and is not. Cost it first.
+- [ ] Extract the road edge from the road mask as an ordered polyline in the travel direction, and
+      test it against a clip where the boundary is visible and one where it is occluded.
+- [ ] Run the grid on a real roadside clip and look at the review samples on the source frames.
+      `inspect select` is the existing way to check that a selection is what you think it is.
+- [ ] Agree the lawn reference protocol with the user, then measure against it.
+- [ ] Decide whether the fitted plane is still the right ground under a five-metre band. It is a
+      single plane; a crowned shoulder or a ditch inside the band becomes grass height and nothing
+      currently notices.
 
 ### 6. Give the side column a floor, so 20% cannot squeeze its own tabs out
 

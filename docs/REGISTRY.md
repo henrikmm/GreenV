@@ -738,6 +738,53 @@ one run both write `…-measurement-1-mask.png` and the second overwrites the fi
 copies each image out under the trial's own id immediately; a hand-run loop over one run's trials
 still loses all but the last of each index.
 
+### Roadside grass is measured in road-local cells — 2026-09-03
+
+`geometry/grass-height-grid.ts` turns frames, grass masks, an accepted ground plane and an ordered
+road-edge polyline into H50, H90 and H95 per half-metre cell, in coordinates measured along and out
+from the road rather than in the run's own axes. `measureGrassHeightGrid` calculates;
+`recordGrassHeightReview` records a person's verdict without letting them touch a number. Both are
+pure, and the second is optional — the assessment is complete without a review, which is what lets
+a delivered product run with nobody in the loop.
+
+Four conventions were chosen rather than defaulted, and each is pinned by a test:
+
+- **Height is measured along gravity, not along the plane normal**, by dividing the
+  plane-perpendicular distance by `dot(normal, gravityUp)`. On a 25° tilt this is 2.3 cm on grass
+  25 cm tall; the same choice moved clumping plants 7.3–8.2 cm in the 2026-08-15 study. This is the
+  decision the old task 4 left open.
+- **One frame, one vote.** Per-frame percentiles first, then a median across frames, so a frame
+  standing two metres away cannot outvote three standing ten metres away with its pixel count.
+- **Voxels are quantised in road-local space, not world space.** A world-space 2 cm grid is pinned
+  to the origin, so translating a scene slides points across voxel walls. Road-local coordinates
+  ride with the scene, which makes rigid-transform invariance exact rather than approximate.
+- **The per-voxel representative is the lowest height in it.** `Math.min` is exactly
+  order-independent where a running mean is not, and it can only under-report.
+
+**What was checked.** 33 tests in `geometry/grass-height-grid.test.ts`, built as depth maps and
+masks so each one runs the whole path rather than being fed points. They pin exact nearest-rank
+percentiles, inclusion at 4.99 m and exclusion past 5.0 m, an unmasked 2 m pole staying out,
+invariance under a rotation and translation applied through `worldFromDa3`, reversal of the road
+edge mapping every cell to `length − alongRoad`, and byte-for-byte identical output when the same
+world points arrive from a camera turned 180°. A frame sampling the same ground 25 times as densely
+produces an identical answer *and* an identical support count. `verify.sh` is green at 45 files and
+626 tests, and `collect-evidence.mjs` replays all 26 recorded trials unchanged.
+
+**One real reconstruction has been through it.** Run `20260814-174814-b245bc`, frame 80, the
+recorded 21,060-pixel brush mask from Grass-Exe1: 4,092 points backprojected, four cells measured,
+none abstained, H95 spanning 0.742–1.185 m, byte-identical on a second run. **This is a plumbing
+check and nothing more.** Test_Grass2 is a garden, the road edge was a line laid on the fitted
+ground by the check itself, and the cells are a clump's footprint rather than a verge. Its numbers
+are not compared with that target's taped 0.980 m extent, which measures a different quantity.
+
+**What it cannot do.** Both semantic inputs are supplied by hand: nothing here segments grass or
+road, and nothing extracts a road edge — the API takes a polyline so an extractor can be added
+without touching measurement. `coverageFraction` is measured cells over *observed* cells, not over
+the band's area, so road the camera never faced contributes no cells and cannot lower it. Distance
+from the road is unsigned, so V1 assumes the mask covers one side. The ground under the band is one
+plane: a crowned shoulder or a ditch inside five metres becomes grass height and nothing notices.
+Every result is stamped `validationStatus: "unvalidated"` and human acceptance does not change it.
+
 ### The run is visible now, and the paid run shows itself — 2026-08-11
 
 Six defects in the load-configure-run path, found by reading the code and confirmed in the browser.
@@ -1816,8 +1863,9 @@ These are stated, not scheduled. Anything being actively worked on is in `TASK.m
   unidentified, so no clip's accuracy can be asserted before something in it is taped.
 - **Lawn height has never been measured.** Both targets named "grass" in the study are clumping
   ornamental plants with reachable leaf tips, taped from the base of the clump. A mown surface has
-  no single top to tape, so it needs the definition and instrument in TASK item 4, and nothing
-  measured so far speaks to it.
+  no single top to tape. The instrument now exists — H50/H90/H95 per half-metre cell, section 3,
+  2026-09-03 — but the physical reference protocol does not, so every grid result it produces is
+  stamped `unvalidated` and nothing measured so far speaks to lawn accuracy.
 - **The automatic mask is measured by a different estimator than the brush.** `Measure Height`
   narrows a segmentation mask to its top and bottom tenth before taking percentiles; a brush is
   used whole. On the two automatic trials that adapter supplies 7.4 cm and 5.0 cm of answers of
