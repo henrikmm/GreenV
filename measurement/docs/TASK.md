@@ -30,285 +30,195 @@ written. Unticked boxes are allowed in this file and nowhere else in the reposit
 
 ---
 
+## What this file is about right now
+
+One thing: **measuring the height of grass from a whole video, with nobody clicking anything, in a
+way a person can check.** `geometry/grass-height-grid.ts` already does the measuring. What it
+lacks is a mask it can get by itself, and a readout that shows what it decided.
+
+The order below is not arbitrary. Every task produces the instrument the next one is graded with,
+because the failure this project keeps hitting is not a wrong number, it is a wrong number nobody
+could see was wrong.
+
+**The road edge is deliberately postponed.** Every reconstruction on this disk is a garden, a lawn
+close-up or a paved patio; none has a road in it, so nothing about a road edge could be graded
+today. The band stays where it is — placed from the camera path, labelled as an assumption — until
+there is a roadside clip to test against. Task 4 holds that work and is blocked on purpose.
+
+---
+
 ## Now
 
-### 9. Find out why one clip reads −7% and another +0.3%
+### 1. Segment a whole clip, with nobody clicking
 
-**Why.** This is now the largest open question in the project. The door clip's three objects read
-3.9–7.0% low, and five brushed targets on the two clips captured after 2026-08-11 read within 2%.
-No code in the measurement path changed between them. Until the cause is known, **no clip's
-accuracy can be stated before something in it is taped**, which is the single biggest limit on the
-tool being useful to anyone who does not own a tape measure.
+**Why.** The grid wants a mask on at least three frames and the only way to make one is to paint it
+by hand. That is why the run in the 2026-09-04 screenshot never started: `paint the verge on at
+least 3 frames — 1 so far`. Hand-painting is also the thing the delivered product cannot do.
 
-**Gate.** A named, measured mechanism that predicts the sign and rough size of the scale error on a
-clip the prediction was not fitted to. "We looked and could not find one" is a real outcome and
-must be written up as such rather than left open.
+The seam that makes this small: **a semantic mask is a normal mask.** The store already keys masks
+by (target, frame) and already has a `"model"` source. Write the mask there and every instrument we
+already own applies to it for free — Depth 2D draws it, the grid consumes it, recorded evidence
+keeps it, and task 1's inspector can score it.
 
-**Regression.** None to the measurement path; this is an investigation of it. Nothing here may
-change a recorded number — `scripts/collect-evidence.mjs` must replay all 26 trials unchanged.
+**Gate.** One action segments the verge on every frame of a run, and the grid then runs over all of
+them with no click anywhere in the sequence. On run `20260814-174814-b245bc` that means at least 3
+frames masked automatically and a grid result produced from them. The masks are visible in Depth 2D
+and their provenance says which model, which revision and what fraction of pixels the floor
+excluded.
 
-**Approval.** `none` for the analysis, which is entirely local. `cloud spend + user confirmation`
-if it turns out to need new reconstructions.
+**Regression.** The click path must not change. SlimSAM stays exactly as it is, `collect-evidence`
+replays all 26 trials with no failures, and the grid's 33 tests pass unchanged — a segmentation
+change has no business moving a percentile.
 
-**Start.** `.inspect/evidence/manifest.json` has all 26 trials with their floor diagnostics.
-`inspect run <id>` reports sampling fps, duration and resolution for each; the door clip sampled
-2.6 fps over 42.7 s where the outdoor clips sampled 5 fps over 13–19 s. REGISTRY section 3,
-"The −5% scale error was the clip, not the pipeline".
+**Approval.** `none`. The runs are already on disk and the model runs locally.
 
-- [ ] List what actually differs between the clips: sampling rate, duration, camera path length,
-      depth range, scene scale, texture. Measure them rather than recalling them.
-- [ ] Check the cheap hypothesis first — the door clip's floor has 10.7% support against 27–34%
-      outdoors, and a plane fitted to less evidence can be tilted without looking wrong.
-- [ ] Whatever the candidate, test it against a clip it was not derived from.
+**Start.** `geometry/semantic-mask.ts` turns logits into the mask and is done; what is missing is
+a caller inside the app. `scripts/inspect/segment-model.mjs` shows how the model is pinned and run
+in Node, and `app/src/measurement/segmenter.ts` how one is loaded on WebGPU in the browser.
+`setMaskData` in `app/src/measurement/measurement-store.ts` takes a source and a provenance already;
+`SegmentationProvenance` is click-shaped — prompts, candidate scores — so a semantic mask needs its
+own provenance kind rather than being forced into that one.
 
-### 10. Make automatic selection work on a plant
+- [ ] A provenance record for a semantic mask: model, revision, runtime, device, floor, and the
+      pixel counts the floor excluded.
+- [ ] Segment every frame of the run, writing normal masks.
+- [ ] Run the grid from those masks and record what came out.
+- [ ] Say what it cost in wall-clock time, measured. 173–240 ms per frame for logits on a Node CPU
+      is the only number we have; the browser on WebGPU is untested.
+- [ ] Check what dry grass does to it. The Registry's 2026-09-04 entry records the mask following
+      the green and leaving brown grass out, on the run this task uses.
 
-**Why.** Measuring a plant's own extent works. Brushed by hand, one clump read +1.9% against tape
-and another rigid outdoor object read +0.2%. The measurement is not the weak part.
+### 2. Show what the grid measured
 
-Automatic selection is. Its one plant trial read +5.6%, and the reason is not that the mask missed
-blades — it is that **the mask covered the wrong amount of the world.** Clicking on a plant asks
-SlimSAM for "the thing I clicked", and on vegetation the thing it returns is the whole textured
-region: a three-metre row of separate clumps at different distances from the camera.
+**Why.** H50 and H90 are computed, exported, and displayed **nowhere**. Cells are shaded by H95
+alone, the panel prints one H95 range for the whole run, and selecting a cell shows its coordinate
+and a pixel count with no height at all. So the app can produce a grass measurement and then
+decline to tell you what it is.
 
-The evidence is already recorded, and it separates the cases cleanly:
+That is tolerable while a person is painting one clump and reading the JSON. It is not tolerable
+once task 3 lands, because then the masks, the cells and the numbers are all produced automatically
+and the only remaining human job is judging whether they are right.
 
-| Trial | What the mask covered | Endpoint pieces, bottom / top | Camera distance, top − bottom | Error |
-|---|---|---|---|---|
-| Garden light, brushed | one rigid object | 1 / 1 | −0.09 m | +0.2% |
-| Grass-Exe1, brushed | **one clump** | 1 / 1 | −0.04 m | +1.9% |
-| Grass, automatic | **a row of clumps** | **7 / 6** | **+0.64 m** | +5.6% |
+**Gate.** Selecting a cell states its H50, H90 and H95, how many frames voted, and how many samples
+they contributed — in the app, on screen. An abstained cell states why it abstained in the words the
+measurement used (`too-few-frames`, `too-few-samples`) rather than showing nothing.
 
-Read the bottom row: the two ends of that "object" are 64 cm apart in distance from the camera, and
-each end is built from six or seven disconnected pieces. It measured the base of a near clump
-against the tip of a further one. That is not a plant's height, and nothing on screen said so.
-
-A good mask and a bad one are therefore already distinguishable from numbers the code computes —
-just not in the app.
-
-**Gate.** Three things, in order:
-
-1. The app shows, while painting, how many separate pieces each endpoint band is made of and how
-   far apart the two bands sit in camera distance. It warns when a mask looks like the bottom row
-   above. The thresholds come from the table — good masks sit at 1 piece and under 0.1 m.
-2. Automatic selection on the two plant targets produces masks that pass that check, three trials
-   each, repainted from scratch.
-3. Those trials are graded against tape and reported in `MEASUREMENTS.md`, with the full-mask
-   control beside each reading. Either the automatic rows join the graded table or they leave it.
-
-**Regression.** The brush path must not change. `node scripts/collect-evidence.mjs` must still
-replay every trial with no failures, brushed rows included.
-
-**Approval.** `user confirmation` for the wording of the warning, since it is a refusal the
-operator has to act on. Everything else is local and free — the runs are already on disk.
-
-**Start.** `app/src/measurement/segmenter.ts` is the whole segmentation path: SlimSAM-77 on WebGPU,
-click-prompted, decoding three candidate masks and keeping whichever the model scores highest.
-`voxelConnectivity` and the camera-depth numbers in the table above already exist — `inspect
-measurement <run> <trial>` prints them under "endpoint components" and "camera depth", and
-`cmdMeasurement` in `scripts/inspect.mjs` shows how they are computed.
-
-Ideas worth trying, cheapest first:
-
-- [ ] **Pick the candidate by geometry, not by the model's own score.** Three masks are already
-      decoded per click and the app keeps the highest predicted IoU — a guess about mask quality,
-      not about whether the mask is one plant. Back-project all three and prefer the one whose
-      endpoints are single pieces at matching camera distance. No new model, no new download.
-- [ ] **Say why a mask is bad, not just that it is.** The store already tells the operator to add
-      negative clicks when a mask touches the image boundary. Nothing tells them when it is too
-      deep — which is the failure that actually happened here.
-- [ ] **Reject background points after back-projection, not before.** The depth-step filter
-      rejected at most 10 pixels on any trial in the whole study — out of masks up to 22,809
-      pixels — and 0 on four of the five plant trials. Whatever is keeping the wall out of a
-      vegetation mask, it is not that filter. A cut on distance from the mask's own front surface
-      would actually bite.
-- [ ] **Measure one target on three frames and compare.** A plant self-occludes and moves; one
-      frame is one sample of it. This bounds an error the repeat-trial protocol cannot see, because
-      all three trials currently use the same frame.
-- [ ] **Only then consider a bigger model.** SlimSAM-77 is heavily pruned and SAM decodes masks at
-      256×256, so blade-level detail is not representable at any setting. It also appears not to
-      matter: DA3 does not resolve blades either, and the smoothed single clump measured to +1.9%.
-      This is the last lever, not the first.
-
-### 2. Let the app say "I cannot find the ground"
-
-**Why.** When the evidence for a floor is weak, the app picks a winner anyway and draws it exactly
-like a good one. A thin fit and a solid fit are indistinguishable on screen, so the operator has
-no way to know which they are looking at. Refusing is a real answer and the app cannot give it.
-
-**Gate.** A fit the evidence does not support is reported as a refusal that downstream steps
-respect — a measurement resting on an untrusted floor refuses too, rather than quoting a number.
-The thresholds come from measured cases, not from taste, and the user has agreed the wording.
-
-**Regression.** The door fixture at 504 px must still produce a floor. A rule strict enough to
-refuse the one scene we have tape truth for is too strict, whatever it does for the others.
-
-**Approval.** `user confirmation`, for the final wording and behaviour of the warning.
-
-**Start.** `geometry/plane.ts` returns every hypothesis it scored; `inspect floor` reports the gap
-between the best two. REGISTRY section 3 has four measured cases. The display half already exists
-(`app/src/panes/floor-state.ts`).
-
-- [ ] **Do not use `separation` as the signal.** It measured something real when the two proposal
-      pools disagreed; now that they find the same plane it reads ~0.000 on a good fit, so a low
-      separation means agreement rather than a coin flip. Its meaning inverted on 2026-08-08.
-- [ ] Set the thresholds from the measured cases. Two known cases where the app returns junk and
-      calls it a floor: the 6.2%-support fit (door fixture at `inlierDistance 0.1, maxTiltDeg 45,
-      stride 32, iterations 250`), and the confidence-veto case in `plane.test.ts`, where the app's
-      own gates return a plane with 1.12% support. `minInlierFraction` is 0.01 and sits just below
-      it. `belowFraction` is the cleaner discriminator: good fits now read 0.00–0.89%, the junk
-      reads 7.66–14.87%.
-- [ ] `room-252px-256f` is the one reconstruction the reproducibility fix did not rescue — 35.7 cm
-      of seed spread with 1.3–2.7% support. It is the natural first case to refuse.
-- [ ] Make refusal travel: a height measured against a refused floor must refuse as well.
-- [ ] Agree the wording with the user before it ships.
-
-### 7. Watch a real cold start, once
-
-**Why.** `waking` is the one phase never seen against hardware. Two attempts have failed for two
-different reasons, and the second one is the useful finding: **deploying leaves an instance
-running.** Cloud Run's startup probe keeps a container alive after a deploy and only scales to zero
-after roughly fifteen minutes idle, so a run started minutes later never meets a cold container —
-`/gpu` answers at once and the readout goes straight to loading the model. That is what happened on
-2026-08-11 even with the app pointed at the service and provably not having contacted it.
-
-The phase logic itself is exercised: the mock rehearses it against a real 503, and a failed
-telemetry read is what the code treats as "still waking". What is unverified is the duration and
-that a real container produces the same shape.
-
-**Gate.** One run against a service that has demonstrably scaled to zero, with `waking` visible and
-its elapsed clock running. The measured duration goes in the Registry beside the quoted 64 s.
-
-**Regression.** None to the run path; this is an observation of it.
-
-**Approval.** `cloud spend + user confirmation`, and it is worth stating the bill plainly: reaching
-a scaled-to-zero service costs about fifteen minutes of idle L4 on top of the run. Do not pay that
-on its own — batch it behind any other GPU work, deploy, do the other work, then leave the service
-idle while doing something else and come back.
-
-**Start.** `lib/run-phase.ts` `applyGpu`; REGISTRY section 3 "Deploying leaves the instance warm".
-
-- [ ] Confirm scale-to-zero before running — `gcloud run services describe` reporting no active
-      revision instance, rather than assuming the fifteen minutes elapsed.
-- [ ] Record the real cold-start duration against the quoted 64 s.
-
-### 8. Grade the orbit without asking the user
-
-**Why.** Acceptance item 5 wants proof that dragging inside Viewport 3D changes the camera, and
-until 2026-08-12 that needed the user's hand: every drag rests on `setPointerCapture`, which
-refuses events the page synthesised. What was wrong was the scope of that conclusion. Chrome's
-DevTools protocol injects at the browser level, its events are trusted, and a ten-step drag over
-the canvas orbits the camera — measured 2026-08-12, two screenshots either side showing the room
-from a different angle with both elapsed clocks unchanged. So the one review step that reliably
-interrupts a person is automatable, and is still being handed to them.
-
-**Gate.** A design review grades item 5 from a script, with the two screenshots as its evidence
-and no request to the user. The check fails when the camera does not move — proven by running it
-against a build with orbit disabled, not by watching it pass.
-
-**Regression.** `scripts/capture-reference.mjs` must keep producing the same five captures. This
-shares its CDP plumbing, and a refactor that makes the captures drift silently costs more than
-the manual orbit check ever did.
+**Regression.** The overlay's brightness ramp still encodes H95 over the run's own range, and
+DESIGN.md's rule that hue may not carry state still holds. Adding numbers must not turn the ramp
+into a colour scale.
 
 **Approval.** `none`.
 
-**Start.** `scripts/capture-reference.mjs` has the whole mechanism — `dragSash` is the same shape
-the orbit needs. REGISTRY section 3, "Drag can be automated, but not from inside the page", has
-the measurement and the reason. The browser pane still cannot do this; do not retry it there.
+**Start.** `app/src/panes/depth-2d.tsx` around line 617 is the selected-cell readout that currently
+prints a coordinate and a pixel count. `GrassCellMeasurement` in `geometry/grass-height-grid.ts`
+already carries every field this needs, `evidenceFrameIndices` included.
 
-- [ ] Lift the CDP driving out of the capture script so both callers share it, without changing
-      what the captures look like.
-- [ ] Compare the two screenshots on pixels rather than byte length — a PNG can differ in size
-      for reasons that are not the camera.
-- [ ] Prove the check can fail before trusting it to pass.
-- [ ] Update the design-review skill so item 5 names the script instead of the human gateway.
+- [ ] Per-cell H50/H90/H95 where the cell is selected.
+- [ ] Frame count and sample count beside them, because three frames agreeing is a different claim
+      from twelve.
+- [ ] An abstained cell says which of the two reasons applied.
+- [ ] Look at it in the browser pane and screenshot it. There are no component tests here; the
+      design-review workflow and a screenshot are the check.
+
+### 3. Grade the automatic mask against the human one
+
+**Why.** Tasks 1–4 make an automatic measurement that can be looked at. They do not establish that
+it is right. The cheap half of that is available today and costs nothing: brush masks are recorded
+at full frame resolution in `~/verge-runs/*/measurements/*.json`, so model-against-human is
+scoreable offline on runs already on disk.
+
+What is missing is the other side of the pair. Every recorded brush is a **clump** — Grass-Exe1,
+Garden Light — and the class we are betting on is `terrain`, the lawn. So there is currently no
+human mask of the thing we intend to measure.
+
+**Gate.** The lawn is painted by hand on at least three frames of two different runs, and the
+`terrain` mask is scored against those brushes: IoU, recall and precision per frame, reported in
+the Registry with the run ids and frame numbers. A number below which we would not ship is agreed
+**before** the scoring runs, not after seeing it.
+
+**Regression.** The recorded clump trials are evidence and must not be touched. New brushes are new
+targets, never edits of existing ones.
+
+**Approval.** `user confirmation` for the pass threshold, since it is the number that decides
+whether the automatic path is trusted. The painting itself is the agent's task to drive: prepare the
+run, open the frame, ask for the one action.
+
+**Start.** `node scripts/inspect.mjs segment <run> --against <trial>` is the scoring instrument and
+already works. `readMeasurementEvidence` in
+`scripts/inspect/source.mjs` loads recorded brushes; the RLE codec is `decodeMask` in
+`app/src/measurement/measurement-store.ts`.
+
+- [ ] Agree the threshold first, and write it here before running anything.
+- [ ] Paint the lawn on three frames of `20260814-174814-b245bc` and three of
+      `20260814-164826-0e4e4c`. These are different scenes; one clip cannot establish this.
+- [ ] Score, and report every frame including the bad ones.
+- [ ] Where the model and the brush disagree, look at the frame and say what the disagreement is —
+      a boundary, a hole, or a different object. Three failures named are worth more than one mean.
 
 ---
 
 ## Later
 
-### 4. Give the grass grid real masks and a real road edge
+### 4. The road edge, and the clip that could test one
 
-**Why.** The measurement half of roadside grass exists and is gated: `geometry/grass-height-grid.ts`
-turns frames, grass masks, an accepted ground plane and an ordered road-edge polyline into H50, H90
-and H95 per half-metre cell in road-local coordinates, abstains where the support is thin, and
-carries its own bounded review set. What it does NOT have is either of its two semantic inputs.
+**Why.** The band the grid measures inside is placed from the reconstructed camera path pushed
+sideways by a slider. That is an assumption, it is labelled as one everywhere it appears, and it
+cannot be improved on this disk: no saved run contains a road.
 
-**Both are supplied by hand today, and that is the whole gap.** The grass mask comes from SlimSAM,
-which is click-prompted and returns "the textured thing I clicked" — on vegetation that is a row of
-separate clumps at different distances (task 10). The road-edge polyline comes from nowhere at all:
-the API takes one because a future extractor must be swappable without touching measurement, and
-the only polyline ever passed to it was written by hand in a smoke check.
+The one attempt to get a road edge from a model is already a warning rather than a lead. SegFormer
+B2 called 9.74% of a garden frame `road`, and what it was looking at was a wall. A road edge derived
+from that class would be confidently wrong in exactly the way this project cannot detect — a
+plausible polyline, in the wrong place, producing plausible heights of the wrong ground.
 
-Two consequences follow, and they are the reason this task is not "wire up a model":
+**Gate.** A roadside clip is recorded and reconstructed; the road edge is derived from it and
+compared against the camera-path band on the same run. The comparison is the point: if the two
+disagree, we learn how much the assumption was costing, and if they agree we learn the assumption
+was cheap.
 
-- **Nothing has been graded against a lawn.** Every result the grid produces is stamped
-  `validationStatus: "unvalidated"`, and human acceptance deliberately does not change that. A
-  mown surface has no single top to tape, so the reference protocol is still unwritten.
-- **The delivered product must run without a person in the loop.** The review API is a development
-  instrument — it is how we find out whether masks and bands are right while we still have someone
-  to ask. What ships has to abstain honestly instead, which raises the bar on segmentation rather
-  than lowering it.
+**Regression.** The camera-path band stays available and stays labelled. Whatever produces a
+polyline, `measureGrassHeightGrid` keeps taking one as input — that boundary is what lets the
+extractor change without touching the measurement.
 
-**Gate.** Three, in order, and the third is the one that matters:
+**Approval.** `cloud spend + user confirmation` — reconstruction needs the GPU service. The
+recording needs the user, and the protocol for it is written before they are asked.
 
-1. Grass and road masks are produced automatically from a clip, with no click, and the road-edge
-   polyline is derived from the road mask rather than typed. Measured on a real roadside clip.
-2. The grid run on those inputs is reviewed against the three checks it already asks — correct
-   grass and band, plausible height pattern, coverage understood — and the reviewer's verdict is
-   recorded through `recordGrassHeightReview` rather than in a conversation.
-3. A physical reference protocol for lawn height is agreed with the user, then executed, and the
-   reading is graded in `MEASUREMENTS.md` with its coverage and abstention rate beside it. Only
-   this step can move anything off `unvalidated`.
+**Start.** The camera-path band is `roadEdgeFromCameraTrack` in
+`app/src/measurement/grass-grid.ts`, and `measureGrassHeightGrid` in
+`geometry/grass-height-grid.ts` states why the polyline is an input rather than something it
+derives. `node scripts/inspect.mjs segment <run>` shows what the `road` class does on a frame, and
+on a wall.
 
-**Regression.** The object measurement path must not move: `node scripts/collect-evidence.mjs`
-replays all 26 trials with no failures. The grid's own 33 tests must keep passing unchanged — they
-pin exact percentiles, band edges, rigid-transform invariance and byte-for-byte determinism, and a
-segmentation change has no business altering any of them.
+**Blocked** on a roadside clip existing. Do not start the extractor before there is one to test it
+against.
 
-**Approval.** `user confirmation` of the reference protocol before step 3, because it decides what
-number we are claiming. `cloud spend + user confirmation` if a new roadside clip has to be
-reconstructed. Steps 1 and 2 are local and free on runs already on disk.
+- [ ] Write the recording protocol: what to shoot, from where, how long, at what speed, and what to
+      tape while standing there so the result can be graded.
+- [ ] Reconstruct one clip, batching any other GPU work into the same warm machine.
+- [ ] Only then, derive a polyline, and test it against the frame where the boundary is visible and
+      the frame where it is occluded.
 
-**Start.** `geometry/grass-height-grid.ts` is the contract and its header states every convention
-it chose. `geometry/grass-height-grid.test.ts` shows how to build a scene whose answer is known.
-REGISTRY section 3, "Roadside grass is measured in road-local cells", has what V1 established and
-what it cannot do. `app/src/measurement/segmenter.ts` is the current SlimSAM path.
+### 5. Grade a height against a real lawn
 
-- [ ] Decide what produces the grass and road masks. SAM 2 propagates a mask across a video, which
-      is the shape of this problem; SlimSAM is a per-frame prompt and is not. Cost it first.
-- [ ] Extract the road edge from the road mask as an ordered polyline in the travel direction, and
-      test it against a clip where the boundary is visible and one where it is occluded.
-- [ ] Run the grid on a real roadside clip and look at the review samples on the source frames.
-      `inspect select` is the existing way to check that a selection is what you think it is.
-- [ ] Agree the lawn reference protocol with the user, then measure against it.
-- [ ] Decide whether the fitted plane is still the right ground under a five-metre band. It is a
-      single plane; a crowned shoulder or a ditch inside the band becomes grass height and nothing
-      currently notices.
+**Why.** Every result the grid produces is stamped `validationStatus: "unvalidated"`, and a person
+accepting one deliberately does not change that. Nothing here has been graded against a lawn, and
+the reason is real rather than neglect: a mown surface has no single top to hold a tape against —
+press harder and the number shrinks — so the reference protocol is a decision about what we are
+claiming, not a measurement technique.
 
-### 6. Give the side column a floor, so 20% cannot squeeze its own tabs out
+**Gate.** A physical reference protocol is agreed with the user, executed, and the reading graded in
+`MEASUREMENTS.md` with its coverage and abstention rate beside it. Only this can move anything off
+`unvalidated`.
 
-**Why.** The window is split 40/40/20 as of 2026-08-09, and 20% is a share rather than a size. At
-1280 px it is 256 px, which Dockview cannot fit three tabs into — Runs moves behind an overflow
-chevron, one click deeper than it was at 427 px. Below about 1100 px the Objects target names
-truncate to `D…` and `Ta…`, so the list stops naming what it lists. Nobody chose either; they are
-what a pure percentage does at the small end.
+**Regression.** Nothing in the measurement path moves to make a number look better. If the protocol
+says we read 4 cm high, that is the finding.
 
-**Gate.** At 1024×800 the Inspector group shows all three tabs with no overflow chevron, and every
-target name in Objects renders without an ellipsis. At 1600×900 and above the split is still
-40/40/20 to within a pixel — a minimum must not become the layout on a wide screen.
+**Approval.** `user confirmation` of the protocol before it is executed, because it decides what
+number the project is claiming.
 
-**Regression.** Depth 2D and Viewport 3D stay equal to each other at every width. A minimum that
-takes from one viewer and not the other trades a squeezed panel for a lopsided window, which is
-the asymmetry this split was introduced to remove.
+**Start.** REGISTRY section 3, "Roadside grass is measured in road-local cells", has what V1
+established and every limit it carries. `MEASUREMENTS.md` is the format to match.
 
-**Approval.** `user confirmation`, for the minimum width itself. 280 px is a guess from the two
-measured failures above, not a measurement.
-
-**Start.** `applyDefaultSplit` and `SIDE_PANEL_SHARE` in `app/src/lib/dock-store.ts`; the
-2026-08-09 entry in `docs/design-review-log.md` has the measurements.
-
-- [ ] Find the width at which the three tabs stop fitting, by measuring rather than guessing.
-- [ ] Clamp the side column to that, taking the difference from both viewers equally.
-- [ ] Confirm the clamp is inactive at 1280 px and above, so the asked-for 40/40/20 is what a
-      normal window gets.
+- [ ] Propose two or three candidate protocols with what each one would let us claim.
+- [ ] Agree one.
+- [ ] Execute, grade, and report the abstention rate beside the reading — a height measured over
+      30% of the cells is a different claim from one measured over 90%.

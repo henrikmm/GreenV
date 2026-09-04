@@ -49,3 +49,17 @@ export {
   type Vec3,
 } from "../../geometry/types";
 export { buildCloud, framesFromArrays } from "../../geometry/cloud";
+export {
+  CITYSCAPES_CLASS_COUNT,
+  CITYSCAPES_LABELS,
+  CITYSCAPES_ROLES,
+  DEFAULT_MIN_PROBABILITY,
+  GRASS_CLASS_ID,
+  classFractions,
+  classMapFromLogits,
+  grassMaskFromClassMap,
+  grassMaskFromLogits,
+  type SemanticClassMap,
+  type SemanticLogits,
+  type SemanticMaskResult,
+} from "../../geometry/semantic-mask";

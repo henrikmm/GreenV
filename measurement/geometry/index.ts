@@ -19,3 +19,4 @@ export * from "./measure";
 export * from "./grass-height-grid";
 export * from "./calibrate";
 export * from "./uncertainty";
+export * from "./semantic-mask";
