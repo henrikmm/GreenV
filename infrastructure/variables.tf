@@ -330,3 +330,83 @@ variable "deployment_revision" {
     error_message = "deployment_revision must be 1 to 32 lowercase alphanumeric characters or hyphens, starting and ending alphanumeric."
   }
 }
+
+variable "jwt_issuer" {
+  description = <<-EOT
+    Issuer stamped into every access token and validated on every request. Defaults to the API's
+    own https URL, which is what a client can verify against /.well-known/jwks.json.
+  EOT
+  type        = string
+  default     = null
+  nullable    = true
+
+  validation {
+    condition     = var.jwt_issuer == null || can(regex("^https://[a-z0-9.-]+$", var.jwt_issuer))
+    error_message = "jwt_issuer must be an https URL with no path when provided."
+  }
+}
+
+variable "jwt_audience" {
+  description = "Audience claim every access token carries and every request is checked against."
+  type        = string
+  default     = "greenv-video-api"
+
+  validation {
+    condition     = length(trimspace(var.jwt_audience)) > 0
+    error_message = "jwt_audience must not be empty."
+  }
+}
+
+variable "access_token_ttl_minutes" {
+  description = <<-EOT
+    Lifetime of a human access token. Short on purpose: an access token is signed and cannot be
+    unsigned, so its lifetime bounds how long a leaked one is useful.
+  EOT
+  type        = number
+  default     = 15
+
+  validation {
+    condition     = var.access_token_ttl_minutes >= 1 && var.access_token_ttl_minutes <= 60
+    error_message = "access_token_ttl_minutes must be between 1 and 60."
+  }
+}
+
+variable "refresh_token_ttl_days" {
+  description = "Absolute lifetime of a login, counted from the login itself rather than the last rotation."
+  type        = number
+  default     = 7
+
+  validation {
+    condition     = var.refresh_token_ttl_days >= 1 && var.refresh_token_ttl_days <= 30
+    error_message = "refresh_token_ttl_days must be between 1 and 30."
+  }
+}
+
+variable "client_credentials_ttl_hours" {
+  description = <<-EOT
+    Lifetime of a machine token. There is no refresh chain and no revocation before expiry, so this
+    number is the whole control over a leaked machine credential.
+  EOT
+  type        = number
+  default     = 4
+
+  validation {
+    condition     = var.client_credentials_ttl_hours >= 1 && var.client_credentials_ttl_hours <= 24
+    error_message = "client_credentials_ttl_hours must be between 1 and 24."
+  }
+}
+
+variable "cookie_same_site" {
+  description = <<-EOT
+    SameSite attribute on the session cookies. Lax is correct while the dashboard and the API share
+    a registrable domain. None makes the session a third-party cookie, which Safari and Firefox
+    block outright - a property only so that choosing it has to be deliberate.
+  EOT
+  type        = string
+  default     = "Lax"
+
+  validation {
+    condition     = contains(["Lax", "Strict", "None"], var.cookie_same_site)
+    error_message = "cookie_same_site must be Lax, Strict or None."
+  }
+}

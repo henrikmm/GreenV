@@ -81,3 +81,12 @@ output "api_certificate_binding" {
     "%s bound to %s", var.api_hostname, local.api_certificate_name
   )
 }
+
+output "jwt_public_key_pem" {
+  description = <<-EOT
+    Public half of the token signing key. Compare it against /.well-known/jwks.json to confirm the
+    running revision is signing with the key this state provisioned.
+  EOT
+  value       = tls_private_key.jwt_signing.public_key_pem
+  sensitive   = false
+}

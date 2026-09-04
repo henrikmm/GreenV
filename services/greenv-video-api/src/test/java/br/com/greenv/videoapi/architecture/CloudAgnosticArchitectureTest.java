@@ -2,26 +2,50 @@ package br.com.greenv.videoapi.architecture;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import br.com.greenv.videoapi.api.AuthController;
 import br.com.greenv.videoapi.api.CaptureSessionController;
+import br.com.greenv.videoapi.api.IdentityAdminController;
+import br.com.greenv.videoapi.api.JwkSetController;
+import br.com.greenv.videoapi.api.OAuthTokenController;
 import br.com.greenv.videoapi.api.JobController;
 import br.com.greenv.videoapi.domain.CaptureObjectKeys;
 import br.com.greenv.videoapi.domain.SegmentExtractionRequest;
 import br.com.greenv.videoapi.identifier.MonotonicUuidV7IdentifierAdapter;
+import br.com.greenv.videoapi.port.AccessTokenIssuer;
+import br.com.greenv.videoapi.port.AccessTokenVerifier;
+import br.com.greenv.videoapi.port.AuthSessionStore;
+import br.com.greenv.videoapi.port.AuthenticationUseCase;
 import br.com.greenv.videoapi.port.CaptureObjectStorage;
 import br.com.greenv.videoapi.port.CaptureSessionStore;
 import br.com.greenv.videoapi.port.CaptureSessionUseCase;
 import br.com.greenv.videoapi.port.IdentifierGenerator;
+import br.com.greenv.videoapi.port.IdentityAdminUseCase;
+import br.com.greenv.videoapi.port.JwkSetProvider;
+import br.com.greenv.videoapi.port.OAuthClientStore;
+import br.com.greenv.videoapi.port.SecretHasher;
+import br.com.greenv.videoapi.port.SessionCookieWriter;
+import br.com.greenv.videoapi.port.UserStore;
 import br.com.greenv.videoapi.port.LegacyJobUseCase;
 import br.com.greenv.videoapi.port.SegmentWorkQueue;
 import br.com.greenv.videoapi.port.SegmentMessageSerializer;
+import br.com.greenv.videoapi.security.ResponseSessionCookieWriterAdapter;
+import br.com.greenv.videoapi.service.AuthenticationService;
 import br.com.greenv.videoapi.service.CaptureSessionService;
+import br.com.greenv.videoapi.service.IdentityAdminService;
 import br.com.greenv.videoapi.service.JobService;
 import br.com.greenv.videoapi.service.TransientCleanupService;
+import br.com.greenv.videoapi.storage.JdbcAuthSessionStoreAdapter;
 import br.com.greenv.videoapi.storage.JdbcCaptureSessionStoreAdapter;
+import br.com.greenv.videoapi.storage.JdbcOAuthClientStoreAdapter;
+import br.com.greenv.videoapi.storage.JdbcUserStoreAdapter;
 import br.com.greenv.videoapi.storage.LocalCaptureObjectStorageAdapter;
 import br.com.greenv.videoapi.storage.S3CaptureObjectStorageAdapter;
 import br.com.greenv.videoapi.storage.AzureBlobCaptureObjectStorageAdapter;
 import br.com.greenv.videoapi.task.AzureQueueSegmentWorkQueueAdapter;
+import br.com.greenv.videoapi.token.BCryptSecretHasherAdapter;
+import br.com.greenv.videoapi.token.NimbusAccessTokenIssuerAdapter;
+import br.com.greenv.videoapi.token.NimbusAccessTokenVerifierAdapter;
+import br.com.greenv.videoapi.token.RsaJwkSetProviderAdapter;
 import br.com.greenv.videoapi.task.AzureServiceBusSegmentWorkQueueAdapter;
 import br.com.greenv.videoapi.task.JacksonSegmentMessageSerializerAdapter;
 import br.com.greenv.videoapi.task.RabbitMqSegmentWorkQueueAdapter;
@@ -39,14 +63,22 @@ class CloudAgnosticArchitectureTest {
     void inboundAdaptersDependOnUseCaseInterfaces() {
         assertInboundDependencies(CaptureSessionController.class);
         assertInboundDependencies(JobController.class);
+        assertInboundDependencies(AuthController.class);
+        assertInboundDependencies(OAuthTokenController.class);
+        assertInboundDependencies(JwkSetController.class);
+        assertInboundDependencies(IdentityAdminController.class);
         assertThat(CaptureSessionUseCase.class).isAssignableFrom(CaptureSessionService.class);
         assertThat(LegacyJobUseCase.class).isAssignableFrom(JobService.class);
+        assertThat(AuthenticationUseCase.class).isAssignableFrom(AuthenticationService.class);
+        assertThat(IdentityAdminUseCase.class).isAssignableFrom(IdentityAdminService.class);
     }
 
     @Test
     void inboundPortsDoNotExposeHttpAdapterTypes() {
         assertNoMethodTypeFromPackage(CaptureSessionUseCase.class, "br.com.greenv.videoapi.api");
         assertNoMethodTypeFromPackage(LegacyJobUseCase.class, "br.com.greenv.videoapi.api");
+        assertNoMethodTypeFromPackage(AuthenticationUseCase.class, "br.com.greenv.videoapi.api");
+        assertNoMethodTypeFromPackage(IdentityAdminUseCase.class, "br.com.greenv.videoapi.api");
     }
 
     @Test
@@ -62,6 +94,15 @@ class CloudAgnosticArchitectureTest {
         assertThat(SegmentMessageSerializer.class)
                 .isAssignableFrom(JacksonSegmentMessageSerializerAdapter.class);
         assertThat(IdentifierGenerator.class).isAssignableFrom(MonotonicUuidV7IdentifierAdapter.class);
+        assertThat(UserStore.class).isAssignableFrom(JdbcUserStoreAdapter.class);
+        assertThat(AuthSessionStore.class).isAssignableFrom(JdbcAuthSessionStoreAdapter.class);
+        assertThat(OAuthClientStore.class).isAssignableFrom(JdbcOAuthClientStoreAdapter.class);
+        assertThat(AccessTokenIssuer.class).isAssignableFrom(NimbusAccessTokenIssuerAdapter.class);
+        assertThat(AccessTokenVerifier.class).isAssignableFrom(NimbusAccessTokenVerifierAdapter.class);
+        assertThat(JwkSetProvider.class).isAssignableFrom(RsaJwkSetProviderAdapter.class);
+        assertThat(SecretHasher.class).isAssignableFrom(BCryptSecretHasherAdapter.class);
+        assertThat(SessionCookieWriter.class)
+                .isAssignableFrom(ResponseSessionCookieWriterAdapter.class);
         assertThat(JdbcCaptureSessionStoreAdapter.class.getSimpleName()).endsWith("Adapter");
         assertThat(LocalCaptureObjectStorageAdapter.class.getSimpleName()).endsWith("Adapter");
         assertThat(S3CaptureObjectStorageAdapter.class.getSimpleName()).endsWith("Adapter");
@@ -71,6 +112,14 @@ class CloudAgnosticArchitectureTest {
         assertThat(AzureQueueSegmentWorkQueueAdapter.class.getSimpleName()).endsWith("Adapter");
         assertThat(AzureServiceBusSegmentWorkQueueAdapter.class.getSimpleName()).endsWith("Adapter");
         assertThat(MonotonicUuidV7IdentifierAdapter.class.getSimpleName()).endsWith("Adapter");
+        assertThat(JdbcUserStoreAdapter.class.getSimpleName()).endsWith("Adapter");
+        assertThat(JdbcAuthSessionStoreAdapter.class.getSimpleName()).endsWith("Adapter");
+        assertThat(JdbcOAuthClientStoreAdapter.class.getSimpleName()).endsWith("Adapter");
+        assertThat(NimbusAccessTokenIssuerAdapter.class.getSimpleName()).endsWith("Adapter");
+        assertThat(NimbusAccessTokenVerifierAdapter.class.getSimpleName()).endsWith("Adapter");
+        assertThat(RsaJwkSetProviderAdapter.class.getSimpleName()).endsWith("Adapter");
+        assertThat(BCryptSecretHasherAdapter.class.getSimpleName()).endsWith("Adapter");
+        assertThat(ResponseSessionCookieWriterAdapter.class.getSimpleName()).endsWith("Adapter");
     }
 
     @Test
@@ -82,6 +131,12 @@ class CloudAgnosticArchitectureTest {
                 .extracting(field -> field.getType().getPackageName())
                 .noneMatch(this::isAdapterPackage);
         assertThat(TransientCleanupService.class.getDeclaredFields())
+                .extracting(field -> field.getType().getPackageName())
+                .noneMatch(this::isAdapterPackage);
+        assertThat(AuthenticationService.class.getDeclaredFields())
+                .extracting(field -> field.getType().getPackageName())
+                .noneMatch(this::isAdapterPackage);
+        assertThat(IdentityAdminService.class.getDeclaredFields())
                 .extracting(field -> field.getType().getPackageName())
                 .noneMatch(this::isAdapterPackage);
     }

@@ -28,13 +28,29 @@ class ApiSecurityConfiguration {
             "X-Idempotency-Key",
             "X-Content-SHA256",
             "X-Captured-At",
-            "X-Duration-Millis");
+            "X-Duration-Millis",
+            AuthCookies.CSRF_HEADER);
+
+    /**
+     * Opening a session and checking who signed a token cannot themselves require a token. Every
+     * other route stays authenticated, exactly as before.
+     */
+    private static final String[] PUBLIC_AUTH_PATHS = {
+        "/v2/auth/login",
+        "/v2/auth/refresh",
+        // Public so an expired access token can still end its session and clear its cookies.
+        "/v2/auth/logout",
+        "/v2/oauth/token",
+        "/.well-known/jwks.json"
+    };
 
     @Bean
     SecurityFilterChain apiSecurityFilterChain(
             HttpSecurity http,
             BearerTokenAuthenticationFilter bearerTokenFilter,
+            JwtAuthenticationFilter jwtAuthenticationFilter,
             ApiAuthenticationEntryPoint authenticationEntryPoint,
+            ApiAccessDeniedHandler accessDeniedHandler,
             ApiSecurityProperties securityProperties) throws Exception {
         return http
                 .csrf(csrf -> csrf.disable())
@@ -52,13 +68,30 @@ class ApiSecurityConfiguration {
                 .logout(logout -> logout.disable())
                 .requestCache(cache -> cache.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .exceptionHandling(exceptions -> exceptions.authenticationEntryPoint(authenticationEntryPoint))
+                .exceptionHandling(exceptions -> exceptions
+                        .authenticationEntryPoint(authenticationEntryPoint)
+                        .accessDeniedHandler(accessDeniedHandler))
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/actuator/health", "/actuator/health/**")
                         .permitAll()
+                        .requestMatchers(PUBLIC_AUTH_PATHS)
+                        .permitAll()
+                        // Creating identities is reserved for the shared operational token, which
+                        // is the only credential granted this authority.
+                        .requestMatchers("/v2/identity/**")
+                        .hasRole("PROVISIONER")
                         .anyRequest()
                         .authenticated())
+                // Both sit immediately before authorization, in the order added - which is the
+                // only placement that is unambiguous: addFilterAfter against a custom filter class
+                // does not resolve a position, and the filter ends up ahead of
+                // SecurityContextHolderFilter, which then wipes whatever it authenticated.
+                //
+                // The static capture token is tried first and left untouched, so the live capture
+                // pipeline keeps authenticating exactly the way it does today; the JWT filter only
+                // looks at requests that filter did not claim.
                 .addFilterBefore(bearerTokenFilter, AuthorizationFilter.class)
+                .addFilterBefore(jwtAuthenticationFilter, AuthorizationFilter.class)
                 .build();
     }
 
@@ -67,8 +100,10 @@ class ApiSecurityConfiguration {
         configuration.setAllowedOrigins(properties.allowedOrigins());
         configuration.setAllowedMethods(ALLOWED_METHODS);
         configuration.setAllowedHeaders(ALLOWED_HEADERS);
-        // Credentials stay off: the client authenticates with a Bearer header, never a cookie.
-        configuration.setAllowCredentials(false);
+        // The dashboard authenticates with an HttpOnly cookie, which a browser only sends
+        // cross-origin when credentials are allowed. This is safe only because allowedOrigins is an
+        // exact, regex-validated list with no wildcard - the two must never be relaxed together.
+        configuration.setAllowCredentials(true);
         configuration.setMaxAge(Duration.ofMinutes(30));
         var source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);

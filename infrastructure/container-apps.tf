@@ -32,6 +32,17 @@ resource "azurerm_container_app" "api" {
     value = local.api_bearer_token
   }
 
+  secret {
+    name = "jwt-signing-key"
+    # Base64 rather than the raw PEM. A Container Apps secret can hold newlines, but the value then
+    # travels through the ARM API, a revision template and the container environment, and any one of
+    # those normalising a line ending would break the PKCS#8 parse. One line has no newline to lose.
+    #
+    # private_key_pem_pkcs8, not private_key_pem: the latter is PKCS#1, which the API's key loader
+    # rejects.
+    value = base64encode(tls_private_key.jwt_signing.private_key_pem_pkcs8)
+  }
+
   dynamic "secret" {
     for_each = local.registry_enabled ? [1] : []
     content {

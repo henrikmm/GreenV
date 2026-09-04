@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../auth/AuthContext'
 
 const s = {
   nav: {
@@ -21,13 +22,22 @@ const s = {
     color: active ? 'white' : 'rgba(255,255,255,0.6)',
   }),
   right: {
+    display: 'flex', alignItems: 'center', gap: 12,
     fontSize: 11, color: 'rgba(255,255,255,0.5)',
     fontFamily: 'var(--font-mono)',
+  },
+  user: { color: 'rgba(255,255,255,0.85)' },
+  logout: {
+    padding: '4px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+    cursor: 'pointer', border: '1px solid rgba(255,255,255,0.25)',
+    background: 'transparent', color: 'rgba(255,255,255,0.8)',
+    fontFamily: 'var(--font-sans)',
   },
 }
 
 export default function NavBar({ currentPage }) {
   const navigate = useNavigate()
+  const { user, logout } = useAuth()
 
   return (
     <nav style={s.nav}>
@@ -47,7 +57,11 @@ export default function NavBar({ currentPage }) {
       </div>
 
       <div style={s.right}>
-        SP-021 • Rodoanel Oeste
+        <span>SP-021 • Rodoanel Oeste</span>
+        {user && <span style={s.user}>{user.displayName}</span>}
+        <button style={s.logout} onClick={() => logout().then(() => navigate('/entrar'))}>
+          Sair
+        </button>
       </div>
     </nav>
   )

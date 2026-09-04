@@ -3,6 +3,7 @@ mock_provider "cloudflare" {}
 mock_provider "neon" {}
 mock_provider "random" {}
 mock_provider "time" {}
+mock_provider "tls" {}
 
 override_resource {
   target          = random_string.resource_suffix
@@ -40,6 +41,16 @@ override_resource {
   override_during = plan
   values = {
     id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.App/managedEnvironments/cae-test"
+    # The issuer is derived from this, so it has to be known for the token assertions below.
+    default_domain = "test.brazilsouth.azurecontainerapps.io"
+  }
+}
+
+override_resource {
+  target          = tls_private_key.jwt_signing
+  override_during = plan
+  values = {
+    private_key_pem_pkcs8 = "-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----\n"
   }
 }
 
@@ -87,6 +98,47 @@ run "plans_cost_conscious_mvp_defaults" {
       ])
     )
     error_message = "The API Bearer token must be generated and mounted as a Container Apps secret."
+  }
+
+  assert {
+    condition = (
+      local.api_secret_environment.GREENV_JWT_PRIVATE_KEY == "jwt-signing-key" &&
+      anytrue([
+        for secret in azurerm_container_app.api.secret :
+        secret.name == "jwt-signing-key" &&
+        secret.value == base64encode("-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----\n")
+      ])
+    )
+    error_message = "The JWT signing key must be provisioned by Terraform and mounted as a Container Apps secret."
+  }
+
+  # A deployment must never fall back to a signing key that dies with the process: it would
+  # invalidate every token on restart, and two replicas would reject each other's.
+  assert {
+    condition     = !contains(keys(local.api_environment), "GREENV_JWT_EPHEMERAL_KEY")
+    error_message = "GREENV_JWT_EPHEMERAL_KEY must never reach a deployed revision."
+  }
+
+  # The worker has no reason to mint or verify tokens, and holding the signing key would make it
+  # able to impersonate any user.
+  assert {
+    condition     = !contains(keys(local.worker_environment), "GREENV_JWT_PRIVATE_KEY")
+    error_message = "The frame worker must not receive the JWT signing key."
+  }
+
+  # With no custom hostname the issuer falls back to the Azure origin, so it always names a host a
+  # client can actually reach and fetch /.well-known/jwks.json from.
+  assert {
+    condition = (
+      startswith(local.api_environment.GREENV_JWT_ISSUER, "https://") &&
+      endswith(local.api_environment.GREENV_JWT_ISSUER, ".test.brazilsouth.azurecontainerapps.io") &&
+      local.api_environment.GREENV_JWT_AUDIENCE == "greenv-video-api" &&
+      local.api_environment.GREENV_ACCESS_TOKEN_TTL == "PT15M" &&
+      local.api_environment.GREENV_REFRESH_TOKEN_TTL == "P7D" &&
+      local.api_environment.GREENV_CLIENT_CREDENTIALS_TTL == "PT4H" &&
+      local.api_environment.GREENV_COOKIE_SAME_SITE == "Lax"
+    )
+    error_message = "Token issuer, audience, lifetimes and cookie policy must reach the API."
   }
 
   assert {
@@ -199,6 +251,14 @@ run "plans_dns_only_custom_domain" {
       username = "greenv-ci"
       password = "test-registry-token"
     }
+  }
+
+
+  # A bound custom hostname wins: tokens must claim the host clients actually call, which is also
+  # the host whose /.well-known/jwks.json a verifier will fetch.
+  assert {
+    condition     = local.api_environment.GREENV_JWT_ISSUER == "https://api.example.com"
+    error_message = "The token issuer must follow the API's custom hostname when one is bound."
   }
 
   assert {

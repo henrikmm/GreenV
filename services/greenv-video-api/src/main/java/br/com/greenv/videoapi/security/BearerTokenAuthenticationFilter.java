@@ -17,8 +17,14 @@ import org.springframework.web.filter.OncePerRequestFilter;
 final class BearerTokenAuthenticationFilter extends OncePerRequestFilter {
 
     private static final String BEARER_PREFIX = "Bearer ";
-    private static final List<SimpleGrantedAuthority> AUTHORITIES =
-            List.of(new SimpleGrantedAuthority("ROLE_CAPTURE_CLIENT"));
+    /**
+     * ROLE_PROVISIONER is what gates {@code /v2/identity/**}: creating users and machine clients is
+     * reserved for the shared operational credential, so no signed-in person - however privileged -
+     * can mint identities. ROLE_CAPTURE_CLIENT is unchanged.
+     */
+    private static final List<SimpleGrantedAuthority> AUTHORITIES = List.of(
+            new SimpleGrantedAuthority("ROLE_CAPTURE_CLIENT"),
+            new SimpleGrantedAuthority("ROLE_PROVISIONER"));
 
     private final ApiTokenVerifier tokenVerifier;
 

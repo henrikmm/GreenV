@@ -23,6 +23,8 @@ public class ApplicationExceptionHandler {
     private static HttpStatus status(FailureKind kind) {
         return switch (kind) {
             case INVALID_INPUT -> HttpStatus.BAD_REQUEST;
+            case UNAUTHORIZED -> HttpStatus.UNAUTHORIZED;
+            case FORBIDDEN -> HttpStatus.FORBIDDEN;
             case NOT_FOUND -> HttpStatus.NOT_FOUND;
             case CONFLICT -> HttpStatus.CONFLICT;
             case PAYLOAD_TOO_LARGE -> HttpStatus.CONTENT_TOO_LARGE;

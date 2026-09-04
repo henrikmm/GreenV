@@ -48,6 +48,17 @@ locals {
   }
   api_bearer_token = var.api_bearer_token == null ? random_password.api_bearer_token[0].result : var.api_bearer_token
 
+  # Built from the environment's default domain rather than the container app's own FQDN: the app
+  # consumes this local through api_environment, so reading it back off the app would be a cycle.
+  api_default_fqdn = "ca-${local.runtime_name_prefix}-api.${azurerm_container_app_environment.this.default_domain}"
+
+  # Falls back to the Azure origin when no custom hostname is bound, so the issuer is always a host
+  # a client can actually reach and check /.well-known/jwks.json against.
+  jwt_issuer = coalesce(
+    var.jwt_issuer,
+    var.api_hostname == null ? "https://${local.api_default_fqdn}" : "https://${var.api_hostname}",
+  )
+
   database_url        = "jdbc:postgresql://${neon_project.database.database_host_pooler}/${neon_project.database.database_name}?sslmode=require"
   flyway_database_url = "jdbc:postgresql://${neon_project.database.database_host}/${neon_project.database.database_name}?sslmode=require"
 
@@ -79,6 +90,22 @@ locals {
     # Empty leaves CORS disabled, which is what a phone-only deployment wants. A browser client
     # needs its exact origin listed; this never replaces the Bearer token.
     GREENV_ALLOWED_ORIGINS = join(",", var.api_allowed_origins)
+
+    # Every token is signed for and validated against this issuer, so it is what answers "did our
+    # application mint this?". It must match the host clients actually reach.
+    GREENV_JWT_ISSUER   = local.jwt_issuer
+    GREENV_JWT_AUDIENCE = var.jwt_audience
+
+    GREENV_ACCESS_TOKEN_TTL       = "PT${var.access_token_ttl_minutes}M"
+    GREENV_REFRESH_TOKEN_TTL      = "P${var.refresh_token_ttl_days}D"
+    GREENV_CLIENT_CREDENTIALS_TTL = "PT${var.client_credentials_ttl_hours}H"
+
+    # Lax is right while the dashboard and the API share a registrable domain. None would make the
+    # session a third-party cookie, which Safari and Firefox already block outright.
+    GREENV_COOKIE_SAME_SITE = var.cookie_same_site
+
+    # GREENV_JWT_EPHEMERAL_KEY is deliberately absent and asserted absent in tests/mvp.tftest.hcl.
+    # A deployment must never fall back to a key that dies with the process.
   })
 
   worker_environment = merge(local.common_environment, {
@@ -102,6 +129,7 @@ locals {
 
   api_secret_environment = merge(local.shared_secret_environment, {
     GREENV_API_TOKEN       = "api-bearer-token"
+    GREENV_JWT_PRIVATE_KEY = "jwt-signing-key"
     SPRING_FLYWAY_PASSWORD = "database-password"
   })
 

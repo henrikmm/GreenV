@@ -48,6 +48,16 @@ services:
       GREENV_RABBITMQ_PASSWORD: greenv-local-only
       GREENV_RABBITMQ_DYNAMIC: "true"
       GREENV_API_TOKEN: ${GREENV_API_TOKEN:-greenv-local-only-bearer-token-000000000000}
+
+      # Local stack only. The key is generated at boot and dies with the container, so every
+      # restart signs out everyone - fine here, wrong anywhere with more than one replica. A
+      # deployment never sets this: without a real key it leaves identity switched off instead.
+      # For a key that survives restarts, see services/greenv-video-api/scripts/generate-dev-jwt-key.sh
+      GREENV_JWT_EPHEMERAL_KEY: ${GREENV_JWT_EPHEMERAL_KEY:-true}
+      GREENV_JWT_PRIVATE_KEY: ${GREENV_JWT_PRIVATE_KEY:-}
+      GREENV_JWT_ISSUER: ${GREENV_JWT_ISSUER:-http://localhost:8080}
+      GREENV_ALLOWED_ORIGINS: ${GREENV_ALLOWED_ORIGINS:-http://localhost:5173}
+
       GREENV_PIPELINE_ROOT: /data/pipeline
     ports:
       - "127.0.0.1:8080:8080"

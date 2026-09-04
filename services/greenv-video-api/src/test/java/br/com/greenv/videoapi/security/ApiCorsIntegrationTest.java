@@ -55,6 +55,25 @@ class ApiCorsIntegrationTest {
                 .contains("authorization");
     }
 
+    /**
+     * The dashboard's session rides in a cookie, and a browser only sends one cross-origin when
+     * credentials are allowed. Pinned here so a future revert to allowCredentials(false) - which
+     * would silently sign every dashboard user out - fails loudly instead.
+     */
+    @Test
+    void allowsCredentialsSoTheCookieSessionReachesTheApi() throws Exception {
+        HttpResponse<String> response = preflight(ALLOWED_ORIGIN, "POST", "content-type,x-csrf-token");
+
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.headers().firstValue("access-control-allow-credentials")).contains("true");
+        assertThat(response.headers().firstValue("access-control-allow-headers").orElse("").toLowerCase())
+                .contains("x-csrf-token");
+        // Credentials plus a wildcard origin is rejected by every browser, and would be a hole here.
+        assertThat(response.headers().firstValue("access-control-allow-origin"))
+                .contains(ALLOWED_ORIGIN)
+                .isNotEqualTo(java.util.Optional.of("*"));
+    }
+
     @Test
     void refusesAnOriginThatIsNotConfigured() throws Exception {
         HttpResponse<String> response = preflight("https://attacker.example", "PUT", "authorization");

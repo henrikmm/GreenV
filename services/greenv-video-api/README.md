@@ -179,17 +179,128 @@ GREENV_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 
 Origins must match exactly, port included. Spring Security answers the preflight in its CORS
 filter, ahead of authorization, which is why an unauthenticated `OPTIONS` succeeds while every
-real request still needs the Bearer token. Credentials are not allowed on cross-origin requests:
-the client authenticates with a header, never a cookie.
+real request still needs the Bearer token. Credentials **are** allowed, because the dashboard's
+session rides in a cookie and a browser sends one cross-origin only when they are. That is safe
+only because every origin here is an exact match with no wildcard - `Access-Control-Allow-Origin`
+can never be `*` alongside credentials, and the two must never be relaxed together.
 
 CORS decides which pages a browser lets read a response. It is not access control, and widening
 this list never widens what an unauthenticated caller can do.
 
 The auth check is read-only: it expects health `200`, missing/invalid credentials `401`, and a valid
 credential to reach a deliberately absent capture and return `404`. Never commit, echo or pass the
-token as a command-line argument. This shared MVP credential does not identify an individual
-device; replace it with short-lived, per-user/device JWTs before distributing the app outside the
-pilot group.
+token as a command-line argument.
+
+This shared credential no longer has to identify a person: the identity provider below does that.
+It stays because the capture pipeline runs on it today, and because it is the only credential
+allowed to create identities.
+
+## Identity provider
+
+Signed-in people and machine clients get RS256 JSON Web Tokens issued by this service. The static
+token above keeps working alongside them - it is tried first, unchanged, so the running capture
+pipeline is unaffected by anything here.
+
+| Route | Auth | Purpose |
+|---|---|---|
+| `POST /v2/auth/login` | public | Opens a browser session. Sets cookies; **never** returns a token in the body |
+| `POST /v2/auth/refresh` | refresh cookie | Rotates the session |
+| `POST /v2/auth/logout` | refresh cookie | Revokes the session and clears the cookies |
+| `GET /v2/auth/me` | any session | Who is signed in - the only way a page can tell, since the cookies are `HttpOnly` |
+| `POST /v2/oauth/token` | public | OAuth2 grants for native and machine clients |
+| `GET /.well-known/jwks.json` | public | The public signing key |
+| `POST /v2/identity/users` | static token | Creates a person |
+| `POST /v2/identity/clients` | static token | Creates a machine client; the secret is shown once |
+
+Two flows, because the clients genuinely differ:
+
+- **A person** gets a 15-minute access token and a rotating 7-day refresh token. The 7 days run
+  from the login, not the last rotation, so an actively used session still ends when its login does.
+- **A machine** uses `grant_type=client_credentials` and gets one 4-hour token with no refresh
+  chain and no cookies. It re-runs the grant. Four hours is deliberate: a phone's upload queue
+  drains over hours of intermittent signal, where a 15-minute token would spend its life refreshing.
+
+`grant_type=password` exists for our own capture app. OAuth 2.1 discourages it for third-party
+clients; it remains ordinary practice for a first-party one, and moving to authorization code with
+PKCE would change nothing else here.
+
+### What the token proves, and what it does not
+
+Three separate mechanisms, often conflated:
+
+- **The token was not altered.** The RS256 signature is a SHA-256 digest of the header and payload
+  encrypted with the private key. One changed byte and verification fails. That is the integrity
+  check; nothing is layered on top of it.
+- **We issued it.** `iss`, `aud` and `typ: at+jwt` are validated on every request, and
+  `/.well-known/jwks.json` publishes the public key so anyone can confirm the signature without
+  holding the secret that mints tokens. A symmetric secret could not offer that.
+- **The credential at rest is not the credential.** The refresh token is 256 random bits; only its
+  SHA-256 reaches the database. `client_secret` and passwords are BCrypt digests. A database dump
+  yields nothing presentable.
+
+### The session cookies
+
+| Cookie | `HttpOnly` | Holds |
+|---|---|---|
+| `__Host-greenv_at` | yes | the access token |
+| `__Host-greenv_rt` | yes | the refresh token |
+| `__Host-greenv_fgp` | yes | the fingerprint the access token is bound to |
+| `greenv_csrf` | **no** | the CSRF value the page echoes in `X-CSRF-Token` |
+
+All `Secure`, `SameSite=Lax`, `Path=/`, no `Domain`.
+
+**No cookie can be made impossible to copy.** Any bearer credential works for whoever holds it, and
+a process that can read the cookie jar has it. What these attributes do is make copying hard and a
+copy useless:
+
+- `HttpOnly` keeps JavaScript, and therefore any XSS, from reading the token. Verified in a
+  browser: `document.cookie` returns only `greenv_csrf`.
+- The `__Host-` prefix forbids a `Domain` attribute, so no sibling subdomain of `matomomitsu.com`
+  can set or shadow one of these. The zone serves other subdomains, so this is a real threat.
+- The **fingerprint** cookie is what makes a lifted token worthless. The token carries only the
+  SHA-256 of it, so an access token recovered from a log or a proxy trace is not usable without the
+  paired `HttpOnly` cookie it was bound to.
+- **Rotation with reuse detection** gives detection rather than prevention: every refresh retires
+  the previous token, and presenting a retired one is proof of a copy, so the whole session family
+  is revoked. The legitimate holder is signed out too - there is no way to tell the two apart, and
+  that is the point.
+- **Logout revokes.** A signed token cannot be unsigned, so every token carrying a session id is
+  checked against its session row. That costs one indexed lookup per request and is what makes
+  logout and revocation take effect now rather than in fifteen minutes.
+
+`SameSite=Lax` is correct while the dashboard and the API share a registrable domain. Serving the
+dashboard from an unrelated origin would make the session a third-party cookie, which Safari and
+Firefox block outright - which is why `apps/web` proxies `/api` in development rather than calling
+the API host directly. `GREENV_COOKIE_SAME_SITE` exists so that choosing `None` has to be
+deliberate.
+
+Cookie-authenticated writes must also carry `X-CSRF-Token` matching the readable `greenv_csrf`
+cookie. Requests authenticated by `Authorization: Bearer` skip that check: a cross-site page cannot
+set that header without our CORS approval.
+
+### The signing key, and what happens without one
+
+Terraform provisions an RSA key pair and mounts the PKCS#8 PEM, base64-encoded, as
+`GREENV_JWT_PRIVATE_KEY`. It has to be state rather than something the process generates: a restart
+would invalidate every live token, and the API scales past one replica, so two instances would sign
+with different keys and reject each other's.
+
+With no key and no explicit opt-in the identity provider is **off**: `/v2/auth/**` answers 503, the
+JWK set is empty, and no JWT verifies - while `/actuator/health` and every capture route on the
+static token keep working exactly as before. Losing the JWT secret can never stop a phone uploading.
+`GREENV_JWT_EPHEMERAL_KEY=true` generates a throwaway key for the local stack only, and a Terraform
+test asserts it never reaches a deployed revision.
+
+For a local key that survives restarts:
+
+```bash
+eval "$(bash scripts/generate-dev-jwt-key.sh)" && docker compose up
+```
+
+**Anyone who can read Terraform state can mint a token for any user.** The state already holds the
+database password and the R2 keys, so this is the same exposure class, but the consequence is
+sharper. It lives in a private R2 bucket for that reason. Rotating the key signs everyone out:
+`terraform taint tls_private_key.jwt_signing && terraform apply`.
 
 ## Mobile v2 data flow
 
