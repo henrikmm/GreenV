@@ -5,8 +5,9 @@
 # API needs that exact origin in GREENV_ALLOWED_ORIGINS - which is why the port is pinned. Let
 # Flutter pick a port and the preflight comes back 403.
 #
-# Sign in on the app's own login screen; GREENV_API_TOKEN is no longer needed and is only worth
-# passing to reach an API whose identity provider is switched off.
+# Real capture is the default now, so no flag turns it on. Sign in on the app's own login screen;
+# GREENV_API_TOKEN is no longer needed and is only worth passing to reach an API whose identity
+# provider is switched off.
 #
 #   GREENV_API_URL=https://... ./scripts/run-cloud-web.sh [-d edge]
 set -euo pipefail
@@ -20,7 +21,6 @@ exec flutter run \
   -d "${device}" \
   --web-port "${port}" \
   --web-hostname localhost \
-  --dart-define=GREENV_WEB_CAPTURE=true \
   --dart-define=GREENV_API_URL="${api_url}" \
   --dart-define=GREENV_API_TOKEN="${api_token}" \
   "$@"

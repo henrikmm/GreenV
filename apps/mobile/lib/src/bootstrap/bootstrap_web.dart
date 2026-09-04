@@ -99,7 +99,11 @@ Future<AppDependencies> _createPreviewDependencies() async {
     tokenUri: CaptureConfiguration.tokenUri,
     store: MemorySessionStore(),
   );
-  return AppDependencies(capture: capture, authenticator: authenticator);
+  return AppDependencies(
+    capture: capture,
+    authenticator: authenticator,
+    mockedPreview: true,
+  );
 }
 
 final class _PreviewRecorder implements SegmentRecorder {

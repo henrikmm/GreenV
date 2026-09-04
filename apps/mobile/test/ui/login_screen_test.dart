@@ -107,6 +107,48 @@ void main() {
     expect(auth.signedIn.value, isFalse);
   });
 
+  /// The login screen is a guard, not a starting point. Picking the first screen is not enough:
+  /// in the browser `?screen=upload` chooses one directly, and before this it opened the capture
+  /// screen with no session at all.
+  testWidgets('refuses to open a screen behind the guard without a session', (tester) async {
+    final coordinator = _coordinator();
+    addTearDown(coordinator.dispose);
+
+    final auth = _authenticator((_) => http.Response(_tokens, 200));
+
+    for (final page in [MotivaPage.home, MotivaPage.upload, MotivaPage.network, MotivaPage.map]) {
+      await tester.pumpWidget(
+        CaptureApp(
+          dependencies: AppDependencies(capture: coordinator, authenticator: auth),
+          initialPage: page,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Bem-vindo'), findsOneWidget, reason: '$page opened without a session');
+    }
+  });
+
+  /// The design preview is the one build where that is allowed, because nothing behind it is real.
+  testWidgets('the mocked preview opens any screen without signing in', (tester) async {
+    final coordinator = _coordinator();
+    addTearDown(coordinator.dispose);
+
+    await tester.pumpWidget(
+      CaptureApp(
+        dependencies: AppDependencies(
+          capture: coordinator,
+          authenticator: _authenticator((_) => http.Response(_tokens, 200)),
+          mockedPreview: true,
+        ),
+        initialPage: MotivaPage.home,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Olá, equipe de campo'), findsOneWidget);
+  });
+
   /// A session that dies while the app is open - expired, or revoked because its refresh token was
   /// replayed - must not leave someone on a screen whose every upload returns 401.
   testWidgets('a lost session sends the person back to sign in', (tester) async {

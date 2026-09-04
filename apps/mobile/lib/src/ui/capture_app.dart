@@ -121,13 +121,16 @@ final class CaptureApp extends StatelessWidget {
     home: _MotivaFlow(
       controller: dependencies.capture,
       authenticator: dependencies.authenticator,
-      // A session restored from the last run skips the login screen; without one there is nothing
-      // to show, because every screen behind it needs a token.
+      mockedPreview: dependencies.mockedPreview,
+      // A session restored from the last run opens straight into the app. Everything else starts
+      // at the login screen - and the guard in _MotivaFlowState keeps it there.
       initialPage: initialPage ??
           (dependencies.authenticator.signedIn.value ? MotivaPage.home : _pageFromUri()),
     ),
   );
 
+  /// `?screen=` is a design-preview convenience for opening one screen directly. It only chooses a
+  /// starting point; it cannot get past the session guard in a real build.
   static MotivaPage _pageFromUri() {
     final requested = Uri.base.queryParameters['screen'];
     return MotivaPage.values.firstWhere(
@@ -141,11 +144,13 @@ final class _MotivaFlow extends StatefulWidget {
   const _MotivaFlow({
     required this.controller,
     required this.authenticator,
+    required this.mockedPreview,
     required this.initialPage,
   });
 
   final CaptureCoordinator controller;
   final SessionAuthenticator authenticator;
+  final bool mockedPreview;
   final MotivaPage initialPage;
 
   @override
@@ -197,9 +202,29 @@ final class _MotivaFlowState extends State<_MotivaFlow>
 
   void _go(MotivaPage page) => setState(() => _page = page);
 
+  /// The screens anyone may open. Everything else needs a token, because everything else either
+  /// uploads or shows what was uploaded.
+  static const Set<MotivaPage> _publicPages = {
+    MotivaPage.splash,
+    MotivaPage.login,
+    MotivaPage.forgotEmail,
+    MotivaPage.forgotCode,
+  };
+
+  /// Whether [page] may be shown right now.
+  ///
+  /// A guard rather than a starting point. Choosing the first screen is not enough: `?screen=upload`
+  /// would otherwise open the capture screen with no session at all, and a session that dies mid-use
+  /// would leave whoever is holding the phone on a screen that can no longer do anything.
+  bool _mayShow(MotivaPage page) =>
+      widget.mockedPreview ||
+      _publicPages.contains(page) ||
+      widget.authenticator.signedIn.value;
+
   @override
   Widget build(BuildContext context) {
-    final screen = switch (_page) {
+    final visible = _mayShow(_page) ? _page : MotivaPage.login;
+    final screen = switch (visible) {
       MotivaPage.splash => const _SplashScreen(),
       MotivaPage.login => _LoginScreen(
         onNavigate: _go,
@@ -225,7 +250,7 @@ final class _MotivaFlowState extends State<_MotivaFlow>
     };
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 180),
-      child: KeyedSubtree(key: ValueKey(_page), child: screen),
+      child: KeyedSubtree(key: ValueKey(visible), child: screen),
     );
   }
 }
@@ -628,8 +653,11 @@ final class _ForgotCodeScreen extends StatelessWidget {
         ),
         const SizedBox(height: 38),
         FilledButton(
-          onPressed: () => onNavigate(MotivaPage.home),
-          child: const Text('Confirmar e entrar'),
+          // Recovery is not implemented: nothing sends a code and nothing verifies one, so this
+          // returns to the login screen rather than granting access. It used to open the app
+          // directly, which was the same hole the login screen had.
+          onPressed: () => onNavigate(MotivaPage.login),
+          child: const Text('Voltar para entrar'),
         ),
         const SizedBox(height: 8),
         TextButton(

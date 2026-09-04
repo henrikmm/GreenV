@@ -35,9 +35,12 @@ void main() {
       findsOneWidget,
     );
 
-    await tester.tap(find.text('Confirmar e entrar'));
+    // Recovery is a mockup - no code is sent and none is verified - so it returns to the login
+    // screen instead of opening the app. It used to walk straight in.
+    await tester.tap(find.text('Voltar para entrar'));
     await tester.pumpAndSettle();
-    expect(find.text('Olá, equipe de campo'), findsOneWidget);
+    expect(find.text('Bem-vindo'), findsOneWidget);
+    expect(find.text('Olá, equipe de campo'), findsNothing);
   });
 
   testWidgets('navigates home, upload, network summary and map', (
@@ -48,7 +51,10 @@ void main() {
 
     await tester.pumpWidget(
       CaptureApp(
-        dependencies: AppDependencies(capture: coordinator, authenticator: _authenticator()),
+        dependencies: AppDependencies(
+          capture: coordinator,
+          authenticator: await _signedIn(),
+        ),
         initialPage: MotivaPage.home,
       ),
     );
@@ -74,7 +80,10 @@ void main() {
 
     await tester.pumpWidget(
       CaptureApp(
-        dependencies: AppDependencies(capture: coordinator, authenticator: _authenticator()),
+        dependencies: AppDependencies(
+          capture: coordinator,
+          authenticator: await _signedIn(),
+        ),
         initialPage: MotivaPage.upload,
       ),
     );
@@ -127,6 +136,13 @@ CaptureCoordinator _coordinator() {
 
 /// An authenticator wired to a stub token endpoint. [respond] decides what the API says, so a test
 /// can drive a successful sign-in or a refusal without a server.
+/// An authenticator that has already signed in, for the screens behind the guard.
+Future<SessionAuthenticator> _signedIn() async {
+  final auth = _authenticator();
+  await auth.signIn('operador@motiva.com.br', 'uma-senha-bem-longa-123');
+  return auth;
+}
+
 SessionAuthenticator _authenticator({
   http.Response Function(http.Request request)? respond,
 }) => SessionAuthenticator(
