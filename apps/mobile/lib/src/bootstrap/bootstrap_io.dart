@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:greenv_capture/src/api/client_credentials_token_provider.dart';
+import 'package:greenv_capture/src/api/session_authenticator.dart';
 import 'package:greenv_capture/src/api/http_capture_backend.dart';
 import 'package:greenv_capture/src/bootstrap/app_dependencies.dart';
 import 'package:greenv_capture/src/bootstrap/capture_configuration.dart';
@@ -8,6 +8,7 @@ import 'package:greenv_capture/src/capture/camera_segment_recorder.dart';
 import 'package:greenv_capture/src/capture/capture_coordinator.dart';
 import 'package:greenv_capture/src/capture/capture_runtime.dart';
 import 'package:greenv_capture/src/capture/phone_telemetry_collector.dart';
+import 'package:greenv_capture/src/storage/file_session_store.dart';
 import 'package:greenv_capture/src/storage/persistent_capture_queue.dart';
 import 'package:greenv_capture/src/upload/queue_uploader.dart';
 import 'package:path_provider/path_provider.dart';
@@ -25,6 +26,17 @@ Future<AppDependencies> createAppDependencies() async {
   );
   final deviceId = await _deviceId(deviceFile);
   final monotonicClock = MonotonicClock();
+
+  // The refresh token lives beside the capture queue, in the app's private directory, so signing
+  // in survives closing the app.
+  final authenticator = SessionAuthenticator(
+    tokenUri: CaptureConfiguration.tokenUri,
+    store: FileSessionStore(
+      File('${captureRoot.path}${Platform.pathSeparator}session'),
+    ),
+  );
+  await authenticator.restore();
+
   final recorder = CameraSegmentRecorder();
   final telemetry = PhoneTelemetryCollector(monotonicClock.nowNanos);
   final uploader = QueueUploader(
@@ -33,15 +45,9 @@ Future<AppDependencies> createAppDependencies() async {
       baseUri: CaptureConfiguration.apiUri,
       content: queue,
       bearerToken: CaptureConfiguration.apiToken,
-      // Null unless device credentials were supplied, in which case every request carries a
-      // four-hour token fetched at runtime instead of the compiled-in shared one.
-      auth: CaptureConfiguration.usesClientCredentials
-          ? ClientCredentialsTokenProvider(
-              tokenUri: CaptureConfiguration.tokenUri,
-              clientId: CaptureConfiguration.apiClientId,
-              clientSecret: CaptureConfiguration.apiClientSecret,
-            )
-          : null,
+      // Every upload carries the token of whoever signed in, so a capture is attributable to a
+      // person rather than to a credential shared by the whole pilot.
+      auth: authenticator,
     ),
   );
   final coordinator = CaptureCoordinator(
@@ -55,7 +61,7 @@ Future<AppDependencies> createAppDependencies() async {
     monotonicNanos: monotonicClock.nowNanos,
   );
   uploader.syncSoon();
-  return AppDependencies(capture: coordinator);
+  return AppDependencies(capture: coordinator, authenticator: authenticator);
 }
 
 Future<String> _deviceId(File file) async {

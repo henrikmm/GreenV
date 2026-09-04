@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:greenv_capture/src/api/client_credentials_token_provider.dart';
+import 'package:greenv_capture/src/api/session_authenticator.dart';
 import 'package:greenv_capture/src/api/http_capture_backend.dart';
 import 'package:greenv_capture/src/bootstrap/app_dependencies.dart';
 import 'package:greenv_capture/src/bootstrap/capture_configuration.dart';
@@ -12,6 +12,7 @@ import 'package:greenv_capture/src/capture/capture_runtime.dart';
 import 'package:greenv_capture/src/capture/phone_telemetry_collector.dart';
 import 'package:greenv_capture/src/domain/capture_models.dart';
 import 'package:greenv_capture/src/storage/browser_capture_queue.dart';
+import 'package:greenv_capture/src/storage/memory_session_store.dart';
 import 'package:greenv_capture/src/storage/memory_capture_queue.dart';
 import 'package:greenv_capture/src/upload/queue_uploader.dart';
 import 'package:uuid/uuid.dart';
@@ -27,21 +28,22 @@ Future<AppDependencies> createAppDependencies() async =>
 Future<AppDependencies> _createBrowserCaptureDependencies() async {
   final queue = BrowserCaptureQueue();
   final monotonicClock = MonotonicClock();
+
+  // In memory, like the queue beside it: a page has nowhere to put a credential that is safe from
+  // script, so a reload asks for the password again.
+  final authenticator = SessionAuthenticator(
+    tokenUri: CaptureConfiguration.tokenUri,
+    store: MemorySessionStore(),
+  );
   final uploader = QueueUploader(
     queue: queue,
     backend: HttpCaptureBackend(
       baseUri: CaptureConfiguration.apiUri,
       content: queue,
       bearerToken: CaptureConfiguration.apiToken,
-      // Null unless device credentials were supplied, in which case every request carries a
-      // four-hour token fetched at runtime instead of the compiled-in shared one.
-      auth: CaptureConfiguration.usesClientCredentials
-          ? ClientCredentialsTokenProvider(
-              tokenUri: CaptureConfiguration.tokenUri,
-              clientId: CaptureConfiguration.apiClientId,
-              clientSecret: CaptureConfiguration.apiClientSecret,
-            )
-          : null,
+      // Every upload carries the token of whoever signed in, so a capture is attributable to a
+      // person rather than to a credential shared by the whole pilot.
+      auth: authenticator,
     ),
   );
   // `?session=<uuid>` pins the session identifier so a capture started here can be followed from
@@ -65,7 +67,7 @@ Future<AppDependencies> _createBrowserCaptureDependencies() async {
   uploader.syncSoon();
   // `?autostart=1` records without a click, so an automated browser can drive a whole capture.
   if (Uri.base.queryParameters['autostart'] == '1') unawaited(capture.start());
-  return AppDependencies(capture: capture);
+  return AppDependencies(capture: capture, authenticator: authenticator);
 }
 
 Future<AppDependencies> _createPreviewDependencies() async {
@@ -93,7 +95,11 @@ Future<AppDependencies> _createPreviewDependencies() async {
     capture.phase = CapturePhase.error;
     capture.errorMessage = 'Não foi possível acessar a câmera. Revise a permissão e tente novamente.';
   }
-  return AppDependencies(capture: capture);
+  final authenticator = SessionAuthenticator(
+    tokenUri: CaptureConfiguration.tokenUri,
+    store: MemorySessionStore(),
+  );
+  return AppDependencies(capture: capture, authenticator: authenticator);
 }
 
 final class _PreviewRecorder implements SegmentRecorder {

@@ -1,10 +1,14 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:greenv_capture/src/api/session_authenticator.dart';
 import 'package:greenv_capture/src/bootstrap/app_dependencies.dart';
 import 'package:greenv_capture/src/capture/capture_coordinator.dart';
 import 'package:greenv_capture/src/storage/memory_capture_queue.dart';
+import 'package:greenv_capture/src/storage/memory_session_store.dart';
 import 'package:greenv_capture/src/ui/capture_app.dart';
 import 'package:greenv_capture/src/upload/queue_uploader.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 
 import '../support/capture_fakes.dart';
 
@@ -14,7 +18,7 @@ void main() {
     addTearDown(coordinator.dispose);
 
     await tester.pumpWidget(
-      CaptureApp(dependencies: AppDependencies(capture: coordinator)),
+      CaptureApp(dependencies: AppDependencies(capture: coordinator, authenticator: _authenticator())),
     );
     expect(find.bySemanticsLabel('motiva'), findsOneWidget);
     expect(find.bySemanticsLabel('GreenV'), findsOneWidget);
@@ -44,7 +48,7 @@ void main() {
 
     await tester.pumpWidget(
       CaptureApp(
-        dependencies: AppDependencies(capture: coordinator),
+        dependencies: AppDependencies(capture: coordinator, authenticator: _authenticator()),
         initialPage: MotivaPage.home,
       ),
     );
@@ -70,7 +74,7 @@ void main() {
 
     await tester.pumpWidget(
       CaptureApp(
-        dependencies: AppDependencies(capture: coordinator),
+        dependencies: AppDependencies(capture: coordinator, authenticator: _authenticator()),
         initialPage: MotivaPage.upload,
       ),
     );
@@ -93,7 +97,7 @@ void main() {
 
     await tester.pumpWidget(
       CaptureApp(
-        dependencies: AppDependencies(capture: coordinator),
+        dependencies: AppDependencies(capture: coordinator, authenticator: _authenticator()),
         initialPage: MotivaPage.splash,
       ),
     );
@@ -120,3 +124,21 @@ CaptureCoordinator _coordinator() {
     newSessionId: () => 'session-1',
   );
 }
+
+/// An authenticator wired to a stub token endpoint. [respond] decides what the API says, so a test
+/// can drive a successful sign-in or a refusal without a server.
+SessionAuthenticator _authenticator({
+  http.Response Function(http.Request request)? respond,
+}) => SessionAuthenticator(
+  tokenUri: Uri.parse('https://api.example/v2/oauth/token'),
+  store: MemorySessionStore(),
+  client: MockClient(
+    (request) async =>
+        respond?.call(request) ??
+        http.Response(
+          '{"access_token":"tok","token_type":"Bearer","expires_in":900,'
+          '"refresh_token":"ref"}',
+          200,
+        ),
+  ),
+);

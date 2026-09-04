@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:greenv_capture/src/api/session_authenticator.dart';
 import 'package:greenv_capture/src/bootstrap/app_dependencies.dart';
 import 'package:greenv_capture/src/capture/capture_coordinator.dart';
 
@@ -119,7 +120,11 @@ final class CaptureApp extends StatelessWidget {
     ),
     home: _MotivaFlow(
       controller: dependencies.capture,
-      initialPage: initialPage ?? _pageFromUri(),
+      authenticator: dependencies.authenticator,
+      // A session restored from the last run skips the login screen; without one there is nothing
+      // to show, because every screen behind it needs a token.
+      initialPage: initialPage ??
+          (dependencies.authenticator.signedIn.value ? MotivaPage.home : _pageFromUri()),
     ),
   );
 
@@ -133,9 +138,14 @@ final class CaptureApp extends StatelessWidget {
 }
 
 final class _MotivaFlow extends StatefulWidget {
-  const _MotivaFlow({required this.controller, required this.initialPage});
+  const _MotivaFlow({
+    required this.controller,
+    required this.authenticator,
+    required this.initialPage,
+  });
 
   final CaptureCoordinator controller;
+  final SessionAuthenticator authenticator;
   final MotivaPage initialPage;
 
   @override
@@ -156,6 +166,16 @@ final class _MotivaFlowState extends State<_MotivaFlow>
       (_) => widget.controller.syncBacklog(),
     );
     unawaited(widget.controller.syncBacklog());
+    widget.authenticator.signedIn.addListener(_onSessionChanged);
+  }
+
+  /// A refresh that fails - an expired session, or one revoked because its refresh token was
+  /// replayed - lands here, so the person is asked to sign in again instead of being left on a
+  /// screen whose uploads all return 401.
+  void _onSessionChanged() {
+    if (!widget.authenticator.signedIn.value && mounted && _page != MotivaPage.login) {
+      _go(MotivaPage.login);
+    }
   }
 
   @override
@@ -170,6 +190,7 @@ final class _MotivaFlowState extends State<_MotivaFlow>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    widget.authenticator.signedIn.removeListener(_onSessionChanged);
     _syncTick?.cancel();
     super.dispose();
   }
@@ -180,10 +201,21 @@ final class _MotivaFlowState extends State<_MotivaFlow>
   Widget build(BuildContext context) {
     final screen = switch (_page) {
       MotivaPage.splash => const _SplashScreen(),
-      MotivaPage.login => _LoginScreen(onNavigate: _go),
+      MotivaPage.login => _LoginScreen(
+        onNavigate: _go,
+        authenticator: widget.authenticator,
+      ),
       MotivaPage.forgotEmail => _ForgotEmailScreen(onNavigate: _go),
       MotivaPage.forgotCode => _ForgotCodeScreen(onNavigate: _go),
-      MotivaPage.home => _HomeScreen(onNavigate: _go),
+      MotivaPage.home => _HomeScreen(
+        onNavigate: _go,
+        onSignOut: () async {
+          await widget.authenticator.signOut();
+          if (mounted) {
+            _go(MotivaPage.login);
+          }
+        },
+      ),
       MotivaPage.upload => CaptureScreen(
         controller: widget.controller,
         onNavigate: _go,
@@ -349,19 +381,77 @@ final class _AuthCard extends StatelessWidget {
             _GreenVLogo(fontSize: 22),
           ],
         ),
-        const Spacer(),
-        ...children,
-        const Spacer(),
+        // Centred while it fits, scrollable when it does not. A fixed-height column here overflows
+        // as soon as anything is added - an error message, or a short screen on a small phone.
+        Expanded(
+          child: Center(
+            child: SingleChildScrollView(
+              child: Column(mainAxisSize: MainAxisSize.min, children: children),
+            ),
+          ),
+        ),
         footer ?? const SizedBox.shrink(),
       ],
     ),
   );
 }
 
-final class _LoginScreen extends StatelessWidget {
-  const _LoginScreen({required this.onNavigate});
+final class _LoginScreen extends StatefulWidget {
+  const _LoginScreen({required this.onNavigate, required this.authenticator});
 
   final ValueChanged<MotivaPage> onNavigate;
+  final SessionAuthenticator authenticator;
+
+  @override
+  State<_LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<_LoginScreen> {
+  final _email = TextEditingController();
+  final _password = TextEditingController();
+
+  bool _busy = false;
+  bool _obscured = true;
+  String? _error;
+
+  @override
+  void dispose() {
+    _email.dispose();
+    _password.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_busy) {
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+
+    try {
+      await widget.authenticator.signIn(_email.text, _password.text);
+      if (mounted) {
+        widget.onNavigate(MotivaPage.home);
+      }
+    } on AuthenticationFailure catch (failure) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _busy = false;
+        // The API never says which half was wrong, so neither does this.
+        _error = switch (failure.reason) {
+          AuthenticationFailureReason.invalidCredentials => 'E-mail ou senha inválidos.',
+          AuthenticationFailureReason.providerUnavailable =>
+            'O serviço de autenticação está indisponível. Tente novamente em instantes.',
+          AuthenticationFailureReason.unreachable =>
+            'Sem conexão com o servidor. Verifique a rede e tente novamente.',
+        };
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) => _AuthPattern(
@@ -380,28 +470,60 @@ final class _LoginScreen extends StatelessWidget {
           style: TextStyle(color: motivaMuted, fontSize: 13, height: 1.4),
         ),
         const SizedBox(height: 28),
-        const TextField(
-          key: Key('email-field'),
+        if (_error != null) ...[
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFDEAEA),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFF0C4C4)),
+            ),
+            child: Text(
+              _error!,
+              key: const Key('login-error'),
+              style: const TextStyle(color: Color(0xFF8C2020), fontSize: 12.5, height: 1.35),
+            ),
+          ),
+          const SizedBox(height: 14),
+        ],
+        TextField(
+          key: const Key('email-field'),
+          controller: _email,
+          enabled: !_busy,
           keyboardType: TextInputType.emailAddress,
-          decoration: InputDecoration(
+          autocorrect: false,
+          textInputAction: TextInputAction.next,
+          decoration: const InputDecoration(
             labelText: 'E-mail',
             hintText: 'nome@empresa.com.br',
             prefixIcon: Icon(Icons.mail_outline_rounded, size: 20),
           ),
         ),
         const SizedBox(height: 12),
-        const TextField(
-          obscureText: true,
+        TextField(
+          key: const Key('password-field'),
+          controller: _password,
+          enabled: !_busy,
+          obscureText: _obscured,
+          textInputAction: TextInputAction.done,
+          onSubmitted: (_) => _submit(),
           decoration: InputDecoration(
             labelText: 'Senha',
-            prefixIcon: Icon(Icons.lock_outline_rounded, size: 20),
-            suffixIcon: Icon(Icons.visibility_outlined, size: 20),
+            prefixIcon: const Icon(Icons.lock_outline_rounded, size: 20),
+            suffixIcon: IconButton(
+              icon: Icon(
+                _obscured ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                size: 20,
+              ),
+              onPressed: () => setState(() => _obscured = !_obscured),
+            ),
           ),
         ),
         Align(
           alignment: Alignment.centerRight,
           child: TextButton(
-            onPressed: () => onNavigate(MotivaPage.forgotEmail),
+            onPressed: _busy ? null : () => widget.onNavigate(MotivaPage.forgotEmail),
             child: const Text(
               'Esqueceu a senha?',
               style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
@@ -411,8 +533,14 @@ final class _LoginScreen extends StatelessWidget {
         const SizedBox(height: 18),
         FilledButton(
           key: const Key('login-button'),
-          onPressed: () => onNavigate(MotivaPage.home),
-          child: const Text('Entrar'),
+          onPressed: _busy ? null : _submit,
+          child: _busy
+              ? const SizedBox(
+                  height: 18,
+                  width: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                )
+              : const Text('Entrar'),
         ),
       ],
     ),
@@ -628,9 +756,10 @@ final class _MainScaffold extends StatelessWidget {
 }
 
 final class _HomeScreen extends StatelessWidget {
-  const _HomeScreen({required this.onNavigate});
+  const _HomeScreen({required this.onNavigate, required this.onSignOut});
 
   final ValueChanged<MotivaPage> onNavigate;
+  final Future<void> Function() onSignOut;
 
   @override
   Widget build(BuildContext context) => _MainScaffold(
@@ -641,9 +770,22 @@ final class _HomeScreen extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            'Olá, equipe de campo',
-            style: Theme.of(context).textTheme.headlineSmall,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  'Olá, equipe de campo',
+                  style: Theme.of(context).textTheme.headlineSmall,
+                ),
+              ),
+              IconButton(
+                key: const Key('sign-out-button'),
+                tooltip: 'Sair',
+                icon: const Icon(Icons.logout_rounded, size: 20, color: motivaMuted),
+                onPressed: onSignOut,
+              ),
+            ],
           ),
           const SizedBox(height: 6),
           const Text(

@@ -67,11 +67,21 @@ abstract interface class SegmentContentStore {
   Stream<List<int>> read(String reference);
 }
 
+/// Holds the refresh token between runs, so signing in survives closing the app.
+///
+/// Only the refresh token is kept. The access token lives fifteen minutes and is cheap to mint
+/// again, so writing it down would add exposure and buy nothing.
+abstract interface class SessionStore {
+  Future<String?> read();
+  Future<void> write(String refreshToken);
+  Future<void> clear();
+}
+
 /// Supplies the credential every request carries.
 ///
 /// The capture client is a public client: anything compiled into the binary is extractable, so a
-/// long-lived secret baked in with `--dart-define` is not a secret. This exists so the app can move
-/// to a short-lived token fetched at runtime without the upload path knowing which it is holding.
+/// long-lived secret baked in with `--dart-define` is not a secret. The credential therefore comes
+/// from the person signing in, not from the build.
 abstract interface class AuthTokenProvider {
   /// The value for the `Authorization: Bearer` header. Empty means send no header at all.
   Future<String> accessToken();
