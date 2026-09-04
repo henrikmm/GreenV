@@ -1,12 +1,322 @@
 openapi: 3.1.0
 info:
   title: GreenV Video API
-  version: 2.0.0
+  version: 2.1.0
+  description: |
+    Capture sessions, jobs and the identity provider.
+
+    Three ways to authenticate, and they coexist:
+
+    - `staticToken` - the shared operational credential, `GREENV_API_TOKEN`. It still opens every
+      capture route, and it is the only credential allowed to create identities.
+    - `bearerAuth` - an RS256 access token from `/v2/oauth/token`, used by the capture app and by
+      machine clients. Verify one against `/.well-known/jwks.json`.
+    - `sessionCookie` - the same token in an `HttpOnly` cookie, used by the browser dashboard.
+      Every state-changing request must also carry `X-CSRF-Token` matching the readable
+      `greenv_csrf` cookie.
+
+    Only `/actuator/health`, the sign-in routes and the JWK set are public.
 servers:
   - url: http://127.0.0.1:8080
+  - url: https://greenvapi.matomomitsu.com
 security:
   - bearerAuth: []
+tags:
+  - name: identity
+    description: Signing in, rotating a session, and creating the identities that can sign in.
+  - name: capture
+    description: Segmented mobile captures.
+  - name: jobs
+    description: Legacy single-video jobs.
 paths:
+  /v2/auth/login:
+    post:
+      operationId: login
+      tags: [identity]
+      summary: Open a browser session
+      description: |
+        Sets four cookies and returns the account. The access token is **never** in the response
+        body: that would defeat `HttpOnly`. Native and machine clients use `/v2/oauth/token`.
+
+        `__Host-greenv_at` (access), `__Host-greenv_rt` (refresh) and `__Host-greenv_fgp` (the
+        fingerprint the access token is bound to) are `HttpOnly`; `greenv_csrf` is deliberately
+        readable, because the page has to echo it in `X-CSRF-Token`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Signed in
+          headers:
+            Set-Cookie:
+              description: Four cookies; all `Secure`, `SameSite=Lax`, `Path=/`, no `Domain`.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthenticatedUser'
+        '401':
+          description: |
+            Wrong email or wrong password. Deliberately indistinguishable - saying which would turn
+            the form into a way to discover which accounts exist.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: No signing key is provisioned, so no token can be issued.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /v2/auth/refresh:
+    post:
+      operationId: refreshSession
+      tags: [identity]
+      summary: Rotate the browser session
+      description: |
+        Authenticated by the `__Host-greenv_rt` cookie alone, so it works after the fifteen-minute
+        access token has expired. Every rotation retires the previous refresh token.
+
+        Presenting a retired one is proof it was copied, and revokes **every** session of that
+        user - including the one the legitimate holder is using. There is no way to tell the two
+        apart, which is the point.
+      security: []
+      responses:
+        '200':
+          description: Rotated; all four cookies are set again
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthenticatedUser'
+        '401':
+          description: Missing, expired, already-exchanged or revoked refresh token
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /v2/auth/logout:
+    post:
+      operationId: logout
+      tags: [identity]
+      summary: End the session and clear the cookies
+      description: |
+        Public on purpose: an expired access token must still be able to end its session. The
+        refresh cookie identifies it, and holding that cookie is the only authority needed.
+
+        Revokes the session server-side, so the still-valid access token stops working immediately
+        rather than at its natural expiry.
+      security: []
+      responses:
+        '204':
+          description: Signed out; every session cookie is expired
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+  /v2/auth/me:
+    get:
+      operationId: currentUser
+      tags: [identity]
+      summary: Who is signed in
+      description: |
+        How a single-page app learns it has a session: the cookies are `HttpOnly`, so JavaScript
+        cannot tell by looking.
+      security:
+        - sessionCookie: []
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The signed-in account
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthenticatedUser'
+        '401':
+          description: No session
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /v2/oauth/token:
+    post:
+      operationId: issueToken
+      tags: [identity]
+      summary: OAuth2 token endpoint
+      description: |
+        For clients that hold their credential rather than a cookie: the Flutter capture app and
+        machine clients.
+
+        - `password` - a person signs in. Returns a 15-minute access token and a rotating 7-day
+          refresh token. Discouraged by OAuth 2.1 for third-party clients; used here only by our
+          own first-party app, where it remains ordinary practice.
+        - `refresh_token` - rotates the pair. Same reuse detection as `/v2/auth/refresh`.
+        - `client_credentials` - a machine. Returns one 4-hour token, **no refresh token**; the
+          client re-runs the grant.
+
+        Errors follow RFC 6749 section 5.2 rather than this API's usual RFC 7807 problem document.
+        That is deliberate: this is the one endpoint an off-the-shelf OAuth client library parses.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenRequest'
+            examples:
+              password:
+                summary: A person signing in
+                value:
+                  grant_type: password
+                  username: operador@motiva.com.br
+                  password: uma-senha-bem-longa-123
+              refreshToken:
+                summary: Rotating a session
+                value:
+                  grant_type: refresh_token
+                  refresh_token: 4rNfP0m…
+              clientCredentials:
+                summary: A machine client
+                value:
+                  grant_type: client_credentials
+                  client_id: gv-01a06a5635be740b9308
+                  client_secret: 2CKepynE…
+      responses:
+        '200':
+          description: A token
+          headers:
+            Cache-Control:
+              description: Always `no-store` - a credential must not sit in a shared cache.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '400':
+          description: '`unsupported_grant_type` or `invalid_request`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthError'
+        '401':
+          description: '`invalid_client` - wrong credentials'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthError'
+  /.well-known/jwks.json:
+    get:
+      operationId: jwkSet
+      tags: [identity]
+      summary: Public signing key
+      description: |
+        The public half of the RS256 key. Anyone can confirm a GreenV token came from GreenV
+        without holding the secret that mints them - which a shared HMAC secret could not offer.
+
+        Empty (`{"keys":[]}`) when no signing key is provisioned, which is also when the identity
+        provider is switched off.
+      security: []
+      responses:
+        '200':
+          description: JWK Set
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JwkSet'
+  /v2/identity/users:
+    post:
+      operationId: createUser
+      tags: [identity]
+      summary: Create a person who can sign in
+      description: |
+        Reachable only with the shared operational token, which carries `ROLE_PROVISIONER`. No
+        signed-in person - however privileged - can mint an identity.
+
+        The password is 12 characters minimum and 72 **bytes** maximum: BCrypt hashes at most 72
+        bytes and silently ignores the rest, so a longer one is refused rather than quietly
+        truncated.
+      security:
+        - staticToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '201':
+          description: Created. Never echoes the password or its hash.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthenticatedUser'
+        '400':
+          description: '`invalid_email`, `weak_password` or `password_too_long`'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: No credential
+        '403':
+          description: Authenticated, but not the provisioning credential
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: '`user_already_exists` - that email is taken'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /v2/identity/clients:
+    post:
+      operationId: createClient
+      tags: [identity]
+      summary: Create a machine client
+      description: |
+        For the `client_credentials` grant. `clientSecret` is returned **once**: the store keeps
+        only a BCrypt digest and cannot reproduce it, so a lost secret means issuing a new client.
+      security:
+        - staticToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateClientRequest'
+      responses:
+        '201':
+          description: Created; the secret is readable only in this response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientRegistration'
+        '401':
+          description: No credential
+        '403':
+          description: Authenticated, but not the provisioning credential
+  /actuator/health:
+    get:
+      operationId: health
+      tags: [capture]
+      summary: Liveness and readiness probe
+      description: Public because Azure Container Apps uses it for startup, readiness and liveness.
+      security: []
+      responses:
+        '200':
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                type: object
   /v1/jobs:
     post:
       operationId: createJob
@@ -251,7 +561,27 @@ components:
     bearerAuth:
       type: http
       scheme: bearer
+      bearerFormat: JWT
+      description: |
+        An RS256 access token from `/v2/oauth/token`. Header carries `kid` and `typ: at+jwt`;
+        `iss`, `aud` and `exp` are validated on every request. Verify against
+        `/.well-known/jwks.json`.
+    staticToken:
+      type: http
+      scheme: bearer
       bearerFormat: opaque
+      description: |
+        The shared operational credential, `GREENV_API_TOKEN`. Opens every capture route and is the
+        only credential that may create identities. Compared in constant time.
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: __Host-greenv_at
+      description: |
+        The browser session. Sent automatically; unreadable to JavaScript. The paired
+        `__Host-greenv_fgp` cookie must be present too - the token carries only its SHA-256, so a
+        token lifted from a log is useless without it. State-changing requests must also carry
+        `X-CSRF-Token` matching the readable `greenv_csrf` cookie.
   parameters:
     JobId:
       name: jobId
@@ -483,3 +813,176 @@ components:
           type: [string, 'null']
         errorMessage:
           type: [string, 'null']
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          examples: [operador@motiva.com.br]
+        password:
+          type: string
+          format: password
+          minLength: 12
+    AuthenticatedUser:
+      type: object
+      description: The account. Carries no token - the browser's copy exists only in a cookie.
+      required: [userId, email, displayName, role]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        displayName:
+          type: string
+        role:
+          $ref: '#/components/schemas/AuthRole'
+        accessTokenExpiresAt:
+          type: [string, 'null']
+          format: date-time
+          description: Present on sign-in and rotation; null elsewhere.
+    AuthRole:
+      type: string
+      enum: [ADMIN, OPERATOR, CAPTURE_CLIENT]
+      description: |
+        Authorization is coarse today: any authenticated principal reaches every capture route.
+        Only `/v2/identity/**` is gated, and on the provisioning credential rather than on a role.
+    CreateUserRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+          minLength: 12
+          description: At most 72 bytes - BCrypt ignores anything beyond that.
+        displayName:
+          type: string
+          description: Defaults to the email when omitted.
+        role:
+          $ref: '#/components/schemas/AuthRole'
+    CreateClientRequest:
+      type: object
+      required: [displayName]
+      properties:
+        displayName:
+          type: string
+          examples: [Frame extractor]
+        role:
+          $ref: '#/components/schemas/AuthRole'
+    ClientRegistration:
+      type: object
+      required: [clientId, clientSecret, displayName, role, createdAt]
+      properties:
+        clientId:
+          type: string
+          examples: [gv-01a06a5635be740b9308]
+        clientSecret:
+          type: string
+          description: Readable only in this response, and never again.
+        displayName:
+          type: string
+        role:
+          $ref: '#/components/schemas/AuthRole'
+        createdAt:
+          type: string
+          format: date-time
+    TokenRequest:
+      type: object
+      required: [grant_type]
+      properties:
+        grant_type:
+          type: string
+          enum: [password, refresh_token, client_credentials]
+        username:
+          type: string
+          description: Required for `password`.
+        password:
+          type: string
+          format: password
+          description: Required for `password`.
+        refresh_token:
+          type: string
+          description: Required for `refresh_token`.
+        client_id:
+          type: string
+          description: Required for `client_credentials`.
+        client_secret:
+          type: string
+          description: Required for `client_credentials`.
+    TokenResponse:
+      type: object
+      required: [access_token, token_type, expires_in]
+      properties:
+        access_token:
+          type: string
+          description: RS256 JWT.
+        token_type:
+          type: string
+          const: Bearer
+        expires_in:
+          type: integer
+          description: 900 for a person, 14400 for a machine client.
+        refresh_token:
+          type: string
+          description: |
+            Absent for `client_credentials` - a machine has no cookie jar and nothing to rotate.
+            Opaque, 256 bits; only its SHA-256 reaches the database.
+    OAuthError:
+      type: object
+      description: RFC 6749 section 5.2. Used only by `/v2/oauth/token`.
+      required: [error]
+      properties:
+        error:
+          type: string
+          enum: [invalid_client, invalid_request, unsupported_grant_type, temporarily_unavailable]
+        error_description:
+          type: string
+    JwkSet:
+      type: object
+      required: [keys]
+      properties:
+        keys:
+          type: array
+          description: Public keys only; no private RSA parameter ever appears here.
+          items:
+            type: object
+            properties:
+              kty:
+                type: string
+                const: RSA
+              use:
+                type: string
+                const: sig
+              alg:
+                type: string
+                const: RS256
+              kid:
+                type: string
+                description: RFC 7638 thumbprint; matches the `kid` in every issued token.
+              n:
+                type: string
+              e:
+                type: string
+    Problem:
+      type: object
+      description: |
+        RFC 7807. Every route but `/v2/oauth/token` uses this shape. `title` repeats the machine
+        readable code, and `type` is `urn:greenv:error:<code>`.
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+

@@ -21,7 +21,7 @@ local object-store adapter so API and worker can exchange files without a cloud 
 | `src/main/java/.../task/` | RabbitMQ, SQS, Azure Queue, Service Bus and legacy queue adapters |
 | `src/main/resources/db/migration/` | Flyway schema for capture sessions and segments |
 | `src/main/resources/contracts/` | Versioned queue and manifest JSON Schemas |
-| `openapi.yaml` | Complete v1 and v2 HTTP contract |
+| `openapi.yaml` | Complete HTTP contract: capture, legacy jobs and identity. Pinned to the real routes by `OpenApiContractTest`, so it cannot drift |
 | `src/test/` | Unit and integration coverage |
 
 ## Requirements
