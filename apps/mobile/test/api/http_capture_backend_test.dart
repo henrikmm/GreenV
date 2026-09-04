@@ -110,6 +110,51 @@ void main() {
       ),
     );
   });
+
+  test('retries an upload once after a 401 and rebuilds the request', () async {
+    // _SegmentUpload finalizes a single-subscription stream, so a retry that re-sent the same
+    // request instance would throw instead of retrying. This is the guard on that.
+    final tokens = <String?>[];
+    var videoAttempts = 0;
+    final backend = HttpCaptureBackend(
+      baseUri: Uri.parse('https://api.example/'),
+      content: _FakeContent(),
+      auth: _RotatingAuth(),
+      client: MockClient((request) async {
+        if (request.method == 'PUT' && request.url.path.endsWith('/video')) {
+          videoAttempts++;
+          tokens.add(request.headers['authorization']);
+          return http.Response('{}', videoAttempts == 1 ? 401 : 200);
+        }
+        if (request.method == 'PUT') return http.Response('{}', 200);
+        return http.Response('', 202);
+      }),
+    );
+
+    await backend.uploadSegment(segment);
+
+    expect(videoAttempts, 2);
+    expect(tokens, ['Bearer tok-1', 'Bearer tok-2']);
+  });
+
+  test('does not retry when the provider cannot get a new token', () async {
+    var attempts = 0;
+    final backend = HttpCaptureBackend(
+      baseUri: Uri.parse('https://api.example/'),
+      content: _FakeContent(),
+      auth: _FailingAuth(),
+      client: MockClient((_) async {
+        attempts++;
+        return http.Response('{"title":"unauthorized"}', 401);
+      }),
+    );
+
+    await expectLater(
+      backend.ensureSession(session),
+      throwsA(isA<CaptureBackendException>()),
+    );
+    expect(attempts, 1);
+  });
 }
 
 HttpCaptureBackend _backend(
@@ -138,4 +183,26 @@ final class _FakeContent implements SegmentContentStore {
   @override
   Stream<List<int>> read(String reference) =>
       Stream<List<int>>.value(_bytes[reference]!);
+}
+
+/// Hands out a new token on every refresh, so a retry is visibly a different credential.
+final class _RotatingAuth implements AuthTokenProvider {
+  int _generation = 1;
+
+  @override
+  Future<String> accessToken() async => 'tok-$_generation';
+
+  @override
+  Future<bool> refresh() async {
+    _generation++;
+    return true;
+  }
+}
+
+final class _FailingAuth implements AuthTokenProvider {
+  @override
+  Future<String> accessToken() async => 'stale';
+
+  @override
+  Future<bool> refresh() async => false;
 }

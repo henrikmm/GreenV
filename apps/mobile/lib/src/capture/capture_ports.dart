@@ -67,6 +67,20 @@ abstract interface class SegmentContentStore {
   Stream<List<int>> read(String reference);
 }
 
+/// Supplies the credential every request carries.
+///
+/// The capture client is a public client: anything compiled into the binary is extractable, so a
+/// long-lived secret baked in with `--dart-define` is not a secret. This exists so the app can move
+/// to a short-lived token fetched at runtime without the upload path knowing which it is holding.
+abstract interface class AuthTokenProvider {
+  /// The value for the `Authorization: Bearer` header. Empty means send no header at all.
+  Future<String> accessToken();
+
+  /// Called once after a 401. Returns whether a new token was obtained and the call is worth
+  /// retrying.
+  Future<bool> refresh();
+}
+
 abstract interface class CaptureBackend {
   Future<void> ensureSession(QueuedSession session);
   Future<void> uploadSegment(QueuedSegment segment);

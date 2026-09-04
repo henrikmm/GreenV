@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:greenv_capture/src/api/client_credentials_token_provider.dart';
 import 'package:greenv_capture/src/api/http_capture_backend.dart';
 import 'package:greenv_capture/src/bootstrap/app_dependencies.dart';
 import 'package:greenv_capture/src/bootstrap/capture_configuration.dart';
@@ -32,6 +33,15 @@ Future<AppDependencies> createAppDependencies() async {
       baseUri: CaptureConfiguration.apiUri,
       content: queue,
       bearerToken: CaptureConfiguration.apiToken,
+      // Null unless device credentials were supplied, in which case every request carries a
+      // four-hour token fetched at runtime instead of the compiled-in shared one.
+      auth: CaptureConfiguration.usesClientCredentials
+          ? ClientCredentialsTokenProvider(
+              tokenUri: CaptureConfiguration.tokenUri,
+              clientId: CaptureConfiguration.apiClientId,
+              clientSecret: CaptureConfiguration.apiClientSecret,
+            )
+          : null,
     ),
   );
   final coordinator = CaptureCoordinator(

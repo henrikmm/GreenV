@@ -13,8 +13,10 @@ final class HttpCaptureBackend implements CaptureBackend {
     required this.baseUri,
     required SegmentContentStore content,
     this.bearerToken = '',
+    AuthTokenProvider? auth,
     http.Client? client,
   }) : _content = content,
+       _auth = auth,
        _client = client ?? http.Client();
 
   final Uri baseUri;
@@ -22,6 +24,10 @@ final class HttpCaptureBackend implements CaptureBackend {
   /// The API rejects every route but `/actuator/health` without this. Empty means the build was
   /// compiled without `GREENV_API_TOKEN`, which only works against an unauthenticated local stack.
   final String bearerToken;
+
+  /// When null the backend behaves exactly as it always has: [bearerToken] on every request and
+  /// no retry. That is still the default, so the deployed capture build is unchanged.
+  final AuthTokenProvider? _auth;
 
   final SegmentContentStore _content;
   final http.Client _client;
@@ -100,23 +106,32 @@ final class HttpCaptureBackend implements CaptureBackend {
     String reference,
     String sha256,
   ) async {
-    final request = _SegmentUpload(
-      'PUT',
-      _resolve(
-        '/v2/capture-sessions/${segment.sessionId}'
-        '/segments/${segment.segmentIndex}/$objectName',
-      ),
-      _content.read(reference),
-      await _content.length(reference),
-    );
-    request.headers.addAll({
-      'content-type': contentType,
-      'x-idempotency-key': segment.idempotencyKey,
-      'x-content-sha256': sha256,
-      'x-captured-at': segment.capturedAtUtc.toIso8601String(),
-      'x-duration-millis': segment.durationMillis.toString(),
-    });
-    _expect(await _send(request), {200});
+    final length = await _content.length(reference);
+
+    // Rebuilt per attempt rather than reused: `_SegmentUpload` finalizes a single-subscription
+    // stream, so re-sending one instance throws instead of retrying. The upload is idempotent by
+    // key and checksum, so a second attempt is safe.
+    http.BaseRequest build() {
+      final request = _SegmentUpload(
+        'PUT',
+        _resolve(
+          '/v2/capture-sessions/${segment.sessionId}'
+          '/segments/${segment.segmentIndex}/$objectName',
+        ),
+        _content.read(reference),
+        length,
+      );
+      request.headers.addAll({
+        'content-type': contentType,
+        'x-idempotency-key': segment.idempotencyKey,
+        'x-content-sha256': sha256,
+        'x-captured-at': segment.capturedAtUtc.toIso8601String(),
+        'x-duration-millis': segment.durationMillis.toString(),
+      });
+      return request;
+    }
+
+    _expect(await _sendRebuildable(build), {200});
   }
 
   http.Request _jsonRequest(
@@ -129,9 +144,26 @@ final class HttpCaptureBackend implements CaptureBackend {
 
   Uri _resolve(String path) => baseUri.resolve(path);
 
-  Future<http.Response> _send(http.BaseRequest request) async {
-    if (bearerToken.isNotEmpty) {
-      request.headers['authorization'] = 'Bearer $bearerToken';
+  Future<http.Response> _send(http.BaseRequest request) =>
+      _sendRebuildable(() => request);
+
+  /// Sends [build]'s request, and on a 401 refreshes the credential and sends a freshly built one.
+  /// A request can only be sent once, which is why this takes a builder rather than a request.
+  Future<http.Response> _sendRebuildable(http.BaseRequest Function() build) async {
+    final response = await _sendOnce(build());
+    if (response.statusCode != 401 || _auth == null) {
+      return response;
+    }
+    if (!await _auth.refresh()) {
+      return response;
+    }
+    return _sendOnce(build());
+  }
+
+  Future<http.Response> _sendOnce(http.BaseRequest request) async {
+    final token = _auth == null ? bearerToken : await _auth.accessToken();
+    if (token.isNotEmpty) {
+      request.headers['authorization'] = 'Bearer $token';
     }
     return http.Response.fromStream(await _client.send(request));
   }
