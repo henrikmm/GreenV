@@ -166,7 +166,7 @@ lockfile is the record of what the CI and the development machine both ran. Clou
 come from `.env.local`, copied from `.env.local.example`; nothing in the app hard-codes them.
 
 **How the tests are arranged.** They sit beside the code they cover, named `*.test.ts` (or
-`*.test.mjs`) — 45 files and 589 tests as of 2026-08-13. There is one runner: `vitest`, from
+`*.test.mjs`) — 45 files and 626 tests as of 2026-09-03. There is one runner: `vitest`, from
 `app/`, and its glob reaches `../geometry`, `../scripts` and `vite-plugins` deliberately, so none
 of them can drift from the app on types or on the camera convention. `vite-plugins` joined last,
 when deleting a run became archiving it: the local API is what stands between a delete and

@@ -92,6 +92,15 @@ export interface BackprojectOptions {
   /** Ignore depths outside this range, in metres. Guards against 0/inf sentinels. */
   minDepth?: number;
   maxDepth?: number;
+  /**
+   * Also return which pixel each surviving point came from.
+   *
+   * Off by default because the answer is an extra allocation the measurement path does not
+   * need. It exists for the overlays: a cell's height is only checkable if you can put the
+   * pixels behind it back on the photograph, and a compacted point array has thrown away
+   * the one thing that makes that possible.
+   */
+  collectPixelIndices?: boolean;
 }
 
 export interface BackprojectResult {
@@ -102,6 +111,11 @@ export interface BackprojectResult {
   points: Float32Array;
   pointCount: number;
   maskedPixels: number;
+  /**
+   * Source pixel index of each point, parallel to `points` — entry `i` describes the point at
+   * `points[i * 3]`. Present only when `collectPixelIndices` was asked for.
+   */
+  pixelIndices?: Uint32Array;
   rejected: {
     eroded: number;
     depth: number;
@@ -116,6 +130,7 @@ const DEFAULTS = {
   maxRelativeDepthStep: 0.05,
   minDepth: 1e-4,
   maxDepth: Infinity,
+  collectPixelIndices: false,
 } as const;
 
 /**
@@ -234,6 +249,7 @@ export function backprojectMask(
   for (let i = 0; i < kept.length; i++) if (mask[i] && !kept[i]) erodedAway += 1;
 
   const out = new Float32Array(maskedPixels * 3);
+  const pixelIndices = opts.collectPixelIndices ? new Uint32Array(maskedPixels) : null;
   let written = 0;
   const rejected = { eroded: erodedAway, depth: 0, confidence: 0, discontinuity: 0 };
 
@@ -267,6 +283,7 @@ export function backprojectMask(
       out[written * 3] = e[0] * rel[0] + e[4] * rel[1] + e[8] * rel[2];
       out[written * 3 + 1] = e[1] * rel[0] + e[5] * rel[1] + e[9] * rel[2];
       out[written * 3 + 2] = e[2] * rel[0] + e[6] * rel[1] + e[10] * rel[2];
+      if (pixelIndices) pixelIndices[written] = index;
       written += 1;
     }
   }
@@ -275,6 +292,7 @@ export function backprojectMask(
     points: out.subarray(0, written * 3),
     pointCount: written,
     maskedPixels,
+    ...(pixelIndices ? { pixelIndices: pixelIndices.subarray(0, written) } : {}),
     rejected,
   };
 }

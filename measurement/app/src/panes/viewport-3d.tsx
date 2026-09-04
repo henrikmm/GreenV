@@ -100,6 +100,9 @@ import {
   rotateAbout,
 } from "./viewport-nav";
 import { LayerRow, OutputRow, PaneControls, type LayerChoice } from "./pane-chrome";
+import { buildGrassOverlay } from "./grass-overlay";
+import { GrassControls } from "./grass-controls";
+import { useGrassRun } from "../measurement/grass-grid-store";
 import { ProvenanceBanner } from "./provenance";
 
 const GIZMO_PX = 72;
@@ -141,6 +144,8 @@ const FLOOR_POINTS_LAYER = "floor-points";
 const FLOOR_UP_LAYER = "floor-up";
 const BELOW_PLANE_LAYER = "below-plane";
 const CAMERA_PATH_LAYER = "camera-path";
+const GRASS_BAND_LAYER = "grass-band";
+const GRASS_CELLS_LAYER = "grass-cells";
 
 /** Colours are the type legend from DESIGN.md, not decoration. See each layer below. */
 const PLANE_HUE = "#f3c969"; // --port-plane: everything that IS the fitted plane
@@ -189,6 +194,18 @@ const LAYERS: LayerChoice[] = [
     label: "Camera path",
     title:
       "The route the camera walked, with the current frame marked and aimed. Shows which part of the cloud a frame could actually see — without having to stand in it.",
+  },
+  {
+    id: GRASS_BAND_LAYER,
+    label: "Grass band",
+    title:
+      "The 0–5 m strip the grass grid measured, drawn on the ground with a rung every metre. Placed from the camera path, which is not the road edge — so this is the assumption itself, drawn.",
+  },
+  {
+    id: GRASS_CELLS_LAYER,
+    label: "Grass cells",
+    title:
+      "One square per measured cell, brighter for a taller H95 over the run's own range. Cells that abstained are drawn as an empty outline, because they claim nothing rather than claiming zero.",
   },
 ];
 
@@ -394,6 +411,7 @@ export function Viewport3D() {
   const mountedRef = useRef<THREE.Object3D>(null);
   const evidenceRef = useRef<THREE.Group>(null);
   const pathRef = useRef<THREE.Group>(null);
+  const grassRef = useRef<THREE.Group>(null);
   /**
    * Recorded evidence, in its own group for the same reason `pathRef` has one: it is rebuilt on
    * every click in the Objects trial list, and sharing the evidence group would rebuild a
@@ -431,6 +449,7 @@ export function Viewport3D() {
 
   const advanced = useAdvanced();
   const graph = useGraph();
+  const grassRun = useGrassRun();
   const incoming = resolveInput(graph, VIEWER_3D_ID, "points");
   // The cloud itself carries no provenance — it is a GLB. Read it from the depth field that
   // produced it, one hop upstream, so the banner cannot disagree with what is rendered.
@@ -616,6 +635,10 @@ export function Viewport3D() {
     recorded.name = "recorded-evidence";
     scene.add(recorded);
     recordedRef.current = recorded;
+    const grass = new THREE.Group();
+    grass.name = "grass-grid";
+    scene.add(grass);
+    grassRef.current = grass;
 
     const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 5000);
     camera.position.set(0, 0, 10);
@@ -934,11 +957,40 @@ export function Viewport3D() {
   const showUpAxes = layers.has(FLOOR_UP_LAYER);
   const showBelow = layers.has(BELOW_PLANE_LAYER);
   const showCameraPath = layers.has(CAMERA_PATH_LAYER);
+  const showGrassBand = layers.has(GRASS_BAND_LAYER);
+  const showGrassCells = layers.has(GRASS_CELLS_LAYER);
 
   /** Radius the whole overlay shares, so grid, disc and arrows agree on one extent. */
   const floorRadius =
     ground && cloud ? Math.max(0.2, Math.min(cloud.extent * 0.35, ground.evidence.radius * 1.05)) : 0;
   const gridSpacing = chooseGridSpacing(floorRadius);
+
+  /**
+   * The grass band and its cells, rebuilt whenever the run or the layer switches move.
+   *
+   * Built only when switched on, like the floor layers: a development overlay nobody asked for
+   * should hold no GPU memory. The measurement is never recomputed here — this draws what the
+   * store already holds, so the picture and the JSON cannot disagree.
+   */
+  useEffect(() => {
+    const grass = grassRef.current;
+    if (!grass) return;
+    for (const child of [...grass.children]) {
+      grass.remove(child);
+      disposeSubtree(child);
+    }
+    if (!advanced) return;
+    const { assessment, roadEdge, plane, selectedCell } = grassRun;
+    if (!assessment || !roadEdge || !plane) return;
+    if (!showGrassBand && !showGrassCells) return;
+    buildGrassOverlay(grass, {
+      assessment,
+      polyline: roadEdge.polyline,
+      plane,
+      selectedCell,
+      layers: { band: showGrassBand, cells: showGrassCells },
+    });
+  }, [advanced, grassRun, showGrassBand, showGrassCells]);
 
   useEffect(() => {
     const evidence = evidenceRef.current;
@@ -1464,6 +1516,9 @@ export function Viewport3D() {
             </>
           )}
           <LayerRow choices={LAYERS} active={layers} onToggle={toggleLayer} />
+          {/* A development instrument, Advanced only: it runs the grass grid and lets somebody
+              look at what its JSON was computed from. Not part of the app doing its job. */}
+          <GrassControls />
         </>
       )}
       <ResultStrip readout={result} />
