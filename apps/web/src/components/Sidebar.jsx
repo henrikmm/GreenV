@@ -1,4 +1,4 @@
-import { LEVELS, EQUIPMENT_TYPES, formatArea } from '../utils/classification'
+import { LEVELS, vegetationLevel, EQUIPMENT_TYPES, formatArea } from '../utils/classification'
 
 const s = {
   sidebar: {
@@ -78,7 +78,7 @@ export default function Sidebar({
   const stats = geojson ? (() => {
     let l1 = 0, l2 = 0, l3 = 0
     geojson.features.forEach(f => {
-      const lv = f.properties.vegetation_level || 1
+      const lv = vegetationLevel(f.properties.vegetation_level)
       if (lv === 1) l1++; if (lv === 2) l2++; if (lv === 3) l3++
     })
     return { l1, l2, l3 }
@@ -87,8 +87,8 @@ export default function Sidebar({
   const eq = selectedFeature
     ? (EQUIPMENT_TYPES[selectedFeature.properties.name] || { short: selectedFeature.properties.name })
     : null
-  const selLevel = selectedFeature ? (selectedFeature.properties.vegetation_level || 1) : null
-  const selLvl = selLevel ? LEVELS[selLevel] : null
+  const selLevel = selectedFeature ? (vegetationLevel(selectedFeature.properties.vegetation_level)) : null
+  const selLvl = selLevel !== null ? LEVELS[selLevel] : null
 
   return (
     <div style={s.sidebar}>

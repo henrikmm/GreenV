@@ -59,7 +59,10 @@ export {
   classMapFromLogits,
   grassMaskFromClassMap,
   grassMaskFromLogits,
+  scoreSemanticMask,
   type SemanticClassMap,
   type SemanticLogits,
   type SemanticMaskResult,
 } from "../../geometry/semantic-mask";
+export { measureGrassHeightGridStaged, recordGrassHeightReview } from "../../geometry/grass-height-grid";
+export { roadEdgeFromCameraTrack, buildBandSegments, cellQuad } from "../../app/src/measurement/grass-grid";

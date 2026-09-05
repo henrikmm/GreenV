@@ -255,3 +255,28 @@ export function noteSideBalance(points: ArrayLike<number>): void {
   if (!state.roadEdge || !state.plane) return;
   commit({ balance: sideBalance(points, state.roadEdge.polyline, state.plane) });
 }
+
+/** Display the exact worker result rather than recomputing it with different floor settings. */
+export function showGrassQuality(bundle: import("./grass-quality").GrassQualityBundle): void {
+  const provenance: GrassProvenance = new Map();
+  for (const cell of bundle.cells) {
+    const pixelsByFrame = new Map<number, Uint32Array>();
+    let pixelCount = 0;
+    for (const p of cell.pixels) {
+      const indices: number[] = [];
+      for (let i = 0; i < p.runs.length; i += 2) for (let n = p.runs[i]; n < p.runs[i] + p.runs[i + 1]; n++) indices.push(n);
+      pixelsByFrame.set(p.frameIndex, Uint32Array.from(indices)); pixelCount += indices.length;
+    }
+    provenance.set(cell.key, { coordinate: cell.coordinate, pixelsByFrame, pixelCount });
+  }
+  ++generation;
+  commit({ ...EMPTY, status: "done", assessment: bundle.assessment, provenance,
+    plane: bundle.ground.plane, framesOffered: bundle.frames.length,
+    framesMasked: bundle.frames.filter((f) => f.mask).length,
+    startedAt: Date.now() - bundle.timing.totalMs, finishedAt: Date.now(),
+    roadEdge: bundle.corridor.lengthM === null ? null : { polyline: bundle.corridor.polyline,
+      source: { kind: "camera-track", offsetM: bundle.corridor.offsetM, lengthM: bundle.corridor.lengthM,
+        keptPoses: bundle.corridor.polyline.length, sourcePoses: bundle.frames.length } },
+    selectedCell: openingSelection(bundle.assessment),
+  });
+}

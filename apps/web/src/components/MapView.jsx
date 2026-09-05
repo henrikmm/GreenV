@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from 'react'
 import { MapContainer, TileLayer, GeoJSON, CircleMarker, Tooltip, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
-import { getPolygonStyle, EQUIPMENT_TYPES, LEVELS, formatArea } from '../utils/classification'
+import { getPolygonStyle, EQUIPMENT_TYPES, LEVELS, vegetationLevel, formatArea } from '../utils/classification'
 
 function FitBounds({ geojson }) {
   const map = useMap()
@@ -35,7 +35,7 @@ export default function MapView({ geojson, marcoKm, activeLayers, filterLevel, o
     if (filterLevel === null) return geojson
     return {
       ...geojson,
-      features: geojson.features.filter(f => f.properties.vegetation_level === filterLevel)
+      features: geojson.features.filter(f => vegetationLevel(f.properties.vegetation_level) === filterLevel)
     }
   }, [geojson, filterLevel])
 
@@ -62,7 +62,7 @@ export default function MapView({ geojson, marcoKm, activeLayers, filterLevel, o
             onEachFeature={(feature, layer) => {
               const eq = EQUIPMENT_TYPES[feature.properties.name] || { short: feature.properties.name }
               const area = feature.properties.area_m2
-              const level = feature.properties.vegetation_level || 1
+              const level = vegetationLevel(feature.properties.vegetation_level)
               const lvl = LEVELS[level]
 
               layer.on({

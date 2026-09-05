@@ -93,7 +93,7 @@ OPTIONS
   --focus [m]                measurement replay: also draw the cloud framed on the ruler, with
                              this margin around it in metres (default 0.75)
   --model <key>              segment: cityscapes-b0 (default) | cityscapes-b2
-  --floor <p>                segment: probability a winning pixel must clear (default 0.6)
+  --floor <p>                segment: probability a winning pixel must clear (default 0.5)
   --frames <a,b,c>           segment: several frames as one contact sheet
   --against <trial>          segment: score the classes against a recorded brush. Name it by
                              target ("Grass-Exe1"), trial index, or full observation id
@@ -1311,6 +1311,9 @@ async function cmdSegment(positional, flags) {
   const reports = [];
   for (const index of chosen) {
     const file = files[index];
+    if (brush && Number(numberIn(file)) !== brush.frame) {
+      throw new Error(`mask frame mismatch: source ${numberIn(file)}, brush ${brush.frame}. Use the exact painted frame.`);
+    }
     const { logits, frame, timing } = await segmentFrame(file, model);
     if (logits.classes !== T.CITYSCAPES_CLASS_COUNT) {
       throw new Error(`${model.id} returned ${logits.classes} classes, not Cityscapes' ${T.CITYSCAPES_CLASS_COUNT}`);
@@ -1433,7 +1436,7 @@ function scoreAgainstBrush(map, brush, T, floor) {
       else if (claimed) modelOnly += 1;
     }
     const modelPixels = intersection + modelOnly;
-    if (modelPixels === 0 && intersection === 0) continue;
+    if (modelPixels === 0 && intersection === 0 && id !== T.GRASS_CLASS_ID) continue;
     rows.push({
       label,
       iou: intersection / (painted + modelOnly),

@@ -62,6 +62,7 @@ export interface SelectionValue {
   confidenceThreshold: number;
   maskRevision: number;
   maskSource: MaskSource;
+  semantic?: boolean;
   segmentation?: SegmentationProvenance;
 }
 
@@ -314,6 +315,7 @@ export const brushSelectionSpec: NodeSpec = {
       maskRevision: mask.revision,
       maskSource: mask.source,
       segmentation: mask.segmentation,
+      semantic: !!mask.semantic,
     };
     return {
       selection: {
@@ -355,6 +357,9 @@ export const measureHeightSpec: NodeSpec = {
     const selection = inputs.selection?.value as SelectionValue | undefined;
     const ground = inputs.plane?.value as GroundPlaneValue | undefined;
     if (!selection || !ground) throw new Error("measurement needs a selection and a floor");
+    if (selection.semantic) return {
+      measurement: { type: "measurement", value: null, summary: "semantic grass · inspect the per-cell grid and quality report" },
+    };
     if (selection.points.length === 0) throw new Error("paint an object mask before measuring");
     if (selection.segmentation && !selection.segmentation.accepted) {
       return {

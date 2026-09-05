@@ -1,11 +1,10 @@
 # Registry — what exists and why
 
-The record of this project: what works, what was decided, where the proof is, and what is still
-unknown. Everything here has been observed, not merely written.
+Verified behavior, decisions and evidence. Unfinished work lives in `TASK.md`.
 
-There are no tasks in this file. Work still to be done lives in `TASK.md`.
-
----
+Automatic grass evidence delivery is recorded in
+[the 2026-09-05 verification record](evidence/2026-09-05-grass-quality.md).
+The CLI, local API and report contract are in [GRASS-QUALITY.md](GRASS-QUALITY.md).
 
 ## 1. What the system does today
 

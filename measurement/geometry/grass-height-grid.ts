@@ -130,12 +130,15 @@ export interface GrassCellMeasurement {
   frameCount: number;
   /** Unique voxels summed over the voting frames. */
   sampleCount: number;
+  /** Observational disagreement, not a calibrated error bar. */
+  h95SpreadM?: number | null;
+  frameVotes?: Array<{ frameIndex: number; sampleCount: number; h50M: number; h90M: number; h95M: number }>;
   /**
    * Up to three frames to look at for this cell.
    *
-   * Measured cells name the voting frames whose own H95 landed closest to the reported
-   * median — the frames that agree with the answer, so a reviewer disagreeing with the
-   * overlay is disagreeing with the measurement rather than with an outlier. Abstained
+   * Measured cells include a representative frame, the largest H95 disagreement and
+   * the weakest support. Redundant choices are filled by the next representative.
+   * The reviewer sees evidence against the answer as well as for it. Abstained
    * cells name the lowest-numbered frames that saw the cell at all, because the question
    * there is "why was there not enough evidence", and that is what those frames show.
    */
@@ -149,6 +152,7 @@ export type GrassReviewSampleReason =
   | "median-h95"
   | "highest-h95"
   | "lowest-support"
+  | "largest-disagreement"
   | "abstained";
 
 export interface GrassReviewSample {
@@ -772,6 +776,9 @@ function reduceCells(
         h95M: null,
         frameCount,
         sampleCount,
+        h95SpreadM: null,
+        frameVotes: votes.map((v) => ({ frameIndex: v.frameIndex, sampleCount: v.voxelCount,
+          h50M: v.percentiles[0], h90M: v.percentiles[1], h95M: v.percentiles[2] })),
         evidenceFrameIndices: observing.slice(0, 3),
         status: "insufficient-support",
         reason,
@@ -782,13 +789,16 @@ function reduceCells(
     const [h50M, h90M, h95M] = REPORTED_PERCENTILES.map((_, slot) =>
       median(votes.map((vote) => vote.percentiles[slot])),
     );
-    // The frames that agree with the answer, nearest first, ties broken by frame index so
-    // the choice cannot depend on Map iteration order.
-    const evidenceFrameIndices = votes
+    // Representative, disagreement and support all deserve inspection. Ties use frame identity.
+    const byAgreement = votes
       .map((vote) => ({ frameIndex: vote.frameIndex, delta: Math.abs(vote.percentiles[2] - h95M) }))
-      .sort((a, b) => a.delta - b.delta || a.frameIndex - b.frameIndex)
-      .slice(0, 3)
-      .map((entry) => entry.frameIndex);
+      .sort((a, b) => a.delta - b.delta || a.frameIndex - b.frameIndex);
+    const weakest = [...votes].sort((a, b) => a.voxelCount - b.voxelCount || a.frameIndex - b.frameIndex)[0];
+    const mostDifferent = [...byAgreement].sort((a, b) => b.delta - a.delta || a.frameIndex - b.frameIndex)[0];
+    const evidenceFrameIndices = [...new Set([
+      byAgreement[0].frameIndex, mostDifferent.frameIndex, weakest.frameIndex,
+      ...byAgreement.map((v) => v.frameIndex),
+    ])].slice(0, 3);
 
     measurements.push({
       coordinate,
@@ -797,6 +807,9 @@ function reduceCells(
       h95M,
       frameCount,
       sampleCount,
+      h95SpreadM: Math.max(...votes.map((v) => v.percentiles[2])) - Math.min(...votes.map((v) => v.percentiles[2])),
+      frameVotes: votes.map((v) => ({ frameIndex: v.frameIndex, sampleCount: v.voxelCount,
+        h50M: v.percentiles[0], h90M: v.percentiles[1], h95M: v.percentiles[2] })),
       evidenceFrameIndices,
       status: "measured",
     });
@@ -886,6 +899,7 @@ function buildReviewEvidence(measurements: GrassCellMeasurement[]): GrassHeightA
     push(nearestMedian, "median-h95");
     push(highest, "highest-h95");
     push(weakest, "lowest-support");
+    push(measured.reduce((best, cell) => (cell.h95SpreadM ?? 0) > (best.h95SpreadM ?? 0) ? cell : best), "largest-disagreement");
   }
   push(abstained[0], "abstained");
 

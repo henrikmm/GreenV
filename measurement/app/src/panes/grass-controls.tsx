@@ -1,3 +1,4 @@
+import { GrassQualityControls } from "./grass-quality-controls";
 /**
  * Starting a grass-grid run, and watching it happen.
  *
@@ -67,6 +68,7 @@ export function GrassControls() {
 
   return (
     <>
+      <GrassQualityControls offsetM={offsetM} />
       <div className="output-row">
         <span className="output-label">GRASS GRID</span>
         <HelpDot label="What the grass grid is">

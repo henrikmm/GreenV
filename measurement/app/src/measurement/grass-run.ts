@@ -108,9 +108,9 @@ export async function startGrassRun(
       // — the frame slider, the inspector, the recorded trials.
       frameIndex: descriptor.npzIndex,
       geometryFrame: geometryFrame(arrays, descriptor),
-      grassMask: mask.data,
-      maskWidth: mask.width,
-      maskHeight: mask.height,
+      grassMask: mask.nativeSemanticMask?.data ?? mask.data,
+      maskWidth: mask.nativeSemanticMask?.width ?? mask.width,
+      maskHeight: mask.nativeSemanticMask?.height ?? mask.height,
     });
   }
 

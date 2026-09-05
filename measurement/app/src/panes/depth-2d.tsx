@@ -626,6 +626,15 @@ export function Depth2D() {
                 : "—";
             })()}
           </span>
+          <span className="mono">
+            {(() => {
+              const coordinate = grassRun.provenance?.get(grassRun.selectedCell)?.coordinate;
+              const cell = grassRun.assessment?.measurements.find((c) => c.coordinate.alongRoadM === coordinate?.alongRoadM && c.coordinate.distanceFromRoadM === coordinate?.distanceFromRoadM);
+              if (!cell) return "";
+              const cm = (v: number | null) => v === null ? "—" : `${(v * 100).toFixed(1)} cm`;
+              return `${cell.reason ?? "measured"} · H50 ${cm(cell.h50M)} · H90 ${cm(cell.h90M)} · H95 ${cm(cell.h95M)} · ${cell.frameCount} frames · ${cell.sampleCount} samples · spread ${cm(cell.h95SpreadM ?? null)}`;
+            })()}
+          </span>
           <span className="mono grass-dim">
             {grassCellPixels
               ? `${grassCellPixels.length.toLocaleString()} px on this frame`
@@ -635,7 +644,7 @@ export function Depth2D() {
       )}
       <div className="brush-toolbar">
         <span className="tool-context"><b>{object.code}</b> {object.name}</span>
-        {namedObject && <button
+        {namedObject && !object.temporary && <button
           className={`chip-toggle${tool === "segment" ? " on" : ""}`}
           disabled={segmentBusy}
           title="Load SlimSAM locally, then left-click the object and right-click exclusions"

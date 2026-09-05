@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { EQUIPMENT_TYPES, LEVELS, formatArea, generateOrderId } from '../utils/classification'
+import { EQUIPMENT_TYPES, LEVELS, vegetationLevel, formatArea, generateOrderId } from '../utils/classification'
 
 const TEAMS = {
   eq1: 'Equipe 1 — Zona Norte',
@@ -84,7 +84,7 @@ export default function OrderModal({ feature, onSubmit, onClose }) {
 
   const orderId = generateOrderId()
   const eq = EQUIPMENT_TYPES[feature.properties.name] || { short: feature.properties.name }
-  const level = feature.properties.vegetation_level || 1
+  const level = vegetationLevel(feature.properties.vegetation_level)
   const lvl = LEVELS[level]
 
   const handleSubmit = () => {

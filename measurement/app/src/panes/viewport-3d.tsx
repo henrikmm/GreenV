@@ -1342,7 +1342,7 @@ export function Viewport3D() {
         floor,
         measurement,
         target: target
-          ? { code: target.code, name: target.name, truthM: target.truthM }
+          ? { code: target.code, name: target.name, truthM: target.truthM, temporary: target.temporary }
           : undefined,
         blind: ui.blind,
       }),

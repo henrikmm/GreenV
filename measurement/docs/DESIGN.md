@@ -361,6 +361,20 @@ Design constraints, not copy guidelines.
 6. **Deployed is not billing.** The two are separate states everywhere they appear, because
    conflating them makes the cheap action look expensive and the expensive one look safe.
 
+## Automatic grass evidence
+
+Verge Studio uses English for all interface and report text. Verify visible changes in the real
+browser, including pointer interactions and screenshots, in addition to the automated harness.
+Automatic measurements expose original frames, semantic masks and retained measurement pixels
+separately. Cell selection states H50/H90/H95, support and disagreement; abstention states its
+reason. All sampled frames remain inspectable, including failures and empty predictions.
+
+Quality reports distinguish observed-cell coverage from intended-area coverage and leave the latter
+unknown until its footprint is established. Visual review records plausibility only. No displayed
+confidence, global plane residual or human acceptance implies physical validation. Automatic grass
+is a spatial field, so the object-height strip must direct users to the grid rather than quote a
+second, single-object height. Reports and model masks remain temporary until explicitly saved.
+
 ## Acceptance checklist
 
 1. App background is `#151517` or darker; no white surfaces; no default-blue links or focus rings.

@@ -1,4 +1,5 @@
 export const LEVELS = {
+  0: { label: 'Não avaliado', desc: 'Altura desconhecida', color: '#777780', bg: 'rgba(119,119,128,0.20)', priority: 'Indefinida' },
   1: { label: 'Nível 1', desc: 'h < 10 cm', color: '#42bb6f', bg: 'rgba(22,163,74,0.20)', priority: 'Baixa' },
   2: { label: 'Nível 2', desc: '10 ≤ h ≤ 30 cm', color: '#ca8a04', bg: 'rgba(202,138,4,0.20)', priority: 'Média' },
   3: { label: 'Nível 3', desc: 'h > 30 cm', color: '#dc2626', bg: 'rgba(220,38,38,0.20)', priority: 'Alta' },
@@ -12,7 +13,7 @@ export const EQUIPMENT_TYPES = {
 }
 
 export function getPolygonStyle(feature) {
-  const level = feature.properties.vegetation_level || 1
+  const level = vegetationLevel(feature.properties.vegetation_level)
   const lvl = LEVELS[level]
   return {
     color: lvl.color,
@@ -24,7 +25,7 @@ export function getPolygonStyle(feature) {
 }
 
 export function getLevel(val) {
-  return LEVELS[val] || LEVELS[1]
+  return LEVELS[vegetationLevel(val)]
 }
 
 export function formatArea(m2) {
@@ -68,4 +69,9 @@ export function kmToLatLng(kmMeters) {
   if (km < 0) return { lat: ROAD_ANCHORS[0].lat, lng: ROAD_ANCHORS[0].lon }
   const last = ROAD_ANCHORS[ROAD_ANCHORS.length - 1]
   return { lat: last.lat, lng: last.lon }
+}
+
+// Missing or invalid evidence must never become the lowest mowing priority.
+export function vegetationLevel(value) {
+  return [1, 2, 3].includes(value) ? value : 0
 }

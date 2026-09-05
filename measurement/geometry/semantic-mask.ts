@@ -99,6 +99,23 @@ export const CITYSCAPES_ROLES: readonly SemanticRole[] = CITYSCAPES_LABELS.map((
  */
 export const DEFAULT_MIN_PROBABILITY = 0.5;
 
+/** Exact-frame comparison. An absent prediction must still produce a failure row. */
+export function scoreSemanticMask(model: ArrayLike<number>, human: ArrayLike<number>,
+  modelFrame: number, humanFrame: number) {
+  if (modelFrame !== humanFrame) throw new Error(`mask frame mismatch: ${modelFrame} != ${humanFrame}`);
+  if (model.length !== human.length || !model.length) throw new Error("mask grids must match and be nonempty");
+  let tp = 0, fp = 0, fn = 0;
+  for (let i = 0; i < model.length; i++) {
+    if (model[i] && human[i]) tp++;
+    else if (model[i]) fp++;
+    else if (human[i]) fn++;
+  }
+  return { intersection: tp, falsePositive: fp, falseNegative: fn,
+    iou: tp + fp + fn ? tp / (tp + fp + fn) : null,
+    recall: tp + fn ? tp / (tp + fn) : null,
+    precision: tp + fp ? tp / (tp + fp) : null };
+}
+
 export interface SemanticMaskOptions {
   /** Winning probability a pixel must reach. Below it the pixel is excluded, not guessed. */
   minProbability?: number;

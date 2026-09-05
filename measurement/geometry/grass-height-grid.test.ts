@@ -220,8 +220,10 @@ describe("cell statistics", () => {
     const cell = cellAt(assessment, 1.25, 0.75);
     expect(cell?.frameCount).toBe(5);
     expect(cell?.h95M).toBe(0.25 + EXPECTED_H95);
-    // The three agreeing frames are the evidence, not the two outliers.
-    expect(cell?.evidenceFrameIndices).toEqual([0, 1, 2]);
+    // Keep the representative and a disagreement visible without changing the median.
+    expect(cell?.evidenceFrameIndices).toEqual([0, 3, 1]);
+    expect(cell?.h95SpreadM).toBe(1);
+    expect(cell?.frameVotes).toHaveLength(5);
   });
 
   it("never lets an unmasked tall object into the answer", () => {
