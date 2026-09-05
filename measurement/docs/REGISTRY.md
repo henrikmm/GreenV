@@ -784,29 +784,16 @@ from the road is unsigned, so V1 assumes the mask covers one side. The ground un
 plane: a crowned shoulder or a ditch inside five metres becomes grass height and nothing notices.
 Every result is stamped `validationStatus: "unvalidated"` and human acceptance does not change it.
 
-### Grass is segmented by class, and the class was chosen by measurement — 2026-09-04
+### Segmentation class must fit the intended target — 2026-09-05
 
-`geometry/semantic-mask.ts` makes a grass mask from a model's logits using **one Cityscapes class,
-`terrain` (id 9)**, dropping pixels under 0.5 probability rather than guessing. It stays pure.
-
-**Why that class**, all on `20260814-174814-b245bc` frame 80 and reproducible with `node
-scripts/inspect.mjs segment <run> --against <trial>`. Against the recorded Grass-Exe1 brush (20,892
-px up one clump) `terrain` overlapped in **0 px**: the grass class does not swallow the bush, which
-was the property in doubt. `vegetation` recovered 41.6% and `fence` the other 58.4%, thin blades
-over a pale wall. `road` is unused — B2 called 9.74% of this frame `road` while looking at a wall,
-B0 0.05%. ADE20k-B0, which has an explicit `grass` class, gave `water` 65.02% and `grass`
-0.02% — the vehicle-mounted training domain does the work, not the label list. All else is
-`excluded`, and `semantic-mask.test.ts` is where a promotion must be argued. The 0.5 floor comes from
-38,898 `terrain` wins over 10 frames of this run and `20260814-164826-0e4e4c` (p5 0.509, p50 0.953):
-bimodal, so it discards 4.24%, and a majority beats leading a 19-way split. The model is
-`Xenova/segformer-b0-finetuned-cityscapes-1024-1024` @ `64e537ca2bf6bf2afc13727ee6bb61cfca9e1048` on
-the `@huggingface/transformers@3.8.1` the app ships, 15.2 MB — less than its SlimSAM pair, fetched
-once by the only file in `scripts/` that touches the network so the inspector still has none.
-
-**Limits, seen not inferred.** Logits are 128x128 and deliberately not upsampled, since the grid
-resamples onto the depth grid itself: a cell covers ~4.5x8 px of a 576x1024 frame. **Dry grass is
-under-detected** — on `20260814-164826-0e4e4c` frame 21's green lawn gave 5,216 terrain px of 16,384
-where 41 and 61, the same lawn brown, gave 225 and 540.
+The user's clumping-plant target is excluded by the experimental terrain-only policy. The local
+candidate comparison recovered 0% of its recorded brush with terrain and 41.0% with vegetation;
+the union did no better. Vegetation is the appropriate candidate, but this model still misses
+height-bearing upper blades. No satisfactory automatic height is established by switching classes.
+Class fit is now a prerequisite in AGENTS and TASK; diagnostic `inspect segment --classes` keeps
+candidate policies separate from the production default. Exact trials, commands, class definitions,
+visual observations and the earlier lawn-policy evidence are in
+[evidence/2026-09-05-class-fit.md](evidence/2026-09-05-class-fit.md).
 
 ### The run is visible now, and the paid run shows itself — 2026-08-11
 

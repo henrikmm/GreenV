@@ -32,8 +32,10 @@ written. Unticked boxes are allowed in this file and nowhere else in the reposit
 
 ## What this file is about right now
 
-One thing: **measuring the height of grass from a whole video, with nobody clicking anything, in a
-way a person can check.** `geometry/grass-height-grid.ts` already does the measuring. The whole-run CPU path and evidence report now expose its masks,
+One thing: **measuring vegetation in the intended area from a whole video, with nobody clicking
+anything, in a way a person can check.** Class fit comes first; a lawn and a clumping plant must
+not be silently treated as the same target or height definition.
+`geometry/grass-height-grid.ts` already calculates per-cell height distributions. The whole-run CPU path and evidence report now expose its masks,
 source pixels and decisions. The remaining gates establish whether those decisions can be trusted.
 
 The order below is not arbitrary. Every task produces the instrument the next one is graded with,
@@ -48,6 +50,33 @@ there is a roadside clip to test against. Task 4 holds that work and is blocked 
 ---
 
 ## Now
+
+### 2. Establish class fit for the user's area of interest
+
+**Why.** The intended target includes the clumping plant in the supplied Test_Grass2 example.
+The current terrain-only policy excludes that target. The class-fit experiment and its limits
+are recorded in [the class-fit evidence](evidence/2026-09-05-class-fit.md). A lawn-only benchmark
+cannot establish that arbitrary vegetation of interest is selected correctly.
+
+**Gate.** Define the intended plant/region and exclusions, select candidate class policies, and
+inspect their masks on matching source frames before any height claim. Score complete target
+annotations, including base and tip retention, on held-out frames. Agree a pass threshold before
+scoring for acceptance; exploratory comparisons do not establish acceptance. An extent is graded
+against the plant's base-to-tip tape; a grid percentile requires a matching local-soil reference.
+
+**Regression.** Keep recorded annotations and tape truth intact. Diagnostic class overrides do
+not change the automatic worker's default policy or promote results to validated.
+
+**Approval.** User confirmation for target scope and acceptance threshold. Local exploratory
+class testing is already authorized; it requires no cloud work.
+
+**Start.** `node scripts/inspect.mjs segment 20260814-174814 --frame 79 --classes vegetation
+--against Grass-Exe1`; `--classes terrain,vegetation` tests the union using the same probability
+floor. Full observation ids select an exact recorded trial.
+
+- [ ] Establish complete target annotations and a pass threshold for the intended vegetation.
+- [ ] Find a class/model policy that retains the target's height-bearing evidence across views.
+- [ ] Grade the resulting measurement against ground truth for the same physical quantity.
 
 ### 3. Grade the automatic mask against the human one
 

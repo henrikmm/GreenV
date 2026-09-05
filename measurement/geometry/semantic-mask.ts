@@ -5,7 +5,12 @@
  * network, and does not know what produced its input — which is what lets it be tested
  * without a download and run from both the app and the inspector.
  *
- * ## Why one class, and why that one
+ * ## Experimental lawn policy, not a general vegetation selector
+ *
+ * The user's clumping-plant fixture is NOT covered by this default. Class-fit testing on
+ * 2026-09-05 established that zero terrain overlap is a target-selection failure for that
+ * request. See REGISTRY's "Class policy must follow the target" before choosing a policy.
+ * Diagnostic callers can supply roles; the production default is not silently broadened.
  *
  * Cityscapes labels 19 classes and this uses exactly one: `terrain` (id 9), which is the
  * grass and soil at the side of a road. `vegetation` (id 8) is the trees and bushes above

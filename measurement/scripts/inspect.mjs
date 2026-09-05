@@ -93,6 +93,7 @@ OPTIONS
   --focus [m]                measurement replay: also draw the cloud framed on the ruler, with
                              this margin around it in metres (default 0.75)
   --model <key>              segment: cityscapes-b0 (default) | cityscapes-b2
+  --classes <a,b>            segment: candidate Cityscapes labels (default terrain); diagnostic only
   --floor <p>                segment: probability a winning pixel must clear (default 0.5)
   --frames <a,b,c>           segment: several frames as one contact sheet
   --against <trial>          segment: score the classes against a recorded brush. Name it by
@@ -1296,6 +1297,12 @@ async function cmdSegment(positional, flags) {
   const model = flags.model ? findModel(String(flags.model)) : DEFAULT_MODEL;
   const floor = flags.floor === undefined ? T.DEFAULT_MIN_PROBABILITY : Number(flags.floor);
   if (!Number.isFinite(floor) || floor < 0 || floor > 1) throw new Error("--floor takes a probability from 0 to 1");
+  const selectedClasses = [...new Set(String(flags.classes ?? "terrain").split(",").map((value) => value.trim()))];
+  if (selectedClasses.some((label) => !T.CITYSCAPES_LABELS.includes(label))) {
+    throw new Error(`--classes requires Cityscapes labels: ${T.CITYSCAPES_LABELS.join(", ")}`);
+  }
+  const roles = T.CITYSCAPES_LABELS.map((label) => selectedClasses.includes(label) ? "grass" : "excluded");
+  const selectionLabel = selectedClasses.join("+");
 
   const files = frameFiles(run.frames);
   if (files.length === 0) throw new Error(`no source frames on this disk for ${run.id}`);
@@ -1319,11 +1326,11 @@ async function cmdSegment(positional, flags) {
       throw new Error(`${model.id} returned ${logits.classes} classes, not Cityscapes' ${T.CITYSCAPES_CLASS_COUNT}`);
     }
     const map = T.classMapFromLogits(logits);
-    const grass = T.grassMaskFromClassMap(map, { minProbability: floor });
+    const grass = T.grassMaskFromClassMap(map, { minProbability: floor, roles });
     const fractions = [...T.classFractions(map)].sort((a, b) => b[1] - a[1]);
 
     const photo = await readImage(file, Number(flags.size ?? 360));
-    const layers = [{ mask: grass.mask, rgb: [80, 240, 120], label: `terrain>=${floor}` }];
+    const layers = [{ mask: grass.mask, rgb: [80, 240, 120], label: `${selectionLabel}>=${floor}` }];
     if (brush) {
       layers.push({ mask: brush.mask, rgb: [255, 90, 200], label: "brush", width: brush.width, height: brush.height });
     }
@@ -1340,7 +1347,7 @@ async function cmdSegment(positional, flags) {
       width: map.width,
       height: map.height,
       title: `${run.id} frame ${numberIn(file)} - ${model.key}`,
-      subtitle: `${grass.counts.kept.toLocaleString("en-GB")} px terrain of ${grass.counts.total.toLocaleString("en-GB")} - floor dropped ${grass.counts.droppedToFloor}`,
+      subtitle: `${grass.counts.kept.toLocaleString("en-GB")} px ${selectionLabel} of ${grass.counts.total.toLocaleString("en-GB")} - floor dropped ${grass.counts.droppedToFloor}`,
     });
     tiles.push({ image, label: numberIn(file) });
 
@@ -1354,27 +1361,37 @@ async function cmdSegment(positional, flags) {
       droppedToFloor: grass.counts.droppedToFloor,
       classes: fractions.map(([id, fraction]) => ({ label: T.CITYSCAPES_LABELS[id], fraction })),
     };
-    if (brush) report.against = scoreAgainstBrush(map, brush, T, floor);
+    if (brush) {
+      report.against = scoreAgainstBrush(map, brush, T, floor);
+      const prediction = T.resampleMaskNearest(grass.mask, map.width, map.height, brush.width, brush.height);
+      report.selectedAgainst = {
+        ...T.scoreSemanticMask(prediction, brush.mask, Number(numberIn(file)), brush.frame),
+        reference: brush.name,
+        resolution: `${brush.width}x${brush.height}`,
+        scope: "recorded object brush; outside-brush pixels are unannotated, so precision and IoU do not establish whole-region accuracy",
+      };
+    }
     reports.push(report);
   }
 
   const image = tiles.length === 1 ? tiles[0].image : contactSheet(tiles, {
     columns: Math.min(tiles.length, Number(flags.columns ?? 4)),
-    title: `${run.id} - ${model.key} - terrain at floor ${floor}`,
-    subtitle: `${tiles.length} frames - green is the mask the grass grid would receive`,
+    title: `${run.id} - ${model.key} - ${selectionLabel} at floor ${floor}`,
+    subtitle: `${tiles.length} frames - green is the candidate mask; production class policy is unchanged`,
   });
   const path = outPath(flags, run, "segment");
   await writePng(image, path);
 
-  if (flags.json) return json({ id: run.id, model: model.id, revision: model.revision, floor, frames: reports, image: rel(path) });
+  if (flags.json) return json({ id: run.id, model: model.id, revision: model.revision, selectedClasses, floor, frames: reports, image: rel(path) });
 
   for (const report of reports) {
     out(pairs({
       frame: `${report.frame}  (${report.source} source, ${report.grid} logits, ${report.inferMs} ms)`,
-      terrain: `${report.kept.toLocaleString("en-GB")} px kept of ${report.grassWins.toLocaleString("en-GB")} that won - ${report.droppedToFloor.toLocaleString("en-GB")} dropped by the floor`,
+      [selectionLabel]: `${report.kept.toLocaleString("en-GB")} px kept of ${report.grassWins.toLocaleString("en-GB")} that won - ${report.droppedToFloor.toLocaleString("en-GB")} dropped by the floor`,
       classes: report.classes.slice(0, 6).map((entry) => `${entry.label} ${pct(entry.fraction)}`).join("  "),
     }));
     if (report.against) {
+      out(`selected-class recall on recorded brush: ${pct(report.selectedAgainst.recall)} (${report.selectedAgainst.resolution}); partial annotation, not whole-region precision`);
       out("");
       out(table(
         ["class", "IoU", "recall", "precision", "model px"],
