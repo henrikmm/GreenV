@@ -73,6 +73,19 @@ in progress prevents its masks from being applied to the newly selected video.
 
 ## What the quality fields establish
 
+**The default reading is an extent.** `extent50M`, `extent90M` and `extent95M` measure vegetation
+height above *each cell's own ground* — a low percentile of that cell's retained heights, reported
+separately as `localGroundM` in metres above the fitted plane. That is the quantity a tape
+measures, and the only one this project has graded. `h50M`, `h90M` and `h95M` are the same
+percentiles measured from the fitted plane instead, kept beside them so the pedestal between the
+two stays visible; `groundContactVoxels` counts the evidence actually touching the datum, because a
+cell that only ever saw canopy has its datum in the foliage and under-reports. See
+`docs/evidence/2026-09-05-extent-vs-percentile.md`.
+
+A local datum makes `cellSizeM` a correctness parameter. Ground that falls across a cell is added
+straight onto its extent as grass that is not there, so cells stay small and a longer stretch is
+built by aggregating cell *results* — never by widening the cell to pool more points into one box.
+
 The report shows every source frame, the semantic mask and the retained depth pixels. Selecting
 a cell exposes its per-frame height votes, support, final percentiles and disagreements. The
 suggested evidence includes a representative frame, the strongest disagreement and weak support.

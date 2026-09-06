@@ -3,10 +3,27 @@
  *
  * A mown lawn has no single top to hold a tape against — press harder and the number
  * shrinks — so this does not try to find "the height of the grass". It reports three
- * percentiles of the ground-normalised grass surface per half-metre cell, and lets the
- * reader decide which one their job means. H50 is where the canopy mostly is, H95 is
- * near the tips without being the single highest point, and the gap between them is
- * itself the answer to "how even is this verge".
+ * percentiles of the grass surface per half-metre cell, and lets the reader decide which
+ * one their job means. The 50th is where the canopy mostly is, the 95th is near the tips
+ * without being the single highest point, and the gap between them is itself the answer
+ * to "how even is this verge".
+ *
+ * THE DATUM IS THE CELL'S OWN GROUND. `extent50M`, `extent90M` and `extent95M` measure
+ * from a low percentile of the cell's own retained heights, which is what a tape held
+ * against a plant measures and the only estimator this project has ever graded: all 17
+ * recorded trials across its three runs are `vertical_extent`, and on the one fixture
+ * with a tape truth extent read +1.9% against H95's +20.1% on identical points
+ * (`docs/evidence/2026-09-05-extent-vs-percentile.md`). `h50M`, `h90M` and `h95M` are the
+ * same percentiles measured from the FITTED PLANE instead, kept beside them so the
+ * difference — the cell's `localGroundM` pedestal — stays visible rather than assumed
+ * away. A global plane cannot follow a raised bed, a crowned shoulder or a ditch; a
+ * per-cell datum does, which is the whole reason for the pair.
+ *
+ * The cost of a local datum is that a cell must stay small enough for its own ground to
+ * be flat. Ground that falls across a cell is added straight onto its extent as grass
+ * that is not there, so `cellSizeM` is now a correctness parameter and not only a
+ * resolution one. Aggregate cell RESULTS over a longer stretch; never widen the cell to
+ * pool more points into one box.
  *
  * Two independent conditions define the grass being measured, and both are required:
  * a semantic grass mask, AND a distance band measured from a supplied road edge. The
@@ -49,6 +66,28 @@ export const GRASS_HEIGHT_ASSESSMENT_SCHEMA = "verge.grass-height-assessment/0.1
 
 /** Nearest-rank percentiles reported per cell. Ordered, because H50 <= H90 <= H95 is a test. */
 const REPORTED_PERCENTILES = [50, 90, 95] as const;
+
+/**
+ * The percentile of a cell's own retained heights that stands for the ground under it.
+ *
+ * 2 rather than 0 for the same reason `measureVerticalExtent` uses P2 rather than `min`:
+ * the lowest point in a cell is a flying pixel, and a datum taken from it drags every
+ * height in the cell up with it. Matching that function's `lowerPercentile` is deliberate
+ * — the graded extent measurements in `MEASUREMENTS.md` were all produced with it, so the
+ * per-cell datum is the same estimator those numbers were earned by.
+ */
+const LOCAL_GROUND_PERCENTILE = 2;
+
+/**
+ * How close a voxel must sit to the local ground to count as touching it, in metres.
+ *
+ * A real ground surface puts many voxels within a few centimetres of its own low
+ * percentile, because it is a surface. A cell that only ever saw canopy has a thin tail
+ * there instead, so its datum is the bottom of the foliage rather than the soil and its
+ * extent is an under-reading. The count is reported rather than gated on: what separates
+ * the two cases on real roadside video has not been measured.
+ */
+const GROUND_CONTACT_BAND_M = 0.05;
 
 /**
  * How much of each frame's own confidence distribution is thrown away.
@@ -123,6 +162,28 @@ export interface GrassCellCoordinate {
 
 export interface GrassCellMeasurement {
   coordinate: GrassCellCoordinate;
+  /**
+   * The cell's own ground, in metres above the FITTED PLANE.
+   *
+   * The pedestal the plane-relative heights below cannot cancel: a raised bed, a bank, the
+   * crown of a shoulder. Measured on this project's own fixture 2026-09-05, the taped clump
+   * in `20260814-174814-b245bc` grows from 0.114 m of raised bed, which is 11.6% of its
+   * 0.980 m tape truth — see `docs/evidence/2026-09-05-extent-vs-percentile.md`.
+   */
+  localGroundM: number | null;
+  /** Voxels within `GROUND_CONTACT_BAND_M` of `localGroundM`. Thin means the datum is foliage. */
+  groundContactVoxels: number | null;
+  /**
+   * Vegetation height above the cell's OWN ground — the default reading.
+   *
+   * `extent95M` is what a tape held against the plant measures, and is the only estimator
+   * this project has graded: every one of the 17 recorded trials across its three runs is a
+   * `vertical_extent`. The `h*` fields below are the same percentiles measured from the
+   * fitted plane instead, kept so the pedestal stays visible as the difference.
+   */
+  extent50M: number | null;
+  extent90M: number | null;
+  extent95M: number | null;
   h50M: number | null;
   h90M: number | null;
   h95M: number | null;
@@ -185,6 +246,8 @@ export interface GrassHeightAssessmentV1 {
      */
     coverageFraction: number;
     h95RangeM: { min: number; max: number } | null;
+    /** The same, for the default reading. Above each cell's own ground, not the plane. */
+    extent95RangeM: { min: number; max: number } | null;
     samples: GrassReviewSample[];
   };
   review: {
@@ -499,6 +562,44 @@ function voteFor(frameIndex: number, voxels: Map<string, number>, minVoxels: num
   };
 }
 
+/**
+ * The cell's own ground, and how much evidence actually touches it.
+ *
+ * Pooled across the voting frames rather than taken per frame and averaged, because the
+ * ground under a half-metre of verge is a property of the place, not of the viewpoint —
+ * whereas a canopy percentile genuinely depends on which frame saw it, which is why the
+ * heights above keep one frame, one vote and this does not. A voxel seen by two frames
+ * contributes once, at its lower height, so the union is order-independent for the same
+ * reason `voteFor` is.
+ */
+function localGroundOf(votingFrames: Array<Map<string, number>>): { groundM: number; contactVoxels: number } {
+  const pooled = new Map<string, number>();
+  for (const voxels of votingFrames) {
+    for (const [key, height] of voxels) {
+      const existing = pooled.get(key);
+      pooled.set(key, existing === undefined ? height : Math.min(existing, height));
+    }
+  }
+  const heights = Float64Array.from(pooled.values()).sort();
+  const groundM = percentileOfSorted(heights, LOCAL_GROUND_PERCENTILE);
+  let contactVoxels = 0;
+  for (const height of heights) if (height <= groundM + GROUND_CONTACT_BAND_M) contactVoxels += 1;
+  return { groundM, contactVoxels };
+}
+
+/**
+ * A percentile re-datumed onto the cell's own ground.
+ *
+ * The datum is one number for the whole cell, so subtracting it after the median across
+ * frames is identical to subtracting it from every frame's vote first — one frame, one
+ * vote is preserved exactly rather than approximately. Clamped at zero: a canopy
+ * percentile below the cell's own P2 is arithmetic noise on a near-empty cell, not a
+ * plant of negative height.
+ */
+function above(groundM: number, heightM: number): number {
+  return Math.max(0, heightM - groundM);
+}
+
 // ------------------------------------------------------------------------ the API
 
 function resolveOptions(options: GrassHeightGridOptions | undefined): Required<GrassHeightGridOptions> {
@@ -771,6 +872,11 @@ function reduceCells(
       const observing = Array.from(cell.byFrame.keys()).sort((a, b) => a - b);
       measurements.push({
         coordinate,
+        localGroundM: null,
+        groundContactVoxels: null,
+        extent50M: null,
+        extent90M: null,
+        extent95M: null,
         h50M: null,
         h90M: null,
         h95M: null,
@@ -789,6 +895,11 @@ function reduceCells(
     const [h50M, h90M, h95M] = REPORTED_PERCENTILES.map((_, slot) =>
       median(votes.map((vote) => vote.percentiles[slot])),
     );
+    // The datum comes from the frames that voted, so the ground and the heights above it
+    // are built from one body of evidence rather than two.
+    const { groundM, contactVoxels } = localGroundOf(
+      votes.map((vote) => cell.byFrame.get(vote.frameIndex)!),
+    );
     // Representative, disagreement and support all deserve inspection. Ties use frame identity.
     const byAgreement = votes
       .map((vote) => ({ frameIndex: vote.frameIndex, delta: Math.abs(vote.percentiles[2] - h95M) }))
@@ -802,6 +913,11 @@ function reduceCells(
 
     measurements.push({
       coordinate,
+      localGroundM: groundM,
+      groundContactVoxels: contactVoxels,
+      extent50M: above(groundM, h50M),
+      extent90M: above(groundM, h90M),
+      extent95M: above(groundM, h95M),
       h50M,
       h90M,
       h95M,
@@ -859,16 +975,17 @@ function buildReviewEvidence(measurements: GrassCellMeasurement[]): GrassHeightA
   const abstained = measurements.filter((cell) => cell.status === "insufficient-support");
   const total = measurements.length;
 
-  const h95Values = measured.map((cell) => cell.h95M as number);
   // Folded rather than spread: a kilometre of verge is tens of thousands of cells, and
   // `Math.min(...cells)` passes every one as an argument until the stack runs out.
-  const h95RangeM =
-    h95Values.length > 0
-      ? h95Values.reduce(
+  const rangeOf = (values: number[]) =>
+    values.length > 0
+      ? values.reduce(
           (range, value) => ({ min: Math.min(range.min, value), max: Math.max(range.max, value) }),
           { min: Infinity, max: -Infinity },
         )
       : null;
+  const h95RangeM = rangeOf(measured.map((cell) => cell.h95M as number));
+  const extent95RangeM = rangeOf(measured.map((cell) => cell.extent95M as number));
 
   const samples: GrassReviewSample[] = [];
   const push = (cell: GrassCellMeasurement | undefined, reason: GrassReviewSampleReason) => {
@@ -883,12 +1000,15 @@ function buildReviewEvidence(measurements: GrassCellMeasurement[]): GrassHeightA
   };
 
   if (measured.length > 0) {
+    // Picked on the DEFAULT reading, so the cells a reviewer is sent to are the extremes of
+    // the number the assessment leads with rather than of the plane-relative one beside it.
     // `reduce` with a strict comparison keeps the earliest cell in sorted order on a tie.
-    const lowest = measured.reduce((best, cell) => ((cell.h95M as number) < (best.h95M as number) ? cell : best));
-    const highest = measured.reduce((best, cell) => ((cell.h95M as number) > (best.h95M as number) ? cell : best));
-    const middle = median(h95Values);
+    const extentValues = measured.map((cell) => cell.extent95M as number);
+    const lowest = measured.reduce((best, cell) => ((cell.extent95M as number) < (best.extent95M as number) ? cell : best));
+    const highest = measured.reduce((best, cell) => ((cell.extent95M as number) > (best.extent95M as number) ? cell : best));
+    const middle = median(extentValues);
     const nearestMedian = measured.reduce((best, cell) =>
-      Math.abs((cell.h95M as number) - middle) < Math.abs((best.h95M as number) - middle) ? cell : best,
+      Math.abs((cell.extent95M as number) - middle) < Math.abs((best.extent95M as number) - middle) ? cell : best,
     );
     const weakest = measured.reduce((best, cell) =>
       cell.frameCount < best.frameCount || (cell.frameCount === best.frameCount && cell.sampleCount < best.sampleCount)
@@ -908,6 +1028,7 @@ function buildReviewEvidence(measurements: GrassCellMeasurement[]): GrassHeightA
     abstainedCellCount: abstained.length,
     coverageFraction: total > 0 ? measured.length / total : 0,
     h95RangeM,
+    extent95RangeM,
     samples,
   };
 }

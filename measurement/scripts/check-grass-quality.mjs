@@ -24,7 +24,7 @@ export async function checkGrassPacket(directory) {
   for(const cell of bundle.cells){
     for(const p of cell.pixels){const frame=bundle.frames[p.frameIndex];if(!frame)throw new Error('unknown evidence frame');decodeRuns(p.runs,frame.depthWidth*frame.depthHeight);}
     const source=bundle.assessment.measurements.find(c=>c.coordinate.alongRoadM===cell.coordinate.alongRoadM&&c.coordinate.distanceFromRoadM===cell.coordinate.distanceFromRoadM);
-    for(const key of ['h50M','h90M','h95M','frameCount','sampleCount','status'])if(source?.[key]!==cell[key])throw new Error(`cell ${cell.key} disagrees with assessment`);
+    for(const key of ['extent50M','extent90M','extent95M','localGroundM','h50M','h90M','h95M','frameCount','sampleCount','status'])if(source?.[key]!==cell[key])throw new Error(`cell ${cell.key} disagrees with assessment`);
   }
   if(bundle.quality.operationalStatus!=='not-ready'||(bundle.assessment && bundle.assessment.validationStatus!=='unvalidated'))throw new Error('unexpected validation claim');
   return {runId:bundle.runId,frames:bundle.frames.length,cells:bundle.cells.length,checksums:'pass',reportMatchesJson:true,maskDigests:'pass'};

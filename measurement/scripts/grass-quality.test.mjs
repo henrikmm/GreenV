@@ -12,8 +12,8 @@ describe('quality evidence',()=>{
     expect(()=>scoreSemanticMask([1],[1],21,41)).toThrow('frame mismatch');
   });
   it('retains cells lost by automatic segmentation in paired height comparison',()=>{
-    const c={coordinate:{alongRoadM:.25,distanceFromRoadM:.25},status:'measured',h95M:.4};
-    expect(compareAssessments({measurements:[]},{measurements:[c]})).toEqual([{cell:'0.25,0.25',automaticStatus:'not-observed',humanStatus:'measured',deltaH95M:null,thresholdChanges:[{heightM:.1,changed:null},{heightM:.3,changed:null}]}]);
+    const c={coordinate:{alongRoadM:.25,distanceFromRoadM:.25},status:'measured',h95M:.4,extent95M:.35};
+    expect(compareAssessments({measurements:[]},{measurements:[c]})).toEqual([{cell:'0.25,0.25',automaticStatus:'not-observed',humanStatus:'measured',deltaH95M:null,deltaExtent95M:null,thresholdChanges:[{heightM:.1,changed:null},{heightM:.3,changed:null}]}]);
   });
   it('round trips mask bytes and refuses malformed evidence',()=>{
     const mask=Uint8Array.from([1,1,0,1,0,0,1]);expect(decodeRuns(encodeRuns(mask),mask.length)).toEqual(mask);

@@ -4,8 +4,8 @@
  * Every scene here is built as a DEPTH MAP and a mask, not as a bag of points, so each
  * test runs the real path: resample, erode, drop the least confident fifth, reject depth
  * edges, backproject, transform by `worldFromDa3`, normalise to gravity, voxelise,
- * per-frame percentile, median across frames. A test that fed points straight in would
- * pass while the pipeline in front of them was wrong.
+ * per-frame percentile, median across frames, then subtract the cell's own ground. A test
+ * that fed points straight in would pass while the pipeline in front of them was wrong.
  *
  * The synthetic camera looks straight down and is deliberately NEAR-ORTHOGRAPHIC — five
  * kilometres up with a focal length to match. That is not physical, and it is not meant
@@ -670,24 +670,84 @@ describe("review evidence", () => {
     };
   }
 
+  /**
+   * The same flat ground under every cell; what changes between them is how much grows on
+   * it. `ladderScene` varies the pedestal instead, which the default reading is supposed to
+   * cancel — so that one can no longer drive a selection made on extent.
+   */
+  function canopyLadderScene(): GrassHeightGridInput {
+    const scale = (x: number) => (x < 1.5 ? 1 : x < 2.0 ? 2 : x < 2.5 ? 0.5 : 1.5);
+    const surfaceYAt = (x: number, z: number): number | null => {
+      const [vx, vz] = voxelColumn(x, z);
+      return ((((vx + vz) % 25) + 25) % 25) * LEVEL * scale(x);
+    };
+    const frames = [0, 1, 2].map((frameIndex) =>
+      nadirFrame({ frameIndex, xMin: 1.0 + HALF_VOXEL, zMin: 1.0 + HALF_VOXEL, columns: 98, rows: 25, surfaceYAt }),
+    );
+    return {
+      runId: "synthetic-canopy-ladder",
+      frames,
+      worldFromDa3: IDENTITY_4X4,
+      roadEdgeWorld: ROAD_EDGE,
+      ground: { plane: GROUND, gravityUp: GRAVITY_UP, planeRmseM: 0.01 },
+    };
+  }
+
   it("picks the lowest, median, highest, weakest and first abstained cell, in that order", () => {
-    const assessment = measureGrassHeightGrid(ladderScene());
+    const assessment = measureGrassHeightGrid(canopyLadderScene());
     const reasons = assessment.reviewEvidence.samples.map((sample) => sample.reason);
     expect(reasons.slice(0, 3)).toEqual(["lowest-h95", "median-h95", "highest-h95"]);
     expect(reasons).toContain("lowest-support");
 
     const measured = assessment.measurements.filter((cell) => cell.status === "measured");
-    const h95 = measured.map((cell) => cell.h95M as number);
+    const extents = measured.map((cell) => cell.extent95M as number);
     const lowest = assessment.reviewEvidence.samples[0];
     const highest = assessment.reviewEvidence.samples.find((sample) => sample.reason === "highest-h95");
-    expect(cellAt(assessment, lowest.coordinate.alongRoadM, lowest.coordinate.distanceFromRoadM)?.h95M).toBe(
-      Math.min(...h95),
+    expect(cellAt(assessment, lowest.coordinate.alongRoadM, lowest.coordinate.distanceFromRoadM)?.extent95M).toBe(
+      Math.min(...extents),
     );
     expect(
       cellAt(assessment, highest?.coordinate.alongRoadM as number, highest?.coordinate.distanceFromRoadM as number)
-        ?.h95M,
-    ).toBe(Math.max(...h95));
-    expect(assessment.reviewEvidence.h95RangeM).toEqual({ min: Math.min(...h95), max: Math.max(...h95) });
+        ?.extent95M,
+    ).toBe(Math.max(...extents));
+    expect(assessment.reviewEvidence.extent95RangeM).toEqual({ min: Math.min(...extents), max: Math.max(...extents) });
+  });
+
+  /**
+   * The property the whole change exists for.
+   *
+   * `ladderScene` puts the same patterned canopy on four pedestals of different heights.
+   * Measured from the fitted plane those cells differ by the pedestal; measured from each
+   * cell's own ground they are the same plant, which is what a tape would say. On the real
+   * fixture this is worth 0.114 m of raised bed on a 0.980 m tape truth
+   * (`docs/evidence/2026-09-05-extent-vs-percentile.md`).
+   */
+  it("cancels the pedestal a cell stands on, which the plane-relative reading cannot", () => {
+    const measured = measureGrassHeightGrid(ladderScene()).measurements.filter(
+      (cell) => cell.status === "measured",
+    );
+    expect(measured.length).toBeGreaterThan(1);
+
+    const extents = new Set(measured.map((cell) => (cell.extent95M as number).toFixed(9)));
+    expect(extents.size).toBe(1);
+
+    const planeRelative = new Set(measured.map((cell) => (cell.h95M as number).toFixed(9)));
+    expect(planeRelative.size).toBeGreaterThan(1);
+
+    // And the difference between the two readings is exactly the pedestal, cell by cell.
+    for (const cell of measured) {
+      expect((cell.h95M as number) - (cell.localGroundM as number)).toBeCloseTo(cell.extent95M as number, 9);
+    }
+  });
+
+  it("reports how much evidence actually touches the ground it measured from", () => {
+    const measured = measureGrassHeightGrid(ladderScene()).measurements.filter(
+      (cell) => cell.status === "measured",
+    );
+    for (const cell of measured) {
+      expect(cell.groundContactVoxels as number).toBeGreaterThan(0);
+      expect(cell.groundContactVoxels as number).toBeLessThanOrEqual(cell.sampleCount);
+    }
   });
 
   it("names an abstained cell when one exists, and no duplicate coordinates ever", () => {

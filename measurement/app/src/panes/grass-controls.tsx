@@ -178,9 +178,9 @@ export function GrassControls() {
               {evidence.measuredCellCount} measured · {evidence.abstainedCellCount} abstained ·{" "}
               {(evidence.coverageFraction * 100).toFixed(0)}% of observed cells measured
             </span>
-            {evidence.h95RangeM && (
+            {evidence.extent95RangeM && (
               <span className="mono grass-dim">
-                H95 {evidence.h95RangeM.min.toFixed(3)}–{evidence.h95RangeM.max.toFixed(3)} m
+                E95 {evidence.extent95RangeM.min.toFixed(3)}–{evidence.extent95RangeM.max.toFixed(3)} m
               </span>
             )}
           </div>

@@ -43,11 +43,11 @@ export interface GrassOverlayInput {
  * differ by less than the ramp would then resolve. The legend states the range for exactly
  * this reason: without it the shade means nothing.
  */
-export function heightShade(h95M: number, min: number, max: number): number {
-  if (!Number.isFinite(h95M)) return 0;
+export function heightShade(heightM: number, min: number, max: number): number {
+  if (!Number.isFinite(heightM)) return 0;
   const span = max - min;
   if (!(span > 1e-9)) return 0.75;
-  return Math.min(1, Math.max(0, (h95M - min) / span));
+  return Math.min(1, Math.max(0, (heightM - min) / span));
 }
 
 /** Cell key as the store and the measurement both spell it. */
@@ -80,7 +80,8 @@ export function buildGrassOverlay(group: THREE.Group, input: GrassOverlayInput):
   }
 
   if (layers.cells) {
-    const range = assessment.reviewEvidence.h95RangeM;
+    // Shaded on the default reading, so the map and the tables agree about which cell is tall.
+    const range = assessment.reviewEvidence.extent95RangeM;
     const min = range?.min ?? 0;
     const max = range?.max ?? 1;
 
@@ -102,7 +103,7 @@ export function buildGrassOverlay(group: THREE.Group, input: GrassOverlayInput):
       const isSelected = key === selectedCell;
 
       if (cell.status === "measured") {
-        const shade = 0.25 + 0.75 * heightShade(cell.h95M as number, min, max);
+        const shade = 0.25 + 0.75 * heightShade(cell.extent95M as number, min, max);
         // Two triangles, per-vertex colour, one draw call for the whole grid.
         for (const [a, b, c] of [
           [0, 1, 2],

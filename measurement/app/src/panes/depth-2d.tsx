@@ -632,7 +632,7 @@ export function Depth2D() {
               const cell = grassRun.assessment?.measurements.find((c) => c.coordinate.alongRoadM === coordinate?.alongRoadM && c.coordinate.distanceFromRoadM === coordinate?.distanceFromRoadM);
               if (!cell) return "";
               const cm = (v: number | null) => v === null ? "—" : `${(v * 100).toFixed(1)} cm`;
-              return `${cell.reason ?? "measured"} · H50 ${cm(cell.h50M)} · H90 ${cm(cell.h90M)} · H95 ${cm(cell.h95M)} · ${cell.frameCount} frames · ${cell.sampleCount} samples · spread ${cm(cell.h95SpreadM ?? null)}`;
+              return `${cell.reason ?? "measured"} · E50 ${cm(cell.extent50M)} · E95 ${cm(cell.extent95M)} above this cell's own ground, which sits ${cm(cell.localGroundM)} above the plane · H95 from the plane ${cm(cell.h95M)} · ${cell.frameCount} frames · ${cell.sampleCount} samples · spread ${cm(cell.h95SpreadM ?? null)}`;
             })()}
           </span>
           <span className="mono grass-dim">

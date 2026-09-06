@@ -53,7 +53,8 @@ export function qualitySummary(assessment, frames, context, ground, corridor) {
     uncertaintyMeaning: "between-frame disagreement only; not a calibrated error interval",
     // Fractions are over measured cells only; these are sensitivity summaries, not priorities.
     thresholdExploration: [0.1, 0.3].map((heightM) => ({ heightM,
-      measuredCellsAbove: measured.filter((c) => c.h95M > heightM).length,
+      // On the default reading: height above each cell's own ground, not above the plane.
+      measuredCellsAbove: measured.filter((c) => c.extent95M > heightM).length,
       measuredCellCount: measured.length, policyStatus: "draft-not-motiva-approved" })),
   };
 }
@@ -67,7 +68,8 @@ export function compareAssessments(automatic, human) {
     automaticStatus: pair.automatic?.status ?? "not-observed",
     humanStatus: pair.human?.status ?? "not-observed",
     deltaH95M: pair.automatic?.h95M != null && pair.human?.h95M != null ? pair.automatic.h95M - pair.human.h95M : null,
+    deltaExtent95M: pair.automatic?.extent95M != null && pair.human?.extent95M != null ? pair.automatic.extent95M - pair.human.extent95M : null,
     thresholdChanges: [0.1, 0.3].map((heightM) => ({ heightM,
-      changed: pair.automatic?.h95M != null && pair.human?.h95M != null ? (pair.automatic.h95M > heightM) !== (pair.human.h95M > heightM) : null })),
+      changed: pair.automatic?.extent95M != null && pair.human?.extent95M != null ? (pair.automatic.extent95M > heightM) !== (pair.human.extent95M > heightM) : null })),
   }));
 }

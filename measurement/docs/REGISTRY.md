@@ -750,8 +750,8 @@ Four conventions were chosen rather than defaulted, and each is pinned by a test
 
 - **Height is measured along gravity, not along the plane normal**, by dividing the
   plane-perpendicular distance by `dot(normal, gravityUp)`. On a 25° tilt this is 2.3 cm on grass
-  25 cm tall; the same choice moved clumping plants 7.3–8.2 cm in the 2026-08-15 study. This is the
-  decision the old task 4 left open.
+  25 cm tall; it moved clumping plants 7.3–8.2 cm in the 2026-08-15 study, and the next entry
+  measures what it costs against a tape.
 - **One frame, one vote.** Per-frame percentiles first, then a median across frames, so a frame
   standing two metres away cannot outvote three standing ten metres away with its pixel count.
 - **Voxels are quantised in road-local space, not world space.** A world-space 2 cm grid is pinned
@@ -769,12 +769,10 @@ world points arrive from a camera turned 180°. A frame sampling the same ground
 produces an identical answer *and* an identical support count. `verify.sh` is green at 45 files and
 626 tests, and `collect-evidence.mjs` replays all 26 recorded trials unchanged.
 
-**One real reconstruction has been through it.** Run `20260814-174814-b245bc`, frame 80, the
-recorded 21,060-pixel brush mask from Grass-Exe1: 4,092 points backprojected, four cells measured,
-none abstained, H95 spanning 0.742–1.185 m, byte-identical on a second run. **This is a plumbing
-check and nothing more.** Test_Grass2 is a garden, the road edge was a line laid on the fitted
-ground by the check itself, and the cells are a clump's footprint rather than a verge. Its numbers
-are not compared with that target's taped 0.980 m extent, which measures a different quantity.
+**One real reconstruction has been through it**, as a plumbing check: run
+`20260814-174814-b245bc`, frame 80, the recorded Grass-Exe1 brush, four cells measured and
+byte-identical on a second run. That run's numbers were later compared against the taped 0.980 m
+extent, which is the next entry.
 
 **What it cannot do.** Both semantic inputs are supplied by hand: nothing here segments grass or
 road, and nothing extracts a road edge — the API takes a polyline so an extractor can be added
@@ -783,6 +781,39 @@ the band's area, so road the camera never faced contributes no cells and cannot 
 from the road is unsigned, so V1 assumes the mask covers one side. The ground under the band is one
 plane: a crowned shoulder or a ditch inside five metres becomes grass height and nothing notices.
 Every result is stamped `validationStatus: "unvalidated"` and human acceptance does not change it.
+
+### The grid measures from each cell's own ground, not from the plane — 2026-09-05
+
+**The default reading is now an extent: `extent50M`, `extent90M`, `extent95M`, from a low
+percentile of the cell's own retained heights instead of from the fitted plane.** The
+plane-relative `h*` fields stay beside them and the difference is reported as `localGroundM`, the
+pedestal a plane cannot follow.
+
+**Why.** Extent is the only estimator this project has graded — all 17 recorded trials across its
+three runs are `vertical_extent`, so `MEASUREMENTS.md` was never evidence about H95. On the one
+fixture with a tape truth, extent read +1.9% where H95 on identical points read +20.1%; the gap is
+0.114 m of raised bed plus the ×1.0904 gravity-versus-plane-normal axis, not noise. Trials,
+commands and one unclosed 6 cm reproduction gap:
+[evidence/2026-09-05-extent-vs-percentile.md](evidence/2026-09-05-extent-vs-percentile.md).
+
+**Two consequences, both load-bearing.** `cellSizeM` is now a correctness parameter: a local datum
+holds only while the ground inside the cell is flat, so ground that falls across a cell becomes
+grass that is not there — aggregate cell *results* over a stretch, never widen the cell. And more
+evidence does not buy a steadier number: across 139 measured cells in two offsets, median
+between-frame disagreement is flat at 0.02–0.09 m over two orders of magnitude of sample count and
+the p90 rises with it, so `minFrames: 3` and `minVoxelsPerFrame: 20` are already in the right
+place. The limit is view geometry and mask quality.
+
+**Checked.** 44 tests in `grass-height-grid.test.ts`. Two are new: four pedestals under one
+identical canopy now report a single extent while their `h95M` still differ, with
+`h95M − localGroundM === extent95M` cell by cell; and every measured cell reports at least one
+voxel touching the ground it measured from. Sample selection, overlay shading, the report table and
+the threshold exploration all moved onto the default reading, so map, tables and summary cannot
+disagree about which cell is tall. `verify.sh` green at 50 files, 683 tests.
+
+**Not established.** No lawn truth exists, so neither estimator is graded against a mown surface.
+`validationStatus` stays `"unvalidated"`, `operationalStatus` `not-ready`. `groundContactVoxels` is
+reported, not gated on: what separates real ground from a cell that only saw canopy is unmeasured.
 
 ### Segmentation class must fit the intended target — 2026-09-05
 

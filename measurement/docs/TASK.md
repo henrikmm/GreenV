@@ -36,7 +36,9 @@ One thing: **measuring vegetation in the intended area from a whole video, with 
 anything, in a way a person can check.** Class fit comes first; a lawn and a clumping plant must
 not be silently treated as the same target or height definition.
 `geometry/grass-height-grid.ts` already calculates per-cell height distributions. The whole-run CPU path and evidence report now expose its masks,
-source pixels and decisions. The remaining gates establish whether those decisions can be trusted.
+source pixels and decisions. **The number to grade is `extent95M`**, measured from each cell's own
+ground, not `h95M` from the fitted plane — see the 2026-09-05 registry entry for why. The
+remaining gates establish whether those decisions can be trusted.
 
 The order below is not arbitrary. Every task produces the instrument the next one is graded with,
 because the failure this project keeps hitting is not a wrong number, it is a wrong number nobody
