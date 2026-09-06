@@ -92,3 +92,31 @@ stands: `extent95M` 0.000, `localGroundM` 0.000, from 8 frames and 1083 samples.
 the datum, not the mask — the `terrain` class still retains the flat ground there and none of the
 plant. Nothing in this section grades the extent default against a tape; that needs a mask that
 contains the graded object first.
+
+### The vegetation class puts a number on the taped clump — 2026-09-05
+
+**Segmenting `vegetation` instead of `terrain` moves the taped clump's cell from 0.000 m to
+0.732 m.** The class policy is now an explicit request field, `classes`, defaulting to `terrain`
+alone and recorded on every frame of the packet, so a reader never has to assume which policy
+produced a mask. Run `20260814-174814` at `--offset -4`, cell (13.75, 1.25), where the plant taped
+at 0.980 m stands:
+
+| Classes | Status | `localGroundM` | `extent95M` | `extent50M` | Frames | Samples |
+|---|---|---:|---:|---:|---:|---:|
+| `terrain` (default) | measured | 0.000 | **0.000** | 0.000 | 8 | 1,083 |
+| `vegetation` | measured | 0.065 | **0.732** | 0.497 | 24 | 23,222 |
+| `terrain,vegetation` | measured | 0.000 | **0.761** | 0.400 | 21 | 11,990 |
+
+**This is not yet a graded error, and the cell boundary is the reason.** The clump's recorded
+ruler stands at road-local (13.92, 1.02), 2 cm past the 1.0 m line between two cells, so its
+foliage falls in both. Its neighbour (13.75, 0.75) reads `extent95M` 0.906 m from 14 frames. The
+cells covering one 0.980 m plant therefore read 0.732 m and 0.906 m — under by 25.3% and 7.6% —
+and neither is the plant: a half-metre cell statistic over everything `vegetation` claimed there
+is a different quantity from one clump measured base to tip with a tape. Direction and size are
+consistent with the 41.0% brush recall of `2026-09-05-class-fit.md`, where the missing pixels were
+upper blades read as `fence` against a pale wall, which is exactly what would pull a P95 down.
+
+Across the whole grid at `--offset -4` the policy changes what is measurable at all: `terrain`
+gives 78 measured cells with a 0.020 m median extent, `vegetation` 61 cells at 0.665 m, and the
+union 101 cells at 0.454 m. A median that moves by 33x between two class policies is a statement
+about the mask, not about the verge.

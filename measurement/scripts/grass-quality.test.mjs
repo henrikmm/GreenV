@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { encodeRuns, decodeRuns, roadContext, qualitySummary, compareAssessments } from './grass-quality.mjs';
 import { renderGrassReport } from './grass-report.mjs';
 import { scoreSemanticMask } from '../geometry/semantic-mask';
+import { rolesFor } from './grass-pipeline.mjs';
 describe('quality evidence',()=>{
   it('keeps missing grass in the denominator and cannot promote a plausible result',()=>{
     const q=qualitySummary({measurements:[{status:'measured',h95M:.35,h95SpreadM:.1}],reviewEvidence:{coverageFraction:1,abstainedCellCount:0}},[{status:'no-grass-detected'},{status:'failed'}],roadContext(),{available:true},{source:'camera-track-offset'});
@@ -27,5 +28,19 @@ describe('quality evidence',()=>{
     const embedded=html.match(/id="evidence" type="application\/json">(.*?)<\/script>/s)[1];
     expect(embedded).not.toContain('</script>');expect(JSON.parse(embedded).bundle.frames).toEqual([]);
     expect(html).not.toContain('src="https://');
+  });
+});
+
+describe('semantic class policy',()=>{
+  const LABELS=['road','vegetation','terrain'];
+  it('keeps terrain-only as the default and accepts an explicit widening',()=>{
+    expect(rolesFor(['terrain'],LABELS).roles).toEqual(['excluded','excluded','grass']);
+    expect(rolesFor('terrain,vegetation',LABELS)).toEqual({wanted:['terrain','vegetation'],roles:['excluded','grass','grass']});
+    expect(rolesFor(' vegetation , vegetation ',LABELS).wanted).toEqual(['vegetation']);
+  });
+  it('refuses a label the model cannot produce, rather than segmenting nothing',()=>{
+    expect(()=>rolesFor(['grass'],LABELS)).toThrow('unknown Cityscapes label(s) grass');
+    expect(()=>rolesFor([],LABELS)).toThrow('at least one');
+    expect(()=>rolesFor(' , ',LABELS)).toThrow('at least one');
   });
 });

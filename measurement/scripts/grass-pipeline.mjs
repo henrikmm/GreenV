@@ -14,6 +14,29 @@ const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const fitOptions = { maxTiltDeg: 30, inlierDistance: 0.035, iterations: 1200, stride: 16,
   minInliers: 100, minInlierFraction: 0.01, proposalFractions: [1, 0.35], maxBelowFraction: 0.2, seed: 7 };
 
+/**
+ * Which Cityscapes classes count as the area of interest, as a caller's explicit choice.
+ *
+ * The default stays `terrain` alone. Broadening it is a measurement, not a configuration
+ * change: on run `20260814-174814-b245bc` frame 80, `terrain` recovered 0% of the recorded
+ * clumping-plant brush and `vegetation` 41.0%, so neither policy is established for an
+ * arbitrary target and the right one depends on what the caller is measuring
+ * (`docs/evidence/2026-09-05-class-fit.md`). The choice is recorded on every frame, so a
+ * packet says what it segmented rather than leaving a reader to assume the default.
+ */
+export function rolesFor(classes, labels) {
+  const wanted = [...new Set(
+    (Array.isArray(classes) ? classes : String(classes).split(","))
+      .map((value) => String(value).trim()).filter(Boolean),
+  )];
+  if (!wanted.length) throw new Error("classes must name at least one Cityscapes label");
+  const unknown = wanted.filter((label) => !labels.includes(label));
+  if (unknown.length) {
+    throw new Error(`unknown Cityscapes label(s) ${unknown.join(", ")}; valid labels are ${labels.join(", ")}`);
+  }
+  return { wanted, roles: labels.map((label) => wanted.includes(label) ? "grass" : "excluded") };
+}
+
 export async function runGrassPipeline(request, onProgress = () => {}, signal) {
   const started = performance.now();
   const check = () => { if (signal?.aborted) throw new Error("cancelled"); };
@@ -22,6 +45,7 @@ export async function runGrassPipeline(request, onProgress = () => {}, signal) {
   const context = roadContext(request.context);
   const run = resolveRun(request.runId);
   const T = await typed();
+  const { wanted: semanticClasses, roles } = rolesFor(request.classes ?? ["terrain"], T.CITYSCAPES_LABELS);
   progress("reading", 0, 0);
   const arrays = await readArrays(run);
   const geometryFrames = T.framesFromArrays(arrays);
@@ -67,11 +91,11 @@ export async function runGrassPipeline(request, onProgress = () => {}, signal) {
       const result = await segmentFrame(files[i]);
       check();
       frame.sourceWidth = result.frame.width; frame.sourceHeight = result.frame.height;
-      const mask = T.grassMaskFromLogits(result.logits);
+      const mask = T.grassMaskFromLogits(result.logits, { roles });
       frame.status = mask.counts.kept ? "segmented" : "no-grass-detected";
       frame.mask = { width: mask.width, height: mask.height, runs: encodeRuns(mask.mask), sha256: hash(mask.mask) };
       frame.semantic = { kind: "semantic", modelId: DEFAULT_MODEL.id, modelRevision: DEFAULT_MODEL.revision,
-        runtime: DEFAULT_MODEL.runtime, device: "cpu", probabilityFloor: mask.minProbability,
+        runtime: DEFAULT_MODEL.runtime, device: "cpu", probabilityFloor: mask.minProbability, classes: semanticClasses,
         counts: mask.counts, inferenceMs: result.timing.inferMs, modelLoadMs: result.timing.loadMs };
       inputs.push({ frameIndex: i, geometryFrame: geometryFrames[i], grassMask: mask.mask, maskWidth: mask.width, maskHeight: mask.height });
     } catch (error) { check(); frame.status = "failed"; frame.error = error.message; }
@@ -133,7 +157,7 @@ export async function runGrassPipeline(request, onProgress = () => {}, signal) {
   const implementation = Object.fromEntries(await Promise.all(implementationPaths.map(async path => [path, hash(await readFile(new URL(`../${path}`, import.meta.url)))])));
   const weights = await readFile(DEFAULT_MODEL.cachedAt(MODEL_CACHE)).catch(() => null);
   const bundle = { schemaVersion: QUALITY_SCHEMA, runId: run.id, ...context, createdAt: new Date().toISOString(),
-    assessment, cells, frames, ground, corridor, comparison,
+    assessment, cells, frames, ground, corridor, comparison, semanticClasses,
     quality: qualitySummary(assessment, frames, context, ground, corridor),
     reproducibility: { model: { id: DEFAULT_MODEL.id, revision: DEFAULT_MODEL.revision, runtime: DEFAULT_MODEL.runtime, device: "cpu", dtype: "fp32" },
       implementation,

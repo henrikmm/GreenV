@@ -815,6 +815,21 @@ disagree about which cell is tall. `verify.sh` green at 50 files, 683 tests.
 `validationStatus` stays `"unvalidated"`, `operationalStatus` `not-ready`. `groundContactVoxels` is
 reported, not gated on: what separates real ground from a cell that only saw canopy is unmeasured.
 
+### The class policy is a caller's choice, and vegetation puts a number on the clump — 2026-09-05
+
+`runGrassPipeline` takes a `classes` request field (`--classes` on `assess-grass.mjs`), defaulting
+to `terrain` alone and recorded on every frame of the packet so a reader never assumes which
+policy produced a mask. Broadening the default is still a measurement, not configuration.
+
+**Segmenting `vegetation` moves the taped clump's cell from 0.000 m to 0.732 m** — run
+`20260814-174814` at `--offset -4`, cell (13.75, 1.25), 24 frames and 23,222 samples against
+`terrain`'s 8 and 1,083. It is not yet a graded error: the clump straddles a cell boundary at
+1.02 m, its neighbour reads 0.906 m, and a half-metre cell statistic is a different quantity from
+one plant taped base to tip. Grid-wide the median extent moves 33x between class policies, which
+is a statement about the mask rather than the verge. Numbers, the neighbourhood table and why the
+under-reading is the expected direction:
+[evidence/2026-09-05-extent-vs-percentile.md](evidence/2026-09-05-extent-vs-percentile.md).
+
 ### Segmentation class must fit the intended target — 2026-09-05
 
 The user's clumping-plant target is excluded by the experimental terrain-only policy. The local
