@@ -17,9 +17,12 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import tools.jackson.databind.ObjectMapper;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = "greenv.security.api-token=greenv-test-only-bearer-token-000000000000")
 class JobControllerIntegrationTest {
 
+    private static final String TEST_API_TOKEN = "greenv-test-only-bearer-token-000000000000";
     private static final Path TEST_ROOT = Path.of(
             System.getProperty("java.io.tmpdir"),
             "greenv-video-api-http-" + UUID.randomUUID());
@@ -44,6 +47,7 @@ class JobControllerIntegrationTest {
 
         HttpResponse<String> created = client.send(
                 HttpRequest.newBuilder(URI.create(base))
+                        .header("Authorization", "Bearer " + TEST_API_TOKEN)
                         .header("content-type", "application/json")
                         .POST(HttpRequest.BodyPublishers.ofString("""
                                 {
@@ -60,9 +64,11 @@ class JobControllerIntegrationTest {
 
         assertThat(created.statusCode()).isEqualTo(201);
         String jobId = objectMapper.readTree(created.body()).path("jobId").asString();
+        assertThat(UUID.fromString(jobId).version()).isEqualTo(7);
 
         HttpResponse<Void> uploaded = client.send(
                 HttpRequest.newBuilder(URI.create(base + "/" + jobId + "/source"))
+                        .header("Authorization", "Bearer " + TEST_API_TOKEN)
                         .header("content-type", "video/mp4")
                         .PUT(HttpRequest.BodyPublishers.ofByteArray(video))
                         .build(),
@@ -71,6 +77,7 @@ class JobControllerIntegrationTest {
 
         HttpResponse<String> completed = client.send(
                 HttpRequest.newBuilder(URI.create(base + "/" + jobId + "/complete"))
+                        .header("Authorization", "Bearer " + TEST_API_TOKEN)
                         .POST(HttpRequest.BodyPublishers.noBody())
                         .build(),
                 HttpResponse.BodyHandlers.ofString());
@@ -78,7 +85,10 @@ class JobControllerIntegrationTest {
         assertThat(objectMapper.readTree(completed.body()).path("state").asString()).isEqualTo("queued");
 
         HttpResponse<String> status = client.send(
-                HttpRequest.newBuilder(URI.create(base + "/" + jobId)).GET().build(),
+                HttpRequest.newBuilder(URI.create(base + "/" + jobId))
+                        .header("Authorization", "Bearer " + TEST_API_TOKEN)
+                        .GET()
+                        .build(),
                 HttpResponse.BodyHandlers.ofString());
         assertThat(status.statusCode()).isEqualTo(200);
         assertThat(objectMapper.readTree(status.body()).path("actualSizeBytes").asLong())

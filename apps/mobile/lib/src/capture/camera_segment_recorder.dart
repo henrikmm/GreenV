@@ -69,6 +69,7 @@ final class CameraSegmentRecorder implements SegmentRecorder {
     return RecordedVideo(
       path: video.path,
       durationMillis: clock.elapsedMilliseconds.clamp(1, 30000),
+      contentType: _container(video.mimeType),
     );
   }
 
@@ -76,5 +77,12 @@ final class CameraSegmentRecorder implements SegmentRecorder {
   Future<void> dispose() async {
     await _controller?.dispose();
     _controller = null;
+  }
+
+  /// A browser's MediaRecorder reports something like `video/webm;codecs="vp9,opus"`. The API
+  /// matches on type and subtype, so the codec parameters are dropped here rather than sent.
+  static String _container(String? mimeType) {
+    if (mimeType == null || mimeType.isEmpty) return 'video/mp4';
+    return mimeType.split(';').first.trim();
   }
 }

@@ -1,6 +1,6 @@
 package br.com.greenv.videoapi.api;
 
-import br.com.greenv.videoapi.domain.CaptureSessionDocument;
+import br.com.greenv.videoapi.domain.CaptureSessionSummary;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -16,10 +16,8 @@ public record CaptureSessionResponse(
         long segmentCount,
         long readySegmentCount) {
 
-    public static CaptureSessionResponse from(
-            CaptureSessionDocument session,
-            long segmentCount,
-            long readySegmentCount) {
+    public static CaptureSessionResponse from(CaptureSessionSummary summary) {
+        var session = summary.session();
         return new CaptureSessionResponse(
                 1,
                 session.sessionId(),
@@ -29,7 +27,7 @@ public record CaptureSessionResponse(
                 session.endedAt(),
                 session.expiresAt(),
                 session.lastSegmentIndex(),
-                segmentCount,
-                readySegmentCount);
+                summary.segmentCount(),
+                summary.readySegmentCount());
     }
 }

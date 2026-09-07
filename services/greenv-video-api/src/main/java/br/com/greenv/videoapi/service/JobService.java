@@ -1,65 +1,69 @@
 package br.com.greenv.videoapi.service;
 
-import br.com.greenv.videoapi.api.ApiException;
-import br.com.greenv.videoapi.api.CreateJobRequest;
 import br.com.greenv.videoapi.config.PipelineProperties;
 import br.com.greenv.videoapi.domain.FrameExtractionRequest;
 import br.com.greenv.videoapi.domain.JobDocument;
 import br.com.greenv.videoapi.domain.JobState;
-import br.com.greenv.videoapi.storage.LocalJobStore;
-import br.com.greenv.videoapi.task.LocalTaskPublisher;
+import br.com.greenv.videoapi.domain.SamplingOptions;
+import br.com.greenv.videoapi.port.FrameWorkQueue;
+import br.com.greenv.videoapi.port.IdentifierGenerator;
+import br.com.greenv.videoapi.port.LegacyJobStore;
+import br.com.greenv.videoapi.port.LegacyJobUseCase;
 import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.UUID;
-import org.springframework.core.io.FileSystemResource;
-import org.springframework.core.io.Resource;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 @Service
-public class JobService {
+public class JobService implements LegacyJobUseCase {
 
-    private final LocalJobStore jobStore;
-    private final LocalTaskPublisher taskPublisher;
-    private final PipelineProperties properties;
+    private final LegacyJobStore jobStore;
+    private final FrameWorkQueue frameWorkQueue;
+    private final PipelineProperties pipelineProperties;
+    private final IdentifierGenerator identifierGenerator;
     private final Clock clock;
 
     public JobService(
-            LocalJobStore jobStore,
-            LocalTaskPublisher taskPublisher,
-            PipelineProperties properties,
+            LegacyJobStore jobStore,
+            FrameWorkQueue frameWorkQueue,
+            PipelineProperties pipelineProperties,
+            IdentifierGenerator identifierGenerator,
             Clock clock) {
         this.jobStore = jobStore;
-        this.taskPublisher = taskPublisher;
-        this.properties = properties;
+        this.frameWorkQueue = frameWorkQueue;
+        this.pipelineProperties = pipelineProperties;
+        this.identifierGenerator = identifierGenerator;
         this.clock = clock;
     }
 
-    public JobDocument create(CreateJobRequest request) {
-        if (request.sizeBytes() > properties.maxFileSizeBytes()) {
-            throw new ApiException(HttpStatus.CONTENT_TOO_LARGE, "video_too_large", "video exceeds the 1 GB limit");
+    @Override
+    public JobDocument create(String fileName, String contentType, long sizeBytes, SamplingOptions sampling) {
+        if (sizeBytes > pipelineProperties.maxFileSizeBytes()) {
+            throw new ApplicationException(
+                    FailureKind.PAYLOAD_TOO_LARGE, "video_too_large", "video exceeds the 1 GB limit");
         }
         Instant now = clock.instant();
         return jobStore.create(JobDocument.create(
-                UUID.randomUUID(),
-                safeFileName(request.fileName()),
-                request.contentType(),
-                request.sizeBytes(),
-                request.sampling(),
+                identifierGenerator.next(),
+                safeFileName(fileName),
+                contentType,
+                sizeBytes,
+                sampling,
                 now));
     }
 
+    @Override
     public JobDocument get(UUID jobId) {
         return jobStore.get(jobId);
     }
 
+    @Override
     public JobDocument upload(UUID jobId, InputStream input) {
         return jobStore.storeSource(jobId, input, clock.instant());
     }
 
+    @Override
     public JobDocument complete(UUID jobId) {
         JobDocument job = jobStore.get(jobId);
         if (job.state() == JobState.QUEUED
@@ -68,8 +72,8 @@ public class JobService {
             return job;
         }
         if (job.state() != JobState.UPLOADING || job.sourceGeneration() == null) {
-            throw new ApiException(
-                    HttpStatus.CONFLICT,
+            throw new ApplicationException(
+                    FailureKind.CONFLICT,
                     "source_not_ready",
                     "source upload must finish before extraction is queued");
         }
@@ -77,14 +81,14 @@ public class JobService {
         Instant now = clock.instant();
         JobDocument queued = jobStore.update(jobId, current -> current.withState(JobState.QUEUED, now));
         try {
-            taskPublisher.publish(new FrameExtractionRequest(
+            frameWorkQueue.publish(new FrameExtractionRequest(
                     1,
                     0,
                     job.jobId(),
                     job.jobId() + ":" + job.sourceGeneration(),
                     job.sourceUri(),
-                    jobStore.statusPath(jobId).toUri().toString(),
-                    jobStore.jobDirectory(jobId).toUri().toString(),
+                    jobStore.statusReference(jobId),
+                    jobStore.outputPrefixReference(jobId),
                     job.sourceGeneration(),
                     job.sampling().requestedFps(),
                     job.sampling().maxFrames(),
@@ -97,20 +101,22 @@ public class JobService {
         }
     }
 
-    public Resource manifest(UUID jobId) {
+    @Override
+    public byte[] manifest(UUID jobId) {
         JobDocument job = jobStore.get(jobId);
-        Path manifest = jobStore.manifestPath(jobId);
-        if (job.state() != JobState.FRAMES_READY || !Files.isRegularFile(manifest)) {
-            throw new ApiException(HttpStatus.CONFLICT, "manifest_not_ready", "frame manifest is not ready");
+        if (job.state() != JobState.FRAMES_READY || !jobStore.manifestExists(jobId)) {
+            throw new ApplicationException(FailureKind.CONFLICT, "manifest_not_ready", "frame manifest is not ready");
         }
-        return new FileSystemResource(manifest);
+        return jobStore.readManifest(jobId);
     }
 
+    @Override
     public JobDocument save(UUID jobId) {
         jobStore.saveJob(jobId, clock.instant());
         return jobStore.get(jobId);
     }
 
+    @Override
     public void delete(UUID jobId) {
         jobStore.get(jobId);
         jobStore.deleteJob(jobId);
@@ -120,7 +126,7 @@ public class JobService {
         String normalized = value.replace('\\', '/');
         String name = normalized.substring(normalized.lastIndexOf('/') + 1).trim();
         if (name.isEmpty()) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "invalid_file_name", "file name is empty");
+            throw new ApplicationException(FailureKind.INVALID_INPUT, "invalid_file_name", "file name is empty");
         }
         return name;
     }

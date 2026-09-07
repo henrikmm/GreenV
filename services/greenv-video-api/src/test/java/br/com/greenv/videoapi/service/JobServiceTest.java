@@ -2,24 +2,26 @@ package br.com.greenv.videoapi.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
-import br.com.greenv.videoapi.api.ApiException;
-import br.com.greenv.videoapi.api.CreateJobRequest;
 import br.com.greenv.videoapi.config.PipelineProperties;
 import br.com.greenv.videoapi.domain.FrameExtractionRequest;
 import br.com.greenv.videoapi.domain.JobState;
-import br.com.greenv.videoapi.storage.LocalJobStore;
-import br.com.greenv.videoapi.task.LocalTaskPublisher;
+import br.com.greenv.videoapi.domain.SamplingOptions;
+import br.com.greenv.videoapi.port.IdentifierGenerator;
+import br.com.greenv.videoapi.storage.LocalLegacyJobStoreAdapter;
+import br.com.greenv.videoapi.task.LocalFrameWorkQueueAdapter;
 import java.io.ByteArrayInputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.springframework.http.HttpStatus;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -30,8 +32,9 @@ class JobServiceTest {
 
     private ObjectMapper objectMapper;
     private PipelineProperties properties;
-    private LocalJobStore store;
+    private LocalLegacyJobStoreAdapter store;
     private JobService service;
+    private IdentifierGenerator identifierGenerator;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -41,19 +44,26 @@ class JobServiceTest {
                 temporaryDirectory.resolve("saved"),
                 1024 * 1024,
                 3);
-        store = new LocalJobStore(objectMapper, properties);
+        store = new LocalLegacyJobStoreAdapter(objectMapper, properties);
+        identifierGenerator = mock(IdentifierGenerator.class);
+        when(identifierGenerator.next())
+                .thenReturn(UUID.fromString("0198e6f8-5c15-7000-8000-000000000001"));
         service = new JobService(
                 store,
-                new LocalTaskPublisher(objectMapper, properties),
+                new LocalFrameWorkQueueAdapter(objectMapper, properties),
                 properties,
+                identifierGenerator,
                 Clock.fixed(Instant.parse("2026-08-16T12:00:00Z"), ZoneOffset.UTC));
     }
 
     @Test
     void streamsUploadAndPublishesOneIdempotentTask() throws Exception {
         byte[] source = "synthetic video bytes".getBytes(java.nio.charset.StandardCharsets.UTF_8);
-        var job = service.create(new CreateJobRequest(
-                "../road.mp4", "video/mp4", (long) source.length, 10.0, 100, 1024));
+        var job = service.create(
+                "../road.mp4",
+                "video/mp4",
+                source.length,
+                new SamplingOptions(10.0, 100, 1024));
 
         assertThat(job.fileName()).isEqualTo("road.mp4");
         assertThat(job.state()).isEqualTo(JobState.CREATED);
@@ -81,13 +91,20 @@ class JobServiceTest {
 
     @Test
     void rejectsUploadWhoseByteCountDiffersFromDeclaration() {
-        var job = service.create(new CreateJobRequest("road.mp4", "video/mp4", 20L, null, null, null));
+        var job = service.create(
+                "road.mp4",
+                "video/mp4",
+                20L,
+                new SamplingOptions(
+                        SamplingOptions.DEFAULT_FPS,
+                        SamplingOptions.DEFAULT_MAX_FRAMES,
+                        SamplingOptions.DEFAULT_LONG_EDGE));
 
         assertThatThrownBy(() -> service.upload(
                         job.jobId(),
                         new ByteArrayInputStream(new byte[] {1, 2, 3})))
-                .isInstanceOfSatisfying(ApiException.class, exception -> {
-                    assertThat(exception.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+                .isInstanceOfSatisfying(ApplicationException.class, exception -> {
+                    assertThat(exception.kind()).isEqualTo(FailureKind.INVALID_INPUT);
                     assertThat(exception.code()).isEqualTo("size_mismatch");
                 });
         assertThat(service.get(job.jobId()).state()).isEqualTo(JobState.FAILED);

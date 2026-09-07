@@ -24,6 +24,7 @@ void main() {
         capturedAtUtc: startedAt,
         durationMillis: 10000,
         sourceVideoPath: 'memory://segment-0.mp4',
+        videoContentType: 'video/mp4',
         telemetry: const SegmentTelemetryDocument({'schemaVersion': 1}),
       );
       await queue.closeSession(

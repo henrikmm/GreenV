@@ -203,12 +203,12 @@ async function main() {
     await screenshot(socket, "home");
     await navigate(socket, `${APP}/?screen=upload`);
     await screenshot(socket, "upload");
-    await clickLabel(socket, "Iniciar gravação");
+    await clickLabel(socket, "Iniciar coleta");
     await scrollCaptureToTop(socket);
     await screenshot(socket, "recording");
 
     await navigate(socket, `${APP}/?screen=upload&offline=1`);
-    await clickLabel(socket, "Iniciar gravação");
+    await clickLabel(socket, "Iniciar coleta");
     await clickLabel(socket, "Encerrar coleta");
     await scrollCaptureToTop(socket);
     await screenshot(socket, "offline-queued");
@@ -217,7 +217,7 @@ async function main() {
     await screenshot(socket, "preparing");
     await navigate(socket, `${APP}/?screen=upload&phase=error`);
     await screenshot(socket, "error");
-    await findLabel(socket, "Iniciar gravação");
+    await findLabel(socket, "Iniciar coleta");
     await wait(300);
     await screenshot(socket, "error-action");
 
