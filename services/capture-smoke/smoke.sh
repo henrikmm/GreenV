@@ -2,8 +2,15 @@
 set -euo pipefail
 
 api_url="${API_URL:-http://video-api:8080}"
+api_token="${GREENV_API_TOKEN:?GREENV_API_TOKEN is required}"
 work_root="$(mktemp -d)"
 trap 'rm -rf "${work_root}"' EXIT
+
+api_curl() {
+  curl --fail --silent \
+    --header "Authorization: Bearer ${api_token}" \
+    "$@"
+}
 
 for attempt in $(seq 1 60); do
   if curl --fail --silent "${api_url}/actuator/health" >/dev/null; then
@@ -16,7 +23,7 @@ for attempt in $(seq 1 60); do
   sleep 1
 done
 
-session_id="$(curl --fail --silent \
+session_id="$(api_curl \
   --header 'content-type: application/json' \
   --data '{"deviceId":"compose-smoke-device","startedAt":"2026-08-23T12:00:00Z"}' \
   "${api_url}/v2/capture-sessions" | jq --raw-output '.sessionId')"
@@ -85,28 +92,28 @@ for segment_index in 0 1 2; do
     --header 'X-Duration-Millis: 10000'
   )
 
-  curl --fail --silent --request PUT \
+  api_curl --request PUT \
     --header 'content-type: video/mp4' \
     --header "X-Content-SHA256: ${video_sha}" \
     "${common_headers[@]}" \
     --data-binary "@${video}" \
     "${segment_url}/video" >/dev/null
-  curl --fail --silent --request PUT \
+  api_curl --request PUT \
     --header 'content-type: video/mp4' \
     --header "X-Content-SHA256: ${video_sha}" \
     "${common_headers[@]}" \
     --data-binary "@${video}" \
     "${segment_url}/video" >/dev/null
-  curl --fail --silent --request PUT \
+  api_curl --request PUT \
     --header 'content-type: application/json' \
     --header "X-Content-SHA256: ${telemetry_sha}" \
     "${common_headers[@]}" \
     --data-binary "@${telemetry}" \
     "${segment_url}/telemetry" >/dev/null
-  curl --fail --silent --request POST "${segment_url}/complete" >/dev/null
+  api_curl --request POST "${segment_url}/complete" >/dev/null
 done
 
-curl --fail --silent \
+api_curl \
   --header 'content-type: application/json' \
   --data '{"lastSegmentIndex":2,"endedAt":"2026-08-23T12:00:30Z"}' \
   "${api_url}/v2/capture-sessions/${session_id}/complete" >/dev/null
@@ -114,7 +121,7 @@ curl --fail --silent \
 for attempt in $(seq 1 90); do
   ready_count=0
   for segment_index in 0 1 2; do
-    state="$(curl --fail --silent \
+    state="$(api_curl \
       "${api_url}/v2/capture-sessions/${session_id}/segments/${segment_index}" \
       | jq --raw-output '.state')"
     [[ "${state}" == "ready" ]] && ready_count="$((ready_count + 1))"
@@ -130,15 +137,15 @@ for attempt in $(seq 1 90); do
 done
 
 for segment_index in 0 1 2; do
-  manifest="$(curl --fail --silent \
+  manifest="$(api_curl \
     "${api_url}/v2/capture-sessions/${session_id}/segments/${segment_index}/manifest")"
   encoded_count="$(jq '.encodedFrameCount' <<<"${manifest}")"
-  metadata_uri="$(jq --raw-output '.frameMetadataUri' <<<"${manifest}")"
+  metadata_key="$(jq --raw-output '.frameMetadataObjectKey' <<<"${manifest}")"
   [[ "${encoded_count}" == "100" ]]
-  [[ "${metadata_uri}" == file:*frame-metadata-v1.json ]]
+  [[ "${metadata_key}" == capture-sessions/*/segments/*/frame-metadata-v2.json ]]
 done
 
-session_state="$(curl --fail --silent \
+session_state="$(api_curl \
   "${api_url}/v2/capture-sessions/${session_id}" | jq --raw-output '.state')"
 [[ "${session_state}" == "ready" ]]
 

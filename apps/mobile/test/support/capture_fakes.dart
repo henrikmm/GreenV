@@ -2,6 +2,15 @@ import 'package:flutter/widgets.dart';
 import 'package:greenv_capture/src/capture/capture_ports.dart';
 import 'package:greenv_capture/src/domain/capture_models.dart';
 
+final class FakeIdentifierGenerator implements IdentifierGenerator {
+  FakeIdentifierGenerator(this.identifier);
+
+  final String identifier;
+
+  @override
+  String next() => identifier;
+}
+
 final class FakeRecorder implements SegmentRecorder {
   bool initialized = false;
   int starts = 0;

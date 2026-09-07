@@ -128,9 +128,9 @@ CaptureCoordinator _coordinator() {
     ),
     foregroundLease: FakeLease(),
     scheduler: FakeScheduler(),
+    identifierGenerator: FakeIdentifierGenerator('session-1'),
     monotonicNanos: () => 123,
     utcNow: () => DateTime.utc(2026, 8, 23, 12),
-    newSessionId: () => 'session-1',
   );
 }
 

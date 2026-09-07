@@ -17,11 +17,21 @@ repositories {
 }
 
 dependencies {
+    implementation platform('software.amazon.awssdk:bom:2.53.1')
+    implementation platform('com.azure:azure-sdk-bom:1.3.7')
+
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     implementation 'org.springframework.boot:spring-boot-starter-amqp'
     implementation 'org.springframework.boot:spring-boot-starter-jdbc'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'software.amazon.awssdk:s3'
+    implementation 'software.amazon.awssdk:sqs'
+    implementation 'software.amazon.awssdk:url-connection-client'
+    implementation 'com.azure:azure-identity'
+    implementation 'com.azure:azure-storage-blob'
+    implementation 'com.azure:azure-storage-queue'
+    implementation 'com.azure:azure-messaging-servicebus'
 
     runtimeOnly 'com.h2database:h2'
     runtimeOnly 'org.postgresql:postgresql'

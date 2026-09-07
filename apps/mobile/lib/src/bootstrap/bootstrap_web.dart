@@ -11,6 +11,7 @@ import 'package:greenv_capture/src/capture/capture_ports.dart';
 import 'package:greenv_capture/src/capture/capture_runtime.dart';
 import 'package:greenv_capture/src/capture/phone_telemetry_collector.dart';
 import 'package:greenv_capture/src/domain/capture_models.dart';
+import 'package:greenv_capture/src/identifier/uuid_v7_identifier_adapter.dart';
 import 'package:greenv_capture/src/storage/browser_capture_queue.dart';
 import 'package:greenv_capture/src/storage/memory_session_store.dart';
 import 'package:greenv_capture/src/storage/memory_capture_queue.dart';
@@ -59,10 +60,12 @@ Future<AppDependencies> _createBrowserCaptureDependencies() async {
     uploader: uploader,
     foregroundLease: _NoopForegroundLease(),
     scheduler: TimerSegmentScheduler(),
+    // `?session=` pins the id through the same port that otherwise mints one, so the coordinator
+    // has a single way of getting an identifier rather than an override beside it.
+    identifierGenerator: requestedSession == null || requestedSession.isEmpty
+        ? UuidV7IdentifierAdapter()
+        : _FixedIdentifierGenerator(requestedSession),
     monotonicNanos: monotonicClock.nowNanos,
-    newSessionId: requestedSession == null || requestedSession.isEmpty
-        ? null
-        : () => requestedSession,
   );
   uploader.syncSoon();
   // `?autostart=1` records without a click, so an automated browser can drive a whole capture.
@@ -86,6 +89,7 @@ Future<AppDependencies> _createPreviewDependencies() async {
     uploader: uploader,
     foregroundLease: _NoopForegroundLease(),
     scheduler: _PreviewScheduler(),
+    identifierGenerator: UuidV7IdentifierAdapter(),
     monotonicNanos: () => DateTime.now().microsecondsSinceEpoch * 1000,
   );
   if (Uri.base.queryParameters['phase'] == 'preparing') {
@@ -212,4 +216,15 @@ final class _PreviewScheduler implements SegmentScheduler {
 
   @override
   void schedule(Duration duration, Future<void> Function() callback) {}
+}
+
+/// Hands back one identifier that was chosen from outside, so `?session=<uuid>` can pin a capture
+/// and it can be followed with `GET /v2/capture-sessions/<uuid>` while it is still running.
+final class _FixedIdentifierGenerator implements IdentifierGenerator {
+  const _FixedIdentifierGenerator(this._value);
+
+  final String _value;
+
+  @override
+  String next() => _value;
 }

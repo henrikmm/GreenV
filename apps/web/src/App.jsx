@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react'
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import MapPage from './pages/MapPage'
 import OrdersPage from './pages/OrdersPage'
+import LoginPage from './pages/LoginPage'
+import { AuthProvider } from './auth/AuthContext'
+import RequireAuth from './auth/RequireAuth'
 
 export default function App() {
   const [geojson, setGeojson] = useState(null)
@@ -37,14 +40,23 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <Routes>
-        <Route path="/" element={
-          <MapPage geojson={geojson} marcoKm={marcoKm} onCreateOrder={addOrder} />
-        } />
-        <Route path="/ordens" element={
-          <OrdersPage orders={orders} onUpdateOrder={updateOrder} onDeleteOrder={deleteOrder} />
-        } />
-      </Routes>
+      {/* Inside the router, because the provider navigates when a session ends. */}
+      <AuthProvider>
+        <Routes>
+          <Route path="/entrar" element={<LoginPage />} />
+          <Route path="/" element={
+            <RequireAuth>
+              <MapPage geojson={geojson} marcoKm={marcoKm} onCreateOrder={addOrder} />
+            </RequireAuth>
+          } />
+          <Route path="/ordens" element={
+            <RequireAuth>
+              <OrdersPage orders={orders} onUpdateOrder={updateOrder} onDeleteOrder={deleteOrder} />
+            </RequireAuth>
+          } />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </AuthProvider>
     </BrowserRouter>
   )
 }

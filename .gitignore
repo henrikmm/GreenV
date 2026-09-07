@@ -31,6 +31,24 @@ venv/
 *.local.json
 !.claude/settings.local.json.example
 
+# Terraform working data, local state and saved plans. The dependency lock is
+# tracked so CI and developer machines resolve the same provider versions.
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraform.tfstate.lock.info
+*.tfvars
+!*.tfvars.example
+infrastructure/**/backend.tf
+infrastructure/**/backend.r2.hcl
+
 # Session scratch. Cheap to redraw, never evidence anybody else can check.
 .inspect/
 .runs/

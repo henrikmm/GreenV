@@ -141,11 +141,12 @@ flutter run --dart-define=GREENV_API_URL=http://127.0.0.1:8080
 
 ### Browser presentation preview
 
-Without `GREENV_WEB_CAPTURE`, web uses deterministic fake camera/sensor/backend adapters. It is for
-visual review, not capture:
+With `GREENV_WEB_CAPTURE=false`, web uses deterministic fake camera/sensor/backend adapters and a
+fake session. It is for visual review, not capture - and it is the only build where `?screen=` opens
+a screen without signing in:
 
 ```bash
-flutter run -d chrome
+flutter run -d chrome --dart-define=GREENV_WEB_CAPTURE=false
 ```
 
 Preview states can be selected with `?screen=splash`, `login`, `forgotEmail`, `forgotCode`, `home`,
@@ -158,15 +159,16 @@ node scripts/capture-mobile-review.mjs
 
 ### Browser capture against a deployed API
 
-`--dart-define=GREENV_WEB_CAPTURE=true` swaps those fakes for the real webcam, the browser's own
-geolocation and the same `HttpCaptureBackend` the phone uses. It is how a workstation with no
-Android device exercises a deployed pipeline:
+The browser build uses the real webcam, the browser's own geolocation and the same
+`HttpCaptureBackend` the phone uses - that is the default. It is how a workstation with no Android
+device exercises a deployed pipeline:
 
 ```bash
-GREENV_API_URL=https://greenvapi.example \
-GREENV_API_TOKEN=<api bearer token> \
-./scripts/run-cloud-web.sh -d edge
+GREENV_API_URL=https://greenvapi.example ./scripts/run-cloud-web.sh -d chrome
 ```
+
+Sign in on the app's own login screen. `--dart-define=GREENV_WEB_CAPTURE=false` is what swaps the
+camera, the backend and the session for fakes, when the point is to look at layout.
 
 Four things differ from the phone, on purpose:
 
@@ -203,18 +205,17 @@ The capture build reads three query parameters, all of them for testing:
 
 ### The API token
 
-The deployed API rejects every route but `/actuator/health` without `Authorization: Bearer <token>`.
+The deployed API rejects every route but `/actuator/health` and the sign-in routes without a
+credential. Signing in supplies one, so no token needs compiling in:
 
 ```bash
-flutter run --dart-define=GREENV_API_URL=https://greenvapi.example \
-            --dart-define=GREENV_API_TOKEN=<api bearer token>
+flutter run --dart-define=GREENV_API_URL=https://greenvapi.example
 ```
 
-`GREENV_API_TOKEN` is compiled into the build, so a release artifact carries a shared secret that
-anyone who unpacks it can read. That is acceptable for a pilot against a throwaway token and is
-not acceptable once real devices are enrolled; the API has to authenticate each device before
-that. Leaving the define out sends no header at all, which only works against an unauthenticated
-local stack.
+`GREENV_API_TOKEN` still exists as a fallback for the pilot builds that carry one, and is used only
+before anyone has signed in. It is compiled into the build, so a release artifact carrying it holds
+a shared secret anyone who unpacks it can read - which is exactly why a person's own credential
+replaced it.
 
 `GREENV_API_URL` is a compile-time setting, not a runtime environment variable. A physical phone
 on the development network must receive an address it can reach:
@@ -310,7 +311,7 @@ The latest verified debug artifact is produced at
 | GPS stays unavailable | Enable the device location service and precise/when-in-use permission; video capture is independent |
 | Queue count does not fall | Inspect API segment state and worker logs; files intentionally remain through `queued`, `validating` and `failed` |
 | Android native build has stale cache errors after moving the project | Run `flutter clean`, `flutter pub get`, then rebuild |
-| Web shows a route icon instead of camera | Expected without `GREENV_WEB_CAPTURE=true`: that build is a design preview |
+| Web shows a route icon instead of camera | You are running `--dart-define=GREENV_WEB_CAPTURE=false`, the design preview. Drop it for the real camera |
 | Every API call fails with 401 | The build was compiled without `GREENV_API_TOKEN`, or the token is stale |
 | Browser upload fails with a CORS error | The API's `GREENV_ALLOWED_ORIGINS` does not list the page origin, port included |
 | Browser reports `cameraNotReadable` | Another camera on the machine cannot be opened; name the one you want with `?camera=<label>` |

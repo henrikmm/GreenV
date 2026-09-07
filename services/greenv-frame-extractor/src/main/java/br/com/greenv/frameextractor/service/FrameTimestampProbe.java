@@ -2,6 +2,7 @@ package br.com.greenv.frameextractor.service;
 
 import br.com.greenv.frameextractor.config.ExtractorProperties;
 import br.com.greenv.frameextractor.domain.EncodedFrameTimestamp;
+import br.com.greenv.frameextractor.port.FrameTimelineProbe;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -11,24 +12,25 @@ import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 
 @Component
-public class FrameTimestampProbe {
+public class FrameTimestampProbe implements FrameTimelineProbe {
 
     private final CommandRunner commandRunner;
     private final ObjectMapper objectMapper;
-    private final ExtractorProperties properties;
+    private final ExtractorProperties extractorProperties;
 
     public FrameTimestampProbe(
             CommandRunner commandRunner,
             ObjectMapper objectMapper,
-            ExtractorProperties properties) {
+            ExtractorProperties extractorProperties) {
         this.commandRunner = commandRunner;
         this.objectMapper = objectMapper;
-        this.properties = properties;
+        this.extractorProperties = extractorProperties;
     }
 
+    @Override
     public List<EncodedFrameTimestamp> probe(Path source) {
         var result = commandRunner.run(List.of(
-                properties.ffprobe(),
+                extractorProperties.ffprobe(),
                 "-v", "error",
                 "-select_streams", "v:0",
                 "-show_frames",

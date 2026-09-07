@@ -197,8 +197,8 @@ CaptureCoordinator _coordinator() {
     uploader: QueueUploader(queue: queue, backend: FakeBackend()..online = false),
     foregroundLease: FakeLease(),
     scheduler: FakeScheduler(),
+    identifierGenerator: FakeIdentifierGenerator('session-1'),
     monotonicNanos: () => 123,
     utcNow: () => DateTime.utc(2026, 9, 4, 12),
-    newSessionId: () => 'session-1',
   );
 }
