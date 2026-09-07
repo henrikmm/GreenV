@@ -3,6 +3,7 @@ package br.com.greenv.frameextractor.service;
 import br.com.greenv.frameextractor.config.ExtractorProperties;
 import br.com.greenv.frameextractor.domain.SamplingPlan;
 import br.com.greenv.frameextractor.domain.ScalePlan;
+import br.com.greenv.frameextractor.port.FrameSampler;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -14,16 +15,17 @@ import java.util.Locale;
 import org.springframework.stereotype.Component;
 
 @Component
-public class FfmpegExtractor {
+public class FfmpegExtractor implements FrameSampler {
 
     private final CommandRunner commandRunner;
-    private final ExtractorProperties properties;
+    private final ExtractorProperties extractorProperties;
 
-    public FfmpegExtractor(CommandRunner commandRunner, ExtractorProperties properties) {
+    public FfmpegExtractor(CommandRunner commandRunner, ExtractorProperties extractorProperties) {
         this.commandRunner = commandRunner;
-        this.properties = properties;
+        this.extractorProperties = extractorProperties;
     }
 
+    @Override
     public List<Path> extract(
             Path source,
             Path outputDirectory,
@@ -43,7 +45,7 @@ public class FfmpegExtractor {
         }
 
         List<String> command = List.of(
-                properties.ffmpeg(),
+                extractorProperties.ffmpeg(),
                 "-nostdin",
                 "-v", "error",
                 "-threads", "2",

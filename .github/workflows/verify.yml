@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: No dependency trees or build output are tracked
         run: |
-          offenders="$(git ls-files | grep -E '(^|/)(node_modules|dist|build|\.gradle|\.dart_tool)/' || true)"
+          offenders="$(git ls-files | grep -E '(^|/)(node_modules|dist|build|\.gradle|\.dart_tool|\.terraform)/' || true)"
           if [ -n "${offenders}" ]; then
             echo "::error::tracked dependency or build output:"
             echo "${offenders}" | head -20
@@ -95,6 +95,31 @@ jobs:
         run: sudo apt-get update && sudo apt-get install --yes ffmpeg
       - run: ./gradlew check --no-daemon
         working-directory: services/${{ matrix.service }}
+
+  infrastructure:
+    name: infrastructure/terraform
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.16.0
+      - run: terraform fmt -check -recursive
+        working-directory: infrastructure
+      - run: terraform init -backend=false
+        working-directory: infrastructure
+      - run: terraform validate
+        working-directory: infrastructure
+      - run: terraform test
+        working-directory: infrastructure
+      - run: terraform init -backend=false
+        working-directory: infrastructure/bootstrap
+      - run: terraform validate
+        working-directory: infrastructure/bootstrap
+      - run: terraform test
+        working-directory: infrastructure/bootstrap
 
   measurement:
     name: measurement

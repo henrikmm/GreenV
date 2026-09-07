@@ -17,14 +17,29 @@ repositories {
 }
 
 dependencies {
+    implementation platform('software.amazon.awssdk:bom:2.53.1')
+    implementation platform('com.azure:azure-sdk-bom:1.3.7')
+
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     implementation 'org.springframework.boot:spring-boot-starter-amqp'
     implementation 'org.springframework.boot:spring-boot-starter-flyway'
     implementation 'org.springframework.boot:spring-boot-starter-jdbc'
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+    // JWS signing and verification only. The resource-server starter is deliberately left
+    // out: its autoconfiguration builds a competing JwtDecoder and filter chain, and this
+    // service owns its SecurityFilterChain by hand.
+    implementation 'org.springframework.security:spring-security-oauth2-jose'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.flywaydb:flyway-core'
     implementation 'org.flywaydb:flyway-database-postgresql'
+    implementation 'software.amazon.awssdk:s3'
+    implementation 'software.amazon.awssdk:sqs'
+    implementation 'software.amazon.awssdk:url-connection-client'
+    implementation 'com.azure:azure-identity'
+    implementation 'com.azure:azure-storage-blob'
+    implementation 'com.azure:azure-storage-queue'
+    implementation 'com.azure:azure-messaging-servicebus'
 
     runtimeOnly 'com.h2database:h2'
     runtimeOnly 'org.postgresql:postgresql'

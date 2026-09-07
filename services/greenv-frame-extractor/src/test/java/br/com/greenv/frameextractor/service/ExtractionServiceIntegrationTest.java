@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import br.com.greenv.frameextractor.config.ExtractorProperties;
 import br.com.greenv.frameextractor.domain.FrameExtractionRequest;
-import br.com.greenv.frameextractor.storage.LocalPipelineStore;
+import br.com.greenv.frameextractor.storage.LocalLegacyPipelineStoreAdapter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -34,7 +34,7 @@ class ExtractionServiceIntegrationTest {
         ExtractorProperties properties = new ExtractorProperties(
                 root, "ffmpeg", "ffprobe", 300, 3, 1000, false);
         ObjectMapper objectMapper = JsonMapper.builder().findAndAddModules().build();
-        LocalPipelineStore store = new LocalPipelineStore(objectMapper, properties);
+        LocalLegacyPipelineStoreAdapter store = new LocalLegacyPipelineStoreAdapter(objectMapper, properties);
         CommandRunner commandRunner = new CommandRunner();
         ExtractionService service = new ExtractionService(
                 properties,

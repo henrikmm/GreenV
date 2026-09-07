@@ -22,7 +22,7 @@ public record CaptureSegmentResponse(
         String errorMessage) {
 
     public static CaptureSegmentResponse from(CaptureSegmentDocument segment, String baseUrl) {
-        String manifestUrl = segment.manifestUri() == null
+        String manifestUrl = segment.manifestObjectKey() == null
                 ? null
                 : baseUrl + "/v2/capture-sessions/" + segment.sessionId()
                         + "/segments/" + segment.segmentIndex() + "/manifest";

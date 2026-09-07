@@ -17,6 +17,7 @@ except where a directory carries its own — today only `measurement/` does.
 | `services/greenv-video-api/` | Capture sessions, jobs, storage keys — the control plane | Spring Boot, Java 21, Gradle |
 | `services/greenv-frame-extractor/` | Worker 1: samples frames, attaches GNSS, cuts road stretches | Spring Boot, Java 21, ffmpeg |
 | `services/capture-smoke/` | One end-to-end check of the compose stack | Shell, Docker |
+| `infrastructure/` | Scale-to-zero MVP cloud resources and R2 state bootstrap | Terraform |
 | `measurement/` | Verge Studio: metric height from video. **A git subtree — read the rule below** | TypeScript, Python, its own agreement |
 | `compose.yaml` | The local stack: PostgreSQL, RabbitMQ, the API, worker 1 | Docker Compose |
 
@@ -28,6 +29,7 @@ Run each from its own directory, not from the repository root.
 apps/web            npm ci && npm run build
 apps/mobile         flutter test && flutter analyze
 services/*          ./gradlew check
+infrastructure      terraform fmt -check -recursive && terraform init -backend=false && terraform validate && terraform test
 measurement         npm ci --prefix app && ./scripts/verify.sh
 whole local stack   docker compose up --build
 end-to-end smoke    docker compose --profile test up --build capture-smoke
@@ -128,6 +130,7 @@ Checking costs nothing and wakes nothing.
 | `apps/web` | `npm run build`, then load the page and look at it |
 | `apps/mobile` | `flutter test && flutter analyze` |
 | `services/*` | `./gradlew check` |
+| `infrastructure` | `terraform fmt -check -recursive`, `terraform validate`, then mocked `terraform test` |
 | `measurement` | `./scripts/verify.sh`, plus whatever `measurement/AGENTS.md` requires |
 | The compose stack | `docker compose --profile test up --build capture-smoke` |
 

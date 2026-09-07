@@ -5,10 +5,15 @@ import 'package:greenv_capture/src/capture/capture_ports.dart';
 import 'package:greenv_capture/src/domain/capture_models.dart';
 
 final class HttpCaptureBackend implements CaptureBackend {
-  HttpCaptureBackend(this.baseUri, {HttpClient? client})
-    : _client = client ?? HttpClient();
+  HttpCaptureBackend(
+    this.baseUri, {
+    required String bearerToken,
+    HttpClient? client,
+  }) : _authorizationHeader = _bearerAuthorization(bearerToken),
+       _client = client ?? HttpClient();
 
   final Uri baseUri;
+  final String _authorizationHeader;
   final HttpClient _client;
 
   @override
@@ -82,6 +87,7 @@ final class HttpCaptureBackend implements CaptureBackend {
         '/v2/capture-sessions/${segment.sessionId}/segments/${segment.segmentIndex}/$objectName',
       ),
     );
+    _authorize(request);
     request.headers
       ..contentType = ContentType.parse(contentType)
       ..set('X-Idempotency-Key', segment.idempotencyKey)
@@ -102,6 +108,7 @@ final class HttpCaptureBackend implements CaptureBackend {
   ) async {
     final encoded = utf8.encode(jsonEncode(body));
     final request = await _client.openUrl(method, baseUri.resolve(path));
+    _authorize(request);
     request.headers.contentType = ContentType.json;
     request.contentLength = encoded.length;
     request.add(encoded);
@@ -114,6 +121,7 @@ final class HttpCaptureBackend implements CaptureBackend {
 
   Future<_ApiResponse> _request(String method, String path) async {
     final request = await _client.openUrl(method, baseUri.resolve(path));
+    _authorize(request);
     final response = await request.close();
     return _ApiResponse(
       response.statusCode,
@@ -125,6 +133,18 @@ final class HttpCaptureBackend implements CaptureBackend {
     if (!accepted.contains(response.statusCode)) {
       throw CaptureBackendException(response.statusCode, response.body);
     }
+  }
+
+  void _authorize(HttpClientRequest request) {
+    request.headers.set(HttpHeaders.authorizationHeader, _authorizationHeader);
+  }
+
+  static String _bearerAuthorization(String token) {
+    final normalized = token.trim();
+    if (normalized.length < 32) {
+      throw ArgumentError('bearerToken must contain at least 32 characters');
+    }
+    return 'Bearer $normalized';
   }
 }
 
