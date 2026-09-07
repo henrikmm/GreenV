@@ -11,15 +11,19 @@ export const EQUIPMENT_TYPES = {
   'Spider, com ancoragem': { short: 'Spider com Ancoragem' },
 }
 
-export function getPolygonStyle(feature) {
+export function getPolygonStyle(feature, context = {}) {
   const level = feature.properties.vegetation_level || 1
   const lvl = LEVELS[level]
+  const id = getFeatureId(feature)
+  const isSelected = context.selectedId === id
+  const isInRoute = context.routeIds && context.routeIds.has(id)
   return {
     color: lvl.color,
-    weight: 2,
+    weight: isSelected ? 4 : isInRoute ? 3.5 : 2,
     opacity: 0.9,
     fillColor: lvl.color,
-    fillOpacity: 0.30,
+    fillOpacity: isSelected || isInRoute ? 0.5 : 0.30,
+    dashArray: isInRoute && !isSelected ? '4 3' : null,
   }
 }
 
@@ -35,6 +39,12 @@ export function formatArea(m2) {
 export function formatKm(meters) {
   const km = meters / 1000
   return `KM ${km.toFixed(1).replace('.', ',')}`
+}
+
+// Id estável de um polígono, derivado do centróide — o geojson não traz um id próprio.
+export function getFeatureId(feature) {
+  const { centroid_lat, centroid_lon } = feature.properties
+  return `f-${centroid_lat.toFixed(6)}-${centroid_lon.toFixed(6)}`
 }
 
 export function generateOrderId() {
