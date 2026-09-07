@@ -1,20 +1,29 @@
 # frontend/ — Dashboard de Gestão de Vegetação
 
 Interface web interativa para visualização e gestão da vegetação ao longo do Rodoanel Oeste (SP-021).
+Login, dados e equipes são mockados — não há backend de autenticação nem de ordens de serviço
+conectado ainda (ordens vivem em `localStorage`, semeadas com um conjunto de OS de exemplo na
+primeira carga).
 
 ## Stack
 
-- **React 18** + **Vite**
-- **Leaflet** + **react-leaflet** (mapa interativo)
-- **OpenStreetMap** / CARTO dark tiles (sem API key necessária)
+- **React 18** + **Vite** + **React Router**
+- **Leaflet** + **react-leaflet** (mapa interativo, com toggle claro/satélite)
+- **Framer Motion** (animações e modais) + **lucide-react** (ícones)
+- **Recharts** (gráficos do dashboard)
+- **OpenStreetMap** (basemap claro) / **Esri World Imagery** (satélite) — sem API key necessária
 
 ## Features
 
+- 🔐 **Login mockado** com sessão em `localStorage` e usuários de demonstração
+- 📊 **Visão Geral** — dashboard com KPIs, progresso semanal, distribuição por nível e produtividade por equipe
 - 🗺️ **Mapa interativo** com 642 polígonos de áreas de roçada (do KMZ da Motiva)
 - 🟢🟡🔴 **Grid de classificação** por nível de altura da vegetação (dados do Excel)
 - 🔧 **Ordem de Serviço** — clique em qualquer polígono → modal com formulário pré-preenchido
-- 🎛️ **Filtros** por nível de vegetação + toggle de camadas
-- 📊 **Resumo** com contagem por nível no sidebar
+- 🧭 **Planejar Rota** — sugestões automáticas de trechos vizinhos para combinar numa OS só, e um
+  modo manual de seleção no mapa com cálculo de ordem ideal de visita
+- 🎛️ **Filtros** por nível de vegetação + toggle de camadas + toggle de basemap
+- 📋 **Ordens de Serviço** — tabela com filtros, status e OS combinadas (múltiplos trechos)
 
 ## Setup
 
@@ -51,20 +60,28 @@ Acesse `http://localhost:5173`
 ## Estrutura
 
 ```
-frontend/
+apps/web/
 ├── public/
 │   ├── rocada_polygons.geojson   # polígonos do KMZ
+│   ├── marco_km.geojson          # marcos quilométricos
 │   └── rocada_grid.json          # grid do Excel
 ├── src/
 │   ├── components/
-│   │   ├── MapView.jsx           # mapa Leaflet
-│   │   ├── Sidebar.jsx           # painel lateral
-│   │   ├── OrderModal.jsx        # modal de OS
-│   │   └── Legend.jsx             # legenda do mapa
+│   │   ├── MapView.jsx           # mapa Leaflet (polígonos, rota, basemap)
+│   │   ├── Sidebar.jsx           # painel lateral do mapa
+│   │   ├── RoutePlannerPanel.jsx # painel de sugestões/planejamento de rota
+│   │   ├── OrderModal.jsx        # modal de OS (1 ou N trechos)
+│   │   ├── NavBar.jsx / UserMenu.jsx / ProtectedRoute.jsx / Legend.jsx
+│   │   ├── charts/                # gráficos do dashboard (recharts)
+│   │   └── ui/                    # Card, Badge, AnimatedNumber
+│   ├── context/AuthContext.jsx   # login mockado
+│   ├── data/                     # mockUsers, mockTeams, mockOrders, mockTrends
+│   ├── pages/                    # LoginPage, DashboardPage, MapPage, OrdersPage
 │   ├── utils/
-│   │   └── classification.js     # cores, níveis, helpers
-│   ├── styles/
-│   │   └── global.css            # design system
+│   │   ├── classification.js     # cores, níveis, helpers de feature
+│   │   ├── routePlanner.js       # agrupamento e ordenação de rota
+│   │   └── orders.js             # construção de ordens de serviço
+│   ├── styles/global.css         # design tokens
 │   ├── App.jsx
 │   └── main.jsx
 ├── index.html
@@ -74,45 +91,7 @@ frontend/
 
 ## Próximos Passos
 
-- [ ] Conectar com backend API (CRUD de ordens de serviço)
+- [ ] Conectar com backend API (CRUD de ordens de serviço, autenticação real)
 - [ ] Integrar modelo de detecção (module `model-training/`)
 - [ ] Adicionar imagens Street View no popup dos polígonos
-- [ ] Módulo de planejamento operacional (cronograma semanal)
-- [ ] Relatórios de pontos críticos
-
-## Autenticação
-
-A tela de login fica em `/entrar`. As rotas `/` e `/ordens` ficam atrás de `RequireAuth`.
-
-A sessão vive em cookies `HttpOnly`, então o JavaScript não consegue lê-la — e por isso também não
-consegue saber sozinho se está autenticado. Quem responde isso é `GET /v2/auth/me`, chamado uma vez
-no boot pelo `AuthProvider`. Nada de sessão é guardado em `localStorage`: o servidor é a única fonte
-de verdade, e uma cópia local só poderia estar desatualizada. (As ordens de serviço continuam em
-`localStorage` sob `motiva_orders`, como antes.)
-
-### Rodando localmente
-
-O `vite.config.js` encaminha `/api` para a API, então o navegador conversa com uma única origem.
-Isso não é conveniência: servido direto de `:5173` para outro host, o cookie de sessão seria um
-cookie de terceiros, que Safari e Firefox bloqueiam.
-
-```bash
-npm ci
-npm run dev                                             # contra o stack local (127.0.0.1:8080)
-GREENV_API_TARGET=https://greenvapi.matomomitsu.com npm run dev   # contra a nuvem
-```
-
-Crie um usuário com o token operacional antes do primeiro login:
-
-```bash
-curl -X POST http://localhost:8080/v2/identity/users \
-  -H "Authorization: Bearer $GREENV_API_TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"operador@motiva.com.br","password":"uma-senha-bem-longa-123","displayName":"Ana","role":"OPERATOR"}'
-```
-
-`VITE_GREENV_API_URL` (veja `.env.example`) só é necessário quando o dashboard for publicado no
-mesmo domínio registrável da API. Vazio significa "mesma origem, via `/api`".
-
-**Chrome ou Firefox para desenvolvimento local.** Os cookies são `Secure`, e esses dois tratam
-`http://localhost` como origem confiável; o Safari não, e descarta o cookie de sessão.
+- [ ] Relatórios de pontos críticos exportáveis

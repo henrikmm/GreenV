@@ -1,62 +1,97 @@
-import { useState, useEffect } from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { useState, useEffect, useRef } from 'react'
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { AuthProvider } from './context/AuthContext'
+import { ToastProvider } from './context/ToastContext'
+import ToastContainer from './components/ToastContainer'
+import ProtectedRoute from './components/ProtectedRoute'
+import LoginPage from './pages/LoginPage'
+import DashboardPage from './pages/DashboardPage'
 import MapPage from './pages/MapPage'
 import OrdersPage from './pages/OrdersPage'
-import LoginPage from './pages/LoginPage'
-import { AuthProvider } from './auth/AuthContext'
-import RequireAuth from './auth/RequireAuth'
+import TeamsPage from './pages/TeamsPage'
+import TeamDetailPage from './pages/TeamDetailPage'
+import { generateMockOrders } from './data/mockOrders'
+
+const ORDERS_KEY = 'motiva_orders'
 
 export default function App() {
   const [geojson, setGeojson] = useState(null)
   const [marcoKm, setMarcoKm] = useState(null)
   const [orders, setOrders] = useState([])
+  const seeded = useRef(false)
 
   useEffect(() => {
     fetch('/rocada_polygons.geojson').then(r => r.json()).then(setGeojson).catch(console.error)
     fetch('/marco_km.geojson').then(r => r.json()).then(setMarcoKm).catch(console.error)
 
-    // Load saved orders from localStorage
-    const saved = localStorage.getItem('motiva_orders')
+    const saved = localStorage.getItem(ORDERS_KEY)
     if (saved) setOrders(JSON.parse(saved))
   }, [])
+
+  // Semeia ordens mockadas na primeira carga (sem OS salvas ainda) assim que o geojson chega.
+  useEffect(() => {
+    if (seeded.current) return
+    if (localStorage.getItem(ORDERS_KEY)) { seeded.current = true; return }
+    if (!geojson || !marcoKm) return
+    seeded.current = true
+    const mock = generateMockOrders(geojson, marcoKm)
+    setOrders(mock)
+    localStorage.setItem(ORDERS_KEY, JSON.stringify(mock))
+  }, [geojson, marcoKm])
 
   const addOrder = (order) => {
     const updated = [order, ...orders]
     setOrders(updated)
-    localStorage.setItem('motiva_orders', JSON.stringify(updated))
+    localStorage.setItem(ORDERS_KEY, JSON.stringify(updated))
   }
 
   const updateOrder = (id, changes) => {
     const updated = orders.map(o => o.id === id ? { ...o, ...changes } : o)
     setOrders(updated)
-    localStorage.setItem('motiva_orders', JSON.stringify(updated))
+    localStorage.setItem(ORDERS_KEY, JSON.stringify(updated))
   }
 
   const deleteOrder = (id) => {
     const updated = orders.filter(o => o.id !== id)
     setOrders(updated)
-    localStorage.setItem('motiva_orders', JSON.stringify(updated))
+    localStorage.setItem(ORDERS_KEY, JSON.stringify(updated))
   }
 
   return (
-    <BrowserRouter>
-      {/* Inside the router, because the provider navigates when a session ends. */}
+    <ToastProvider>
       <AuthProvider>
-        <Routes>
-          <Route path="/entrar" element={<LoginPage />} />
-          <Route path="/" element={
-            <RequireAuth>
-              <MapPage geojson={geojson} marcoKm={marcoKm} onCreateOrder={addOrder} />
-            </RequireAuth>
-          } />
-          <Route path="/ordens" element={
-            <RequireAuth>
-              <OrdersPage orders={orders} onUpdateOrder={updateOrder} onDeleteOrder={deleteOrder} />
-            </RequireAuth>
-          } />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/" element={
+              <ProtectedRoute>
+                <DashboardPage geojson={geojson} orders={orders} />
+              </ProtectedRoute>
+            } />
+            <Route path="/mapa" element={
+              <ProtectedRoute>
+                <MapPage geojson={geojson} marcoKm={marcoKm} orders={orders} onCreateOrder={addOrder} />
+              </ProtectedRoute>
+            } />
+            <Route path="/ordens" element={
+              <ProtectedRoute>
+                <OrdersPage orders={orders} onUpdateOrder={updateOrder} onDeleteOrder={deleteOrder} onRestoreOrder={addOrder} />
+              </ProtectedRoute>
+            } />
+            <Route path="/equipes" element={
+              <ProtectedRoute>
+                <TeamsPage orders={orders} />
+              </ProtectedRoute>
+            } />
+            <Route path="/equipes/:teamId" element={
+              <ProtectedRoute>
+                <TeamDetailPage orders={orders} />
+              </ProtectedRoute>
+            } />
+          </Routes>
+        </BrowserRouter>
       </AuthProvider>
-    </BrowserRouter>
+      <ToastContainer />
+    </ToastProvider>
   )
 }
