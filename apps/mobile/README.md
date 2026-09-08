@@ -329,14 +329,9 @@ that segment, not absolute attitude, and it can drift.
 
 ## Recording frame rate
 
-The camera's frame rate is what bounds how tightly a stretch of road can be reconstructed. A stretch
-is measured from the frames recorded while crossing it, so at 30 fps a twenty-metre stretch holds 112
+The camera's frame rate bounds how tightly a stretch of road can be reconstructed. A stretch is
+measured from the frames recorded while crossing it, so at 30 fps a twenty-metre stretch holds 112
 views at 20 km/h and only 22 at 100 km/h — below the smallest count Verge Studio has graded.
-
-```bash
-flutter run --dart-define=GREENV_API_URL=https://greenvapi.matomomitsu.com \
-            --dart-define=GREENV_RECORDING_FPS=120
-```
 
 | recording | 60 km/h | 100 km/h | 120 km/h | graded up to |
 |---|---:|---:|---:|---|
@@ -344,35 +339,38 @@ flutter run --dart-define=GREENV_API_URL=https://greenvapi.matomomitsu.com \
 | 60 fps | 76 | 43 | 36 | 68 km/h |
 | 120 fps | 112 | 86 | 71 | 135 km/h |
 
-### Resolution is what makes a high rate reachable
+**Nothing configures this.** The recorder walks a ladder at startup and keeps the first format the
+device accepts:
 
-Asked for a frame rate, `camera_avfoundation` pins the resolution from the preset and then searches
-**only the formats at that resolution** for the one closest to the rate. A phone that offers 1080p120
-but no 4K120 reaches 120 fps at 1080p and clamps to 30 at 4K. So resolution is not a quality dial
-here — it is what the frame rate is traded against.
+| | resolution | rate |
+|---|---|---|
+| 1 | 720p | 240 |
+| 2 | 1080p | 240 |
+| 3 | 720p | 120 |
+| 4 | 1080p | 120 |
+| 5 | 720p | 60 |
+| 6 | 720p | platform default |
 
-```bash
---dart-define=GREENV_RECORDING_RESOLUTION=veryHigh   # 1080p; default is high (720p)
-```
+Highest rate first, and at equal rate the **lower** resolution first: the worker resizes every frame
+to a 1024 px long edge before publishing and 720p is already 1280 px across, so 1080p would discard
+72% of what it captured while costing the 64 MB upload budget. 1080p is on the ladder only because
+some devices offer a high-rate format there and not at 720p. 4K is not on it at all — it would
+discard 93% and, on most phones, cost the frame rate too.
 
-**Raising it buys nothing on its own.** The worker resizes every frame to a 1024 px long edge before
-publishing, and 720p is already 1280 px across:
+The two platforms fail differently, which is why this is a ladder rather than one request:
 
-| capture | long edge | after the worker's downscale | discarded |
-|---|---:|---:|---:|
-| 720p (default) | 1280 px | 1024 px | 36% |
-| 1080p | 1920 px | 1024 px | 72% |
-| 4K | 3840 px | 1024 px | 93% |
+- **iOS** searches the formats at the requested resolution and clamps to the closest rate it finds,
+  so rung 1 nearly always succeeds and yields the fastest format 720p has on that device.
+- **Android** asks CameraX for an exact `[fps, fps]` range and the bind throws when no format offers
+  it, so a 30 fps phone falls through to the last rung. The range reaches video capture, not only
+  the preview (`android_camera_camerax.dart:424`).
 
-So the default stays 720p, and the reason to change it is to reach a frame-rate format the device
-only offers at another resolution — not to get more detail.
+**Neither platform reports the rate it achieved** — `CameraValue` does not carry it — so the app
+cannot log what it got. The worker measures it per segment and records it in the manifest as
+`nativeFps`. That is the number to trust, and the way to check a device is to record one segment and
+read it.
 
-**Setting the iOS Camera app to 120 fps changes nothing here.** That setting belongs to Apple's app;
+Setting the iOS Camera app to 120 fps changes nothing here: that setting belongs to Apple's app, and
 this one opens its own capture session.
 
-The worker records the rate it actually measured as `nativeFps` in every segment manifest. That is
-the number to trust. This has not been run on a 120 fps device.
-
-Two limits worth knowing before raising it: the API rejects a segment over 64 MB, which 1080p120
-fits at about 50 MB but 4K60 does not; and more frames cost GPU roughly in proportion, against a
-bill already near four GPU-hours per hour driven.
+This ladder has not been run on a device that offers 120 fps.

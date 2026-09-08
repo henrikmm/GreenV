@@ -1,6 +1,5 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
-import 'package:greenv_capture/src/bootstrap/capture_configuration.dart';
 import 'package:greenv_capture/src/capture/capture_ports.dart';
 import 'package:greenv_capture/src/domain/capture_models.dart';
 
@@ -22,6 +21,28 @@ final class CameraSegmentRecorder implements SegmentRecorder {
     return CameraPreview(controller);
   }
 
+  /// Capture formats to try, best first.
+  ///
+  /// Frame rate is the lever that decides whether a stretch of road can be reconstructed at all: a
+  /// twenty-metre stretch is measured from the frames recorded while crossing it, so at 30 fps it
+  /// holds 22 views at 100 km/h — below anything the depth model has been graded at — and at 120 fps
+  /// it holds 86, back inside that range. So the ladder asks for the highest rate first.
+  ///
+  /// At equal rate the LOWER resolution wins. The worker resizes every frame to a 1024 px long edge
+  /// before publishing and 720p is already 1280 px across, so 1080p would discard 72% of what it
+  /// captured while costing the 64 MB upload budget. 1080p is here only because some devices offer a
+  /// high-rate format at that resolution and not at 720p.
+  ///
+  /// The last rung asks for no rate at all, which is what a device with no high-rate format needs.
+  static const List<({ResolutionPreset resolution, int? fps})> preferredFormats = [
+    (resolution: ResolutionPreset.high, fps: 240),
+    (resolution: ResolutionPreset.veryHigh, fps: 240),
+    (resolution: ResolutionPreset.high, fps: 120),
+    (resolution: ResolutionPreset.veryHigh, fps: 120),
+    (resolution: ResolutionPreset.high, fps: 60),
+    (resolution: ResolutionPreset.high, fps: null),
+  ];
+
   @override
   Future<void> initialize() async {
     if (isInitialized) return;
@@ -34,33 +55,37 @@ final class CameraSegmentRecorder implements SegmentRecorder {
         break;
       }
     }
-    final controller = CameraController(
-      selected,
-      _resolutionPreset(),
-      enableAudio: false,
-      imageFormatGroup: ImageFormatGroup.yuv420,
-      // Null leaves the platform default. A higher rate is what lets a twenty-metre stretch of road
-      // hold enough views to reconstruct at highway speed, and the resolution above is what makes a
-      // high rate reachable: the platform searches only formats at that resolution.
-      fps: CaptureConfiguration.recordingFps > 0
-          ? CaptureConfiguration.recordingFps
-          : null,
-    );
-    await controller.initialize();
-    await controller.prepareForVideoRecording();
-    _controller = controller;
-  }
 
-  /// Unknown values fall back to the default rather than failing a capture over a typo.
-  static ResolutionPreset _resolutionPreset() => switch (
-      CaptureConfiguration.recordingResolution) {
-    'low' => ResolutionPreset.low,
-    'medium' => ResolutionPreset.medium,
-    'veryHigh' => ResolutionPreset.veryHigh,
-    'ultraHigh' => ResolutionPreset.ultraHigh,
-    'max' => ResolutionPreset.max,
-    _ => ResolutionPreset.high,
-  };
+    // The two platforms fail differently, which is why this walks a ladder instead of asking once.
+    // iOS searches the formats at the requested resolution and clamps to the closest rate it finds,
+    // so the first rung nearly always succeeds and yields the fastest format that resolution has.
+    // Android asks CameraX for an exact [fps, fps] range and the bind throws when no format offers
+    // it, so the lower rungs are what a 30 fps phone lands on.
+    //
+    // Neither platform reports the rate it actually achieved — `CameraValue` does not carry it — so
+    // the app cannot log what it got. The worker measures it per segment and records it in the
+    // manifest as `nativeFps`; that is the number to trust.
+    Object? lastFailure;
+    for (final format in preferredFormats) {
+      final controller = CameraController(
+        selected,
+        format.resolution,
+        enableAudio: false,
+        imageFormatGroup: ImageFormatGroup.yuv420,
+        fps: format.fps,
+      );
+      try {
+        await controller.initialize();
+        await controller.prepareForVideoRecording();
+        _controller = controller;
+        return;
+      } on Object catch (error) {
+        lastFailure = error;
+        await controller.dispose().catchError((_) {});
+      }
+    }
+    throw StateError('no usable capture format on this camera: $lastFailure');
+  }
 
   @override
   Future<void> start() async {
