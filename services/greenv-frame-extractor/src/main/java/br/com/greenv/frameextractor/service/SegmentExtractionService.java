@@ -159,11 +159,19 @@ public class SegmentExtractionService implements SegmentProcessor {
         List<FrameRecord> sampledFrames;
         List<FrameGroup> publishedGroups;
         String strategy;
-        if (groups.isEmpty()) {
-            // Either the vehicle never moved far enough for parallax, or there is no usable
-            // telemetry. Both fall back to the uniform plan so the pipeline keeps producing
-            // something, and the manifest records which happened.
-            strategy = profile.isUsable() ? "insufficient-motion" : "time-uniform-no-telemetry";
+        if (groups.isEmpty() && profile.isUsable()) {
+            // The telemetry is trustworthy and says the camera did not move far enough for
+            // parallax. Publishing frames here would spend storage and a GPU run on views of one
+            // viewpoint, which cannot reconstruct anything. The metadata and the manifest are still
+            // written, and the source is kept, so a segment refused here can be re-sampled if this
+            // rule turns out to be wrong.
+            strategy = "insufficient-motion";
+            sampledFrames = List.of();
+            publishedGroups = List.of();
+        } else if (groups.isEmpty()) {
+            // No usable telemetry, so there is nothing to say the camera did not move. Refusing on
+            // ignorance would silently drop good captures, so this falls back to the uniform plan.
+            strategy = "time-uniform-no-telemetry";
             SamplingPlan uniform =
                     samplingPlanner.sampling(SAMPLE_FPS, probe.durationSeconds(), MAX_SAMPLE_FRAMES);
             List<Path> extracted = frameSampler.extract(source, sampledFramesPath, uniform, scale);

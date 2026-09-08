@@ -74,8 +74,15 @@ public final class MotionProfile {
         return motion;
     }
 
+    /**
+     * Whether there are enough fixes to judge the camera's motion at all.
+     *
+     * <p>Deliberately not "did it move". A parked vehicle has perfectly good telemetry that says
+     * zero, and that is an answer — conflating it with having no telemetry would send a stationary
+     * capture down the fallback path and publish frames of one viewpoint.
+     */
     public boolean isUsable() {
-        return times.length >= 2 && motion.pathMeters() > 0;
+        return times.length >= 2;
     }
 
     /**
