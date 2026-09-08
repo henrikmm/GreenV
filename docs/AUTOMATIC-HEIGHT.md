@@ -251,9 +251,28 @@ Observed on 2026-09-08, on one machine:
   publish, and both `SegmentExtractionServiceTest` and `SegmentExtractionServiceIntegrationTest`
   assert that a finished segment announces itself — the integration one against real ffmpeg.
 
+- **Two runs against the real GPU service**, deployed and torn down the same session. Both
+  segments went through the production pipeline against a live L4, and both packets pass
+  `check-grass-quality.mjs`:
+
+  | Segment | Frames | GPU | Measured / abstained cells | Coverage | Max extent |
+  |---|---:|---:|---:|---:|---:|
+  | lawn (`20260814-164826-0e4e4c`) | 100 | 31.5 s | 14 / 0 | 100% | 0.161 m |
+  | garden (`20260814-174814-b245bc`) | 94 | 23.8 s | 66 / 12 | 84.6% | 1.128 m |
+
+  Provenance on both reads `depth-anything/DA3NESTED-GIANT-LARGE-1.1` at the pinned revision,
+  `mock: false`, `operationalStatus: "not-ready"`, `km: null`, and the `road-metadata-missing`
+  blocker — the designed behaviour, observed rather than assumed.
+
+- **A fresh reconstruction reproduces the recorded one.** These frames were last reconstructed in
+  August; today's independent run of the garden clip fitted a ground plane at 23.3° tilt, 17 mm
+  RMSE and 28.3% inliers, against the 23.489°, 17.1 mm and 27.8% on record. The lawn returned the
+  same 14 measured cells and 0 abstentions as its recorded result. Nothing here grades height
+  against a tape; it says the geometry stage is reproducible.
+
 Not verified:
 
-- **No run against the real GPU service.** Every reconstruction used so far was recorded earlier.
 - **`docker compose up` has not been run.** Docker is not installed on the machine this was built
   on, so the compose wiring and the `Dockerfile` are written and unexecuted.
-- **No accuracy claim of any kind.** See Limitations.
+- **No accuracy claim of any kind.** Both runs above are reproducibility and plumbing evidence.
+  No automatic reading has ever been compared with a tape. See Limitations.
