@@ -75,6 +75,7 @@ class SegmentExtractionServiceIntegrationTest {
                 new FrameTimestampProbe(runner, mapper, properties),
                 new TelemetryAssociator(),
                 new SamplingPlanner(),
+                new GroupPlanner(),
                 new FfmpegExtractor(runner, properties),
                 Clock.fixed(Instant.parse("2026-08-25T12:00:02Z"), ZoneOffset.UTC));
 

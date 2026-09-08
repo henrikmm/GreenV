@@ -20,7 +20,8 @@ it is.
 - **`sampledFrames`** is the JPEGs actually written to object storage, and it is the number that
   matters downstream.
 
-Sampling is fixed at **10 fps, at most 112 frames, 1024 px long edge**, which are Verge Studio's
+Sampling is by **distance travelled**, in groups. See "Groups, not one long clip" below. The
+budget is still Verge Studio's
 numbers rather than this worker's. The depth model recovers geometry by comparing many views of one
 scene, so the frame rate is the accuracy knob, and `measurement/MEASUREMENTS.md` grades 112 frames
 at 504 px as the best setting tried. The cap keeps a long segment off the GPU's memory ceiling; an
@@ -30,6 +31,45 @@ whole segment — never "N frames spread across it".
 
 A ten-second segment therefore publishes about 100 JPEGs. At 1024 px that is roughly 5 MB, against
 about 3.4 MB for the MP4 they came from, so the frames now cost more storage than the source.
+
+## Groups, not one long clip
+
+A ten-second segment is an **upload** bound, not an analysis unit. At 100 km/h it covers 278 m,
+which is many stretches of verge rather than one scene, so the worker cuts the distance travelled
+into groups of about 20 m and treats each as its own reconstruction.
+
+Twenty metres is not arbitrary: Verge Studio's graded evidence covers camera paths of roughly
+14-25 m, so a group of that length keeps the frames inside one looking at the same place. A group is
+never planned longer than 25 m.
+
+Frames inside a group are spaced by distance, which is what the depth model actually depends on.
+Sampling by time crowds frames together wherever the vehicle is slow — pulling away from a light puts
+half of them in the first twenty metres — and spreads them thin where it is fast.
+
+| km/h | distance / 10 s | groups | frames / group | spacing | inside the graded range |
+|---:|---:|---:|---:|---:|---|
+| 20 | 56 m | 3 | 101 | 0.19 m | yes |
+| 30 | 83 m | 4 | 76 | 0.28 m | yes |
+| 40 | 111 m | 6 | 51 | 0.37 m | no |
+| 60 | 167 m | 8 | 38 | 0.56 m | no |
+| 100 | 278 m | 14 | 22 | 0.94 m | no |
+
+**Above roughly 34 km/h a group no longer holds 64 frames**, the smallest count Verge Studio has
+graded, because a 30 fps camera cannot record them any closer together. Each group records
+`withinGradedEnvelope` so a consumer can tell which side of that line it is on. This is a property of
+the camera and the vehicle, not of the code: more frames per second would not help until the
+segment is re-cut, and at road speed the frame budget binds long before the camera does.
+
+A vehicle that never moved produces no groups and publishes no frames. The floor is checked against
+**net displacement**, never the accumulated path: the phone's `distanceFromSessionStartMeters` is a
+running sum of great-circle hops, so at a standstill it accumulates fix noise instead of cancelling
+it — at 5 m accuracy a parked phone sums tens of metres that never happened, while its displacement
+stays within a few.
+
+The manifest records **every** group, but publishes JPEGs only for as many as the frame budget
+allows. Publishing all of them would triple storage and triple a GPU bill that already runs to about
+four GPU-hours per hour driven. The source is kept, so a group that was only planned can be
+materialised later from its recorded frame indices.
 
 ## The source segment is kept
 
@@ -186,7 +226,7 @@ durable queue request
   -> write and re-read frame-metadata-v2.json through object storage
   -> extract full-duration JPEG sample and verify every checksum
   -> write and re-read unpublished manifest
-  -> delete source.mp4
+  -> keep source.mp4 (a later measurement stage may want another rate or resolution)
   -> mark manifest published, re-read it and commit segment ready
 ```
 
@@ -206,7 +246,7 @@ location fields/quality/age and motion fields/age.
 - Horizontal accuracy up to 10 m is `good`; up to 25 m is `degraded`; worse is unavailable.
 - Motion older than 100 ms is unavailable.
 - Missing or stale evidence remains absent; it is never silently carried forward.
-- Sampled JPEGs target 2 FPS across the full segment, at most 64 frames, with a 1280-pixel long
+- Sampled JPEGs are spaced by distance, at most 112 frames per group, with a 1024-pixel long
   edge and no upscaling.
 
 The phone camera provides a completed segment rather than a hardware timestamp for each frame.

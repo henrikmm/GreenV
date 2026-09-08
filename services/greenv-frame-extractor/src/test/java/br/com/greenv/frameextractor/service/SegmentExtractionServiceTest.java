@@ -86,6 +86,7 @@ class SegmentExtractionServiceTest {
                 timestamps,
                 new TelemetryAssociator(),
                 new SamplingPlanner(),
+                new GroupPlanner(),
                 ffmpeg,
                 Clock.fixed(Instant.parse("2026-08-25T12:00:02Z"), ZoneOffset.UTC));
 

@@ -22,5 +22,15 @@ public record SegmentManifest(
         long frameMetadataBytes,
         List<FrameRecord> sampledFrames,
         boolean sourceDeleted,
-        Instant createdAt) {
+        Instant createdAt,
+        String samplingStrategy,
+        double nativeFps,
+        double pathMeters,
+        double netDisplacementMeters,
+        List<FrameGroup> groups) {
+
+    public SegmentManifest {
+        sampledFrames = sampledFrames == null ? List.of() : List.copyOf(sampledFrames);
+        groups = groups == null ? List.of() : List.copyOf(groups);
+    }
 }
