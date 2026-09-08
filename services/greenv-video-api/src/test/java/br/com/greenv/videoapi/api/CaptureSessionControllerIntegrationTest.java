@@ -4,7 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
-import br.com.greenv.videoapi.task.SegmentTaskPublisher;
+import br.com.greenv.videoapi.port.IdentifierGenerator;
+import br.com.greenv.videoapi.port.SegmentWorkQueue;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -23,9 +24,12 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import tools.jackson.databind.ObjectMapper;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = "greenv.security.api-token=greenv-test-only-bearer-token-000000000000")
 class CaptureSessionControllerIntegrationTest {
 
+    private static final String TEST_API_TOKEN = "greenv-test-only-bearer-token-000000000000";
     private static final String TEST_ID = UUID.randomUUID().toString();
     private static final Path TEST_ROOT = Path.of(
             System.getProperty("java.io.tmpdir"),
@@ -46,8 +50,11 @@ class CaptureSessionControllerIntegrationTest {
     @Autowired
     ObjectMapper objectMapper;
 
+    @Autowired
+    IdentifierGenerator identifierGenerator;
+
     @MockitoBean
-    SegmentTaskPublisher taskPublisher;
+    SegmentWorkQueue taskPublisher;
 
     @Test
     void acceptsIdempotentVideoAndTelemetryUploadsAndRejectsChangedContent() throws Exception {
@@ -60,6 +67,7 @@ class CaptureSessionControllerIntegrationTest {
                         """)));
         assertThat(created.statusCode()).isEqualTo(201);
         String sessionId = objectMapper.readTree(created.body()).path("sessionId").asString();
+        assertThat(UUID.fromString(sessionId).version()).isEqualTo(7);
         String segment = sessions + "/" + sessionId + "/segments/0";
         byte[] video = "encoded-video-segment".getBytes(StandardCharsets.UTF_8);
         byte[] telemetry = """
@@ -120,7 +128,7 @@ class CaptureSessionControllerIntegrationTest {
     void createsTheSameClientAssignedSessionIdempotently() throws Exception {
         HttpClient client = HttpClient.newHttpClient();
         String sessions = "http://127.0.0.1:" + port + "/v2/capture-sessions";
-        String sessionId = UUID.randomUUID().toString();
+        String sessionId = identifierGenerator.next().toString();
         String body = """
                 {"sessionId":"%s","deviceId":"offline-phone","startedAt":"2026-08-23T12:00:00Z"}
                 """.formatted(sessionId);
@@ -136,6 +144,24 @@ class CaptureSessionControllerIntegrationTest {
         assertThat(repeated.statusCode()).isEqualTo(201);
         assertThat(objectMapper.readTree(first.body()).path("sessionId").asString()).isEqualTo(sessionId);
         assertThat(objectMapper.readTree(repeated.body()).path("sessionId").asString()).isEqualTo(sessionId);
+    }
+
+    @Test
+    void acceptsALegacyUuidForAnAlreadyQueuedOfflineCapture() throws Exception {
+        HttpClient client = HttpClient.newHttpClient();
+        String sessions = "http://127.0.0.1:" + port + "/v2/capture-sessions";
+        String legacySessionId = UUID.randomUUID().toString();
+        String body = """
+                {"sessionId":"%s","deviceId":"upgrading-phone"}
+                """.formatted(legacySessionId);
+
+        HttpResponse<String> response = send(client, HttpRequest.newBuilder(URI.create(sessions))
+                .header("content-type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(body)));
+
+        assertThat(response.statusCode()).isEqualTo(201);
+        assertThat(objectMapper.readTree(response.body()).path("sessionId").asString())
+                .isEqualTo(legacySessionId);
     }
 
     @Test
@@ -159,7 +185,11 @@ class CaptureSessionControllerIntegrationTest {
         assertThat(send(client, HttpRequest.newBuilder(URI.create(segment + "/complete"))
                 .POST(HttpRequest.BodyPublishers.noBody())).statusCode()).isEqualTo(202);
 
-        verify(taskPublisher, times(2)).publish(org.mockito.ArgumentMatchers.any());
+        verify(taskPublisher, times(2)).publish(org.mockito.ArgumentMatchers.argThat(request ->
+                request.schemaVersion() == 2
+                        && request.videoObjectKey().endsWith("/source.mp4")
+                        && request.telemetryObjectKey().endsWith("/telemetry.json")
+                        && !request.outputPrefix().contains("://")));
     }
 
     private static HttpResponse<String> upload(
@@ -178,7 +208,9 @@ class CaptureSessionControllerIntegrationTest {
     }
 
     private static HttpResponse<String> send(HttpClient client, HttpRequest.Builder request) throws Exception {
-        return client.send(request.build(), HttpResponse.BodyHandlers.ofString());
+        return client.send(
+                request.header("Authorization", "Bearer " + TEST_API_TOKEN).build(),
+                HttpResponse.BodyHandlers.ofString());
     }
 
     private static String sha256(byte[] value) throws Exception {

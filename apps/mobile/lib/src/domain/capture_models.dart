@@ -11,6 +11,7 @@ final class QueuedSegment {
     required this.videoSha256,
     required this.telemetryPath,
     required this.telemetrySha256,
+    this.videoContentType = 'video/mp4',
     this.state = SegmentUploadState.pending,
     this.lastError,
   });
@@ -24,6 +25,11 @@ final class QueuedSegment {
   final String videoSha256;
   final String telemetryPath;
   final String telemetrySha256;
+
+  /// A phone records MP4; a browser's MediaRecorder records WebM. The API accepts both, so the
+  /// upload has to declare what was actually encoded.
+  final String videoContentType;
+
   final SegmentUploadState state;
   final String? lastError;
 
@@ -41,6 +47,7 @@ final class QueuedSegment {
     videoSha256: videoSha256,
     telemetryPath: telemetryPath,
     telemetrySha256: telemetrySha256,
+    videoContentType: videoContentType,
     state: state ?? this.state,
     lastError: clearError ? null : lastError ?? this.lastError,
   );
@@ -55,6 +62,7 @@ final class QueuedSegment {
     'videoSha256': videoSha256,
     'telemetryPath': telemetryPath,
     'telemetrySha256': telemetrySha256,
+    'videoContentType': videoContentType,
     'state': state.name,
     'lastError': lastError,
   };
@@ -69,6 +77,7 @@ final class QueuedSegment {
     videoSha256: json['videoSha256']! as String,
     telemetryPath: json['telemetryPath']! as String,
     telemetrySha256: json['telemetrySha256']! as String,
+    videoContentType: json['videoContentType'] as String? ?? 'video/mp4',
     state: SegmentUploadState.values.byName(json['state']! as String),
     lastError: json['lastError'] as String?,
   );
@@ -139,10 +148,15 @@ final class QueuedSession {
 }
 
 final class RecordedVideo {
-  const RecordedVideo({required this.path, required this.durationMillis});
+  const RecordedVideo({
+    required this.path,
+    required this.durationMillis,
+    this.contentType = 'video/mp4',
+  });
 
   final String path;
   final int durationMillis;
+  final String contentType;
 }
 
 final class SegmentTelemetryDocument {

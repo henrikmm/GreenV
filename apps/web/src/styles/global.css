@@ -4,16 +4,25 @@
   --motiva-light: #f3effe;
   --motiva-subtle: rgba(94, 34, 243, 0.08);
   --motiva-mid: rgba(94, 34, 243, 0.15);
+  --motiva-gradient: linear-gradient(135deg, #6d2af5 0%, #5e22f3 45%, #4415c4 100%);
+
+  --accent: #0ea5a0;
+  --accent-bg: rgba(14, 165, 160, 0.12);
 
   --bg-primary: #ffffff;
   --bg-secondary: #f8f7fc;
+  --bg-tertiary: #f1eef9;
   --bg-card: #ffffff;
   --bg-card-hover: #f3f1fa;
-  --bg-overlay: rgba(0, 0, 0, 0.45);
+  --bg-overlay: rgba(20, 12, 40, 0.55);
+  --bg-dark: #17122b;
+  --bg-dark-card: #1f1a38;
 
   --text-primary: #1a1a2e;
   --text-secondary: #6b6b80;
   --text-muted: #9d9db0;
+  --text-on-dark: #f4f2fb;
+  --text-on-dark-muted: rgba(244, 242, 251, 0.62);
 
   --level-1: #16a34a;
   --level-2: #ca8a04;
@@ -24,13 +33,26 @@
 
   --border: #e8e5f0;
   --border-active: #d0cce0;
+  --border-dark: rgba(244, 242, 251, 0.1);
 
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 16px;
+  --radius-xl: 22px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
 
   --shadow-card: 0 1px 4px rgba(94, 34, 243, 0.06), 0 1px 2px rgba(0,0,0,0.04);
-  --shadow-modal: 0 20px 60px rgba(94, 34, 243, 0.12), 0 8px 24px rgba(0,0,0,0.08);
+  --shadow-card-lg: 0 8px 24px rgba(45, 20, 90, 0.08), 0 2px 6px rgba(45, 20, 90, 0.05);
+  --shadow-modal: 0 20px 60px rgba(94, 34, 243, 0.16), 0 8px 24px rgba(0,0,0,0.1);
+  --shadow-float: 0 12px 32px rgba(45, 20, 90, 0.14);
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 
   --font-sans: 'DM Sans', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
@@ -45,6 +67,33 @@ body {
   background: var(--bg-primary);
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
+}
+
+button, input, select, textarea { font-family: inherit; }
+
+button:focus-visible, input:focus-visible, select:focus-visible,
+textarea:focus-visible, [tabindex]:focus-visible {
+  outline: 2px solid var(--motiva);
+  outline-offset: 2px;
+}
+
+::selection { background: var(--motiva-mid); color: var(--text-primary); }
+
+@keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
+@keyframes shimmer {
+  from { background-position: -400px 0 }
+  to { background-position: 400px 0 }
+}
+@keyframes pulseRing {
+  0% { box-shadow: 0 0 0 0 rgba(94, 34, 243, 0.35) }
+  100% { box-shadow: 0 0 0 12px rgba(94, 34, 243, 0) }
+}
+@keyframes spin { to { transform: rotate(360deg) } }
+
+.skeleton {
+  background: linear-gradient(90deg, var(--bg-secondary) 25%, var(--bg-tertiary) 37%, var(--bg-secondary) 63%);
+  background-size: 800px 100%;
+  animation: shimmer 1.4s linear infinite;
 }
 
 .leaflet-container { background: #f0eff5 !important; font-family: var(--font-sans) !important; }
@@ -76,3 +125,58 @@ body {
 ::-webkit-scrollbar { width: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+.km-tooltip {
+  background: white !important; border: 1px solid var(--border) !important;
+  border-radius: 6px !important; box-shadow: var(--shadow-card) !important;
+  padding: 3px 8px !important;
+}
+.km-tooltip::before { display: none !important; }
+
+/* Basemap monocromático — filtro CSS só no tile pane, sem precisar de outro provedor/API key */
+.map-mono .leaflet-tile-pane {
+  filter: grayscale(1) brightness(1.14) contrast(0.92);
+}
+
+/* Marcadores de rota — losango numerado em vez da bolinha genérica */
+.route-pin-wrap { position: relative; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; }
+.route-pin {
+  width: 20px; height: 20px; border-radius: 6px;
+  background: linear-gradient(135deg, #7b3ef8, #4c1ad0);
+  border: 2px solid white; box-shadow: var(--shadow-card-lg);
+  transform: rotate(45deg);
+}
+.route-pin-label {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  color: white; font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+}
+.route-pin-wrap.is-start .route-pin,
+.route-pin-wrap.is-end .route-pin { transform: none; border-radius: 50%; width: 24px; height: 24px; }
+.route-pin-wrap.is-start .route-pin { background: linear-gradient(135deg, #34d399, #16a34a); }
+.route-pin-wrap.is-end .route-pin { background: linear-gradient(135deg, #292045, #17122b); }
+.route-pin-wrap.is-start { animation: pulseRing 1.8s ease-out infinite; border-radius: 50%; }
+
+.route-line { filter: drop-shadow(0 0 4px rgba(94, 34, 243, 0.55)); }
+
+/* Trator/roçadeira percorrendo a rota calculada */
+.mower-marker {
+  width: 30px; height: 30px; border-radius: 50%; background: white;
+  border: 2px solid var(--motiva); box-shadow: var(--shadow-card-lg);
+  display: flex; align-items: center; justify-content: center; font-size: 15px;
+  transition: transform 0.05s linear;
+}
+
+/* Horizonte de grama — usado no painel de marca do login */
+@keyframes grassSway {
+  0%, 100% { transform: rotate(-4deg); }
+  50% { transform: rotate(5deg); }
+}
+.grass-blade { transform-origin: bottom center; animation: grassSway 2.6s ease-in-out infinite; }
+
+/* Flourish de conclusão — pequeno "corte" ao marcar uma OS como concluída */
+@keyframes leafPop {
+  0% { opacity: 0; transform: translateY(4px) scale(0.6); }
+  30% { opacity: 1; transform: translateY(-6px) scale(1); }
+  100% { opacity: 0; transform: translateY(-18px) scale(0.8); }
+}
+.leaf-pop { animation: leafPop 0.9s ease-out forwards; }

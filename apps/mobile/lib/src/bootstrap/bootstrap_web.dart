@@ -1,12 +1,79 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:greenv_capture/src/api/session_authenticator.dart';
+import 'package:greenv_capture/src/api/http_capture_backend.dart';
 import 'package:greenv_capture/src/bootstrap/app_dependencies.dart';
+import 'package:greenv_capture/src/bootstrap/capture_configuration.dart';
+import 'package:greenv_capture/src/capture/browser_camera_recorder.dart';
 import 'package:greenv_capture/src/capture/capture_coordinator.dart';
 import 'package:greenv_capture/src/capture/capture_ports.dart';
+import 'package:greenv_capture/src/capture/capture_runtime.dart';
+import 'package:greenv_capture/src/capture/phone_telemetry_collector.dart';
 import 'package:greenv_capture/src/domain/capture_models.dart';
+import 'package:greenv_capture/src/identifier/uuid_v7_identifier_adapter.dart';
+import 'package:greenv_capture/src/storage/browser_capture_queue.dart';
+import 'package:greenv_capture/src/storage/memory_session_store.dart';
 import 'package:greenv_capture/src/storage/memory_capture_queue.dart';
 import 'package:greenv_capture/src/upload/queue_uploader.dart';
+import 'package:uuid/uuid.dart';
 
-Future<AppDependencies> createAppDependencies() async {
+Future<AppDependencies> createAppDependencies() async =>
+    CaptureConfiguration.webCaptureEnabled
+    ? _createBrowserCaptureDependencies()
+    : _createPreviewDependencies();
+
+/// The workstation capture build. It opens the real webcam, samples whatever GNSS the browser
+/// offers and uploads to the configured API, so a laptop can exercise the deployed pipeline end to
+/// end. Its queue lives in memory: a reload discards anything the worker has not yet verified.
+Future<AppDependencies> _createBrowserCaptureDependencies() async {
+  final queue = BrowserCaptureQueue();
+  final monotonicClock = MonotonicClock();
+
+  // In memory, like the queue beside it: a page has nowhere to put a credential that is safe from
+  // script, so a reload asks for the password again.
+  final authenticator = SessionAuthenticator(
+    tokenUri: CaptureConfiguration.tokenUri,
+    store: MemorySessionStore(),
+  );
+  final uploader = QueueUploader(
+    queue: queue,
+    backend: HttpCaptureBackend(
+      baseUri: CaptureConfiguration.apiUri,
+      content: queue,
+      bearerToken: CaptureConfiguration.apiToken,
+      // Every upload carries the token of whoever signed in, so a capture is attributable to a
+      // person rather than to a credential shared by the whole pilot.
+      auth: authenticator,
+    ),
+  );
+  // `?session=<uuid>` pins the session identifier so a capture started here can be followed from
+  // outside the browser with `GET /v2/capture-sessions/<uuid>`.
+  final requestedSession = Uri.base.queryParameters['session'];
+  final capture = CaptureCoordinator(
+    deviceId: 'greenv-browser-${const Uuid().v4()}',
+    recorder: BrowserCameraRecorder(
+      preferredLabel: Uri.base.queryParameters['camera'],
+    ),
+    telemetry: PhoneTelemetryCollector(monotonicClock.nowNanos),
+    queue: queue,
+    uploader: uploader,
+    foregroundLease: _NoopForegroundLease(),
+    scheduler: TimerSegmentScheduler(),
+    // `?session=` pins the id through the same port that otherwise mints one, so the coordinator
+    // has a single way of getting an identifier rather than an override beside it.
+    identifierGenerator: requestedSession == null || requestedSession.isEmpty
+        ? UuidV7IdentifierAdapter()
+        : _FixedIdentifierGenerator(requestedSession),
+    monotonicNanos: monotonicClock.nowNanos,
+  );
+  uploader.syncSoon();
+  // `?autostart=1` records without a click, so an automated browser can drive a whole capture.
+  if (Uri.base.queryParameters['autostart'] == '1') unawaited(capture.start());
+  return AppDependencies(capture: capture, authenticator: authenticator);
+}
+
+Future<AppDependencies> _createPreviewDependencies() async {
   final queue = MemoryCaptureQueue();
   final recorder = _PreviewRecorder();
   final offline = Uri.base.queryParameters['offline'] == '1';
@@ -22,6 +89,7 @@ Future<AppDependencies> createAppDependencies() async {
     uploader: uploader,
     foregroundLease: _NoopForegroundLease(),
     scheduler: _PreviewScheduler(),
+    identifierGenerator: UuidV7IdentifierAdapter(),
     monotonicNanos: () => DateTime.now().microsecondsSinceEpoch * 1000,
   );
   if (Uri.base.queryParameters['phase'] == 'preparing') {
@@ -31,7 +99,15 @@ Future<AppDependencies> createAppDependencies() async {
     capture.phase = CapturePhase.error;
     capture.errorMessage = 'Não foi possível acessar a câmera. Revise a permissão e tente novamente.';
   }
-  return AppDependencies(capture: capture);
+  final authenticator = SessionAuthenticator(
+    tokenUri: CaptureConfiguration.tokenUri,
+    store: MemorySessionStore(),
+  );
+  return AppDependencies(
+    capture: capture,
+    authenticator: authenticator,
+    mockedPreview: true,
+  );
 }
 
 final class _PreviewRecorder implements SegmentRecorder {
@@ -140,4 +216,15 @@ final class _PreviewScheduler implements SegmentScheduler {
 
   @override
   void schedule(Duration duration, Future<void> Function() callback) {}
+}
+
+/// Hands back one identifier that was chosen from outside, so `?session=<uuid>` can pin a capture
+/// and it can be followed with `GET /v2/capture-sessions/<uuid>` while it is still running.
+final class _FixedIdentifierGenerator implements IdentifierGenerator {
+  const _FixedIdentifierGenerator(this._value);
+
+  final String _value;
+
+  @override
+  String next() => _value;
 }

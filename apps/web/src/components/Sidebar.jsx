@@ -1,3 +1,5 @@
+import { motion } from 'framer-motion'
+import { Layers, Filter, Route, X } from 'lucide-react'
 import { LEVELS, vegetationLevel, EQUIPMENT_TYPES, formatArea } from '../utils/classification'
 
 const s = {
@@ -9,6 +11,7 @@ const s = {
   body: { flex: 1, overflowY: 'auto', padding: '16px 20px' },
   section: { marginBottom: 22 },
   sectionTitle: {
+    display: 'flex', alignItems: 'center', gap: 6,
     fontSize: 10, fontWeight: 700, color: 'var(--text-muted)',
     textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10,
   },
@@ -21,7 +24,7 @@ const s = {
   toggleLabel: { fontSize: 13, fontWeight: 500 },
   sw: (on) => ({
     width: 36, height: 20, borderRadius: 10, position: 'relative',
-    background: on ? '#5e22f3' : '#ccc', transition: 'background 0.2s', flexShrink: 0,
+    background: on ? 'var(--motiva)' : '#ccc', transition: 'background 0.2s', flexShrink: 0,
   }),
   swDot: (on) => ({
     width: 16, height: 16, borderRadius: '50%', background: 'white',
@@ -45,7 +48,7 @@ const s = {
     fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4,
   },
   btn: {
-    width: '100%', padding: '10px 16px', background: '#5e22f3', color: 'white',
+    width: '100%', padding: '10px 16px', background: 'var(--motiva)', color: 'white',
     border: 'none', borderRadius: 'var(--radius-sm)', fontSize: 13,
     fontWeight: 600, cursor: 'pointer', marginTop: 12, fontFamily: 'inherit',
   },
@@ -60,6 +63,13 @@ const s = {
     fontSize: 9, color: 'var(--text-muted)', marginTop: 2,
     textTransform: 'uppercase', letterSpacing: '0.05em',
   },
+  routeBtn: (active) => ({
+    width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+    padding: '11px 16px', borderRadius: 'var(--radius-sm)', fontSize: 13, fontWeight: 700,
+    cursor: 'pointer', fontFamily: 'inherit', border: active ? 'none' : '1.5px solid var(--motiva)',
+    background: active ? '#dc2626' : 'white', color: active ? 'white' : 'var(--motiva)',
+  }),
+  routeHint: { fontSize: 11.5, color: 'var(--text-muted)', marginTop: 8, lineHeight: 1.5 },
 }
 
 function Toggle({ label, active, onToggle }) {
@@ -74,6 +84,7 @@ function Toggle({ label, active, onToggle }) {
 export default function Sidebar({
   activeLayers, onToggleLayer, filterLevel, onFilterLevel,
   selectedFeature, onCreateOrder, geojson,
+  routeMode, onToggleRouteMode, suggestionCount = 0,
 }) {
   const stats = geojson ? (() => {
     let l1 = 0, l2 = 0, l3 = 0
@@ -93,6 +104,22 @@ export default function Sidebar({
   return (
     <div style={s.sidebar}>
       <div style={s.body}>
+        <div style={s.section}>
+          <motion.button
+            style={s.routeBtn(routeMode)} onClick={onToggleRouteMode}
+            whileTap={{ scale: 0.97 }}
+          >
+            {routeMode ? <X size={15} /> : <Route size={15} />}
+            {routeMode ? 'Encerrar planejamento' : 'Planejar Rota'}
+          </motion.button>
+          {!routeMode && suggestionCount > 0 && (
+            <div style={s.routeHint}>
+              {suggestionCount} {suggestionCount === 1 ? 'sugestão' : 'sugestões'} de rota combinada
+              disponíveis — trechos próximos que podem virar uma OS só.
+            </div>
+          )}
+        </div>
+
         {stats && (
           <div style={s.section}>
             <div style={s.sectionTitle}>Resumo — Rodoanel Oeste (SP-021)</div>
@@ -114,7 +141,7 @@ export default function Sidebar({
         )}
 
         <div style={s.section}>
-          <div style={s.sectionTitle}>Camadas</div>
+          <div style={s.sectionTitle}><Layers size={12} /> Camadas</div>
           <Toggle label="Polígonos de Vegetação" active={activeLayers.polygons}
             onToggle={() => onToggleLayer('polygons')} />
           <Toggle label="Marcos Quilométricos" active={activeLayers.marcoKm}
@@ -122,9 +149,9 @@ export default function Sidebar({
         </div>
 
         <div style={s.section}>
-          <div style={s.sectionTitle}>Filtrar por Nível</div>
+          <div style={s.sectionTitle}><Filter size={12} /> Filtrar por Nível</div>
           <div>
-            <span style={s.chip(filterLevel === null, '#5e22f3')}
+            <span style={s.chip(filterLevel === null, 'var(--motiva)')}
               onClick={() => onFilterLevel(null)}>Todos</span>
             {Object.entries(LEVELS).map(([k, v]) => (
               <span key={k} style={s.chip(filterLevel === Number(k), v.color)}
@@ -135,7 +162,7 @@ export default function Sidebar({
           </div>
         </div>
 
-        {selectedFeature && (
+        {!routeMode && selectedFeature && (
           <div style={s.section}>
             <div style={s.sectionTitle}>Área Selecionada</div>
             <div style={s.featureCard}>
@@ -166,8 +193,8 @@ export default function Sidebar({
                 </span>
               </div>
               <button style={s.btn} onClick={onCreateOrder}
-                onMouseOver={e => e.target.style.background = '#4c1ad0'}
-                onMouseOut={e => e.target.style.background = '#5e22f3'}>
+                onMouseOver={e => e.target.style.background = 'var(--motiva-hover)'}
+                onMouseOut={e => e.target.style.background = 'var(--motiva)'}>
                 Gerar Ordem de Serviço
               </button>
             </div>

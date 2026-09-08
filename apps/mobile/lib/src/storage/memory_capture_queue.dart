@@ -26,6 +26,7 @@ final class MemoryCaptureQueue implements CaptureQueue {
     required DateTime capturedAtUtc,
     required int durationMillis,
     required String sourceVideoPath,
+    required String videoContentType,
     required SegmentTelemetryDocument telemetry,
   }) async {
     final queued = QueuedSegment(
@@ -38,6 +39,7 @@ final class MemoryCaptureQueue implements CaptureQueue {
       videoSha256: List.filled(64, '0').join(),
       telemetryPath: 'memory://$sessionId/$segmentIndex/telemetry.json',
       telemetrySha256: List.filled(64, '0').join(),
+      videoContentType: videoContentType,
     );
     final position = _sessions.indexWhere(
       (item) => item.sessionId == sessionId,

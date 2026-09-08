@@ -33,6 +33,7 @@ void main() {
         capturedAtUtc: startedAt,
         durationMillis: 10000,
         sourceVideoPath: cameraFile.path,
+        videoContentType: 'video/mp4',
         telemetry: const SegmentTelemetryDocument({
           'schemaVersion': 1,
           'locationSamples': <Object?>[],

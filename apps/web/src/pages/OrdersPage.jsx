@@ -1,20 +1,12 @@
 import { useState, useMemo } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { RotateCw, Trash2, ClipboardList, Layers, Sprout, History } from 'lucide-react'
 import NavBar from '../components/NavBar'
-import { LEVELS } from '../utils/classification'
-
-const STATUS_MAP = {
-  pendente: { label: 'Pendente', color: '#ca0b04', bg: 'rgba(202,138,4,0.12)' },
-  em_andamento: { label: 'Em Andamento', color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
-  concluida: { label: 'Concluída', color: '#16a34a', bg: 'rgba(22,163,74,0.12)' },
-  cancelada: { label: 'Cancelada', color: '#9d9db0', bg: 'rgba(157,157,176,0.12)' },
-}
-
-const PRIORITY_MAP = {
-  baixa: { label: 'Baixa', color: '#16a34a' },
-  media: { label: 'Média', color: '#ca8a04' },
-  alta: { label: 'Alta', color: '#dc2626' },
-  urgente: { label: 'Urgente', color: '#dc2626' },
-}
+import Badge from '../components/ui/Badge'
+import OrderHistoryModal from '../components/OrderHistoryModal'
+import { STATUS_MAP, PRIORITY_MAP } from '../data/orderMeta'
+import { useAuth } from '../context/AuthContext'
+import { useToast } from '../context/ToastContext'
 
 const s = {
   page: {
@@ -50,14 +42,14 @@ const s = {
   statCard: (accent) => ({
     flex: 1, padding: '16px 18px', background: 'white',
     borderRadius: 'var(--radius-md)', border: '1px solid var(--border)',
-    borderTop: `3px solid ${accent}`,
+    borderTop: `3px solid ${accent}`, boxShadow: 'var(--shadow-card)',
   }),
   statNumber: { fontSize: 28, fontWeight: 700, fontFamily: 'var(--font-mono)' },
   statLabel: { fontSize: 11, color: 'var(--text-muted)', marginTop: 2, textTransform: 'uppercase' },
   table: {
     width: '100%', background: 'white', borderRadius: 'var(--radius-md)',
     border: '1px solid var(--border)', borderCollapse: 'separate',
-    borderSpacing: 0, overflow: 'hidden',
+    borderSpacing: 0, overflow: 'hidden', boxShadow: 'var(--shadow-card)',
   },
   th: {
     padding: '12px 16px', textAlign: 'left', fontSize: 10, fontWeight: 700,
@@ -68,32 +60,33 @@ const s = {
     padding: '14px 16px', fontSize: 13, borderBottom: '1px solid var(--border)',
     verticalAlign: 'middle',
   },
-  badge: (color, bg) => ({
-    display: 'inline-block', padding: '3px 10px', borderRadius: 20,
-    fontSize: 11, fontWeight: 600, color, background: bg,
-  }),
+  trechoBadge: {
+    display: 'inline-flex', alignItems: 'center', gap: 4, marginLeft: 6,
+    fontSize: 10.5, fontWeight: 600, color: 'var(--motiva)', background: 'var(--motiva-subtle)',
+    padding: '2px 7px', borderRadius: 20,
+  },
   actionBtn: {
-    padding: '6px 12px', background: 'var(--bg-secondary)',
+    padding: '6px 10px', background: 'var(--bg-secondary)',
     border: '1px solid var(--border)', borderRadius: 6,
-    fontSize: 12, cursor: 'pointer', fontFamily: 'inherit',
+    cursor: 'pointer', fontFamily: 'inherit', display: 'inline-flex',
     color: 'var(--text-secondary)', marginRight: 6,
   },
   actionBtnDanger: {
-    padding: '6px 12px', background: 'rgba(220,38,38,0.06)',
+    padding: '6px 10px', background: 'rgba(220,38,38,0.06)',
     border: '1px solid rgba(220,38,38,0.2)', borderRadius: 6,
-    fontSize: 12, cursor: 'pointer', fontFamily: 'inherit',
-    color: '#dc2626',
+    cursor: 'pointer', fontFamily: 'inherit', display: 'inline-flex', color: '#dc2626',
   },
   empty: {
     textAlign: 'center', padding: '60px 20px',
     color: 'var(--text-muted)', fontSize: 14,
   },
-  emptyIcon: {
-    fontSize: 40, marginBottom: 12, opacity: 0.4,
+  leafPop: {
+    position: 'absolute', left: 74, top: 10, color: '#16a34a',
+    display: 'inline-flex', pointerEvents: 'none',
   },
 }
 
-export default function OrdersPage({ orders, onUpdateOrder, onDeleteOrder }) {
+export default function OrdersPage({ orders, onUpdateOrder, onDeleteOrder, onRestoreOrder }) {
   const [filterStatus, setFilterStatus] = useState('all')
   const [filterPriority, setFilterPriority] = useState('all')
   const [search, setSearch] = useState('')
@@ -118,11 +111,31 @@ export default function OrdersPage({ orders, onUpdateOrder, onDeleteOrder }) {
     return c
   }, [orders])
 
+  const { user } = useAuth()
+  const { addToast } = useToast()
+  const [justCompleted, setJustCompleted] = useState(null)
+  const [historyOrder, setHistoryOrder] = useState(null)
+
+  const handleDelete = (order) => {
+    onDeleteOrder(order.id)
+    addToast({
+      type: 'danger',
+      message: `${order.id} excluída.`,
+      actionLabel: 'Desfazer',
+      onAction: () => onRestoreOrder?.(order),
+    })
+  }
+
   const cycleStatus = (order) => {
     const flow = ['pendente', 'em_andamento', 'concluida']
     const idx = flow.indexOf(order.status)
     const next = flow[(idx + 1) % flow.length]
-    onUpdateOrder(order.id, { status: next })
+    const entry = { status: next, at: new Date().toISOString(), by: user?.name || 'Sistema' }
+    onUpdateOrder(order.id, { status: next, history: [...(order.history || []), entry] })
+    if (next === 'concluida') {
+      setJustCompleted(order.id)
+      setTimeout(() => setJustCompleted(id => (id === order.id ? null : id)), 900)
+    }
   }
 
   return (
@@ -137,14 +150,13 @@ export default function OrdersPage({ orders, onUpdateOrder, onDeleteOrder }) {
           </div>
         </div>
 
-        {/* Stats cards */}
         <div style={s.statsRow}>
-          <div style={s.statCard('#5e22f3')}>
-            <div style={{ ...s.statNumber, color: '#5e22f3' }}>{counts.total}</div>
+          <div style={s.statCard('var(--motiva)')}>
+            <div style={{ ...s.statNumber, color: 'var(--motiva)' }}>{counts.total}</div>
             <div style={s.statLabel}>Total</div>
           </div>
-          <div style={s.statCard('#ca1b04')}>
-            <div style={{ ...s.statNumber, color: '#df1f11' }}>{counts.pendente}</div>
+          <div style={s.statCard('#ca8a04')}>
+            <div style={{ ...s.statNumber, color: '#ca8a04' }}>{counts.pendente}</div>
             <div style={s.statLabel}>Pendentes</div>
           </div>
           <div style={s.statCard('#3b82f6')}>
@@ -157,7 +169,6 @@ export default function OrdersPage({ orders, onUpdateOrder, onDeleteOrder }) {
           </div>
         </div>
 
-        {/* Filters */}
         <div style={s.filtersRow}>
           <select style={s.filterSelect} value={filterStatus}
             onChange={e => setFilterStatus(e.target.value)}>
@@ -177,10 +188,9 @@ export default function OrdersPage({ orders, onUpdateOrder, onDeleteOrder }) {
             value={search} onChange={e => setSearch(e.target.value)} />
         </div>
 
-        {/* Table */}
         {orders.length === 0 ? (
           <div style={{ ...s.table, ...s.empty }}>
-            <div style={s.emptyIcon}>📋</div>
+            <ClipboardList size={36} style={{ opacity: 0.4, marginBottom: 10 }} />
             <div>Nenhuma ordem de serviço criada.</div>
             <div style={{ fontSize: 12, marginTop: 4, color: 'var(--text-muted)' }}>
               Vá ao mapa e clique em um polígono para criar uma OS.
@@ -201,47 +211,62 @@ export default function OrdersPage({ orders, onUpdateOrder, onDeleteOrder }) {
               </tr>
             </thead>
             <tbody>
-              {filtered.map(order => {
-                const st = STATUS_MAP[order.status] || STATUS_MAP.pendente
-                const pr = PRIORITY_MAP[order.priority] || PRIORITY_MAP.media
-                return (
-                  <tr key={order.id} style={{ transition: 'background 0.1s' }}
-                    onMouseOver={e => e.currentTarget.style.background = 'var(--bg-secondary)'}
-                    onMouseOut={e => e.currentTarget.style.background = 'white'}>
-                    <td style={{ ...s.td, fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 600 }}>
-                      {order.id}
-                    </td>
-                    <td style={{ ...s.td, color: 'var(--text-secondary)' }}>
-                      {new Date(order.createdAt).toLocaleDateString('pt-BR')}
-                    </td>
-                    <td style={s.td}>
-                      <span style={{ color: pr.color, fontWeight: 600, fontSize: 12 }}>
-                        ● {pr.label}
-                      </span>
-                    </td>
-                    <td style={s.td}>
-                      <span style={s.badge(st.color, st.bg)}>{st.label}</span>
-                    </td>
-                    <td style={{ ...s.td, fontSize: 12 }}>{order.equipment}</td>
-                    <td style={{ ...s.td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-                      {order.area}
-                    </td>
-                    <td style={{ ...s.td, fontSize: 12, color: order.team ? 'var(--text-primary)' : 'var(--text-muted)' }}>
-                      {order.team || '—'}
-                    </td>
-                    <td style={s.td}>
-                      <button style={s.actionBtn} onClick={() => cycleStatus(order)}
-                        title="Avançar status">
-                        ↻
-                      </button>
-                      <button style={s.actionBtnDanger} onClick={() => onDeleteOrder(order.id)}
-                        title="Excluir">
-                        ✕
-                      </button>
-                    </td>
-                  </tr>
-                )
-              })}
+              <AnimatePresence initial={false}>
+                {filtered.map((order, i) => {
+                  const st = STATUS_MAP[order.status] || STATUS_MAP.pendente
+                  const pr = PRIORITY_MAP[order.priority] || PRIORITY_MAP.media
+                  return (
+                    <motion.tr
+                      key={order.id}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.2, delay: Math.min(i * 0.02, 0.3) }}
+                      onMouseOver={e => e.currentTarget.style.background = 'var(--bg-secondary)'}
+                      onMouseOut={e => e.currentTarget.style.background = 'white'}
+                    >
+                      <td style={{ ...s.td, fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 600 }}>
+                        {order.id}
+                      </td>
+                      <td style={{ ...s.td, color: 'var(--text-secondary)' }}>
+                        {new Date(order.createdAt).toLocaleDateString('pt-BR')}
+                      </td>
+                      <td style={s.td}>
+                        <Badge color={pr.color}>{pr.label}</Badge>
+                      </td>
+                      <td style={{ ...s.td, position: 'relative' }}>
+                        <Badge color={st.color}>{st.label}</Badge>
+                        {justCompleted === order.id && (
+                          <span className="leaf-pop" style={s.leafPop}><Sprout size={13} /></span>
+                        )}
+                      </td>
+                      <td style={{ ...s.td, fontSize: 12 }}>
+                        {order.equipment}
+                        {order.trechoCount > 1 && (
+                          <span style={s.trechoBadge}><Layers size={10} /> {order.trechoCount} trechos</span>
+                        )}
+                      </td>
+                      <td style={{ ...s.td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>
+                        {order.area}
+                      </td>
+                      <td style={{ ...s.td, fontSize: 12, color: order.team ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                        {order.team || '—'}
+                      </td>
+                      <td style={s.td}>
+                        <button style={s.actionBtn} onClick={() => setHistoryOrder(order)} title="Ver histórico">
+                          <History size={13} />
+                        </button>
+                        <button style={s.actionBtn} onClick={() => cycleStatus(order)} title="Avançar status">
+                          <RotateCw size={13} />
+                        </button>
+                        <button style={s.actionBtnDanger} onClick={() => handleDelete(order)} title="Excluir">
+                          <Trash2 size={13} />
+                        </button>
+                      </td>
+                    </motion.tr>
+                  )
+                })}
+              </AnimatePresence>
             </tbody>
           </table>
         )}
@@ -252,6 +277,12 @@ export default function OrdersPage({ orders, onUpdateOrder, onDeleteOrder }) {
           </div>
         )}
       </div>
+
+      <AnimatePresence>
+        {historyOrder && (
+          <OrderHistoryModal order={historyOrder} onClose={() => setHistoryOrder(null)} />
+        )}
+      </AnimatePresence>
     </div>
   )
 }

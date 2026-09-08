@@ -3,18 +3,66 @@
 The Frame Extractor is the CPU worker for mobile segments and legacy whole videos. For each mobile
 segment it verifies both inputs, probes every encoded presentation timestamp, associates eligible
 GNSS and inertial samples with every frame, extracts representative JPEGs across the full segment,
-checks every output, publishes the manifest last, and only then deletes the source MP4.
+checks every output and publishes the manifest last. It keeps the source MP4.
 
 It does not identify grass, estimate height, or call the depth model. Those are downstream stages
 that consume its versioned manifest.
+
+## Two frame counts, and only one of them is images
+
+A manifest reports both, and confusing them makes the sampling look far denser or far sparser than
+it is.
+
+- **`encodedFrameCount`** is every frame the camera encoded, read from the presentation timestamps
+  by ffprobe. No image is produced for these. Each one becomes a row in `frame-metadata-v2.json`
+  carrying its timestamp, the GNSS and motion samples eligible for it, and a quality stamp. It
+  tracks the camera: a 30 fps phone gives about 300 rows for a ten-second segment.
+- **`sampledFrames`** is the JPEGs actually written to object storage, and it is the number that
+  matters downstream.
+
+Sampling is fixed at **10 fps, at most 112 frames, 1024 px long edge**, which are Verge Studio's
+numbers rather than this worker's. The depth model recovers geometry by comparing many views of one
+scene, so the frame rate is the accuracy knob, and `measurement/MEASUREMENTS.md` grades 112 frames
+at 504 px as the best setting tried. The cap keeps a long segment off the GPU's memory ceiling; an
+L4 fits 0.0700 GiB per frame plus 9.39 GiB and fails above 144 frames. When the cap binds,
+`SamplingPlanner` lowers the rate rather than truncating the clip, so the frames still span the
+whole segment — never "N frames spread across it".
+
+A ten-second segment therefore publishes about 100 JPEGs. At 1024 px that is roughly 5 MB, against
+about 3.4 MB for the MP4 they came from, so the frames now cost more storage than the source.
+
+## The source segment is kept
+
+The worker used to delete the source MP4 as its last act, and `sourceDeleted` in the manifest
+recorded that. It no longer does, and that field is now always `false`.
+
+Sampled frames are a derivative at one rate and one resolution. The measurement stage that consumes
+them may want another — a different frame budget for the GPU's memory ceiling, or a different long
+edge — and it cannot ask for it once the only copy is gone. Keeping a 3.4 MB segment is also
+cheaper than the 5 MB of frames already kept from it.
+
+**Nothing expires capture objects.** `expires_at` is written to the database and returned by the
+API, but no scheduler acts on it, and the API's `TransientCleanupService` covers only legacy v1
+jobs. R2 has no lifecycle rule either. Deleting the source was the only bound on growth, so storage
+now grows with every capture until a retention rule exists. At roughly 8.5 MB per ten-second
+segment, an hour of driving is about 3 GB, against R2's 10 GB free tier.
+
+The legacy whole-video path resolves every artifact to a path under `GREENV_PIPELINE_ROOT`, so it
+exists only while `GREENV_OBJECT_STORAGE_ADAPTER` is `local`. `@ConditionalOnLocalPipeline` removes
+that controller, handler and service together with the local store they depend on; a cloud
+deployment runs the segment path alone. Wiring them unconditionally is what made the deployed
+worker fail to start with "No qualifying bean of type LegacyPipelineStore", which left every
+uploaded segment sitting in `queued` — `CloudProfileApplicationTest` now boots the cloud adapter
+set to keep that from returning.
 
 ## Code map
 
 | Path | Responsibility |
 |---|---|
-| `src/main/java/.../task/` | RabbitMQ listener and legacy filesystem queue |
+| `src/main/java/.../port/` | Inbound use cases and replaceable state, storage, queue, workspace and media contracts |
+| `src/main/java/.../task/` | RabbitMQ, SQS, Azure Queue and Service Bus input/output adapters |
 | `src/main/java/.../service/` | Validation, ffprobe association, FFmpeg extraction and publication |
-| `src/main/java/.../storage/` | Pipeline-file safety and PostgreSQL segment transitions |
+| `src/main/java/.../storage/` | JDBC, local/S3/Azure object storage and ephemeral workspace adapters |
 | `src/main/resources/contracts/` | Queue, telemetry and manifest JSON Schemas copied from the API |
 | `src/test/` | Unit, contract and real-FFmpeg integration coverage |
 
@@ -67,6 +115,9 @@ first.
 
 | Setting | Environment variable | Native default |
 |---|---|---|
+| Database adapter | `GREENV_DATABASE_ADAPTER` | `jdbc` |
+| Object-storage adapter | `GREENV_OBJECT_STORAGE_ADAPTER` | `local` |
+| Segment-queue adapter | `GREENV_SEGMENT_QUEUE_ADAPTER` | `rabbitmq` |
 | Bind address/port | `SERVER_ADDRESS`, `PORT` | `127.0.0.1:8081` |
 | Pipeline root | `GREENV_PIPELINE_ROOT` | OS temp directory under `greenv-pipeline` |
 | FFmpeg executable | `GREENV_FFMPEG` | `ffmpeg` |
@@ -80,7 +131,44 @@ first.
 | RabbitMQ address | `GREENV_RABBITMQ_HOST`, `GREENV_RABBITMQ_PORT` | `127.0.0.1:5672` |
 | RabbitMQ credentials | `GREENV_RABBITMQ_USER`, `GREENV_RABBITMQ_PASSWORD` | `guest`, `guest` |
 | Rabbit listener | `GREENV_RABBITMQ_LISTENER_ENABLED` | `false` |
-| Exchange/queue/key | `GREENV_SEGMENT_EXCHANGE`, `GREENV_SEGMENT_QUEUE`, `GREENV_SEGMENT_ROUTING_KEY` | `greenv.capture`, `greenv.segment.extract.v1`, `segment.extract.v1` |
+| Exchange/queue/key | `GREENV_SEGMENT_EXCHANGE`, `GREENV_SEGMENT_QUEUE`, `GREENV_SEGMENT_ROUTING_KEY` | `greenv.capture`, `greenv.segment.extract.v2`, `segment.extract.v2` |
+
+### Cloud adapter selection
+
+Use the same `GREENV_OBJECT_STORAGE_ADAPTER` and `GREENV_SEGMENT_QUEUE_ADAPTER` values as the API.
+
+| Port | Adapter value | Worker-specific behavior |
+|---|---|---|
+| Object storage | `local` | Reads and writes below `GREENV_PIPELINE_ROOT` |
+| Object storage | `s3` | AWS S3 or an S3-compatible endpoint such as R2 |
+| Object storage | `azure-blob` | Azure Blob through connection string or managed identity |
+| Segment queue | `rabbitmq` | Spring AMQP listener plus retry publisher |
+| Segment queue | `sqs` | Long polling plus delete-after-success; supports standard and FIFO queues |
+| Segment queue | `azure-queue` | Visibility lease, delete-after-success and application poison queue |
+| Segment queue | `azure-service-bus` | Peek-lock receive, complete-after-success and abandon-on-failure |
+
+S3 and SQS use `GREENV_AWS_REGION`, optional endpoint overrides and either explicit
+`GREENV_AWS_ACCESS_KEY`/`GREENV_AWS_SECRET_KEY` values or the AWS default credential chain. Azure
+Blob and Queue use `GREENV_AZURE_STORAGE_CONNECTION_STRING`, or their endpoint plus
+`DefaultAzureCredential`. Service Bus uses a connection string or
+`GREENV_AZURE_SERVICE_BUS_NAMESPACE`. The API README lists all shared variable names.
+
+Cloud polling is controlled by `GREENV_CLOUD_QUEUE_POLL_DELAY_MS`. SQS additionally uses
+`GREENV_SQS_MAX_MESSAGES`, `GREENV_SQS_WAIT_SECONDS` and `GREENV_QUEUE_VISIBILITY_SECONDS`.
+Azure Queue uses `GREENV_AZURE_QUEUE_MAX_MESSAGES`, `GREENV_QUEUE_VISIBILITY_SECONDS`,
+`GREENV_AZURE_POISON_QUEUE_NAME` and `GREENV_AZURE_QUEUE_MAX_DEQUEUE_COUNT`. The poison queue is
+mandatory when that adapter is selected and defaults to `greenv-segment-extract-poison`. Service
+Bus uses `GREENV_AZURE_SERVICE_BUS_MAX_MESSAGES` and `GREENV_AZURE_SERVICE_BUS_WAIT_SECONDS`.
+Set `MANAGEMENT_HEALTH_RABBIT_ENABLED=false` whenever RabbitMQ is not the selected adapter.
+
+The MVP Terraform selects R2 together with Azure Queue and managed identity. A configuration
+context test starts the S3 client plus both Azure Queue clients together. See
+[`../../infrastructure/README.md`](../../infrastructure/README.md) for the production settings.
+
+Configure an SQS redrive policy and a Service Bus maximum delivery count/DLQ on the cloud
+resource. Azure Queue Storage has no native DLQ, so this adapter copies an exhausted message to
+the configured poison queue before deleting it from the source. Until the threshold is reached,
+failed deliveries are left unacknowledged for the provider visibility timeout.
 
 Compose disables the legacy poller and enables the RabbitMQ listener. A standalone
 `./gradlew bootRun` enables only the legacy local poller unless these variables are overridden.
@@ -90,12 +178,12 @@ The internal endpoint binds to loopback and has no authentication.
 ## Mobile processing flow
 
 ```text
-durable RabbitMQ request
-  -> validate schema, generation, URI boundaries and both SHA-256 values
+durable queue request
+  -> validate schema, opaque object keys and both SHA-256 values
   -> mark PostgreSQL segment validating
   -> ffprobe media duration, dimensions and every encoded timestamp/key-frame flag
   -> join each frame to bounded-age telemetry
-  -> write and re-read frame-metadata-v1.json
+  -> write and re-read frame-metadata-v2.json through object storage
   -> extract full-duration JPEG sample and verify every checksum
   -> write and re-read unpublished manifest
   -> delete source.mp4
@@ -110,7 +198,7 @@ terminal conflict.
 
 ## Frame and telemetry contract
 
-`frame-metadata-v1.json` contains one row for every encoded frame, not only the sampled JPEGs. Each
+`frame-metadata-v2.json` contains one row for every encoded frame, not only the sampled JPEGs. Each
 row includes presentation timestamp, derived UTC and monotonic capture time, key-frame flag,
 location fields/quality/age and motion fields/age.
 
@@ -127,6 +215,8 @@ the segment anchor. The quaternion is relative gyroscope integration, not absolu
 
 The request, telemetry and manifest schemas in `src/main/resources/contracts/` must remain
 byte-for-byte equal to the API copies. SHA-256 values are the generation and idempotency boundary.
+The worker does not generate business identifiers: it preserves the session and job UUIDs received
+from the API. New producers use UUIDv7, while queued UUIDv4 captures remain valid during rollout.
 
 ## Persisted outputs
 
@@ -135,11 +225,11 @@ For a segment at index zero, the shared pipeline volume ends with:
 ```text
 capture-sessions/<session UUID>/segments/00000000/
   telemetry.json
-  frame-metadata-v1.json       # one record for every encoded frame
+  frame-metadata-v2.json       # one record for every encoded frame
   sampled-frames/
     frame-0001.jpg
     ...
-  segment-manifest-v1.json     # written last; published=true after source deletion
+  segment-manifest-v2.json     # publication marker; sourceDeleted=true when complete
 ```
 
 `source.mp4` is present until all output files and their checksums have been verified. Temporary
@@ -181,14 +271,53 @@ path with real FFmpeg in containers.
 | Segment stays `queued` | Rabbit listener is enabled, queue names match the API, and RabbitMQ is healthy |
 | Segment becomes `failed` | Read `errorCode`/`errorMessage` from the API and inspect worker logs |
 | `ffmpeg`/`ffprobe` not found | Install both or set `GREENV_FFMPEG` and `GREENV_FFPROBE` to valid executables |
-| `unsupported_storage_uri` | Local worker only accepts `file:` URIs inside `GREENV_PIPELINE_ROOT` |
+| `invalid_object_key` | Queue messages must carry relative opaque keys, never provider URIs |
 | Checksum or generation conflict | API/worker do not share the same volume, or an identity was reused for different bytes |
 | Database errors | Worker and API must point at the same PostgreSQL database and migration level |
 | Tests skip integration | Put both FFmpeg executables on `PATH`; unit and contract tests still run |
 
 ## Production boundary
 
-In production the worker should download from S3-compatible object storage into ephemeral disk,
-run this same CPU contract, upload outputs, then acknowledge the durable message only after
-publication. Add metrics, tracing, a dead-letter policy, bounded concurrency and retention cleanup.
+Dependency direction is explicit and uses constructor injection:
+
+```text
+RabbitMQ/HTTP/poller adapter -> inbound use-case interface -> orchestration handler
+handler -> processor/state/queue interfaces -> provider adapters
+segment processor -> storage/workspace/media interfaces -> local or cloud implementation
+```
+
+RabbitMQ, the internal HTTP endpoint and the legacy poller depend on `SegmentExtractionUseCase` or
+`LegacyExtractionUseCase`, never concrete handlers. Retry handlers depend on processor, state and
+queue ports. `SegmentExtractionService` receives `SegmentObjectStorage`, `CaptureSegmentStore`,
+`ProcessingWorkspace`, `VideoProbe`, `FrameTimelineProbe` and `FrameSampler` interfaces; ffmpeg
+and ffprobe are therefore replaceable media providers rather than hard-coded infrastructure.
+Pure deterministic collaborators such as sampling and telemetry association remain concrete
+because adding one-implementation interfaces would not create a useful substitution boundary.
+
+The former local store with both v1 and v2 responsibilities was split into
+`LocalSegmentObjectStorageAdapter` and `LocalLegacyPipelineStoreAdapter`. Each implements one
+outbound port. The local legacy inbox now implements `LegacyTaskInbox` and exposes only an opaque
+receipt to its poller. The shipped provider adapters are JDBC; local, S3-compatible and Azure Blob
+storage; and RabbitMQ, SQS, Azure Queue Storage and Azure Service Bus queues. Cloud storage
+adapters download into the same ephemeral workspace and publish the same v2 artifacts without
+changing extraction code.
+
+The v2 manifest is first stored with `sourceDeleted=false`, verified, and then rewritten with
+`sourceDeleted=true` after source cleanup. A redelivery completes this transition idempotently.
+Add metrics, tracing, bounded concurrency and retention cleanup in production. Keep each cloud
+queue's visibility/lock duration longer than the maximum expected FFmpeg attempt.
 FFmpeg is CPU work and must not run on the paid GPU service used by the depth model.
+
+To add a provider, implement the relevant interface in `port/`, register it under a new adapter
+value, and leave `service/` unchanged. `SegmentObjectStorage.download` materializes an object in the
+ephemeral workspace; `putFile`/`putJson` publish durable output. The queue adapter must redeliver
+unacknowledged work, and the state adapter must make duplicate delivery observable as `ready`.
+
+Architecture tests enforce inbound interface injection, service-to-adapter isolation, one port per
+local storage adapter, provider-neutral object keys and API/worker schema equality. Handler tests
+cover success, retry exhaustion, acknowledgement, requeue and terminal failure.
+
+Verification observed on 30 Aug 2026: `./gradlew.bat check --no-daemon` completed successfully,
+including cloud publisher/consumer acknowledgement, poison-queue, storage checksum, codec and
+architecture tests. The Compose smoke command was last attempted on 25 Aug 2026 but did not
+execute because the local Docker daemon was unavailable.

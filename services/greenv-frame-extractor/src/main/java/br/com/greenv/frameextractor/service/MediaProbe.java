@@ -2,6 +2,7 @@ package br.com.greenv.frameextractor.service;
 
 import br.com.greenv.frameextractor.config.ExtractorProperties;
 import br.com.greenv.frameextractor.domain.MediaProbeResult;
+import br.com.greenv.frameextractor.port.VideoProbe;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import java.nio.file.Path;
@@ -10,21 +11,25 @@ import java.util.List;
 import org.springframework.stereotype.Component;
 
 @Component
-public class MediaProbe {
+public class MediaProbe implements VideoProbe {
 
     private final CommandRunner commandRunner;
     private final ObjectMapper objectMapper;
-    private final ExtractorProperties properties;
+    private final ExtractorProperties extractorProperties;
 
-    public MediaProbe(CommandRunner commandRunner, ObjectMapper objectMapper, ExtractorProperties properties) {
+    public MediaProbe(
+            CommandRunner commandRunner,
+            ObjectMapper objectMapper,
+            ExtractorProperties extractorProperties) {
         this.commandRunner = commandRunner;
         this.objectMapper = objectMapper;
-        this.properties = properties;
+        this.extractorProperties = extractorProperties;
     }
 
+    @Override
     public MediaProbeResult probe(Path source) {
         var result = commandRunner.run(List.of(
-                properties.ffprobe(),
+                extractorProperties.ffprobe(),
                 "-v", "error",
                 "-select_streams", "v:0",
                 "-show_entries",

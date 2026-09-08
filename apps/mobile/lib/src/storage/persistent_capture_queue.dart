@@ -7,7 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:greenv_capture/src/capture/capture_ports.dart';
 import 'package:greenv_capture/src/domain/capture_models.dart';
 
-final class PersistentCaptureQueue implements CaptureQueue {
+final class PersistentCaptureQueue implements CaptureQueue, SegmentContentStore {
   PersistentCaptureQueue(this.rootDirectory);
 
   final Directory rootDirectory;
@@ -49,6 +49,7 @@ final class PersistentCaptureQueue implements CaptureQueue {
     required DateTime capturedAtUtc,
     required int durationMillis,
     required String sourceVideoPath,
+    required String videoContentType,
     required SegmentTelemetryDocument telemetry,
   }) => _locked(() async {
     final values = await _read();
@@ -84,6 +85,7 @@ final class PersistentCaptureQueue implements CaptureQueue {
       videoSha256: await _sha256(video),
       telemetryPath: telemetryFile.path,
       telemetrySha256: await _sha256(telemetryFile),
+      videoContentType: videoContentType,
     );
     final session = values[sessionPosition];
     values[sessionPosition] = session.copyWith(
@@ -159,6 +161,12 @@ final class PersistentCaptureQueue implements CaptureQueue {
     values[position] = values[position].copyWith(completionSent: true);
     await _write(values);
   });
+
+  @override
+  Future<int> length(String reference) => File(reference).length();
+
+  @override
+  Stream<List<int>> read(String reference) => File(reference).openRead();
 
   Future<List<QueuedSession>> _read() async {
     if (!await _index.exists()) return [];

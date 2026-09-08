@@ -6,7 +6,7 @@ import br.com.greenv.videoapi.config.PipelineProperties;
 import br.com.greenv.videoapi.domain.JobDocument;
 import br.com.greenv.videoapi.domain.Retention;
 import br.com.greenv.videoapi.domain.SamplingOptions;
-import br.com.greenv.videoapi.storage.LocalJobStore;
+import br.com.greenv.videoapi.storage.LocalLegacyJobStoreAdapter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -29,7 +29,7 @@ class TransientCleanupServiceTest {
                 temporaryDirectory.resolve("saved"),
                 1024,
                 3);
-        LocalJobStore store = new LocalJobStore(
+        LocalLegacyJobStoreAdapter store = new LocalLegacyJobStoreAdapter(
                 JsonMapper.builder().findAndAddModules().build(),
                 properties);
         Instant old = Instant.parse("2026-08-01T12:00:00Z");

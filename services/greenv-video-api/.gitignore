@@ -1,2 +1,19 @@
 .gradle/
 build/
+
+# IDE/compiler output. Gradle uses build/; Eclipse and the VS Code Java
+# extension use bin/ and may copy resources there beside compiled classes.
+/bin/
+/out/
+.classpath
+.project
+.settings/
+.factorypath
+.springBeans
+.sts4-cache/
+
+# Local JVM diagnostics can contain large process snapshots.
+*.log
+*.hprof
+hs_err_pid*
+replay_pid*

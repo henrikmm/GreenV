@@ -10,13 +10,13 @@ public record CaptureSegmentDocument(
         String idempotencyKey,
         Instant capturedAt,
         long durationMillis,
-        String videoUri,
+        String videoObjectKey,
         String videoSha256,
         Long videoBytes,
-        String telemetryUri,
+        String telemetryObjectKey,
         String telemetrySha256,
         Long telemetryBytes,
-        String manifestUri,
+        String manifestObjectKey,
         Integer frameCount,
         String errorCode,
         String errorMessage,
@@ -24,6 +24,6 @@ public record CaptureSegmentDocument(
         Instant updatedAt) {
 
     public boolean hasBothUploads() {
-        return videoUri != null && telemetryUri != null;
+        return videoObjectKey != null && telemetryObjectKey != null;
     }
 }
