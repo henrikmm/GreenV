@@ -20,6 +20,9 @@ final class FakeRecorder implements SegmentRecorder {
   bool get isInitialized => initialized;
 
   @override
+  double? get capturedFrameRate => null;
+
+  @override
   Widget buildPreview() => const ColoredBox(color: Color(0xFF33283A));
 
   @override

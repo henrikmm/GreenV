@@ -7,6 +7,13 @@ abstract interface class IdentifierGenerator {
 }
 
 abstract interface class SegmentRecorder {
+  /// Frames per second the camera settled on, or null where the platform will not say.
+  ///
+  /// Only the browser reports this: AVFoundation and CameraX accept a requested rate and never
+  /// disclose what they granted. Where it is null, the worker's measured `nativeFps` in the segment
+  /// manifest is the only answer.
+  double? get capturedFrameRate => null;
+
   bool get isInitialized;
   Widget buildPreview();
   Future<void> initialize();

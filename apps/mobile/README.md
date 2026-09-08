@@ -374,3 +374,32 @@ Setting the iOS Camera app to 120 fps changes nothing here: that setting belongs
 this one opens its own capture session.
 
 This ladder has not been run on a device that offers 120 fps.
+
+### In the browser
+
+The browser build asks for `frameRate: {ideal: 240, min: 24}` at 720p — `ideal` rather than `exact`,
+because an unsatisfiable `exact` makes `getUserMedia` reject the device outright, and a 30 fps webcam
+is still worth opening.
+
+It is also the one platform that **reports what it granted**, through
+`track.getSettings().frameRate`, so the recorder reads it back and exposes it as `capturedFrameRate`.
+AVFoundation and CameraX accept a requested rate and never say what they settled on.
+
+The recording bitrate scales with the rate, at roughly 90 kbit per 720p frame. MediaRecorder's
+default is a fixed budget for the whole stream, so at 120 fps it would give each frame a quarter of
+the bits it gives at 30 — and compression artefacts are exactly what breaks the feature matching this
+footage exists for.
+
+To find out what a camera can actually do, paste this into the browser console on any page:
+
+```js
+const s = await navigator.mediaDevices.getUserMedia({
+  video: { width: {ideal:1280}, height: {ideal:720}, frameRate: {ideal:240, min:24} } });
+const t = s.getVideoTracks()[0];
+console.log('granted', t.getSettings(), 'max', t.getCapabilities?.().frameRate);
+t.stop();
+```
+
+Most USB webcams top out at 30 fps at 720p whatever is asked, and many that advertise 60 offer it
+only at a lower resolution. If `granted.frameRate` comes back 30, the camera is the limit, not this
+code — and the worker's `nativeFps` will agree.

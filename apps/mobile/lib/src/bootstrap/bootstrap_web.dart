@@ -117,6 +117,9 @@ final class _PreviewRecorder implements SegmentRecorder {
   bool get isInitialized => _initialized;
 
   @override
+  double? get capturedFrameRate => null;
+
+  @override
   Widget buildPreview() => const ColoredBox(
     color: Color(0xFF232027),
     child: Center(

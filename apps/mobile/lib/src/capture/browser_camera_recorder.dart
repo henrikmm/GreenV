@@ -41,6 +41,12 @@ final class BrowserCameraRecorder implements SegmentRecorder {
   String _mimeType = 'video/webm';
   String? _openedLabel;
 
+  /// What the browser granted, once a camera is open. Null before that, or if it does not say.
+  double? grantedFrameRate;
+
+  @override
+  double? get capturedFrameRate => grantedFrameRate;
+
   /// The device the recorder actually opened, for the capture screen and for error reports.
   String? get openedLabel => _openedLabel;
 
@@ -93,6 +99,11 @@ final class BrowserCameraRecorder implements SegmentRecorder {
       _viewFactoryRegistered = true;
     }
 
+    // The browser is the one platform that reports what it actually granted; AVFoundation and
+    // CameraX do not. Worth reading, because it is the difference between "asked for 240" and
+    // "recording at 240", and the operator can see it before driving anywhere.
+    grantedFrameRate = _grantedFrameRate(stream);
+
     final preview = web.document.createElement('video') as web.HTMLVideoElement
       ..autoplay = true
       ..muted = true
@@ -116,7 +127,15 @@ final class BrowserCameraRecorder implements SegmentRecorder {
 
     final recorder = web.MediaRecorder(
       stream,
-      web.MediaRecorderOptions(mimeType: _mimeType),
+      web.MediaRecorderOptions(
+        mimeType: _mimeType,
+        // Scaled with the rate, because MediaRecorder's default is a fixed budget for the whole
+        // stream: at 120 fps it would give each frame a quarter of the bits it gives at 30, and
+        // compression artefacts are exactly what breaks the feature matching this footage exists
+        // for. About 90 kbit per 720p frame, bounded so a fast camera cannot blow the API's 64 MB
+        // per-segment limit.
+        videoBitsPerSecond: _videoBitrate(),
+      ),
     );
     recorder.addEventListener(
       'dataavailable',
@@ -181,15 +200,47 @@ final class BrowserCameraRecorder implements SegmentRecorder {
     return [...matching, ...rest];
   }
 
+  /// Asks for the fastest capture the device will give at 720p.
+  ///
+  /// Frame rate is what decides whether a stretch of road can be reconstructed: a twenty-metre
+  /// stretch is measured from the frames recorded while crossing it, so 30 fps leaves 22 views at
+  /// 100 km/h and 120 fps leaves 86. `ideal` rather than `exact` because an unsatisfiable `exact`
+  /// makes getUserMedia reject the device outright, and a 30 fps webcam is still worth opening.
+  ///
+  /// 720p is deliberate, not a compromise: the worker resizes every frame to a 1024 px long edge,
+  /// so asking for more pixels would only spend the frame rate a camera can hold.
   static web.MediaStreamConstraints _constraintsFor(String deviceId) =>
       web.MediaStreamConstraints(
         video: {
           'deviceId': {'exact': deviceId},
           'width': {'ideal': 1280},
           'height': {'ideal': 720},
+          'frameRate': {'ideal': 240, 'min': 24},
         }.jsify()!,
         audio: false.toJS,
       );
+
+  static const int _bitsPerFrame = 90_000;
+  static const int _minimumBitrate = 2_500_000;
+  static const int _maximumBitrate = 24_000_000;
+
+  int _videoBitrate() {
+    final rate = grantedFrameRate ?? 30.0;
+    return (rate * _bitsPerFrame).round().clamp(_minimumBitrate, _maximumBitrate);
+  }
+
+  /// Frames per second the browser settled on, or null when it does not report one.
+  ///
+  /// This is the app's own reading. The worker measures the encoded file independently and records
+  /// it as `nativeFps` in the manifest; when the two disagree, the worker's is the one that counts,
+  /// because it describes the bytes that were actually uploaded.
+  static double? _grantedFrameRate(web.MediaStream stream) {
+    final tracks = stream.getVideoTracks().toDart;
+    if (tracks.isEmpty) return null;
+    final settings = tracks.first.getSettings();
+    final rate = settings.frameRate;
+    return rate.isFinite && rate > 0 ? rate : null;
+  }
 
   static Future<web.MediaStream> _open(web.MediaStreamConstraints constraints) async =>
       (await web.window.navigator.mediaDevices.getUserMedia(constraints).toDart);

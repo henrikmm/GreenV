@@ -12,6 +12,11 @@ final class CameraSegmentRecorder implements SegmentRecorder {
   @override
   bool get isInitialized => _controller?.value.isInitialized ?? false;
 
+  /// AVFoundation and CameraX accept a requested rate and never disclose what they granted, so the
+  /// worker's measured `nativeFps` in the manifest is the only answer on a phone.
+  @override
+  double? get capturedFrameRate => null;
+
   @override
   Widget buildPreview() {
     final controller = _controller;
