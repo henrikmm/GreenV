@@ -191,6 +191,11 @@ Ordered by how likely each is to mislead someone reading a dashboard.
   calibrated interval.
 - **The 10 cm and 30 cm thresholds are inherited dashboard fixtures**, not Motiva requirements,
   and no mowing policy has been agreed.
+- **A full-length segment sits on the GPU's memory ceiling.** The extractor caps sampling at 112
+  frames, which is Verge Studio's best graded setting, and a recorded 112-frame run peaked at
+  22.02 GiB against the L4's 22.03 GiB usable — 99.95%. A ten-second segment produces about 100
+  frames and has headroom; a thirty-second one is capped to 112 and does not. Lower
+  `GREENV_INFER_MAX_FRAMES` before running long segments through this automatically.
 - **Segmentation runs at 128×128 logits** and is deliberately not upsampled: on a 576×1024 frame
   one cell covers roughly 4.5 × 8 pixels. That is the honest resolution of the instrument.
 
@@ -198,7 +203,9 @@ Ordered by how likely each is to mislead someone reading a dashboard.
 
 **The depth model bills for the machine's whole lifetime, not for the seconds it computes.** A
 run wakes an instance (~64 s cold start) which then lingers about fifteen minutes idle before
-Cloud Run scales to zero. Segments arriving back to back from one drive ride a single warm
+Cloud Run scales to zero. The compute itself is the small part: across the eight runs saved on
+this machine, 64 to 112 frames at 504 px took **21.9 to 38.9 GPU-seconds** (41 to 117 s wall).
+So a segment costs about a minute of work and up to fifteen minutes of billed idle. Segments arriving back to back from one drive ride a single warm
 instance; a lone segment pays the entire tail. A drive that uploads continuously is affordable;
 one segment an hour is not.
 
