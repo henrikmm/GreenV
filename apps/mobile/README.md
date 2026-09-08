@@ -344,10 +344,31 @@ flutter run --dart-define=GREENV_API_URL=https://greenvapi.matomomitsu.com \
 | 60 fps | 76 | 43 | 36 | 68 km/h |
 | 120 fps | 112 | 86 | 71 | 135 km/h |
 
-**Asking is not getting.** `camera_avfoundation` chooses its capture format by resolution and then
-applies the frame rate to whatever format that was, so a device whose highest-resolution format tops
-out at 30 fps clamps silently. Setting the iOS Camera app to 120 fps changes nothing here either —
-that setting belongs to Apple's app, and this one opens its own capture session.
+### Resolution is what makes a high rate reachable
+
+Asked for a frame rate, `camera_avfoundation` pins the resolution from the preset and then searches
+**only the formats at that resolution** for the one closest to the rate. A phone that offers 1080p120
+but no 4K120 reaches 120 fps at 1080p and clamps to 30 at 4K. So resolution is not a quality dial
+here — it is what the frame rate is traded against.
+
+```bash
+--dart-define=GREENV_RECORDING_RESOLUTION=veryHigh   # 1080p; default is high (720p)
+```
+
+**Raising it buys nothing on its own.** The worker resizes every frame to a 1024 px long edge before
+publishing, and 720p is already 1280 px across:
+
+| capture | long edge | after the worker's downscale | discarded |
+|---|---:|---:|---:|
+| 720p (default) | 1280 px | 1024 px | 36% |
+| 1080p | 1920 px | 1024 px | 72% |
+| 4K | 3840 px | 1024 px | 93% |
+
+So the default stays 720p, and the reason to change it is to reach a frame-rate format the device
+only offers at another resolution — not to get more detail.
+
+**Setting the iOS Camera app to 120 fps changes nothing here.** That setting belongs to Apple's app;
+this one opens its own capture session.
 
 The worker records the rate it actually measured as `nativeFps` in every segment manifest. That is
 the number to trust. This has not been run on a 120 fps device.

@@ -36,12 +36,12 @@ final class CameraSegmentRecorder implements SegmentRecorder {
     }
     final controller = CameraController(
       selected,
-      ResolutionPreset.high,
+      _resolutionPreset(),
       enableAudio: false,
       imageFormatGroup: ImageFormatGroup.yuv420,
       // Null leaves the platform default. A higher rate is what lets a twenty-metre stretch of road
-      // hold enough views to reconstruct at highway speed; see CaptureConfiguration.recordingFps
-      // for why asking is not the same as getting.
+      // hold enough views to reconstruct at highway speed, and the resolution above is what makes a
+      // high rate reachable: the platform searches only formats at that resolution.
       fps: CaptureConfiguration.recordingFps > 0
           ? CaptureConfiguration.recordingFps
           : null,
@@ -50,6 +50,17 @@ final class CameraSegmentRecorder implements SegmentRecorder {
     await controller.prepareForVideoRecording();
     _controller = controller;
   }
+
+  /// Unknown values fall back to the default rather than failing a capture over a typo.
+  static ResolutionPreset _resolutionPreset() => switch (
+      CaptureConfiguration.recordingResolution) {
+    'low' => ResolutionPreset.low,
+    'medium' => ResolutionPreset.medium,
+    'veryHigh' => ResolutionPreset.veryHigh,
+    'ultraHigh' => ResolutionPreset.ultraHigh,
+    'max' => ResolutionPreset.max,
+    _ => ResolutionPreset.high,
+  };
 
   @override
   Future<void> start() async {

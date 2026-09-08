@@ -36,11 +36,26 @@ final class CaptureConfiguration {
   /// graded at. At 120 fps that same stretch holds 86 views at 100 km/h, back inside the graded
   /// range.
   ///
-  /// **Asking is not getting.** `camera_avfoundation` picks its capture format by resolution and
-  /// then applies the frame rate to whichever format that was, so a device whose highest-resolution
-  /// format tops out at 30 fps will clamp silently. The worker records the rate it actually
-  /// measures as `nativeFps` in each segment manifest; that is the number to trust, not this one.
+  /// **Resolution is what makes a high rate reachable.** Asked for a frame rate,
+  /// `camera_avfoundation` pins the resolution from [recordingResolution] and then searches only
+  /// the formats at that resolution for the one closest to the rate. A phone that offers 1080p120
+  /// but no 4K120 will therefore reach 120 fps at 1080p and clamp to 30 at 4K — so a lower
+  /// resolution buys a higher rate, and the rate is what the measurement depends on.
+  ///
+  /// Asking is still not getting: the device may have no format at that pairing at all. The worker
+  /// records the rate it actually measured as `nativeFps` in every segment manifest, and that is
+  /// the number to trust rather than this one.
   static const int recordingFps = int.fromEnvironment('GREENV_RECORDING_FPS');
+
+  /// Capture resolution: `high` (720p, the default), `veryHigh` (1080p) or `ultraHigh` (4K).
+  ///
+  /// Raising it buys nothing on its own. The worker resizes every frame to a 1024 px long edge
+  /// before publishing, and 720p is already 1280 px across, so 1080p discards 72% of what it
+  /// captured and 4K discards 93% — while costing the upload budget and, at 4K, the frame rate.
+  static const String recordingResolution = String.fromEnvironment(
+    'GREENV_RECORDING_RESOLUTION',
+    defaultValue: 'high',
+  );
 
   static Uri get apiUri => Uri.parse(apiUrl);
 
