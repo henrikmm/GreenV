@@ -96,6 +96,26 @@ jobs:
       - run: ./gradlew check --no-daemon
         working-directory: services/${{ matrix.service }}
 
+  measurement-worker:
+    name: services/greenv-measurement-worker
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: services/greenv-measurement-worker/package-lock.json
+      - run: npm ci
+        working-directory: services/greenv-measurement-worker
+      # The end-to-end test drives the real segmentation over a recorded reconstruction, so it
+      # skips itself here: a runner has no saved run. It announces the skip rather than passing
+      # vacuously, and everything that does not need one still runs.
+      - run: npm test
+        working-directory: services/greenv-measurement-worker
+
   infrastructure:
     name: infrastructure/terraform
     runs-on: ubuntu-latest
