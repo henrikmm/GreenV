@@ -12,8 +12,33 @@
 import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
 
-export function createHttpTrigger({ measure, log = () => {} }) {
+// Finished jobs are kept only long enough for a caller to poll for the result. Without this the
+// map grows for the process lifetime, and each entry holds a full result including one position
+// row per sampled frame — which a backfill over thousands of segments turns into real memory.
+const JOB_TTL_MS = 60 * 60 * 1000;
+const MAX_JOBS = 32;
+
+export function createHttpTrigger({ measure, gate, log = () => {} }) {
   const jobs = new Map();
+
+  const forget = (id) => {
+    const job = jobs.get(id);
+    if (job?.timer) clearTimeout(job.timer);
+    jobs.delete(id);
+  };
+
+  const retire = (id) => {
+    const job = jobs.get(id);
+    if (!job) return;
+    job.timer = setTimeout(() => forget(id), JOB_TTL_MS);
+    job.timer.unref();
+    // Insertion order is oldest-first, so the first finished entry is the right one to evict.
+    while (jobs.size > MAX_JOBS) {
+      const stale = [...jobs.entries()].find(([, candidate]) => candidate.status !== "running");
+      if (!stale) break;
+      forget(stale[0]);
+    }
+  };
 
   const json = (response, status, body) => {
     const payload = JSON.stringify(body);
@@ -26,7 +51,12 @@ export function createHttpTrigger({ measure, log = () => {} }) {
     request.on("data", (chunk) => {
       raw += chunk;
       // A trigger carries identifiers, never payload. Anything larger is a mistake or an attack.
-      if (raw.length > 64 * 1024) reject(new Error("request body is too large"));
+      // Destroyed, not merely rejected: settling the promise leaves this listener attached, and
+      // the body would go on accumulating past the limit it is supposed to enforce.
+      if (raw.length > 64 * 1024) {
+        request.destroy();
+        reject(new Error("request body is too large"));
+      }
     });
     request.on("end", () => resolve(raw));
     request.on("error", reject);
@@ -39,13 +69,18 @@ export function createHttpTrigger({ measure, log = () => {} }) {
 
       if (route === "POST /measurements") {
         const body = JSON.parse((await readBody(request)) || "{}");
+        // One measurement at a time across both entrances. A caller here would rather be told to
+        // come back than be queued behind work it cannot see.
+        if (gate.busy) {
+          return json(response, 409, { error: "a measurement is already running; retry when it finishes" });
+        }
         const id = randomUUID();
         jobs.set(id, { id, status: "running", startedAt: new Date().toISOString(), result: null, error: null });
         // Deliberately not awaited: the response is the receipt, the work outlives it.
-        measure(body).then(
-          (result) => jobs.set(id, { ...jobs.get(id), status: "done", result }),
-          (error) => jobs.set(id, { ...jobs.get(id), status: "failed", error: { code: error.code ?? "unknown", message: error.message } }),
-        );
+        gate.tryRun(() => measure(body))?.then(
+          (result) => { jobs.set(id, { ...jobs.get(id), status: "done", result }); retire(id); },
+          (error) => { jobs.set(id, { ...jobs.get(id), status: "failed", error: { code: error.code ?? "unknown", message: error.message } }); retire(id); },
+        ) ?? (() => { forget(id); })();
         return json(response, 202, { id, status: "running" });
       }
 

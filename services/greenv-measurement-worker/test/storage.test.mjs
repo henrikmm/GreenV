@@ -14,7 +14,6 @@ test("objects round-trip through the filesystem adapter", async () => {
   assert.deepEqual(await storage.getJson("a/b/thing.json"), { ok: true });
   assert.equal(await storage.exists("a/b/thing.json"), true);
   assert.equal(await storage.exists("a/b/missing.json"), false);
-  assert.deepEqual(await storage.list("a/b"), ["a/b/thing.json"]);
 });
 
 // A key arrives inside a queue message, so it is input, not configuration. Without this a

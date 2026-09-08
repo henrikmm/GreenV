@@ -20,12 +20,16 @@ RUN apt-get update \
 
 # Verge Studio first, and its dependencies resolved through app/package.json — which is how
 # `scripts/assess-grass.mjs` resolves sharp and the transformers runtime at run time.
+#
+# scripts/ is copied BEFORE the install, not after: app/package.json declares
+# `"preinstall": "node ../scripts/check-node.mjs"`, so npm ci fails outright if that file is not
+# already in place. There is no package.json at the root of measurement/ — app/ carries the only
+# manifest — so nothing is copied for one.
+COPY measurement/scripts /app/measurement/scripts
 COPY measurement/app/package.json measurement/app/package-lock.json /app/measurement/app/
 RUN npm ci --omit=dev --prefix /app/measurement/app
 
-COPY measurement/scripts /app/measurement/scripts
 COPY measurement/geometry /app/measurement/geometry
-COPY measurement/package.json /app/measurement/package.json
 
 # The pinned segmentation model, ~15 MB, baked in. This is the ONE network call in the whole
 # build: the inspector refuses to download at run time by design, so a container without a warm

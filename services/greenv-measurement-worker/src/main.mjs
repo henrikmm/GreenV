@@ -11,6 +11,7 @@ import { measurementRunner } from "./measure.mjs";
 import { measurementPipeline } from "./pipeline.mjs";
 import { createHttpTrigger } from "./http.mjs";
 import { connectQueue } from "./queue/rabbit.mjs";
+import { singleFlight } from "./gate.mjs";
 
 const log = (fields) => process.stdout.write(`${JSON.stringify({ at: new Date().toISOString(), ...fields })}\n`);
 
@@ -19,18 +20,20 @@ export async function start(config = loadConfig()) {
   const infer = inferClient(config.infer);
   const runner = measurementRunner(config.measurement, (progress) => log({ event: "progress", ...progress }));
   const measure = measurementPipeline({ config, storage, infer, runner, log });
+  // Shared by both trigger paths, so the bound holds no matter which one is used.
+  const gate = singleFlight();
 
   let queue = null;
   if (config.queue.enabled) {
     queue = await connectQueue(config.queue, { log });
     await queue.consume(async (request) => {
-      const result = await measure(request);
+      const result = await gate.run(() => measure(request));
       await queue.publishResult(result);
       log({ event: "measured", segment: result.outputPrefix, runId: result.runId, mock: result.mock });
     });
   }
 
-  const http = createHttpTrigger({ measure, log });
+  const http = createHttpTrigger({ measure, gate, log });
   await http.listen(config.http.port, config.http.address);
   log({
     event: "started",

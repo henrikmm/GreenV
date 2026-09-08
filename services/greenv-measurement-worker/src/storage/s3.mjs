@@ -56,11 +56,5 @@ export function s3Storage({ bucket, endpoint, region }) {
         return false;
       }
     },
-
-    async list(prefix) {
-      const { sdk, s3 } = await connect();
-      const response = await s3.send(new sdk.ListObjectsV2Command({ Bucket: bucket, Prefix: prefix }));
-      return (response.Contents ?? []).map((item) => item.Key).sort();
-    },
   };
 }

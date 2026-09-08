@@ -131,6 +131,10 @@ services:
       # default and reads 0.000 m on a plant taped at 0.980 m; roçada is about the vertical
       # growth Cityscapes files under `vegetation`.
       GREENV_MEASUREMENT_CLASSES: ${GREENV_MEASUREMENT_CLASSES:-terrain,vegetation}
+    # host.docker.internal is a Docker Desktop convenience and resolves nowhere on Docker Engine
+    # for Linux, where an unresolved host would fail every message. This maps it explicitly.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "127.0.0.1:8090:8090"
     volumes:

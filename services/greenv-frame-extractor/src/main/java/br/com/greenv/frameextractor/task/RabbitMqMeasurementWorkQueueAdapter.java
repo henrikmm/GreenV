@@ -6,11 +6,9 @@ import br.com.greenv.frameextractor.domain.MeasurementRequest;
 import br.com.greenv.frameextractor.port.MeasurementWorkQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.amqp.AmqpException;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
-import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 
 @Component
@@ -54,7 +52,12 @@ public class RabbitMqMeasurementWorkQueueAdapter implements MeasurementWorkQueue
                         message.getMessageProperties().setMessageId(request.idempotencyKey());
                         return message;
                     });
-        } catch (AmqpException | JacksonException exception) {
+        } catch (RuntimeException exception) {
+            // RuntimeException, not just AmqpException and JacksonException. The invariant below
+            // is that a completed extraction is never failed by its announcement, and the two
+            // named types do not cover everything convertAndSend can throw — a closed connection
+            // factory raises IllegalStateException, which would otherwise propagate past
+            // markReady and mark a fully published segment as errored.
             // Deliberately swallowed. The extraction succeeded and its frames are durable in
             // object storage; failing it here would re-run ffmpeg over a segment that is already
             // complete. The measurement worker can also be triggered over HTTP, so an unannounced

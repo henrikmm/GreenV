@@ -51,15 +51,5 @@ export function localStorage({ root }) {
         return false;
       }
     },
-
-    async list(prefix) {
-      const path = pathFor(prefix);
-      try {
-        const names = await readdir(path);
-        return names.sort().map((name) => `${prefix.replace(/\/$/, "")}/${name}`);
-      } catch {
-        return [];
-      }
-    },
   };
 }
