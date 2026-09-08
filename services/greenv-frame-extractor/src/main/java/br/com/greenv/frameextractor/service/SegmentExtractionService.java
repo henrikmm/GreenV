@@ -3,6 +3,7 @@ package br.com.greenv.frameextractor.service;
 import br.com.greenv.frameextractor.config.ExtractorProperties;
 import br.com.greenv.frameextractor.domain.FrameRecord;
 import br.com.greenv.frameextractor.domain.FrameTelemetry;
+import br.com.greenv.frameextractor.domain.MeasurementRequest;
 import br.com.greenv.frameextractor.domain.SamplingPlan;
 import br.com.greenv.frameextractor.domain.SegmentExtractionRequest;
 import br.com.greenv.frameextractor.domain.SegmentManifest;
@@ -10,6 +11,7 @@ import br.com.greenv.frameextractor.domain.SegmentTelemetry;
 import br.com.greenv.frameextractor.port.CaptureSegmentStore;
 import br.com.greenv.frameextractor.port.FrameSampler;
 import br.com.greenv.frameextractor.port.FrameTimelineProbe;
+import br.com.greenv.frameextractor.port.MeasurementWorkQueue;
 import br.com.greenv.frameextractor.port.ProcessingWorkspace;
 import br.com.greenv.frameextractor.port.SegmentObjectStorage;
 import br.com.greenv.frameextractor.port.SegmentProcessor;
@@ -54,6 +56,7 @@ public class SegmentExtractionService implements SegmentProcessor {
     private final TelemetryAssociator telemetryAssociator;
     private final SamplingPlanner samplingPlanner;
     private final FrameSampler frameSampler;
+    private final MeasurementWorkQueue measurementQueue;
     private final Clock clock;
 
     public SegmentExtractionService(
@@ -66,6 +69,7 @@ public class SegmentExtractionService implements SegmentProcessor {
             TelemetryAssociator telemetryAssociator,
             SamplingPlanner samplingPlanner,
             FrameSampler frameSampler,
+            MeasurementWorkQueue measurementQueue,
             Clock clock) {
         this.extractorProperties = extractorProperties;
         this.objectStorage = objectStorage;
@@ -76,6 +80,7 @@ public class SegmentExtractionService implements SegmentProcessor {
         this.telemetryAssociator = telemetryAssociator;
         this.samplingPlanner = samplingPlanner;
         this.frameSampler = frameSampler;
+        this.measurementQueue = measurementQueue;
         this.clock = clock;
     }
 
@@ -88,6 +93,7 @@ public class SegmentExtractionService implements SegmentProcessor {
             requireGeneration(existing, request);
             verifyPublished(request.outputPrefix(), existing);
             segmentStore.markReady(request, manifestKey, existing.encodedFrameCount(), clock.instant());
+            announce(request, existing);
             return existing;
         }
 
@@ -171,7 +177,19 @@ public class SegmentExtractionService implements SegmentProcessor {
         SegmentManifest published = objectStorage.readJson(manifestKey, SegmentManifest.class);
         verifyPublished(request.outputPrefix(), published);
         segmentStore.markReady(request, manifestKey, frames.size(), clock.instant());
+        announce(request, published);
         return published;
+    }
+
+    /**
+     * Hand the finished segment to the measurement stage.
+     *
+     * This is the whole automatic trigger. Everything downstream — depth reconstruction, semantic
+     * segmentation and the height grid — hangs off this one publish, and until it existed a
+     * segment's frames sat in object storage with nothing watching for them.
+     */
+    private void announce(SegmentExtractionRequest request, SegmentManifest manifest) {
+        measurementQueue.publish(MeasurementRequest.from(request, manifest, clock.instant()));
     }
 
     private static void validateRequest(SegmentExtractionRequest request) {

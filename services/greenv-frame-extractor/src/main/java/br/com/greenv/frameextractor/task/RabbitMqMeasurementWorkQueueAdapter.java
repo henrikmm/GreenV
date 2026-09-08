@@ -1,0 +1,69 @@
+package br.com.greenv.frameextractor.task;
+
+import br.com.greenv.frameextractor.config.CaptureQueueProperties;
+import br.com.greenv.frameextractor.config.MeasurementQueueProperties;
+import br.com.greenv.frameextractor.domain.MeasurementRequest;
+import br.com.greenv.frameextractor.port.MeasurementWorkQueue;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.amqp.AmqpException;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.stereotype.Component;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
+
+@Component
+@ConditionalOnProperty(name = "greenv.measurement.enabled", havingValue = "true")
+public class RabbitMqMeasurementWorkQueueAdapter implements MeasurementWorkQueue {
+
+    private static final Logger LOG = LoggerFactory.getLogger(RabbitMqMeasurementWorkQueueAdapter.class);
+
+    private final RabbitTemplate rabbitTemplate;
+    private final ObjectMapper objectMapper;
+    private final CaptureQueueProperties captureProperties;
+    private final MeasurementQueueProperties measurementProperties;
+
+    public RabbitMqMeasurementWorkQueueAdapter(
+            RabbitTemplate rabbitTemplate,
+            ObjectMapper objectMapper,
+            CaptureQueueProperties captureProperties,
+            MeasurementQueueProperties measurementProperties) {
+        this.rabbitTemplate = rabbitTemplate;
+        this.objectMapper = objectMapper;
+        this.captureProperties = captureProperties;
+        this.measurementProperties = measurementProperties;
+    }
+
+    @Override
+    public void publish(MeasurementRequest request) {
+        try {
+            // Serialised here rather than handed to the template as an object. No Jackson message
+            // converter is configured on this RabbitTemplate, so the default SimpleMessageConverter
+            // would reject a record outright — the same reason the segment adapter encodes first.
+            // The consumer is a Node worker, so JSON is the contract rather than a convenience.
+            String payload = objectMapper.writeValueAsString(request);
+            rabbitTemplate.convertAndSend(
+                    captureProperties.exchange(),
+                    measurementProperties.routingKey(),
+                    payload,
+                    message -> {
+                        message.getMessageProperties().setContentType("application/json");
+                        // The extraction idempotency key, so a redelivered segment announces
+                        // itself under the same identity it was extracted under.
+                        message.getMessageProperties().setMessageId(request.idempotencyKey());
+                        return message;
+                    });
+        } catch (AmqpException | JacksonException exception) {
+            // Deliberately swallowed. The extraction succeeded and its frames are durable in
+            // object storage; failing it here would re-run ffmpeg over a segment that is already
+            // complete. The measurement worker can also be triggered over HTTP, so an unannounced
+            // segment is recoverable, and a re-extracted one is wasted work.
+            LOG.warn(
+                    "could not announce segment {}/{} for measurement: {}",
+                    request.sessionId(),
+                    request.segmentIndex(),
+                    exception.getMessage());
+        }
+    }
+}

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import br.com.greenv.frameextractor.config.ExtractorProperties;
+import br.com.greenv.frameextractor.domain.MeasurementRequest;
 import br.com.greenv.frameextractor.domain.SegmentExtractionRequest;
 import br.com.greenv.frameextractor.domain.SegmentTelemetry;
 import br.com.greenv.frameextractor.port.CaptureSegmentStore;
@@ -11,6 +12,7 @@ import br.com.greenv.frameextractor.storage.LocalSegmentObjectStorageAdapter;
 import br.com.greenv.frameextractor.storage.LocalProcessingWorkspaceAdapter;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -66,6 +68,8 @@ class SegmentExtractionServiceIntegrationTest {
                 Instant.parse("2026-08-25T12:00:01Z"));
         RecordingSegmentStore segments = new RecordingSegmentStore();
         CommandRunner runner = new CommandRunner();
+        // Every finished segment must announce itself, or nothing downstream ever measures it.
+        List<MeasurementRequest> announced = new ArrayList<>();
         SegmentExtractionService service = new SegmentExtractionService(
                 properties,
                 objects,
@@ -76,6 +80,7 @@ class SegmentExtractionServiceIntegrationTest {
                 new TelemetryAssociator(),
                 new SamplingPlanner(),
                 new FfmpegExtractor(runner, properties),
+                announced::add,
                 Clock.fixed(Instant.parse("2026-08-25T12:00:02Z"), ZoneOffset.UTC));
 
         var manifest = service.extract(request);
@@ -87,6 +92,16 @@ class SegmentExtractionServiceIntegrationTest {
         assertThat(objects.exists(request.videoObjectKey())).isTrue();
         assertThat(objects.exists(prefix + "/segment-manifest-v2.json")).isTrue();
         assertThat(segments.manifestObjectKey).isEqualTo(prefix + "/segment-manifest-v2.json");
+
+        // The automatic trigger. Without this publish the frames sit in object storage and
+        // nothing downstream ever measures them.
+        assertThat(announced).singleElement().satisfies(announcement -> {
+            assertThat(announcement.schemaVersion()).isEqualTo(MeasurementRequest.SCHEMA_VERSION);
+            assertThat(announcement.outputPrefix()).isEqualTo(prefix);
+            assertThat(announcement.sessionId()).isEqualTo(telemetry.sessionId());
+            assertThat(announcement.sourceGeneration()).isEqualTo(manifest.sourceGeneration());
+            assertThat(announcement.sampledFrameCount()).isEqualTo(manifest.sampledFrames().size());
+        });
     }
 
     private static void generateVideo(Path destination) {
