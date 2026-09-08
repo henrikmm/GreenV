@@ -5,8 +5,9 @@ segment carries GNSS location, altitude, accuracy, speed, course, cumulative dis
 linear acceleration, angular velocity and a segment-relative orientation. The client writes the
 video, telemetry and SHA-256 digests to its application documents before attempting the network.
 
-The upload queue is restart-safe. A failed or accepted upload remains local until the Video API
-reports that the worker has published and re-read the verified manifest. Moving the app to the
+The upload queue is restart-safe. A capture remains local until the Video API has accepted its
+bytes, and is dropped as soon as it has - what the worker later makes of a segment is never waited
+for, because the phone cannot act on the answer and the wait keeps a finished capture on screen. Moving the app to the
 background closes the current segment and stops recording; capture never continues invisibly.
 
 The presentation is isolated from Verge Studio's React application. It follows the supplied
@@ -23,7 +24,7 @@ Implemented:
 - GNSS position, altitude, accuracy, speed, course and cumulative route distance.
 - Gravity, linear acceleration, angular velocity and segment-relative orientation.
 - A restart-safe on-device queue with SHA-256 checksums and serialized retry.
-- The versioned `/v2/capture-sessions` API flow and worker-verification polling.
+- The versioned `/v2/capture-sessions` API flow, up to and including segment delivery.
 - Bearer-token authentication against a deployed API, compiled in with `GREENV_API_TOKEN`.
 - A browser capture build that records from a workstation webcam and uploads to a deployed API.
 - Motiva splash/authentication presentation, operations home, upload/capture and map views.
@@ -45,7 +46,7 @@ Not implemented yet:
 | `lib/src/capture/camera_segment_recorder.dart` | Native camera initialization/start/stop |
 | `lib/src/capture/phone_telemetry_collector.dart` | GNSS and inertial sampling |
 | `lib/src/storage/persistent_capture_queue.dart` | Durable local files and queue index |
-| `lib/src/upload/queue_uploader.dart` | Serialized, idempotent upload and verification polling |
+| `lib/src/upload/queue_uploader.dart` | Serialized, idempotent upload; drops what the API accepted |
 | `lib/src/api/http_capture_backend.dart` | `/v2/capture-sessions` HTTP adapter, Bearer token included |
 | `lib/src/bootstrap/capture_configuration.dart` | The three `--dart-define` settings, in one place |
 | `lib/src/storage/browser_capture_queue.dart` | In-memory queue for the browser capture build |
@@ -106,7 +107,7 @@ For an iOS simulator, uninstalling resets the same application container:
 xcrun simctl uninstall booted br.com.greenv.greenvCapture
 ```
 
-Both operations are destructive to captures that have not reached worker `ready`. To reset the
+Both operations are destructive to captures the API has not accepted yet. To reset the
 backend separately, use `docker compose down -v` from the repository root; that deletes its local
 database, queue and capture volumes.
 
@@ -173,9 +174,9 @@ camera, the backend and the session for fakes, when the point is to look at layo
 Four things differ from the phone, on purpose:
 
 - **The queue is in memory.** A browser page has no application-documents directory, so a reload
-  discards any segment the worker has not yet reported as `ready`. Everything else is real: the
-  SHA-256 digests are computed over the actual bytes, and a segment is deleted only after
-  verification.
+  discards any segment the API has not accepted yet. Everything else is real: the SHA-256 digests
+  are computed over the actual bytes, and a segment is dropped only once the upload came back
+  accepted.
 - **The container is WebM, not MP4.** A browser's `MediaRecorder` encodes VP9/WebM; the segment
   upload declares that, and the API accepts `video/mp4` and `video/webm` alike because the worker
   probes the container. The stored object keeps its `source.mp4` name.
@@ -240,8 +241,7 @@ press record
   -> every 10 s: stop MP4, close telemetry, copy both into the queue, hash, start next segment
   -> upload video and telemetry with the same segment idempotency key
   -> ask API to queue extraction
-  -> poll segment state
-  -> delete local segment only when worker state is ready
+  -> delete the local segment as soon as the API accepted it
 press stop/background
   -> close and queue the segment in progress
   -> close the session and release wakelock
@@ -270,7 +270,7 @@ capture-queue/
 
 `queue-v1.json.writing` is the temporary atomic-write file. The camera plugin's temporary MP4 is
 deleted only after the durable queue copy and both SHA-256 digests exist. A queued directory is
-deleted only after the API reports the worker-generated manifest as `ready`. Uninstalling the app
+deleted as soon as the API has accepted the segment's bytes. Uninstalling the app
 or clearing its data removes this queue.
 
 ## Telemetry document
@@ -294,8 +294,8 @@ flutter build apk --debug
 flutter build web
 ```
 
-The tests cover ten-second rotation, queue persistence across restart, offline retry, deletion
-only after worker `ready`, normalized relative orientation, auth/navigation rendering, and the
+The tests cover ten-second rotation, queue persistence across restart, offline retry, deletion on
+delivery, normalized relative orientation, auth/navigation rendering, and the
 idle/recording Motiva states.
 
 The latest verified debug artifact is produced at
@@ -309,7 +309,7 @@ The latest verified debug artifact is produced at
 | USB phone cannot reach API | Run `adb reverse tcp:8080 tcp:8080` and compile with the loopback `GREENV_API_URL` above |
 | Camera action reports a permission error | Grant camera permission in platform settings, then retry; the action remains available |
 | GPS stays unavailable | Enable the device location service and precise/when-in-use permission; video capture is independent |
-| Queue count does not fall | Inspect API segment state and worker logs; files intentionally remain through `queued`, `validating` and `failed` |
+| Queue count does not fall | The uploads are failing: read `lastError` on the queued segment, then check the API. A segment is dropped the moment an upload is accepted |
 | Android native build has stale cache errors after moving the project | Run `flutter clean`, `flutter pub get`, then rebuild |
 | Web shows a route icon instead of camera | You are running `--dart-define=GREENV_WEB_CAPTURE=false`, the design preview. Drop it for the real camera |
 | Every API call fails with 401 | The build was compiled without `GREENV_API_TOKEN`, or the token is stale |

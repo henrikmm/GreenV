@@ -132,7 +132,7 @@ final class PersistentCaptureQueue implements CaptureQueue, SegmentContentStore 
   });
 
   @override
-  Future<void> removeVerifiedSegment(QueuedSegment segment) =>
+  Future<void> removeDeliveredSegment(QueuedSegment segment) =>
       _locked(() async {
         final values = await _read();
         final sessionPosition = values.indexWhere(
@@ -152,6 +152,13 @@ final class PersistentCaptureQueue implements CaptureQueue, SegmentContentStore 
         final directory = video.parent;
         if (await directory.exists()) await directory.delete(recursive: true);
       });
+
+  @override
+  Future<void> removeCompletedSession(String sessionId) => _locked(() async {
+    final values = await _read();
+    values.removeWhere((item) => item.sessionId == sessionId);
+    await _write(values);
+  });
 
   @override
   Future<void> markCompletionSent(String sessionId) => _locked(() async {

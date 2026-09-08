@@ -197,9 +197,6 @@ final class _PreviewBackend implements CaptureBackend {
   }
 
   @override
-  Future<String> segmentState(QueuedSegment segment) async => 'ready';
-
-  @override
   Future<void> uploadSegment(QueuedSegment segment) async {
     if (!online) throw StateError('offline design preview');
   }

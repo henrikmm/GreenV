@@ -43,10 +43,9 @@ void main() {
 
     await backend.ensureSession(session);
     await backend.uploadSegment(segment);
-    await backend.segmentState(segment);
     await backend.completeSession(session);
 
-    expect(requests, hasLength(6));
+    expect(requests, hasLength(5));
     for (final request in requests) {
       expect(
         request.headers['authorization'],

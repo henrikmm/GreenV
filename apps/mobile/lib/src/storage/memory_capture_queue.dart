@@ -81,7 +81,7 @@ final class MemoryCaptureQueue implements CaptureQueue {
   }
 
   @override
-  Future<void> removeVerifiedSegment(QueuedSegment segment) async {
+  Future<void> removeDeliveredSegment(QueuedSegment segment) async {
     final position = _sessions.indexWhere(
       (item) => item.sessionId == segment.sessionId,
     );
@@ -91,6 +91,12 @@ final class MemoryCaptureQueue implements CaptureQueue {
           .where((item) => item.segmentIndex != segment.segmentIndex)
           .toList(),
     );
+    _refresh();
+  }
+
+  @override
+  Future<void> removeCompletedSession(String sessionId) async {
+    _sessions.removeWhere((item) => item.sessionId == sessionId);
     _refresh();
   }
 

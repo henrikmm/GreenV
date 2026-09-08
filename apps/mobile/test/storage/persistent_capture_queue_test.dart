@@ -71,7 +71,7 @@ void main() {
         reason: 'an accepted upload is not yet worker verification',
       );
 
-      await restarted.removeVerifiedSegment(recovered);
+      await restarted.removeDeliveredSegment(recovered);
       expect(await File(recovered.videoPath).exists(), isFalse);
       expect(await File(recovered.telemetryPath).exists(), isFalse);
       expect(restarted.backlog.value, 0);

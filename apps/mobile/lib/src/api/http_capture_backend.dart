@@ -73,22 +73,6 @@ final class HttpCaptureBackend implements CaptureBackend {
   }
 
   @override
-  Future<String> segmentState(QueuedSegment segment) async {
-    final response = await _send(
-      http.Request(
-        'GET',
-        _resolve(
-          '/v2/capture-sessions/${segment.sessionId}'
-          '/segments/${segment.segmentIndex}',
-        ),
-      ),
-    );
-    _expect(response, {200});
-    return (jsonDecode(response.body)! as Map<String, Object?>)['state']!
-        as String;
-  }
-
-  @override
   Future<void> completeSession(QueuedSession session) async {
     final response = await _send(
       _jsonRequest('POST', '/v2/capture-sessions/${session.sessionId}/complete', {

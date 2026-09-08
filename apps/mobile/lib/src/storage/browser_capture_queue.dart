@@ -104,7 +104,7 @@ final class BrowserCaptureQueue implements CaptureQueue, SegmentContentStore {
   }
 
   @override
-  Future<void> removeVerifiedSegment(QueuedSegment segment) async {
+  Future<void> removeDeliveredSegment(QueuedSegment segment) async {
     final position = _position(segment.sessionId);
     if (position < 0) return;
     final session = _sessions[position];
@@ -116,6 +116,12 @@ final class BrowserCaptureQueue implements CaptureQueue, SegmentContentStore {
     _artifacts
       ..remove(segment.videoPath)
       ..remove(segment.telemetryPath);
+    _refresh();
+  }
+
+  @override
+  Future<void> removeCompletedSession(String sessionId) async {
+    _sessions.removeWhere((item) => item.sessionId == sessionId);
     _refresh();
   }
 
