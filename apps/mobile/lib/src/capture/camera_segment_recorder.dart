@@ -1,5 +1,6 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:greenv_capture/src/bootstrap/capture_configuration.dart';
 import 'package:greenv_capture/src/capture/capture_ports.dart';
 import 'package:greenv_capture/src/domain/capture_models.dart';
 
@@ -38,6 +39,12 @@ final class CameraSegmentRecorder implements SegmentRecorder {
       ResolutionPreset.high,
       enableAudio: false,
       imageFormatGroup: ImageFormatGroup.yuv420,
+      // Null leaves the platform default. A higher rate is what lets a twenty-metre stretch of road
+      // hold enough views to reconstruct at highway speed; see CaptureConfiguration.recordingFps
+      // for why asking is not the same as getting.
+      fps: CaptureConfiguration.recordingFps > 0
+          ? CaptureConfiguration.recordingFps
+          : null,
     );
     await controller.initialize();
     await controller.prepareForVideoRecording();

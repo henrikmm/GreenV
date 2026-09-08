@@ -62,6 +62,35 @@ class GroupPlannerTest {
         assertThat(plan.getFirst().frameCount()).isGreaterThan(plan.getLast().frameCount());
     }
 
+    /**
+     * A faster camera is the one lever that actually moves the envelope. Nothing here is configured
+     * for it: more encoded frames simply means more of them fall inside each 20 m stretch, so the
+     * planner spends the budget it already had on a tighter baseline.
+     */
+    @Test
+    void usesTheExtraFramesAFasterCameraProvides() {
+        var at30 = planAt(100, 30);
+        var at120 = planAt(100, 120);
+
+        // Same road, same stretches - only the views inside them change.
+        assertThat(at120).hasSameSizeAs(at30);
+        assertThat(at120.getFirst().frameCount()).isGreaterThan(3 * at30.getFirst().frameCount());
+        assertThat(at120.getFirst().medianBaselineMeters())
+                .isLessThan(at30.getFirst().medianBaselineMeters() / 3);
+
+        // And that is what carries 100 km/h back inside the range the instrument was graded at.
+        assertThat(at30).noneMatch(FrameGroup::withinGradedEnvelope);
+        assertThat(at120).allMatch(FrameGroup::withinGradedEnvelope);
+    }
+
+    /** Past a point the GPU ceiling binds instead of the camera, and the extra frames are dropped. */
+    @Test
+    void stillRespectsTheFrameCeilingWhenTheCameraOutrunsIt() {
+        assertThat(planAt(60, 240))
+                .allSatisfy(group -> assertThat(group.frameCount()).isLessThanOrEqualTo(CAP));
+        assertThat(planAt(60, 240).getFirst().frameCount()).isEqualTo(CAP);
+    }
+
     @Test
     void yieldsNothingWhenTheVehicleNeverMoved() {
         List<EncodedFrameTimestamp> frames = frames();
@@ -100,7 +129,11 @@ class GroupPlannerTest {
     }
 
     private List<FrameGroup> planAt(int kilometresPerHour) {
-        List<EncodedFrameTimestamp> frames = frames();
+        return planAt(kilometresPerHour, FPS);
+    }
+
+    private List<FrameGroup> planAt(int kilometresPerHour, int fps) {
+        List<EncodedFrameTimestamp> frames = frames(fps);
         double metersPerSecond = kilometresPerHour / 3.6;
         Map<Integer, Double> distance = new HashMap<>();
         for (EncodedFrameTimestamp frame : frames) {
@@ -124,10 +157,14 @@ class GroupPlannerTest {
     }
 
     private static List<EncodedFrameTimestamp> frames() {
-        int count = FPS * SEGMENT_SECONDS;
+        return frames(FPS);
+    }
+
+    private static List<EncodedFrameTimestamp> frames(int fps) {
+        int count = fps * SEGMENT_SECONDS;
         List<EncodedFrameTimestamp> frames = new ArrayList<>(count);
         for (int i = 0; i < count; i++) {
-            frames.add(new EncodedFrameTimestamp(i, Math.round(i * 1_000_000_000.0 / FPS), i % 30 == 0));
+            frames.add(new EncodedFrameTimestamp(i, Math.round(i * 1_000_000_000.0 / fps), i % 30 == 0));
         }
         return frames;
     }

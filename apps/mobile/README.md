@@ -326,3 +326,32 @@ frames. The worker therefore probes every encoded presentation timestamp and map
 segment's monotonic clock anchor. GNSS older than two seconds and motion older than 100 ms are not
 attached to a frame. The quaternion is gyroscope-integrated relative orientation from the start of
 that segment, not absolute attitude, and it can drift.
+
+## Recording frame rate
+
+The camera's frame rate is what bounds how tightly a stretch of road can be reconstructed. A stretch
+is measured from the frames recorded while crossing it, so at 30 fps a twenty-metre stretch holds 112
+views at 20 km/h and only 22 at 100 km/h — below the smallest count Verge Studio has graded.
+
+```bash
+flutter run --dart-define=GREENV_API_URL=https://greenvapi.matomomitsu.com \
+            --dart-define=GREENV_RECORDING_FPS=120
+```
+
+| recording | 60 km/h | 100 km/h | 120 km/h | graded up to |
+|---|---:|---:|---:|---|
+| 30 fps | 38 views | 22 | 18 | 34 km/h |
+| 60 fps | 76 | 43 | 36 | 68 km/h |
+| 120 fps | 112 | 86 | 71 | 135 km/h |
+
+**Asking is not getting.** `camera_avfoundation` chooses its capture format by resolution and then
+applies the frame rate to whatever format that was, so a device whose highest-resolution format tops
+out at 30 fps clamps silently. Setting the iOS Camera app to 120 fps changes nothing here either —
+that setting belongs to Apple's app, and this one opens its own capture session.
+
+The worker records the rate it actually measured as `nativeFps` in every segment manifest. That is
+the number to trust. This has not been run on a 120 fps device.
+
+Two limits worth knowing before raising it: the API rejects a segment over 64 MB, which 1080p120
+fits at about 50 MB but 4K60 does not; and more frames cost GPU roughly in proportion, against a
+bill already near four GPU-hours per hour driven.
