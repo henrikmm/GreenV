@@ -128,6 +128,14 @@ locals {
 
     # Empty leaves CORS disabled, which is what a phone-only deployment wants. A browser client
     # needs its exact origin listed; this never replaces the Bearer token.
+    # The other end of the measurement loop. Worker 2 publishes its result here and, without this
+    # name, the API's consumer is never created: the queue fills and nothing reads it, which is
+    # exactly the gap this deployment exists to close.
+    #
+    # Set unconditionally, because the queue exists whether or not measurement is enabled - an
+    # empty queue costs a poll and a disabled one would need a second apply to switch on.
+    GREENV_AZURE_MEASURED_QUEUE_NAME = local.measurement_result_queue_name
+
     GREENV_ALLOWED_ORIGINS = join(",", var.api_allowed_origins)
 
     # Every token is signed for and validated against this issuer, so it is what answers "did our

@@ -181,6 +181,18 @@ resource "azurerm_role_assignment" "measurement_result_sender" {
 
 # Moving an exhausted message is an add here plus a delete on the source queue above, so this half
 # only ever needs to send. Nothing drains the poison queue automatically; a person reads it.
+# Reading a measurement is not sending one. The API's existing account-scoped Sender lets it queue
+# extraction work and nothing else, so consuming results needs its own grant: Message Processor is
+# peek, receive and delete - exactly what draining a queue is - scoped to the one queue rather than
+# to the account.
+resource "azurerm_role_assignment" "api_measurement_result_processor" {
+  scope                            = local.measurement_result_queue_scope
+  role_definition_name             = "Storage Queue Data Message Processor"
+  principal_id                     = azurerm_user_assigned_identity.api.principal_id
+  principal_type                   = "ServicePrincipal"
+  skip_service_principal_aad_check = true
+}
+
 resource "azurerm_role_assignment" "measurement_poison_sender" {
   scope                            = local.measurement_poison_queue_scope
   role_definition_name             = "Storage Queue Data Message Sender"

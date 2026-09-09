@@ -635,6 +635,42 @@ run "rolls_every_workload_on_a_new_deployment_revision" {
 
 # Turning measurement on is the deliberate act that authorises GPU spend, so the wiring it needs is
 # asserted separately from the default deployment above.
+# The half that has no worker of its own: worker 2 publishes a result and the API drains it. A
+# queue nobody reads is the defect this whole stage exists to remove, and it is invisible in a plan
+# unless something asserts it.
+run "closes_the_measurement_loop_at_the_api" {
+  command = plan
+
+  variables {
+    cloudflare_account_id    = "00000000000000000000000000000000"
+    r2_bucket_name           = "greenv-mvp-captures-test"
+    r2_access_key_id         = "test-access-key"
+    r2_secret_access_key     = "test-secret-key"
+    api_image                = "ghcr.io/example/greenv-video-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    worker_image             = "ghcr.io/example/greenv-frame-extractor@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    measurement_worker_image = "ghcr.io/example/greenv-measurement-worker@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  }
+
+  assert {
+    condition     = local.api_environment.GREENV_AZURE_MEASURED_QUEUE_NAME == local.measurement_result_queue_name
+    error_message = "Without the queue name the API builds no consumer, and worker 2's results pile up unread."
+  }
+
+  # Sending is what the API does with extraction work; draining a result queue is a different verb.
+  assert {
+    condition     = azurerm_role_assignment.api_measurement_result_processor.role_definition_name == "Storage Queue Data Message Processor"
+    error_message = "The API needs to receive and delete from the result queue, which its account-scoped Sender role does not allow."
+  }
+
+  # The scope is the queue's ARM id, unknown until the storage account exists, so a plan cannot
+  # compare it. What a plan can prove is that the grant is not the account-wide one: it carries a
+  # principal of its own and a role that is not Sender.
+  assert {
+    condition     = azurerm_role_assignment.api_measurement_result_processor.principal_type == "ServicePrincipal"
+    error_message = "The grant must belong to the API's managed identity."
+  }
+}
+
 run "plans_automatic_measurement_against_a_depth_service" {
   command = plan
 
