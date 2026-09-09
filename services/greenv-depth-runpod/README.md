@@ -106,9 +106,9 @@ worker ends up running something nobody can identify. `measurement/scripts/cloud
 
 ## The endpoint
 
-One command, and it costs nothing to run: a template holds the image and the credentials, and the
-endpoint Terraform builds from it keeps `workers_min` at 0, so there is no worker until a request
-arrives.
+Creating it costs nothing: a template holds the image and the credentials, and the endpoint built
+from it keeps `workers_min` at 0, so there is no worker until a request arrives. The first job is
+what bills.
 
 ```bash
 cd infrastructure
@@ -119,12 +119,25 @@ export TF_VAR_r2_secret_access_key=...
 terraform apply
 ```
 
-with two lines in `terraform.tfvars`:
+with three lines in `terraform.tfvars`:
 
 ```hcl
-measurement_enabled   = true
-depth_service_adapter = "runpod"
+measurement_enabled       = true
+depth_service_adapter     = "runpod"
+depth_service_endpoint_id = "2q5q0j3e9ug08q"
 ```
+
+**The third line is not optional today, and the endpoint is created once by hand.** The provider
+plans a `compute_type` of "GPU" and never reads the field back, so any apply that owns
+`runpod_endpoint` ends in *"Provider produced inconsistent result after apply"* — on create and on
+update alike, observed 9 Sep 2026 against this endpoint. Removing the attribute from the
+configuration does not help, because it is `computed` and the value is the provider's own default.
+So create the endpoint once — `terraform apply` will do it, and then fail; the endpoint is real
+either way — take it out of state with `terraform state rm 'runpod_endpoint.depth[0]'`, and name it
+in the variable above. It holds no GPU at rest, so an unmanaged endpoint costs nothing.
+
+Once it is named that way the data source stops running too, so moving the depth stage to a new
+image means running `provision.mjs` by hand: an endpoint follows whatever its template says.
 
 **Why a script runs inside the apply.** `decentralized-infrastructure/runpod` has a
 `runpod_endpoint` resource and no template resource — checked against the provider binary's own
