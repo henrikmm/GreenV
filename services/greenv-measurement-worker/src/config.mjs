@@ -83,6 +83,10 @@ function build() {
       //   {"detail":"local API requires a loopback origin on port 5173"}
       // Running end to end therefore needs a real depth service, which costs money and needs the
       // user's agreement each time (AGENTS.md), or a stand-in that does not exist yet.
+      // `http` is the FastAPI dialect above. `runpod` addresses a serverless endpoint, which is a
+      // job queue rather than one request, and sends frames by object key instead of by upload -
+      // see src/infer-runpod.mjs. Default unchanged, so nothing moves for anyone already running.
+      adapter: text("GREENV_INFER_ADAPTER", "http"),
       baseUrl: text("GREENV_INFER_BASE_URL", "http://127.0.0.1:5173/api"),
       token: text("GREENV_INFER_TOKEN", null),
       // Verge Studio grades 112 frames at 504 px as its best setting, and an L4 runs out above
@@ -92,6 +96,15 @@ function build() {
       maxFrames: number("GREENV_INFER_MAX_FRAMES", 112),
       fps: number("GREENV_INFER_FPS", 10),
       timeoutMs: number("GREENV_INFER_TIMEOUT_MS", 15 * 60 * 1000),
+      runpod: {
+        // https://api.runpod.ai/v2/<endpoint-id> - the whole prefix, so a self-hosted proxy or a
+        // future API version needs no code change.
+        endpoint: text("GREENV_RUNPOD_ENDPOINT", null),
+        apiKey: text("GREENV_RUNPOD_API_KEY", null),
+        // A cold endpoint spends about a minute starting before it computes anything, so polling
+        // faster than this only buys requests.
+        pollIntervalMs: number("GREENV_RUNPOD_POLL_MS", 5000),
+      },
     },
 
     measurement: {
@@ -130,6 +143,19 @@ function build() {
   }
   if (config.storage.adapter === "s3" && !config.storage.bucket) {
     throw new Error("GREENV_S3_BUCKET is required when the object-storage adapter is s3");
+  }
+  if (!["http", "runpod"].includes(config.infer.adapter)) {
+    throw new Error(`GREENV_INFER_ADAPTER must be "http" or "runpod", got "${config.infer.adapter}"`);
+  }
+  if (config.infer.adapter === "runpod") {
+    if (!config.infer.runpod.endpoint || !config.infer.runpod.apiKey) {
+      throw new Error("GREENV_RUNPOD_ENDPOINT and GREENV_RUNPOD_API_KEY are required when the infer adapter is runpod");
+    }
+    if (config.storage.adapter !== "s3") {
+      // The handler reads the frames itself, from a bucket. A worker whose frames are on its own
+      // filesystem has nothing to hand over, and would spend a GPU start to find that out.
+      throw new Error("the runpod infer adapter needs GREENV_OBJECT_STORAGE_ADAPTER=s3: the depth handler reads frames from the bucket");
+    }
   }
   return config;
 }

@@ -49,10 +49,57 @@ that saved run is not on the machine — a fresh clone has none.
 
 ## Two things that will bite
 
-**There is no GPU in the compose stack.** Without `GREENV_INFER_BASE_URL` pointing at a real
-service, the worker talks to Verge Studio's fixture-backed mock, which answers every request with
-the same reconstruction of an unrelated scene. It refuses to publish that unless
-`GREENV_MEASUREMENT_ALLOW_MOCK=true`, and marks any packet that gets through with `mock: true`.
+**There is no GPU in the compose stack, and the fixture will not stand in for one.** The default
+`GREENV_INFER_BASE_URL` points at Verge Studio's Vite fixture, but its privileged routes - every
+`POST` is one - require an `Origin` header naming loopback on 5173 and a nonce the dev server
+injects only into the HTML it serves. It answers browsers and refuses processes. Observed from the
+compose stack on 8 Sep 2026:
+
+```
+POST http://<host>:5173/api/infer failed with 403:
+{"detail":"local API requires a loopback origin on port 5173"}
+```
+
+Everything before that point does run: the segment is consumed, its sampled frames are downloaded,
+and the failure is recorded as `depth_inference_failed`. Producing a packet needs a real depth
+service. Were one reachable, its reconstruction would still be of an unrelated scene unless it is
+the deployment's own, which is why a mock packet is refused unless
+`GREENV_MEASUREMENT_ALLOW_MOCK=true` and marked `mock: true` when it gets through.
 
 **Waking the real service costs money for its whole lifetime**, not for the seconds it computes,
 and needs the user's agreement every time. See the root `AGENTS.md`.
+
+## Two depth dialects
+
+`GREENV_INFER_ADAPTER` chooses how the depth stage is reached. The default `http` is unchanged: the
+FastAPI service in `measurement/server/`, frames uploaded as multipart, one request one answer.
+
+`runpod` addresses a RunPod serverless endpoint, which is a job queue rather than a request:
+`POST <endpoint>/run` returns an id and the answer is collected from `GET <endpoint>/status/<id>`.
+Its JSON body has a payload ceiling far below a hundred JPEGs, so **frames travel by object key**
+and the handler reads them from the bucket itself - which is why this adapter requires
+`GREENV_OBJECT_STORAGE_ADAPTER=s3` and refuses to start on a filesystem the handler cannot see.
+
+```
+GREENV_INFER_ADAPTER=runpod
+GREENV_RUNPOD_ENDPOINT=https://api.runpod.ai/v2/<endpoint-id>
+GREENV_RUNPOD_API_KEY=<key>
+GREENV_RUNPOD_POLL_MS=5000
+```
+
+The handler this expects does not exist yet. Its contract is one job in, one manifest out:
+
+```
+input   { frames: [{ name, key }], storage: { bucket, endpoint, region },
+          params: { fps, process_res, max_frames, source_duration_s } }
+output  { run_id, frames: { count }, artifacts: [{ kind: "glb"|"npz", url, size_bytes }] }
+```
+
+`url` must be absolute - a signed bucket link - because a serverless handler has no origin of its
+own to serve files from; the adapter rejects a relative one rather than resolving it against
+RunPod's API host. Building that image means wrapping `measurement/server/` the way
+`measurement/scripts/deploy.sh` wraps it for Cloud Run.
+
+**Nothing here has been run against RunPod.** The adapter is exercised by
+`test/infer-runpod.test.mjs` against a double that answers the way the API documents; no endpoint
+has been deployed and no GPU has been woken.

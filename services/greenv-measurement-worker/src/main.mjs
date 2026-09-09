@@ -7,6 +7,7 @@
 import { loadConfig } from "./config.mjs";
 import { objectStorage } from "./storage/index.mjs";
 import { inferClient } from "./infer.mjs";
+import { runpodInferClient } from "./infer-runpod.mjs";
 import { measurementRunner } from "./measure.mjs";
 import { measurementPipeline } from "./pipeline.mjs";
 import { createHttpTrigger } from "./http.mjs";
@@ -17,7 +18,9 @@ const log = (fields) => process.stdout.write(`${JSON.stringify({ at: new Date().
 
 export async function start(config = loadConfig()) {
   const storage = objectStorage(config.storage);
-  const infer = inferClient(config.infer);
+  const infer = config.infer.adapter === "runpod"
+    ? runpodInferClient({ ...config.infer, ...config.infer.runpod, storage: config.storage })
+    : inferClient(config.infer);
   const runner = measurementRunner(config.measurement, (progress) => log({ event: "progress", ...progress }));
   const measure = measurementPipeline({ config, storage, infer, runner, log });
   // Shared by both trigger paths, so the bound holds no matter which one is used.
