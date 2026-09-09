@@ -40,15 +40,24 @@ resource "runpod_endpoint" "depth" {
   name        = "${local.runtime_name_prefix}-depth"
   template_id = local.depth_template_id
 
-  # `compute_type` is deliberately not set. The provider fails the apply with
+  # This resource does not currently run: `depth_service_endpoint_id` in terraform.tfvars names the
+  # endpoint that already exists, which sets `count` to 0. The provider cannot manage this resource
+  # at all. It fails every apply with
   #
   #   Provider produced inconsistent result after apply ... .compute_type: was
   #   cty.StringVal("GPU"), but now cty.StringVal("")
   #
-  # because it never reads the field back from the API. Observed 9 Sep 2026 creating this very
-  # endpoint. Naming GPU types is what makes an endpoint a GPU endpoint anyway - RunPod's own
-  # default for computeType is GPU - so leaving it unset asks the provider for nothing it cannot
-  # deliver.
+  # because it plans a default of "GPU" for `compute_type` and never reads the field back from the
+  # API. Observed 9 Sep 2026, twice: creating endpoint 2q5q0j3e9ug08q, and then updating it in
+  # place. Leaving `compute_type` out of this configuration does not help, and neither would
+  # `ignore_changes`: the attribute is `computed`, so the value comes from the provider's own
+  # default rather than from anything written here.
+  #
+  # So the endpoint is created once - by this resource, or by hand in RunPod's console - and then
+  # named in a variable. It holds no GPU at rest, so an unmanaged endpoint costs nothing and drifts
+  # in nothing but its own name. Moving it to a new image means running
+  # `services/greenv-depth-runpod/provision.mjs` by hand: an endpoint follows its template, and
+  # with `count` at 0 the data source above does not run either.
 
   # Every memory ceiling on record was measured on an L4's 22.03 GiB usable: 112 frames at 504 px
   # peaked at 21.28 GiB and 160 frames ran out (measurement/docs/vram-measurements.json). The
