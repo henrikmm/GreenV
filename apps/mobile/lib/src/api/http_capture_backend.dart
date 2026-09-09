@@ -39,6 +39,10 @@ final class HttpCaptureBackend implements CaptureBackend {
         'sessionId': session.sessionId,
         'deviceId': session.deviceId,
         'startedAt': session.startedAtUtc.toIso8601String(),
+        // Omitted rather than sent as null when the operator named no road, so a queue written
+        // before this field existed produces exactly the body it always did.
+        if (session.rodovia != null) 'rodovia': session.rodovia,
+        if (session.sentido != null) 'sentido': session.sentido!.name,
       }),
     );
     _expect(response, {201});

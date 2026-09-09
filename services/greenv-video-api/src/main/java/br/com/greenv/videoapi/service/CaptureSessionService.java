@@ -7,6 +7,7 @@ import br.com.greenv.videoapi.domain.CaptureSessionDocument;
 import br.com.greenv.videoapi.domain.CaptureSessionSummary;
 import br.com.greenv.videoapi.domain.SegmentExtractionRequest;
 import br.com.greenv.videoapi.domain.SegmentMeasurementAnnouncement;
+import br.com.greenv.videoapi.domain.Sentido;
 import br.com.greenv.videoapi.port.CaptureObjectStorage;
 import br.com.greenv.videoapi.port.CaptureSessionStore;
 import br.com.greenv.videoapi.port.CaptureSessionUseCase;
@@ -16,6 +17,7 @@ import java.io.InputStream;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Locale;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 
@@ -54,8 +56,15 @@ public class CaptureSessionService implements CaptureSessionUseCase {
     }
 
     @Override
-    public CaptureSessionDocument create(UUID requestedSessionId, String deviceId, Instant requestedStartedAt) {
+    public CaptureSessionDocument create(
+            UUID requestedSessionId,
+            String deviceId,
+            Instant requestedStartedAt,
+            String requestedRodovia,
+            String requestedSentido) {
         Instant now = clock.instant();
+        String rodovia = rodovia(requestedRodovia);
+        Sentido sentido = sentido(requestedSentido);
         Instant startedAt = requestedStartedAt == null ? now : requestedStartedAt;
         if (startedAt.isAfter(now.plus(5, ChronoUnit.MINUTES))) {
             throw new ApplicationException(
@@ -67,6 +76,9 @@ public class CaptureSessionService implements CaptureSessionUseCase {
         var existing = captureSessionStore.findSession(sessionId);
         if (existing.isPresent()) {
             CaptureSessionDocument session = existing.get();
+            // The rodovia and the sentido describe the capture; they do not identify it. An
+            // offline phone retries this call until it lands, and refusing a retry that carries a
+            // corrected road would block segments that are already uploading.
             if (!session.deviceId().equals(deviceId.trim())
                     || !session.startedAt().equals(startedAt)) {
                 throw new ApplicationException(
@@ -85,7 +97,9 @@ public class CaptureSessionService implements CaptureSessionUseCase {
                 now,
                 now,
                 now.plus(captureProperties.transientDays(), ChronoUnit.DAYS),
-                null);
+                null,
+                rodovia,
+                sentido);
         return captureSessionStore.createSession(session);
     }
 
@@ -177,6 +191,9 @@ public class CaptureSessionService implements CaptureSessionUseCase {
 
     private void publishSegment(CaptureSegmentDocument segment) {
         Instant queuedAt = clock.instant();
+        // Read here rather than carried on the segment row: the road belongs to the session, and
+        // the two workers downstream have no database to look it up in.
+        CaptureSessionDocument session = captureSessionStore.getSession(segment.sessionId());
         try {
             workQueue.publish(new SegmentExtractionRequest(
                     2,
@@ -191,7 +208,9 @@ public class CaptureSessionService implements CaptureSessionUseCase {
                     CaptureObjectKeys.segmentPrefix(segment.sessionId(), segment.segmentIndex()),
                     segment.capturedAt(),
                     segment.durationMillis(),
-                    queuedAt));
+                    queuedAt,
+                    session.rodovia(),
+                    session.sentido() == null ? null : session.sentido().wireValue()));
         } catch (ApplicationException exception) {
             captureSessionStore.markQueueFailed(
                     segment.sessionId(),
@@ -270,6 +289,34 @@ public class CaptureSessionService implements CaptureSessionUseCase {
     @Override
     public int segmentSeconds() {
         return captureProperties.segmentSeconds();
+    }
+
+    /**
+     * The rodovia, uppercased and bounded, or null.
+     *
+     * <p>Not pattern-matched. This repository carries no highway register to check a designation
+     * against, and a guessed pattern would reject the state and municipal roads that are most of
+     * the network. Case is normalised because {@code br-101} and {@code BR-101} joining as two
+     * roads is the failure that actually happens.
+     */
+    private static String rodovia(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String normalised = value.trim().toUpperCase(Locale.ROOT);
+        if (normalised.length() > 32) {
+            throw new ApplicationException(
+                    FailureKind.INVALID_INPUT, "invalid_rodovia", "rodovia must not exceed 32 characters");
+        }
+        return normalised;
+    }
+
+    private static Sentido sentido(String value) {
+        try {
+            return Sentido.of(value);
+        } catch (IllegalArgumentException exception) {
+            throw new ApplicationException(FailureKind.INVALID_INPUT, "invalid_sentido", exception.getMessage());
+        }
     }
 
     private static void validateIdentity(int segmentIndex, String idempotencyKey, long durationMillis) {

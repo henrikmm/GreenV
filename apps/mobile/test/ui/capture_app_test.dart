@@ -11,6 +11,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 import '../support/capture_fakes.dart';
+import 'package:greenv_capture/src/domain/capture_models.dart';
 
 void main() {
   testWidgets('follows login and password recovery screens', (tester) async {
@@ -150,10 +151,75 @@ void main() {
     expect(find.bySemanticsLabel('motiva'), findsOneWidget);
     expect(find.text('Entrar'), findsNothing);
   });
+
+  testWidgets('names the road once, before the route starts', (tester) async {
+    final queue = MemoryCaptureQueue();
+    final coordinator = _coordinator(queue: queue);
+    addTearDown(coordinator.dispose);
+
+    await tester.pumpWidget(
+      CaptureApp(
+        dependencies: AppDependencies(
+          capture: coordinator,
+          authenticator: await _signedIn(),
+        ),
+        initialPage: MotivaPage.upload,
+      ),
+    );
+
+    await tester.ensureVisible(find.byKey(const Key('rodovia-field')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('rodovia-field')), 'br-101');
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('sentido-norte')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('sentido-norte')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('record-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('record-button')));
+    await tester.pump();
+
+    // Uppercased on the way in, and recorded on the session rather than on a segment: the whole
+    // route belongs to one rodovia in one sentido.
+    final session = (await queue.sessions()).single;
+    expect(session.rodovia, 'BR-101');
+    expect(session.sentido, Sentido.norte);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('a route with no road named stays empty rather than guessing', (
+    tester,
+  ) async {
+    final queue = MemoryCaptureQueue();
+    final coordinator = _coordinator(queue: queue);
+    addTearDown(coordinator.dispose);
+
+    await tester.pumpWidget(
+      CaptureApp(
+        dependencies: AppDependencies(
+          capture: coordinator,
+          authenticator: await _signedIn(),
+        ),
+        initialPage: MotivaPage.upload,
+      ),
+    );
+
+    await tester.ensureVisible(find.byKey(const Key('record-button')));
+    await tester.tap(find.byKey(const Key('record-button')));
+    await tester.pump();
+
+    final session = (await queue.sessions()).single;
+    expect(session.rodovia, isNull);
+    expect(session.sentido, isNull);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
 }
 
-CaptureCoordinator _coordinator({FakeTelemetry? telemetry}) {
-  final queue = MemoryCaptureQueue();
+CaptureCoordinator _coordinator({FakeTelemetry? telemetry, MemoryCaptureQueue? queue}) {
+  queue ??= MemoryCaptureQueue();
   return CaptureCoordinator(
     deviceId: 'phone-1',
     recorder: FakeRecorder(),

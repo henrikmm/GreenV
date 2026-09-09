@@ -113,8 +113,11 @@ class CaptureMeasurementIntegrationTest {
     private UUID givenASegment() {
         UUID sessionId = UUID.randomUUID();
         Instant now = Instant.parse("2026-09-08T02:00:00Z");
+        // No rodovia and no sentido: this test is about the measurement, and an unnamed capture is
+        // the one every session recorded before the app started asking.
         store.createSession(new br.com.greenv.videoapi.domain.CaptureSessionDocument(
-                sessionId, "pilot-phone", "recording", now, null, now, now, now.plusSeconds(3600), null));
+                sessionId, "pilot-phone", "recording", now, null, now, now, now.plusSeconds(3600),
+                null, null, null));
         store.ensureSegment(sessionId, 0, "%s:0".formatted(sessionId), now, 10_000, now);
         return sessionId;
     }

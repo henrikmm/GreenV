@@ -11,7 +11,8 @@ import java.util.UUID;
 /** Inbound application operations for segmented mobile captures. */
 public interface CaptureSessionUseCase {
 
-    CaptureSessionDocument create(UUID requestedSessionId, String deviceId, Instant startedAt);
+    CaptureSessionDocument create(
+            UUID requestedSessionId, String deviceId, Instant startedAt, String rodovia, String sentido);
 
     CaptureSessionSummary getSession(UUID sessionId);
 

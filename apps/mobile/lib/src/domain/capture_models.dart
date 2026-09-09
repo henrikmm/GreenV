@@ -1,5 +1,12 @@
 enum SegmentUploadState { pending, awaitingVerification, failed }
 
+/// The direction of travel a route was driven in.
+///
+/// Four values and no others. The dashboard joins two passes of the same road by
+/// `(rodovia, sentido, km)`, so a second spelling of one direction quietly becomes a second road.
+/// The names are the wire values the API accepts; they stay Portuguese because the road does.
+enum Sentido { norte, sul, leste, oeste }
+
 final class QueuedSegment {
   const QueuedSegment({
     required this.sessionId,
@@ -88,6 +95,8 @@ final class QueuedSession {
     required this.sessionId,
     required this.deviceId,
     required this.startedAtUtc,
+    this.rodovia,
+    this.sentido,
     this.endedAtUtc,
     this.lastSegmentIndex,
     this.completionSent = false,
@@ -97,6 +106,14 @@ final class QueuedSession {
   final String sessionId;
   final String deviceId;
   final DateTime startedAtUtc;
+
+  /// The rodovia and the sentido the whole route belongs to. A route is driven along one highway
+  /// in one direction for its whole length, so these are recorded once for the session rather
+  /// than per segment. Null when the operator left them empty, and null travels all the way to
+  /// the measurement packet rather than becoming a road nobody can find.
+  final String? rodovia;
+  final Sentido? sentido;
+
   final DateTime? endedAtUtc;
   final int? lastSegmentIndex;
   final bool completionSent;
@@ -113,6 +130,8 @@ final class QueuedSession {
     sessionId: sessionId,
     deviceId: deviceId,
     startedAtUtc: startedAtUtc,
+    rodovia: rodovia,
+    sentido: sentido,
     endedAtUtc: endedAtUtc ?? this.endedAtUtc,
     lastSegmentIndex: lastSegmentIndex ?? this.lastSegmentIndex,
     completionSent: completionSent ?? this.completionSent,
@@ -123,6 +142,8 @@ final class QueuedSession {
     'sessionId': sessionId,
     'deviceId': deviceId,
     'startedAtUtc': startedAtUtc.toUtc().toIso8601String(),
+    'rodovia': rodovia,
+    'sentido': sentido?.name,
     'endedAtUtc': endedAtUtc?.toUtc().toIso8601String(),
     'lastSegmentIndex': lastSegmentIndex,
     'completionSent': completionSent,
@@ -133,6 +154,10 @@ final class QueuedSession {
     sessionId: json['sessionId']! as String,
     deviceId: json['deviceId']! as String,
     startedAtUtc: DateTime.parse(json['startedAtUtc']! as String).toUtc(),
+    // Absent in a queue written before the app asked for a road. Reading it as null is what lets
+    // a capture recorded then still upload today.
+    rodovia: json['rodovia'] as String?,
+    sentido: _sentido(json['sentido'] as String?),
     endedAtUtc: json['endedAtUtc'] == null
         ? null
         : DateTime.parse(json['endedAtUtc']! as String).toUtc(),
@@ -145,6 +170,16 @@ final class QueuedSession {
         )
         .toList(),
   );
+}
+
+/// Null for anything the vocabulary does not contain, rather than throwing: a queue file the app
+/// cannot fully read must still hand back its segments, and the API would refuse the value anyway.
+Sentido? _sentido(String? value) {
+  if (value == null) return null;
+  for (final sentido in Sentido.values) {
+    if (sentido.name == value) return sentido;
+  }
+  return null;
 }
 
 final class RecordedVideo {

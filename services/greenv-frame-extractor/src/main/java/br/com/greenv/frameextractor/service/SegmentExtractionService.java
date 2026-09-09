@@ -11,6 +11,7 @@ import br.com.greenv.frameextractor.domain.SamplingPlan;
 import br.com.greenv.frameextractor.domain.SegmentExtractionRequest;
 import br.com.greenv.frameextractor.domain.SegmentManifest;
 import br.com.greenv.frameextractor.domain.SegmentTelemetry;
+import br.com.greenv.frameextractor.domain.Sentido;
 import br.com.greenv.frameextractor.port.CaptureSegmentStore;
 import br.com.greenv.frameextractor.port.FrameSampler;
 import br.com.greenv.frameextractor.port.FrameTimelineProbe;
@@ -248,7 +249,9 @@ public class SegmentExtractionService implements SegmentProcessor {
                 // The evidence behind the strategy: how much of the segment the fixes actually
                 // covered. Without it, a reader cannot tell a refusal from an abstention.
                 profile.fixSpanSeconds(),
-                publishedGroups);
+                publishedGroups,
+                request.rodovia(),
+                request.sentido());
         objectStorage.putJson(manifestKey, manifest);
         SegmentManifest published = objectStorage.readJson(manifestKey, SegmentManifest.class);
         verifyPublished(request.outputPrefix(), published);
@@ -292,7 +295,8 @@ public class SegmentExtractionService implements SegmentProcessor {
                 || request.capturedAt() == null
                 || request.durationMillis() <= 0
                 || request.durationMillis() > 30_000
-                || request.requestedAt() == null;
+                || request.requestedAt() == null
+                || !Sentido.isKnownOrAbsent(request.sentido());
         if (invalid) {
             throw new ExtractionException(
                     "invalid_segment_request",

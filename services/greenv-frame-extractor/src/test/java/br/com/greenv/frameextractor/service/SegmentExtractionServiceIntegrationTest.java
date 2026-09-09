@@ -75,7 +75,9 @@ class SegmentExtractionServiceIntegrationTest {
                 prefix,
                 telemetry.capturedAtUtc(),
                 1_000,
-                Instant.parse("2026-08-25T12:00:01Z"));
+                Instant.parse("2026-08-25T12:00:01Z"),
+                "SP-021",
+                "norte");
         RecordingSegmentStore segments = new RecordingSegmentStore();
         CommandRunner runner = new CommandRunner();
         // Every finished segment must announce itself, or nothing downstream ever measures it.
@@ -112,7 +114,13 @@ class SegmentExtractionServiceIntegrationTest {
             assertThat(announcement.sessionId()).isEqualTo(telemetry.sessionId());
             assertThat(announcement.sourceGeneration()).isEqualTo(manifest.sourceGeneration());
             assertThat(announcement.sampledFrameCount()).isEqualTo(manifest.sampledFrames().size());
+            // The road rides along, because Verge Studio keeps four fields per frame and cannot
+            // look anything up. Without these the packet carries the road-metadata-missing blocker.
+            assertThat(announcement.rodovia()).isEqualTo("SP-021");
+            assertThat(announcement.sentido()).isEqualTo("norte");
         });
+        assertThat(manifest.rodovia()).isEqualTo("SP-021");
+        assertThat(manifest.sentido()).isEqualTo("norte");
     }
 
 
@@ -280,7 +288,10 @@ class SegmentExtractionServiceIntegrationTest {
                 video.objectKey(), video.sha256(),
                 telemetryObject.objectKey(), telemetryObject.sha256(),
                 prefix, telemetry.capturedAtUtc(), SEGMENT_SECONDS * 1_000,
-                Instant.parse("2026-08-25T12:00:01Z"));
+                Instant.parse("2026-08-25T12:00:01Z"),
+                // This harness is about sampling, not about the road: an unnamed capture is the
+                // one every session recorded before the app started asking.
+                null, null);
         CommandRunner runner = new CommandRunner();
         List<MeasurementRequest> announced = new ArrayList<>();
         SegmentExtractionService service = new SegmentExtractionService(

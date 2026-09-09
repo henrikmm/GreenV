@@ -25,7 +25,9 @@ class JacksonSegmentMessageSerializerAdapterTest {
                 "capture-sessions/session/segments/00000000",
                 Instant.parse("2026-08-25T11:59:50Z"),
                 10_000,
-                Instant.parse("2026-08-25T12:00:00Z"));
+                Instant.parse("2026-08-25T12:00:00Z"),
+                "BR-101",
+                "sul");
         var serializer = new JacksonSegmentMessageSerializerAdapter(
                 JsonMapper.builder().findAndAddModules().build());
 

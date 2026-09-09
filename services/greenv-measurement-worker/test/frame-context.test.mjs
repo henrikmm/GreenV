@@ -56,6 +56,34 @@ test("a frame with no usable telemetry yields nulls rather than a guess", () => 
   assert.equal(positions[0].locationQuality, "unavailable");
 });
 
+// The announcement the frame extractor publishes now carries the road, when the operator named
+// one. When nobody did, the packet must say so: `road-metadata-missing` in the quality summary is
+// the correct and visible outcome, and a placeholder here would put a road on the map that was
+// never driven.
+test("an announcement with no road leaves the packet honestly empty", () => {
+  const { frameContext } = buildFrameContext(sampled, telemetry, { sessionId: "s", segmentIndex: 0 });
+
+  for (const context of Object.values(frameContext)) {
+    assert.equal(context.rodovia, null);
+    assert.equal(context.sentido, null);
+    assert.equal(context.km, null);
+  }
+  assert.equal(segmentContext([], {}).rodovia, null);
+  assert.equal(segmentContext([], {}).sentido, null);
+});
+
+test("the road on the announcement reaches the segment context as it stands", () => {
+  const announcement = { rodovia: "BR-101", sentido: "norte" };
+  const context = segmentContext([{ capturedAtUtc: "2026-09-08T10:00:00.000Z" }], announcement);
+
+  assert.deepEqual(context, {
+    rodovia: "BR-101",
+    sentido: "norte",
+    km: null,
+    capturado_em: "2026-09-08T10:00:00.000Z",
+  });
+});
+
 test("the segment timestamp is the first frame that actually carries one", () => {
   const positions = [{ capturedAtUtc: null }, { capturedAtUtc: "2026-09-08T10:00:00.500Z" }];
   assert.equal(segmentContext(positions).capturado_em, "2026-09-08T10:00:00.500Z");

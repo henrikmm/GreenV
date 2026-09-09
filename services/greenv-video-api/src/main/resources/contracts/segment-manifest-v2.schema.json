@@ -175,6 +175,14 @@
       "type": "number",
       "minimum": 0
     },
+    "rodovia": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 32
+    },
+    "sentido": {
+      "enum": ["norte", "sul", "leste", "oeste", null]
+    },
     "groups": {
       "type": "array",
       "items": {
