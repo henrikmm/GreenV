@@ -47,6 +47,14 @@ class TelemetryAssociatorTest {
         assertThat(frames.get(1).motion()).isNull();
         assertThat(frames.get(1).capturedAtUtc()).isEqualTo("2026-08-23T12:00:01.020Z");
         assertThat(frames.get(3).location()).isNull();
+
+        // Dropped, not absent. Frame 3's nearest fix is 3 s away and frame 1's nearest motion
+        // sample 1 s away; both are past their ceiling, and both ages are still recorded, because
+        // "no sensor ever reported" and "the reading was too old to trust" are different faults.
+        assertThat(frames.get(3).locationAgeMillis()).isEqualTo(3_000);
+        assertThat(frames.get(1).motionAgeMillis()).isEqualTo(1_000);
+        assertThat(frames.get(0).locationAgeMillis()).isZero();
+        assertThat(frames.get(0).motionAgeMillis()).isEqualTo(20);
     }
 
     @Test
@@ -68,6 +76,8 @@ class TelemetryAssociatorTest {
             assertThat(frame.locationQuality()).isEqualTo("unavailable");
             assertThat(frame.location()).isNull();
             assertThat(frame.motion()).isNull();
+            assertThat(frame.locationAgeMillis()).isNull();
+            assertThat(frame.motionAgeMillis()).isNull();
         });
     }
 
