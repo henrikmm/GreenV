@@ -128,20 +128,23 @@ Environment, set on the endpoint:
 | `GREENV_DEPTH_SERVICE_PORT` | `8080` | The loopback port the DA3 service listens on. |
 | `VERGE_OUTPUT_BUCKET` | *unset, deliberately* | Setting it sends artifacts to **GCS** instead of local disk, which this deployment has no credentials for. The image clears it and the handler clears it again. |
 
-The bucket is the same R2 bucket the rest of the stack uses (`GREENV_S3_BUCKET`,
-`GREENV_S3_ENDPOINT` in `infrastructure/locals.tf`). The credentials need read on
+These are the names `infrastructure/locals.tf` sets, which is the only spelling that reaches a
+deployed worker: the endpoint arrives as an id and the credential as the depth stage's own token,
+shared with the FastAPI dialect. The bucket is the same R2 bucket the rest of the stack uses. The credentials need read on
 `<prefix>/sampled-frames/*` and write on `<prefix>/depth/*`.
 
 Then point the worker at it:
 
 ```
 GREENV_INFER_ADAPTER=runpod
-GREENV_RUNPOD_ENDPOINT=https://api.runpod.ai/v2/<endpoint-id>
-GREENV_RUNPOD_API_KEY=<key>
-GREENV_RUNPOD_POLL_MS=5000
+GREENV_INFER_RUNPOD_ENDPOINT_ID=<endpoint-id>
+GREENV_INFER_TOKEN=<runpod-api-key>
+GREENV_INFER_RUNPOD_POLL_MS=5000
 GREENV_OBJECT_STORAGE_ADAPTER=s3        # required; the handler reads frames from the bucket
 GREENV_S3_BUCKET=<bucket>
 GREENV_S3_ENDPOINT=https://<account>.r2.cloudflarestorage.com
+GREENV_AWS_ACCESS_KEY=<r2 access key>
+GREENV_AWS_SECRET_KEY=<r2 secret>
 ```
 
 ## Cost
