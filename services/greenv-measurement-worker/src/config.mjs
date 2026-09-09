@@ -48,7 +48,25 @@ function build() {
       root: resolve(text("GREENV_PIPELINE_ROOT", join(homedir(), ".greenv", "pipeline"))),
       bucket: text("GREENV_S3_BUCKET", null),
       endpoint: text("GREENV_S3_ENDPOINT", null),
-      region: text("GREENV_S3_REGION", "auto"),
+      // The three settings below are named and defaulted after greenv-video-api and
+      // greenv-frame-extractor, which read them at `greenv.storage.s3.*` in their
+      // application.properties, so one `.env` and one Terraform `common_environment` block
+      // configure all three services against one bucket.
+      //
+      // The region used to come from GREENV_S3_REGION, a name nothing in this repository sets;
+      // the deployment sets GREENV_AWS_REGION, which the worker never saw. The default stays
+      // `auto` rather than the services' `us-east-1` because they can also address real AWS,
+      // and R2 — which wants `auto` — is the only endpoint this worker has been pointed at.
+      region: text("GREENV_AWS_REGION", "auto"),
+      // The deployment sets this false. The adapter used to force path style on whenever an
+      // endpoint was set, which contradicted both other services reading this same flag about
+      // this same bucket.
+      pathStyleAccess: flag("GREENV_S3_PATH_STYLE_ACCESS", false),
+      // R2 has no instance metadata and no role to assume, so the deployment injects a scoped
+      // key pair as secrets. Left unset, the adapter falls back to the AWS SDK's own credential
+      // chain — a developer's ~/.aws/credentials, or a real AWS deployment with a task role.
+      accessKey: text("GREENV_AWS_ACCESS_KEY", null),
+      secretKey: text("GREENV_AWS_SECRET_KEY", null),
     },
 
     queue: {
@@ -143,6 +161,16 @@ function build() {
   }
   if (config.storage.adapter === "s3" && !config.storage.bucket) {
     throw new Error("GREENV_S3_BUCKET is required when the object-storage adapter is s3");
+  }
+  // Both or neither. Half a pair is a typo in a secret name, and the fallback would swallow it:
+  // the worker would start, reach for a credential chain that has nothing in it, and fail on the
+  // first frame with an SDK error naming none of the variables the deployment actually set. Both
+  // Java services refuse the same way (CloudClientConfiguration#credentials).
+  if (Boolean(config.storage.accessKey) !== Boolean(config.storage.secretKey)) {
+    throw new Error(
+      "GREENV_AWS_ACCESS_KEY and GREENV_AWS_SECRET_KEY must be set together, or both left unset " +
+        "to use the AWS default credential chain",
+    );
   }
   if (!["http", "runpod"].includes(config.infer.adapter)) {
     throw new Error(`GREENV_INFER_ADAPTER must be "http" or "runpod", got "${config.infer.adapter}"`);

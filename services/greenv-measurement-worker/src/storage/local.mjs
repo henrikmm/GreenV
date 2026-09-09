@@ -7,6 +7,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
+import { assertObjectKey } from "./object-key.mjs";
 
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
@@ -16,7 +17,10 @@ export function localStorage({ root }) {
   // A key is data from a queue message, so it is never trusted to stay inside the root.
   // `../` in a key would otherwise read or overwrite anything this process can reach.
   const pathFor = (key) => {
-    if (typeof key !== "string" || key === "") throw new Error("object key must be a non-empty string");
+    assertObjectKey(key);
+    // The shared rule is the contract both adapters keep; resolve() has the last word here
+    // because only it knows what this platform counts as a separator — on Windows that includes
+    // `\`, which the shared rule reads as an ordinary character in a name.
     const target = resolve(base, key);
     if (target !== base && !target.startsWith(base + sep)) {
       throw new Error(`object key escapes the storage root: ${key}`);
