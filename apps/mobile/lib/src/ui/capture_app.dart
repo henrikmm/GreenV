@@ -1306,6 +1306,15 @@ final class _CaptureScreenState extends State<CaptureScreen> {
               _CameraCard(controller: widget.controller),
               const SizedBox(height: 10),
               _TelemetryRow(controller: widget.controller),
+              if (_tooVagueToMeasure(
+                widget.controller.telemetry.latestHorizontalAccuracyMeters,
+              )) ...[
+                const SizedBox(height: 10),
+                _GnssWarningCard(
+                  accuracyMeters:
+                      widget.controller.telemetry.latestHorizontalAccuracyMeters,
+                ),
+              ],
               const SizedBox(height: 10),
             ] else
               _UploadHero(controller: widget.controller),
@@ -1646,6 +1655,15 @@ final class _OverlayPill extends StatelessWidget {
   );
 }
 
+/// The accuracy past which the worker stops trusting a fix: `TelemetryAssociator` marks anything
+/// vaguer than this `unavailable`, and a segment whose frames are all unavailable yields no
+/// measurable trecho. The browser reported 50000 m from an IP-derived position and the app said
+/// nothing, so 1.99 MB was recorded, hashed and uploaded for a segment that could never be used.
+const _usableAccuracyMeters = 25.0;
+
+bool _tooVagueToMeasure(double? accuracyMeters) =>
+    accuracyMeters == null || accuracyMeters > _usableAccuracyMeters;
+
 final class _TelemetryRow extends StatelessWidget {
   const _TelemetryRow({required this.controller});
 
@@ -1659,7 +1677,7 @@ final class _TelemetryRow extends StatelessWidget {
         ? 'Aguardando'
         : accuracy <= 10
         ? 'Sinal bom'
-        : accuracy <= 25
+        : accuracy <= _usableAccuracyMeters
         ? 'Sinal médio'
         : 'Sinal fraco';
     return Row(
@@ -1872,6 +1890,44 @@ final class _ErrorCard extends StatelessWidget {
             message,
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 12, height: 1.35),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+/// Says out loud what the GPS tile only implies: at this accuracy the capture is not worth its
+/// bytes. It is deliberately louder than the tile, because the tile reads as a reading and this is
+/// a decision the person can still act on — stepping outside, or not driving the route yet.
+final class _GnssWarningCard extends StatelessWidget {
+  const _GnssWarningCard({required this.accuracyMeters});
+
+  final double? accuracyMeters;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    key: const Key('gnss-warning'),
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: const Color(0xFFFFF4E3),
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: const Color(0xFFF6DCB6)),
+    ),
+    child: Row(
+      children: [
+        const Icon(Icons.gps_off_rounded, color: greenvAmber, size: 20),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            accuracyMeters == null
+                ? 'Sem posição do GPS. Sem ela esta coleta não gera um trecho '
+                      'medível: confira a permissão de localização.'
+                : 'GPS com ± ${accuracyMeters!.toStringAsFixed(1)} m de erro, '
+                      'acima do limite de '
+                      '${_usableAccuracyMeters.toStringAsFixed(0)} m. Nesta '
+                      'precisão a coleta não gera um trecho medível.',
             style: const TextStyle(fontSize: 12, height: 1.35),
           ),
         ),

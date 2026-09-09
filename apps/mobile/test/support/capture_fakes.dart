@@ -48,8 +48,11 @@ final class FakeTelemetry implements TelemetryCollector {
   int begins = 0;
   int finishes = 0;
 
+  /// Settable, because how vague the fix is decides what the capture screen says about it.
+  double? horizontalAccuracyMeters = 4.2;
+
   @override
-  double? get latestHorizontalAccuracyMeters => 4.2;
+  double? get latestHorizontalAccuracyMeters => horizontalAccuracyMeters;
 
   @override
   double? get latestSpeedMetersPerSecond => 8;
