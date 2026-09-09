@@ -6,6 +6,7 @@ import br.com.greenv.videoapi.domain.CaptureObjectKeys;
 import br.com.greenv.videoapi.domain.CaptureSessionDocument;
 import br.com.greenv.videoapi.domain.CaptureSessionSummary;
 import br.com.greenv.videoapi.domain.SegmentExtractionRequest;
+import br.com.greenv.videoapi.domain.SegmentMeasurementAnnouncement;
 import br.com.greenv.videoapi.port.CaptureObjectStorage;
 import br.com.greenv.videoapi.port.CaptureSessionStore;
 import br.com.greenv.videoapi.port.CaptureSessionUseCase;
@@ -22,6 +23,13 @@ import org.springframework.stereotype.Service;
 public class CaptureSessionService implements CaptureSessionUseCase {
 
     private static final long MAXIMUM_MANIFEST_BYTES = 4 * 1024 * 1024;
+
+    /**
+     * The packet carries one position per sampled frame - 112 at most - beside the height grid, so
+     * it is the same order of size as the manifest. The cap is here to bound a read, not to express
+     * an expectation.
+     */
+    private static final long MAXIMUM_MEASUREMENT_BYTES = 4 * 1024 * 1024;
 
     private final CaptureSessionStore captureSessionStore;
     private final CaptureObjectStorage objectStorage;
@@ -219,6 +227,44 @@ public class CaptureSessionService implements CaptureSessionUseCase {
                     FailureKind.CONFLICT, "segment_manifest_not_ready", "segment manifest is not ready");
         }
         return objectStorage.read(segment.manifestObjectKey(), MAXIMUM_MANIFEST_BYTES);
+    }
+
+    @Override
+    public byte[] measurement(UUID sessionId, int segmentIndex) {
+        CaptureSegmentDocument segment = captureSessionStore.getSegment(sessionId, segmentIndex);
+        if (segment.measurementObjectKey() == null
+                || !objectStorage.exists(segment.measurementObjectKey())) {
+            throw new ApplicationException(
+                    FailureKind.CONFLICT,
+                    "segment_measurement_not_ready",
+                    "segment measurement is not ready");
+        }
+        return objectStorage.read(segment.measurementObjectKey(), MAXIMUM_MEASUREMENT_BYTES);
+    }
+
+    @Override
+    public void recordMeasurement(SegmentMeasurementAnnouncement announcement) {
+        if (announcement == null || !announcement.isUsable()) {
+            throw new ApplicationException(
+                    FailureKind.INVALID_INPUT,
+                    "invalid_measurement_announcement",
+                    "measurement announcement is incomplete");
+        }
+        // A segment this deployment has never heard of is a message from another life - a database
+        // reset, a replayed queue. Recording it would invent a row; failing would make it poison
+        // and block the queue behind it. Neither is worth it: the packet is still in storage.
+        if (captureSessionStore.findSegment(announcement.sessionId(), announcement.segmentIndex()).isEmpty()) {
+            return;
+        }
+        captureSessionStore.recordMeasurement(
+                announcement.sessionId(),
+                announcement.segmentIndex(),
+                // Built here, never taken from the message: see CaptureObjectKeys.measurement.
+                CaptureObjectKeys.measurement(announcement.sessionId(), announcement.segmentIndex()),
+                announcement.runId(),
+                announcement.mock(),
+                announcement.measuredAt(),
+                clock.instant());
     }
 
     @Override

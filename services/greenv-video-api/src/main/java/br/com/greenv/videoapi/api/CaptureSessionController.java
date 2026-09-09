@@ -133,6 +133,13 @@ public class CaptureSessionController {
         return captureSessionUseCase.manifest(sessionId, segmentIndex);
     }
 
+    @GetMapping(
+            path = "/{sessionId}/segments/{segmentIndex}/measurement",
+            produces = MediaType.APPLICATION_JSON_VALUE)
+    byte[] measurement(@PathVariable UUID sessionId, @PathVariable int segmentIndex) {
+        return captureSessionUseCase.measurement(sessionId, segmentIndex);
+    }
+
     private static String baseUrl() {
         return ServletUriComponentsBuilder.fromCurrentContextPath().build().toUriString();
     }

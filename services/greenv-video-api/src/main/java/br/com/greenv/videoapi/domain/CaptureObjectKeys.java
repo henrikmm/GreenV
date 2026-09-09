@@ -25,4 +25,15 @@ public final class CaptureObjectKeys {
     public static String manifest(UUID sessionId, int segmentIndex) {
         return segmentPrefix(sessionId, segmentIndex) + "/segment-manifest-v2.json";
     }
+
+    /**
+     * Where worker 2 leaves its packet.
+     *
+     * <p>Derived here rather than taken from the announcement it sends. The message arrives from a
+     * broker, and a key built from a value on the wire is a key an attacker chooses; this one is
+     * built from the identity the API already knows.
+     */
+    public static String measurement(UUID sessionId, int segmentIndex) {
+        return segmentPrefix(sessionId, segmentIndex) + "/measurement/measurement-result-v1.json";
+    }
 }

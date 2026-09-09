@@ -58,6 +58,11 @@ services:
       GREENV_JWT_ISSUER: ${GREENV_JWT_ISSUER:-http://localhost:8080}
       GREENV_ALLOWED_ORIGINS: ${GREENV_ALLOWED_ORIGINS:-http://localhost:5173}
 
+      # Naming this queue is what makes the API listen for worker 2. Left empty - the default
+      # everywhere else - it declares nothing and hears nothing, which is what a deployment
+      # without a measurement worker wants.
+      GREENV_MEASURED_QUEUE: ${GREENV_MEASURED_QUEUE:-greenv.segment.measured.v1}
+
       GREENV_PIPELINE_ROOT: /data/pipeline
     ports:
       - "127.0.0.1:8080:8080"

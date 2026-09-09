@@ -177,6 +177,31 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
     }
 
     @Override
+    public CaptureSegmentDocument recordMeasurement(
+            UUID sessionId,
+            int segmentIndex,
+            String objectKey,
+            String runId,
+            boolean mock,
+            Instant measuredAt,
+            Instant now) {
+        jdbcTemplate.update("""
+                UPDATE capture_segments
+                SET measurement_state = 'measured', measurement_object_key = ?, measurement_run_id = ?,
+                    measurement_is_mock = ?, measured_at = ?, updated_at = ?
+                WHERE session_id = ? AND segment_index = ?
+                """,
+                objectKey,
+                runId,
+                mock,
+                timestamp(measuredAt),
+                timestamp(now),
+                sessionId,
+                segmentIndex);
+        return getSegment(sessionId, segmentIndex);
+    }
+
+    @Override
     public CaptureSessionDocument completeSession(UUID sessionId, int lastSegmentIndex, Instant endedAt, Instant now) {
         jdbcTemplate.update("""
                 UPDATE capture_sessions
@@ -243,6 +268,11 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                 result.getObject("frame_count", Integer.class),
                 result.getString("error_code"),
                 result.getString("error_message"),
+                result.getString("measurement_state"),
+                result.getString("measurement_object_key"),
+                result.getString("measurement_run_id"),
+                result.getObject("measurement_is_mock", Boolean.class),
+                instant(result, "measured_at"),
                 instant(result, "created_at"),
                 instant(result, "updated_at"));
     }

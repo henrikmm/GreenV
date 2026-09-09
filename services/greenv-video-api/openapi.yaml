@@ -556,6 +556,28 @@ paths:
                 type: object
         '409':
           description: Worker manifest is not ready
+  /v2/capture-sessions/{sessionId}/segments/{segmentIndex}/measurement:
+    get:
+      operationId: getCaptureSegmentMeasurement
+      summary: Read the grass-height packet worker 2 wrote for this segment
+      description: >-
+        The packet as stored, byte for byte. Every reading in it carries
+        operationalStatus "not-ready": no automatic reading has been graded
+        against a tape. See docs/AUTOMATIC-HEIGHT.md.
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - $ref: '#/components/parameters/SegmentIndex'
+      responses:
+        '200':
+          description: Measurement packet
+          content:
+            application/json:
+              schema:
+                type: object
+        '404':
+          description: Segment not found
+        '409':
+          description: The segment has not been measured
 components:
   securitySchemes:
     bearerAuth:
