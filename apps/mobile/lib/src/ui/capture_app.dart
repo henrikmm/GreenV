@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:greenv_capture/src/api/session_authenticator.dart';
 import 'package:greenv_capture/src/bootstrap/app_dependencies.dart';
 import 'package:greenv_capture/src/capture/capture_coordinator.dart';
+import 'package:greenv_capture/src/domain/capture_models.dart';
 
 const motivaPurple = Color(0xFF6546D7);
 const motivaPurpleDark = Color(0xFF4E34B5);
@@ -1462,6 +1463,8 @@ final class _UploadHero extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 16),
+                  _RouteIdentityFields(controller: controller),
+                  const SizedBox(height: 16),
                   _RecordControl(controller: controller),
                 ],
               ),
@@ -1471,6 +1474,108 @@ final class _UploadHero extends StatelessWidget {
       ),
       const SizedBox(height: 14),
     ],
+  );
+}
+
+/// Where a person names the road, once, before the route starts.
+///
+/// Nothing further down the pipeline can work these out: the phone knows where it is, but turning
+/// a coordinate into a rodovia and a sentido needs a highway reference GreenV does not hold. So
+/// they are asked here, and left empty they stay empty all the way to the measurement packet.
+final class _RouteIdentityFields extends StatefulWidget {
+  const _RouteIdentityFields({required this.controller});
+
+  final CaptureCoordinator controller;
+
+  @override
+  State<_RouteIdentityFields> createState() => _RouteIdentityFieldsState();
+}
+
+class _RouteIdentityFieldsState extends State<_RouteIdentityFields> {
+  late final TextEditingController _rodovia = TextEditingController(
+    text: widget.controller.rodovia ?? '',
+  );
+
+  @override
+  void dispose() {
+    _rodovia.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      const _FieldLabel(text: 'Rodovia'),
+      const SizedBox(height: 6),
+      TextField(
+        key: const Key('rodovia-field'),
+        controller: _rodovia,
+        textCapitalization: TextCapitalization.characters,
+        maxLength: 32,
+        // Written straight onto the coordinator rather than notified: a keystroke must not rebuild
+        // the camera preview above it.
+        onChanged: (value) => widget.controller.rodovia = value.trim().isEmpty
+            ? null
+            : value.trim().toUpperCase(),
+        decoration: const InputDecoration(
+          isDense: true,
+          counterText: '',
+          hintText: 'BR-101',
+          border: OutlineInputBorder(),
+        ),
+      ),
+      const SizedBox(height: 12),
+      const _FieldLabel(text: 'Sentido'),
+      const SizedBox(height: 6),
+      Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          for (final sentido in Sentido.values)
+            ChoiceChip(
+              key: Key('sentido-${sentido.name}'),
+              label: Text(_sentidoLabel(sentido)),
+              selected: widget.controller.sentido == sentido,
+              onSelected: (selected) => setState(() {
+                widget.controller.sentido = selected ? sentido : null;
+              }),
+            ),
+        ],
+      ),
+      const SizedBox(height: 8),
+      const Text(
+        'Sem rodovia e sentido a análise não entra no mapa de trechos.',
+        style: TextStyle(fontSize: 11, height: 1.35, color: motivaMuted),
+      ),
+    ],
+  );
+
+  static String _sentidoLabel(Sentido sentido) => switch (sentido) {
+    Sentido.norte => 'Norte',
+    Sentido.sul => 'Sul',
+    Sentido.leste => 'Leste',
+    Sentido.oeste => 'Oeste',
+  };
+}
+
+final class _FieldLabel extends StatelessWidget {
+  const _FieldLabel({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Align(
+    alignment: Alignment.centerLeft,
+    child: Text(
+      text,
+      style: const TextStyle(
+        fontSize: 11,
+        fontWeight: FontWeight.w800,
+        letterSpacing: 0.4,
+        color: motivaMuted,
+      ),
+    ),
   );
 }
 

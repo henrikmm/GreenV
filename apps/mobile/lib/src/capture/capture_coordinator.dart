@@ -46,6 +46,14 @@ final class CaptureCoordinator extends ChangeNotifier {
 
   CapturePhase phase = CapturePhase.idle;
   String? errorMessage;
+
+  /// The road the next route will be recorded along, as the operator described it before pressing
+  /// record. A route belongs to one rodovia in one sentido for its whole length, so this is asked
+  /// once per session rather than once per segment. Left empty it stays null: an unnamed road must
+  /// reach the measurement packet as an absence, never as a default that reads like a real one.
+  String? rodovia;
+  Sentido? sentido;
+
   String? sessionId;
   int segmentIndex = 0;
   DateTime? recordingStartedAt;
@@ -74,6 +82,8 @@ final class CaptureCoordinator extends ChangeNotifier {
           sessionId: id,
           deviceId: deviceId,
           startedAtUtc: startedAt,
+          rodovia: rodovia,
+          sentido: sentido,
         ),
       );
       await _foregroundLease.acquire();
