@@ -263,8 +263,17 @@ public class SegmentExtractionService implements SegmentProcessor {
      * This is the whole automatic trigger. Everything downstream — depth reconstruction, semantic
      * segmentation and the height grid — hangs off this one publish, and until it existed a
      * segment's frames sat in object storage with nothing watching for them.
+     *
+     * <p>A segment that published no frames is not handed over. {@code insufficient-motion} means
+     * the telemetry showed the camera did not move far enough for parallax, and depth needs at
+     * least two viewpoints: the measurement worker would refuse it with {@code insufficient_frames}
+     * after a queue round trip. Refusing here costs nothing and leaves no failure record for a
+     * segment that never had a question to answer — the manifest already says why.
      */
     private void announce(SegmentExtractionRequest request, SegmentManifest manifest) {
+        if (manifest.sampledFrames().isEmpty()) {
+            return;
+        }
         measurementQueue.publish(MeasurementRequest.from(request, manifest, clock.instant()));
     }
 

@@ -139,6 +139,10 @@ class SegmentExtractionServiceIntegrationTest {
         assertThat(result.objects.exists(result.prefix + "/segment-manifest-v2.json")).isTrue();
         // The source is kept, so a segment refused here can be re-sampled if the rule is wrong.
         assertThat(result.objects.exists(result.prefix + "/source.mp4")).isTrue();
+
+        // And nothing is handed to measurement. Depth needs two viewpoints; announcing this would
+        // buy a queue round trip and a failure record for a segment with nothing to reconstruct.
+        assertThat(result.announced()).isEmpty();
     }
 
     @Test
@@ -148,6 +152,14 @@ class SegmentExtractionServiceIntegrationTest {
         assertThat(result.manifest.samplingStrategy()).isEqualTo("distance-groups");
         assertThat(result.manifest.groups()).isNotEmpty();
         assertThat(result.manifest.sampledFrames()).isNotEmpty();
+
+        // A segment with frames is measurement's to pick up.
+        assertThat(result.announced()).singleElement().satisfies(announcement -> {
+            assertThat(announcement.sessionId()).isEqualTo(result.manifest.sessionId());
+            assertThat(announcement.segmentIndex()).isEqualTo(result.manifest.segmentIndex());
+            assertThat(announcement.sampledFrameCount())
+                    .isEqualTo(result.manifest.sampledFrames().size());
+        });
         assertThat(result.manifest.pathMeters()).isGreaterThan(result.manifest.netDisplacementMeters() * 0.9);
         assertThat(result.manifest.sampledFrames())
                 .allSatisfy(frame -> assertThat(frame.sourceFrameIndex()).isNotNegative());
@@ -236,7 +248,10 @@ class SegmentExtractionServiceIntegrationTest {
     }
 
     private record Extraction(
-            SegmentManifest manifest, LocalSegmentObjectStorageAdapter objects, String prefix) {}
+            SegmentManifest manifest,
+            LocalSegmentObjectStorageAdapter objects,
+            String prefix,
+            List<MeasurementRequest> announced) {}
 
     private Extraction run(List<LocationSample> locations) throws Exception {
         assumeTrue(commandExists("ffmpeg"), "ffmpeg is not installed");
@@ -267,6 +282,7 @@ class SegmentExtractionServiceIntegrationTest {
                 prefix, telemetry.capturedAtUtc(), SEGMENT_SECONDS * 1_000,
                 Instant.parse("2026-08-25T12:00:01Z"));
         CommandRunner runner = new CommandRunner();
+        List<MeasurementRequest> announced = new ArrayList<>();
         SegmentExtractionService service = new SegmentExtractionService(
                 properties,
                 objects,
@@ -278,9 +294,10 @@ class SegmentExtractionServiceIntegrationTest {
                 new SamplingPlanner(),
                 new GroupPlanner(),
                 new FfmpegExtractor(runner, properties),
+                announced::add,
                 Clock.fixed(Instant.parse("2026-08-25T12:00:02Z"), ZoneOffset.UTC));
 
-        return new Extraction(service.extract(request), objects, prefix);
+        return new Extraction(service.extract(request), objects, prefix, announced);
     }
 
     private static void generateVideo(Path destination, int seconds) {
