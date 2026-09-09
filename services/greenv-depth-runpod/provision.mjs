@@ -1,24 +1,27 @@
 #!/usr/bin/env node
-// Create (or bring into line) the RunPod template and serverless endpoint this handler runs on.
+// Create (or bring into line) the RunPod template this handler runs from.
 //
-// Terraform manages everything else in this stack; it does not manage this. There is no RunPod
-// provider in the Terraform registry, and the two resources here are a template and an endpoint
-// created once against a REST API, so a `null_resource` wrapping this script would buy a worse
-// lifecycle than the script alone: no plan worth reading, and a destroy that deletes a paid
-// endpoint on a refresh nobody meant to run.
+// Terraform owns the endpoint, through `decentralized-infrastructure/runpod`. It does not own the
+// template, because that provider has a data source for templates and no resource — and the
+// template is where the image, the container disk and the bucket credentials live. So the split is
+// not a preference: this script creates the template and writes its id into
+// `infrastructure/runpod.auto.tfvars`, which Terraform loads by itself. Run this, then apply.
 //
-// Instead this is idempotent by name. Run it as often as you like: it reads what exists, creates
-// what does not, and reports the difference on what does rather than silently rewriting it.
+// Nothing about the endpoint is decided here — not the GPU, not the worker counts, not the
+// timeouts. Those live in `infrastructure/runpod.tf` and its variables, in one place, because two
+// records of the same number are two records that will disagree.
 //
 //   RUNPOD_API_KEY=... GREENV_AWS_ACCESS_KEY=... GREENV_AWS_SECRET_KEY=... node provision.mjs
 //
-// Creating an endpoint costs nothing: with `workersMin` at 0 there is no worker until a request
-// arrives. The first *job* is what bills, and `AGENTS.md` asks for the user's agreement before
-// that, every time. This script never sends a job.
+// It is idempotent by name: it reads what exists, creates what does not, and patches what drifted
+// rather than silently keeping it. Creating a template costs nothing, and neither does the
+// endpoint Terraform builds from it — a GPU is billed for a worker's lifetime, and `workers_min`
+// is 0. The first *job* is what bills, `AGENTS.md` asks for agreement before each one, and this
+// script never sends one.
 
 const API = process.env.RUNPOD_API_BASE ?? "https://rest.runpod.io/v1";
 
-const settings = (env) => {
+export const settings = (env) => {
   const required = (name) => {
     const value = (env[name] ?? "").trim();
     if (!value) throw new Error(`${name} is required`);
@@ -33,31 +36,22 @@ const settings = (env) => {
   };
   return {
     apiKey: required("RUNPOD_API_KEY"),
-    name: env.RUNPOD_ENDPOINT_NAME?.trim() || "greenv-depth",
+    // Terraform finds the template by this id, not by this name, so the name is only what a human
+    // reads in the RunPod console - and what makes a second run recognise its own work.
+    name: env.RUNPOD_TEMPLATE_NAME?.trim() || "greenv-depth",
     image: env.GREENV_DEPTH_IMAGE?.trim() || "ghcr.io/matomomitsu/greenv-depth-runpod:pipeline",
     // The bucket credentials the handler reads through the ordinary AWS chain. Nothing else about
-    // the bucket belongs here: the worker names it in every job, so one endpoint serves any bucket
-    // the caller can address.
+    // the bucket belongs here: the worker names bucket, endpoint and region in every job, so one
+    // template serves any bucket the caller can address.
     accessKey: required("GREENV_AWS_ACCESS_KEY"),
     secretKey: required("GREENV_AWS_SECRET_KEY"),
-    // Every memory ceiling on record was measured on an L4's 22.03 GiB. A smaller card is refused
-    // by the handler at startup rather than killed mid-run, so naming the card here is what keeps
-    // that refusal from ever being needed.
-    gpuTypeIds: (env.RUNPOD_GPU_TYPE_IDS?.trim() || "NVIDIA L4").split(",").map((id) => id.trim()),
-    // The image is 15.3 GB unpacked. 50 GB is RunPod's own default and leaves room for the ~110 MB
-    // of artifacts a run materialises; this has not been checked against a real worker.
+    // The image is 15.3 GB unpacked; 50 GB is RunPod's own default and leaves room for the ~110 MB
+    // a run materialises. Not checked against a real worker.
     containerDiskInGb: number("RUNPOD_CONTAINER_DISK_GB", 50),
-    // One segment is one inference. A second worker is a second cold start, not more throughput,
-    // and the depth service holds a lock of its own anyway.
-    workersMax: number("RUNPOD_WORKERS_MAX", 1),
-    // The dial the whole bill hangs on. Segments arriving back to back from one drive ride a
-    // single warm worker; a lone segment pays the entire tail. 60 s is short on purpose - raise it
-    // deliberately once a real drive shows how they arrive.
-    idleTimeout: number("RUNPOD_IDLE_TIMEOUT_SECONDS", 60),
-    // A 112-frame run took 41 to 117 s of wall clock behind a ~64 s cold start, so 900 s is room
-    // for the worst recorded case and its start, and no more.
-    executionTimeoutMs: number("RUNPOD_EXECUTION_TIMEOUT_MS", 900_000),
+    // Overrides the handler's ceiling table. Needed on any GPU other than an L4 or larger, and the
+    // operator owns the number: it is a measurement, not a preference.
     maxFrames: env.GREENV_DEPTH_MAX_FRAMES?.trim() || null,
+    tfvarsPath: env.GREENV_TFVARS_PATH?.trim() || "../../infrastructure/runpod.auto.tfvars",
     dryRun: env.RUNPOD_DRY_RUN === "true",
   };
 };
@@ -80,23 +74,7 @@ export function templateBody(config) {
   };
 }
 
-export function endpointBody(config, templateId) {
-  return {
-    name: config.name,
-    templateId,
-    computeType: "GPU",
-    gpuTypeIds: config.gpuTypeIds,
-    gpuCount: 1,
-    // Zero, so an idle endpoint costs nothing. This is the difference between a pilot and a bill.
-    workersMin: 0,
-    workersMax: config.workersMax,
-    idleTimeout: config.idleTimeout,
-    executionTimeoutMs: config.executionTimeoutMs,
-    flashboot: true,
-  };
-}
-
-/** What an existing resource would have to change to match, or null when it already does. */
+/** What an existing template would have to change to match, or null when it already does. */
 export function drift(existing, desired) {
   const differences = {};
   for (const [key, value] of Object.entries(desired)) {
@@ -104,14 +82,16 @@ export function drift(existing, desired) {
     const same = Array.isArray(value)
       ? Array.isArray(current) && value.length === current.length && value.every((v, i) => v === current[i])
       : key === "env"
-        ? Object.entries(value).every(([k, v]) => (current ?? {})[k] === v)
+        ? // RunPod adds variables of its own to a running worker; only the ones we set are ours to
+          // compare, and a missing one of those is drift.
+          Object.entries(value).every(([k, v]) => (current ?? {})[k] === v)
         : current === value;
     if (!same) differences[key] = { from: current, to: value };
   }
   return Object.keys(differences).length ? differences : null;
 }
 
-export async function provision(config, { fetchImpl = fetch, log = console.log } = {}) {
+export async function provision(config, { fetchImpl = fetch, log = console.log, write = writeTfvars } = {}) {
   const call = async (path, init = {}) => {
     const response = await fetchImpl(`${API}${path}`, {
       ...init,
@@ -123,51 +103,60 @@ export async function provision(config, { fetchImpl = fetch, log = console.log }
     });
     const text = await response.text();
     if (!response.ok) {
-      // The key is in the header, never in the message: this output is meant to be pasted.
+      // The key travels in the header and never in the message: this output gets pasted.
       throw new Error(`${init.method ?? "GET"} ${path} failed with ${response.status}: ${text.slice(0, 400)}`);
     }
     return text ? JSON.parse(text) : null;
   };
 
-  const byName = (list, name) => (Array.isArray(list) ? list : (list?.data ?? [])).find((item) => item.name === name);
-
-  const wantedTemplate = templateBody(config);
-  const wantedEndpoint = (templateId) => endpointBody(config, templateId);
+  const wanted = templateBody(config);
 
   if (config.dryRun) {
-    log(JSON.stringify({ dryRun: true, template: redact(wantedTemplate), endpoint: wantedEndpoint("<template-id>") }, null, 2));
+    log(JSON.stringify({ dryRun: true, template: redact(wanted) }, null, 2));
     return { dryRun: true };
   }
 
-  let template = byName(await call("/templates"), config.name);
+  const existing = await call("/templates");
+  const list = Array.isArray(existing) ? existing : (existing?.data ?? []);
+  let template = list.find((item) => item.name === config.name);
+
   if (!template) {
-    template = await call("/templates", { method: "POST", body: JSON.stringify(wantedTemplate) });
+    template = await call("/templates", { method: "POST", body: JSON.stringify(wanted) });
     log(`template created: ${template.id}`);
   } else {
-    const changes = drift(template, wantedTemplate);
+    const changes = drift(template, wanted);
     if (changes) {
-      template = await call(`/templates/${template.id}`, { method: "PATCH", body: JSON.stringify(wantedTemplate) });
+      template = await call(`/templates/${template.id}`, { method: "PATCH", body: JSON.stringify(wanted) });
       log(`template updated: ${template.id} (${Object.keys(changes).join(", ")})`);
     } else {
       log(`template unchanged: ${template.id}`);
     }
   }
 
-  let endpoint = byName(await call("/endpoints"), config.name);
-  if (!endpoint) {
-    endpoint = await call("/endpoints", { method: "POST", body: JSON.stringify(wantedEndpoint(template.id)) });
-    log(`endpoint created: ${endpoint.id}`);
-  } else {
-    const changes = drift(endpoint, wantedEndpoint(template.id));
-    if (changes) {
-      endpoint = await call(`/endpoints/${endpoint.id}`, { method: "PATCH", body: JSON.stringify(wantedEndpoint(template.id)) });
-      log(`endpoint updated: ${endpoint.id} (${Object.keys(changes).join(", ")})`);
-    } else {
-      log(`endpoint unchanged: ${endpoint.id}`);
-    }
-  }
+  await write(config.tfvarsPath, template.id);
+  return { templateId: template.id, tfvarsPath: config.tfvarsPath };
+}
 
-  return { templateId: template.id, endpointId: endpoint.id };
+/**
+ * Hand the id to Terraform through a file it loads by itself.
+ *
+ * `*.auto.tfvars` is read on every plan and apply with no flag, and it is gitignored like every
+ * other tfvars here. The alternative was printing a line for a person to paste, which is a step
+ * that gets skipped exactly once and then debugged for an hour.
+ */
+async function writeTfvars(path, templateId) {
+  const { writeFile, mkdir } = await import("node:fs/promises");
+  const { dirname, resolve } = await import("node:path");
+  await mkdir(dirname(resolve(path)), { recursive: true });
+  await writeFile(
+    path,
+    [
+      "# Written by services/greenv-depth-runpod/provision.mjs. Terraform loads *.auto.tfvars on",
+      "# its own, so this needs no flag and nothing pasted. Re-run that script to refresh it.",
+      `depth_template_id = "${templateId}"`,
+      "",
+    ].join("\n"),
+  );
 }
 
 /** Secrets never reach the log, not even in a dry run someone pastes into a chat. */
@@ -176,17 +165,18 @@ function redact(body) {
 }
 
 if (process.argv[1] === new URL(import.meta.url).pathname) {
-  const config = settings(process.env);
-  provision(config)
+  provision(settings(process.env))
     .then((result) => {
       if (result.dryRun) return;
       console.log("");
-      console.log("Point the measurement worker at it - infrastructure/terraform.tfvars:");
+      console.log(`wrote ${result.tfvarsPath}`);
       console.log("");
-      console.log(`depth_service_adapter     = "runpod"`);
-      console.log(`depth_service_endpoint_id = "${result.endpointId}"`);
-      console.log(`# depth_service_token comes from TF_VAR_depth_service_token, never a file`);
-      console.log(`measurement_enabled       = true`);
+      console.log("Terraform builds the endpoint from that template. What is still yours:");
+      console.log("");
+      console.log('  depth_service_adapter = "runpod"   # infrastructure/terraform.tfvars');
+      console.log("  measurement_enabled   = true");
+      console.log("  export TF_VAR_runpod_api_key=...        # never a file");
+      console.log("  export TF_VAR_depth_service_token=...   # the same RunPod key, for the worker");
       console.log("");
       console.log("No job has been sent. The first one is what bills.");
     })
@@ -195,5 +185,3 @@ if (process.argv[1] === new URL(import.meta.url).pathname) {
       process.exit(1);
     });
 }
-
-export { settings };

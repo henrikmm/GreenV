@@ -1,6 +1,9 @@
 mock_provider "azurerm" {}
 mock_provider "cloudflare" {}
 mock_provider "neon" {}
+# The depth endpoint's provider. It builds its API client while configuring, before any resource
+# asks it for anything, so it needs mocking even in the runs that create no endpoint.
+mock_provider "runpod" {}
 mock_provider "random" {}
 mock_provider "time" {}
 mock_provider "tls" {}
@@ -709,6 +712,82 @@ run "plans_a_runpod_depth_endpoint" {
     )
     error_message = "A RunPod deployment must name its endpoint and not also carry a plain base URL to disagree with."
   }
+}
+
+# The other half of the RunPod path: Terraform creating the endpoint rather than being told one.
+# The template it is built from is not Terraform's - this provider has a data source for templates
+# and no resource - so it is created by services/greenv-depth-runpod/provision.mjs and found here
+# by name.
+run "creates_the_depth_endpoint_from_the_provisioned_template" {
+  command = plan
+
+  variables {
+    cloudflare_account_id    = "00000000000000000000000000000000"
+    r2_bucket_name           = "greenv-mvp-captures-test"
+    r2_access_key_id         = "test-access-key"
+    r2_secret_access_key     = "test-secret-key"
+    api_image                = "ghcr.io/example/greenv-video-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    worker_image             = "ghcr.io/example/greenv-frame-extractor@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    measurement_worker_image = "ghcr.io/example/greenv-measurement-worker@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    measurement_enabled      = true
+    depth_service_adapter    = "runpod"
+    depth_service_token      = "test-runpod-api-key"
+    runpod_api_key           = "test-runpod-api-key"
+    depth_template_id        = "tpl-test"
+  }
+
+  assert {
+    condition     = length(runpod_endpoint.depth) == 1
+    error_message = "A template id is what asks Terraform to create the endpoint."
+  }
+
+  assert {
+    condition     = runpod_endpoint.depth[0].template_id == "tpl-test"
+    error_message = "The endpoint must be built from the template of that name, not from whichever came first."
+  }
+
+  # Zero at rest is what keeps an idle GPU from being a bill.
+  assert {
+    condition     = runpod_endpoint.depth[0].workers_min == 0
+    error_message = "An endpoint that keeps a worker warm at rest bills for a GPU nobody is using."
+  }
+
+  # One at work: a second worker is a second cold start, not more throughput.
+  assert {
+    condition     = runpod_endpoint.depth[0].workers_max == 1
+    error_message = "One segment is one inference; a second worker cannot get a GPU and would bill anyway."
+  }
+
+  assert {
+    condition     = tolist(runpod_endpoint.depth[0].gpu_type_ids) == tolist(["NVIDIA L4"])
+    error_message = "Every memory ceiling on record was measured on an L4; another card is a promise this repository cannot keep."
+  }
+
+  assert {
+    condition     = runpod_endpoint.depth[0].execution_timeout_ms == 900000
+    error_message = "A request that outlives the worst recorded run plus its cold start is a fault, and paying past it buys nothing."
+  }
+}
+
+# Naming neither a template nor an existing endpoint is the same mistake as naming no depth
+# service at all, and it fails the same way.
+run "rejects_a_runpod_deployment_with_neither_endpoint_nor_template" {
+  command = plan
+
+  variables {
+    cloudflare_account_id    = "00000000000000000000000000000000"
+    r2_bucket_name           = "greenv-mvp-captures-test"
+    r2_access_key_id         = "test-access-key"
+    r2_secret_access_key     = "test-secret-key"
+    api_image                = "ghcr.io/example/greenv-video-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    worker_image             = "ghcr.io/example/greenv-frame-extractor@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    measurement_worker_image = "ghcr.io/example/greenv-measurement-worker@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    measurement_enabled      = true
+    depth_service_adapter    = "runpod"
+    depth_service_token      = "test-runpod-api-key"
+  }
+
+  expect_failures = [var.measurement_enabled]
 }
 
 # Announcing segments with nowhere to send them fills the poison queue, and every message in it

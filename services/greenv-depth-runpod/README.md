@@ -106,29 +106,35 @@ worker ends up running something nobody can identify. `measurement/scripts/cloud
 
 ## The endpoint
 
-`provision.mjs` creates it, and creating it costs nothing: with `workersMin` at 0 there is no
-worker until a request arrives. Export the three credentials and run it:
+Two steps, and neither costs anything: a template holds the image and the credentials, and the
+endpoint Terraform builds from it keeps `workers_min` at 0, so there is no worker until a request
+arrives.
 
 ```bash
 export RUNPOD_API_KEY=...            # RunPod console -> Settings -> API Keys
 export GREENV_AWS_ACCESS_KEY=...     # the R2 key the rest of the stack uses
 export GREENV_AWS_SECRET_KEY=...
-node services/greenv-depth-runpod/provision.mjs
+node services/greenv-depth-runpod/provision.mjs      # creates the template
+
+cd infrastructure
+export TF_VAR_runpod_api_key="$RUNPOD_API_KEY"
+export TF_VAR_depth_service_token="$RUNPOD_API_KEY" # the worker authenticates with the same key
+terraform apply                                      # creates the endpoint
 ```
 
-It is idempotent by name: it reads what exists, creates what does not, and patches what drifted.
-Run it again after changing any setting below - all of them are environment variables, listed in
-`provision.mjs` with the reason for each default. `RUNPOD_DRY_RUN=true` prints the two request
-bodies and sends nothing, with the secrets shown as `<set>` so the output is safe to paste.
+**Why two tools.** `decentralized-infrastructure/runpod` has a `runpod_endpoint` resource and, for
+templates, a data source and no resource — and the template is exactly where the image, the
+container disk and the bucket credentials live. So the script owns the template and writes its id
+into `infrastructure/runpod.auto.tfvars`, which Terraform loads with no flag and nothing pasted.
+Everything about the *endpoint* — the GPU, the worker counts, the timeouts — lives in
+`infrastructure/runpod.tf`, in one place, because two records of one number will disagree.
 
-It prints the `terraform.tfvars` lines to paste when it is done, and it never sends a job: the
-first job is what bills, and `AGENTS.md` asks for agreement before that, every time.
+The script is idempotent by name: it reads what exists, creates what does not, and patches what
+drifted. `RUNPOD_DRY_RUN=true` prints the request body and sends nothing, with the secrets shown as
+`<set>` so the output is safe to paste. It never sends a job: the first job is what bills, and
+`AGENTS.md` asks for agreement before that, every time.
 
-There is no RunPod provider in the Terraform registry, which is why this is a script and not a
-resource. A `null_resource` wrapping it would add a plan nobody can read and a destroy that
-deletes a paid endpoint on a refresh nobody meant to run.
-
-The settings it applies, and why:
+The endpoint settings Terraform applies, and why:
 
 | Setting | Value | Why |
 |---|---|---|

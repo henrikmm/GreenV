@@ -1,4 +1,18 @@
 locals {
+  # Terraform creates the depth endpoint only when this deployment actually measures through
+  # RunPod and a template name is given. Without the name there is nothing to point an endpoint
+  # at: the template carries the image and the bucket credentials, and this provider cannot
+  # create one - see runpod.tf.
+  creates_depth_endpoint = (
+    var.measurement_enabled
+    && var.depth_service_adapter == "runpod"
+    && var.depth_template_id != null
+  )
+
+  # The endpoint this deployment talks to: the one Terraform just created, or one a person made
+  # by hand and named in a variable.
+  depth_endpoint_id = local.creates_depth_endpoint ? runpod_endpoint.depth[0].id : var.depth_service_endpoint_id
+
   name_prefix         = "${var.project_name}-${var.environment}"
   runtime_name_prefix = substr(local.name_prefix, 0, 20)
   suffix              = random_string.resource_suffix.result
@@ -210,7 +224,7 @@ locals {
   # the packet even if something did answer.
   depth_service_environment = merge(
     var.depth_service_base_url == null ? {} : { GREENV_INFER_BASE_URL = var.depth_service_base_url },
-    var.depth_service_endpoint_id == null ? {} : { GREENV_INFER_RUNPOD_ENDPOINT_ID = var.depth_service_endpoint_id },
+    local.depth_endpoint_id == null ? {} : { GREENV_INFER_RUNPOD_ENDPOINT_ID = local.depth_endpoint_id },
   )
 
   shared_secret_environment = {

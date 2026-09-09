@@ -72,7 +72,7 @@ output "measurement_state" {
   value = !var.measurement_enabled ? "disabled: segments are extracted but never announced for measurement" : format(
     "enabled: every finished segment is measured through the %s depth service at %s",
     var.depth_service_adapter,
-    var.depth_service_adapter == "runpod" ? var.depth_service_endpoint_id : var.depth_service_base_url,
+    var.depth_service_adapter == "runpod" ? local.depth_endpoint_id : var.depth_service_base_url,
   )
 }
 
@@ -121,4 +121,12 @@ output "jwt_public_key_pem" {
   EOT
   value       = tls_private_key.jwt_signing.public_key_pem
   sensitive   = false
+}
+
+output "depth_endpoint_id" {
+  description = <<-EOT
+    The RunPod endpoint the measurement worker sends depth jobs to, whether Terraform created it
+    or a person did. Null when this deployment does not reach the depth stage at all.
+  EOT
+  value       = local.depth_endpoint_id
 }

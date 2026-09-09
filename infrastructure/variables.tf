@@ -159,9 +159,11 @@ variable "measurement_enabled" {
   validation {
     condition = (
       !var.measurement_enabled ||
-      (var.depth_service_adapter == "runpod" ? var.depth_service_endpoint_id != null : var.depth_service_base_url != null)
+      (var.depth_service_adapter == "runpod"
+        ? (var.depth_service_endpoint_id != null || var.depth_template_id != null)
+      : var.depth_service_base_url != null)
     )
-    error_message = "measurement_enabled needs a depth service: set depth_service_base_url, or depth_service_endpoint_id with depth_service_adapter = \"runpod\". Without one, every announced segment fails and lands in the poison queue."
+    error_message = "measurement_enabled needs a depth service: set depth_service_base_url, or - with depth_service_adapter = \"runpod\" - either depth_template_id for Terraform to create the endpoint, or depth_service_endpoint_id for one that already exists. Without one, every announced segment fails and lands in the poison queue."
   }
 
   validation {
@@ -574,5 +576,68 @@ variable "cookie_same_site" {
   validation {
     condition     = contains(["Lax", "Strict", "None"], var.cookie_same_site)
     error_message = "cookie_same_site must be Lax, Strict or None."
+  }
+}
+
+variable "runpod_api_key" {
+  description = <<-EOT
+    RunPod account key, used to create and read the depth endpoint. Set it as
+    `TF_VAR_runpod_api_key` in the shell, never in a file: `terraform.tfvars` is gitignored today
+    and one `git add -f` away from not being.
+
+    Unused unless `measurement_enabled` reaches the depth stage through RunPod.
+  EOT
+  type        = string
+  sensitive   = true
+  default     = null
+}
+
+variable "depth_template_id" {
+  description = <<-EOT
+    RunPod template the depth endpoint is built from.
+
+    `services/greenv-depth-runpod/provision.mjs` creates the template and writes this id into
+    `infrastructure/runpod.auto.tfvars`, which Terraform loads on its own - run the script, then
+    apply. The script owns the template because this provider has a data source for templates and
+    no resource: the image, the container disk and the bucket credentials cannot be expressed here.
+
+    Null leaves the endpoint uncreated, which is what a deployment naming an endpoint someone else
+    made in `depth_service_endpoint_id` wants.
+  EOT
+  type        = string
+  default     = null
+}
+
+variable "depth_gpu_type_ids" {
+  description = <<-EOT
+    GPU types the depth endpoint may schedule on, in RunPod's own spelling.
+
+    Every memory ceiling on record was measured on an L4. The handler refuses a smaller card at
+    startup rather than being killed mid-run, so a wider list here is a promise this repository
+    cannot keep - widen it only alongside a measurement.
+  EOT
+  type        = list(string)
+  default     = ["NVIDIA L4"]
+
+  validation {
+    condition     = length(var.depth_gpu_type_ids) > 0
+    error_message = "An endpoint with no GPU type can never schedule a worker."
+  }
+}
+
+variable "depth_idle_timeout_seconds" {
+  description = <<-EOT
+    How long a depth worker stays warm after finishing, in seconds.
+
+    This is where the bill lives. Segments arriving back to back from one drive ride a single warm
+    worker and save a model load each; a lone segment pays the whole tail. Short by default, to be
+    raised deliberately once a real drive shows how segments actually arrive.
+  EOT
+  type        = number
+  default     = 60
+
+  validation {
+    condition     = var.depth_idle_timeout_seconds >= 1 && var.depth_idle_timeout_seconds <= 3600
+    error_message = "RunPod accepts an idle timeout between 1 and 3600 seconds."
   }
 }
