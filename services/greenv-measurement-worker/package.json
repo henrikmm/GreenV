@@ -13,6 +13,7 @@
     "check": "node --test 'test/*.test.mjs'"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1128.0",
     "amqplib": "^0.10.4"
   }
 }
