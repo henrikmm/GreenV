@@ -11,6 +11,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 import '../support/capture_fakes.dart';
+import 'package:greenv_capture/src/domain/capture_models.dart';
 
 void main() {
   testWidgets('follows login and password recovery screens', (tester) async {
@@ -100,6 +101,43 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
+  testWidgets('warns while recording that the GNSS cannot measure a trecho', (
+    tester,
+  ) async {
+    // What the browser actually reported on 8 Sep 2026: an IP-derived position, 50 km wide.
+    final telemetry = FakeTelemetry()..horizontalAccuracyMeters = 50000;
+    final coordinator = _coordinator(telemetry: telemetry);
+    addTearDown(coordinator.dispose);
+
+    await tester.pumpWidget(
+      CaptureApp(
+        dependencies: AppDependencies(
+          capture: coordinator,
+          authenticator: await _signedIn(),
+        ),
+        initialPage: MotivaPage.upload,
+      ),
+    );
+    expect(find.byKey(const Key('gnss-warning')), findsNothing);
+
+    await tester.ensureVisible(find.byKey(const Key('record-button')));
+    await tester.tap(find.byKey(const Key('record-button')));
+    await tester.pump();
+    expect(find.byKey(const Key('gnss-warning')), findsOneWidget);
+    expect(
+      find.textContaining('não gera um trecho medível'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('± 50000.0 m de erro'), findsOneWidget);
+
+    // The screen repaints on its own second tick, which is what carries a recovered signal.
+    telemetry.horizontalAccuracyMeters = 4.2;
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.byKey(const Key('gnss-warning')), findsNothing);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('renders the separate splash frame', (tester) async {
     final coordinator = _coordinator();
     addTearDown(coordinator.dispose);
@@ -113,14 +151,79 @@ void main() {
     expect(find.bySemanticsLabel('motiva'), findsOneWidget);
     expect(find.text('Entrar'), findsNothing);
   });
+
+  testWidgets('names the road once, before the route starts', (tester) async {
+    final queue = MemoryCaptureQueue();
+    final coordinator = _coordinator(queue: queue);
+    addTearDown(coordinator.dispose);
+
+    await tester.pumpWidget(
+      CaptureApp(
+        dependencies: AppDependencies(
+          capture: coordinator,
+          authenticator: await _signedIn(),
+        ),
+        initialPage: MotivaPage.upload,
+      ),
+    );
+
+    await tester.ensureVisible(find.byKey(const Key('rodovia-field')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('rodovia-field')), 'br-101');
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('sentido-norte')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('sentido-norte')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('record-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('record-button')));
+    await tester.pump();
+
+    // Uppercased on the way in, and recorded on the session rather than on a segment: the whole
+    // route belongs to one rodovia in one sentido.
+    final session = (await queue.sessions()).single;
+    expect(session.rodovia, 'BR-101');
+    expect(session.sentido, Sentido.norte);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('a route with no road named stays empty rather than guessing', (
+    tester,
+  ) async {
+    final queue = MemoryCaptureQueue();
+    final coordinator = _coordinator(queue: queue);
+    addTearDown(coordinator.dispose);
+
+    await tester.pumpWidget(
+      CaptureApp(
+        dependencies: AppDependencies(
+          capture: coordinator,
+          authenticator: await _signedIn(),
+        ),
+        initialPage: MotivaPage.upload,
+      ),
+    );
+
+    await tester.ensureVisible(find.byKey(const Key('record-button')));
+    await tester.tap(find.byKey(const Key('record-button')));
+    await tester.pump();
+
+    final session = (await queue.sessions()).single;
+    expect(session.rodovia, isNull);
+    expect(session.sentido, isNull);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
 }
 
-CaptureCoordinator _coordinator() {
-  final queue = MemoryCaptureQueue();
+CaptureCoordinator _coordinator({FakeTelemetry? telemetry, MemoryCaptureQueue? queue}) {
+  queue ??= MemoryCaptureQueue();
   return CaptureCoordinator(
     deviceId: 'phone-1',
     recorder: FakeRecorder(),
-    telemetry: FakeTelemetry(),
+    telemetry: telemetry ?? FakeTelemetry(),
     queue: queue,
     uploader: QueueUploader(
       queue: queue,

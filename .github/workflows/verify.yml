@@ -116,6 +116,30 @@ jobs:
       - run: npm test
         working-directory: services/greenv-measurement-worker
 
+  depth-runpod:
+    name: services/greenv-depth-runpod
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # Stdlib only, and no image build: this suite proves everything about the depth handler
+      # that does not need a GPU, which a runner has none of. It shares one contract example
+      # with the measurement worker's runpod-contract test, so the two halves of the queue
+      # cannot drift apart without one of these two jobs failing.
+      - run: python test_handler.py
+        working-directory: services/greenv-depth-runpod
+      # The provisioner talks to RunPod's REST API; its tests drive a double, so they need no key
+      # and create nothing.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test test_provision.mjs
+        working-directory: services/greenv-depth-runpod
+
   infrastructure:
     name: infrastructure/terraform
     runs-on: ubuntu-latest

@@ -20,6 +20,11 @@ public record CaptureSegmentDocument(
         Integer frameCount,
         String errorCode,
         String errorMessage,
+        String measurementState,
+        String measurementObjectKey,
+        String measurementRunId,
+        Boolean measurementIsMock,
+        Instant measuredAt,
         Instant createdAt,
         Instant updatedAt) {
 

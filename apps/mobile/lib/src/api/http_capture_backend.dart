@@ -39,6 +39,10 @@ final class HttpCaptureBackend implements CaptureBackend {
         'sessionId': session.sessionId,
         'deviceId': session.deviceId,
         'startedAt': session.startedAtUtc.toIso8601String(),
+        // Omitted rather than sent as null when the operator named no road, so a queue written
+        // before this field existed produces exactly the body it always did.
+        if (session.rodovia != null) 'rodovia': session.rodovia,
+        if (session.sentido != null) 'sentido': session.sentido!.name,
       }),
     );
     _expect(response, {201});
@@ -70,22 +74,6 @@ final class HttpCaptureBackend implements CaptureBackend {
       ),
     );
     _expect(completed, {202});
-  }
-
-  @override
-  Future<String> segmentState(QueuedSegment segment) async {
-    final response = await _send(
-      http.Request(
-        'GET',
-        _resolve(
-          '/v2/capture-sessions/${segment.sessionId}'
-          '/segments/${segment.segmentIndex}',
-        ),
-      ),
-    );
-    _expect(response, {200});
-    return (jsonDecode(response.body)! as Map<String, Object?>)['state']!
-        as String;
   }
 
   @override

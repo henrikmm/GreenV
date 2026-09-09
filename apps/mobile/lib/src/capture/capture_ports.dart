@@ -7,6 +7,13 @@ abstract interface class IdentifierGenerator {
 }
 
 abstract interface class SegmentRecorder {
+  /// Frames per second the camera settled on, or null where the platform will not say.
+  ///
+  /// Only the browser reports this: AVFoundation and CameraX accept a requested rate and never
+  /// disclose what they granted. Where it is null, the worker's measured `nativeFps` in the segment
+  /// manifest is the only answer.
+  double? get capturedFrameRate => null;
+
   bool get isInitialized;
   Widget buildPreview();
   Future<void> initialize();
@@ -60,8 +67,17 @@ abstract interface class CaptureQueue {
     required int lastSegmentIndex,
   });
   Future<void> updateSegment(QueuedSegment segment);
-  Future<void> removeVerifiedSegment(QueuedSegment segment);
+
+  /// Drops a segment whose bytes the API has accepted, and the artifacts behind it.
+  ///
+  /// Delivery is the end of the queue's job. What the worker later makes of the segment is the
+  /// worker's business: the phone cannot act on it, and waiting for it would keep a finished
+  /// capture on screen and the device's storage occupied for as long as a queue is backed up.
+  Future<void> removeDeliveredSegment(QueuedSegment segment);
   Future<void> markCompletionSent(String sessionId);
+
+  /// Forgets a session that has nothing left to send, so later syncs stop re-announcing it.
+  Future<void> removeCompletedSession(String sessionId);
 }
 
 /// Reads a queued artifact back for upload. The phone resolves a reference to a file; the browser
@@ -97,7 +113,10 @@ abstract interface class AuthTokenProvider {
 
 abstract interface class CaptureBackend {
   Future<void> ensureSession(QueuedSession session);
+
+  /// Puts the video and the telemetry, then completes the segment. Returning normally means the
+  /// API holds both artifacts and has accepted them - which is as far as this client follows a
+  /// segment.
   Future<void> uploadSegment(QueuedSegment segment);
-  Future<String> segmentState(QueuedSegment segment);
   Future<void> completeSession(QueuedSession session);
 }

@@ -7,17 +7,26 @@
 import { loadConfig } from "./config.mjs";
 import { objectStorage } from "./storage/index.mjs";
 import { inferClient } from "./infer.mjs";
+import { runpodInferClient } from "./infer-runpod.mjs";
 import { measurementRunner } from "./measure.mjs";
 import { measurementPipeline } from "./pipeline.mjs";
 import { createHttpTrigger } from "./http.mjs";
-import { connectQueue } from "./queue/rabbit.mjs";
+import { connectQueue } from "./queue/index.mjs";
 import { singleFlight } from "./gate.mjs";
 
 const log = (fields) => process.stdout.write(`${JSON.stringify({ at: new Date().toISOString(), ...fields })}\n`);
 
 export async function start(config = loadConfig()) {
   const storage = objectStorage(config.storage);
-  const infer = inferClient(config.infer);
+  const infer = config.infer.adapter === "runpod"
+    ? runpodInferClient({
+        ...config.infer,
+        ...config.infer.runpod,
+        endpoint: `${config.infer.runpod.apiBase}/${config.infer.runpod.endpointId}`,
+        apiKey: config.infer.token,
+        storage: config.storage,
+      })
+    : inferClient(config.infer);
   const runner = measurementRunner(config.measurement, (progress) => log({ event: "progress", ...progress }));
   const measure = measurementPipeline({ config, storage, infer, runner, log });
   // Shared by both trigger paths, so the bound holds no matter which one is used.
@@ -39,7 +48,10 @@ export async function start(config = loadConfig()) {
     event: "started",
     http: `${config.http.address}:${config.http.port}`,
     storage: config.storage.adapter,
-    queue: config.queue.enabled ? config.queue.queue : "disabled",
+    transport: config.queue.adapter,
+    queue: config.queue.enabled
+      ? (config.queue.adapter === "azure-queue" ? config.queue.azure.queue : config.queue.queue)
+      : "disabled",
     depth: config.infer.baseUrl,
     classes: config.measurement.classes,
   });

@@ -556,6 +556,28 @@ paths:
                 type: object
         '409':
           description: Worker manifest is not ready
+  /v2/capture-sessions/{sessionId}/segments/{segmentIndex}/measurement:
+    get:
+      operationId: getCaptureSegmentMeasurement
+      summary: Read the grass-height packet worker 2 wrote for this segment
+      description: >-
+        The packet as stored, byte for byte. Every reading in it carries
+        operationalStatus "not-ready": no automatic reading has been graded
+        against a tape. See docs/AUTOMATIC-HEIGHT.md.
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - $ref: '#/components/parameters/SegmentIndex'
+      responses:
+        '200':
+          description: Measurement packet
+          content:
+            application/json:
+              schema:
+                type: object
+        '404':
+          description: Segment not found
+        '409':
+          description: The segment has not been measured
 components:
   securitySchemes:
     bearerAuth:
@@ -651,6 +673,20 @@ components:
         startedAt:
           type: string
           format: date-time
+        rodovia:
+          type: [string, 'null']
+          maxLength: 32
+          description: >-
+            The highway this route was driven along, as the operator entered it. Uppercased on
+            the way in; not pattern-matched, because this service holds no highway register and a
+            guessed pattern would reject state and municipal designations. Absent when the capture
+            client never asked, and absent is carried through as absent.
+        sentido:
+          type: [string, 'null']
+          enum: [norte, sul, leste, oeste, null]
+          description: >-
+            Direction of travel. Four values and no others - a second spelling of one direction
+            becomes a second road wherever passes are joined by (rodovia, sentido, km).
     CompleteCaptureSessionRequest:
       type: object
       required: [lastSegmentIndex]
@@ -690,6 +726,11 @@ components:
           type: integer
         readySegmentCount:
           type: integer
+        rodovia:
+          type: [string, 'null']
+        sentido:
+          type: [string, 'null']
+          enum: [norte, sul, leste, oeste, null]
     CaptureSegment:
       type: object
       required: [schemaVersion, sessionId, segmentIndex, state, idempotencyKey, capturedAt, durationMillis]

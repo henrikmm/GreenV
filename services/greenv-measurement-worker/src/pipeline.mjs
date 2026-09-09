@@ -72,9 +72,13 @@ export function measurementPipeline({ config, storage, infer, runner, log = () =
     log({ event: "downloading", prefix, frames: sampledFrames.length });
     const frames = [];
     for (const record of sampledFrames) {
-      const bytes = await storage.get(keys.sampledFrame(prefix, record.fileName)).catch(() => null);
+      const key = keys.sampledFrame(prefix, record.fileName);
+      const bytes = await storage.get(key).catch(() => null);
       if (!bytes) throw new MeasurementError("sampled_frame_absent", `sampled frame ${record.fileName} is missing`, true);
-      frames.push({ name: record.fileName, bytes });
+      // The bytes prove the frame is there and feed the upload dialect; the key is what the
+      // by-reference one sends. Reading either way keeps this loop the single place that decides
+      // a frame is missing.
+      frames.push({ name: record.fileName, key, bytes });
     }
 
     log({ event: "inferring", prefix, frames: frames.length, service: config.infer.baseUrl });

@@ -43,10 +43,9 @@ void main() {
 
     await backend.ensureSession(session);
     await backend.uploadSegment(segment);
-    await backend.segmentState(segment);
     await backend.completeSession(session);
 
-    expect(requests, hasLength(6));
+    expect(requests, hasLength(5));
     for (final request in requests) {
       expect(
         request.headers['authorization'],
@@ -67,6 +66,36 @@ void main() {
     await backend.ensureSession(session);
 
     expect(requests.single.headers.containsKey('authorization'), isFalse);
+  });
+
+  test('names the road once, on the session the segments belong to', () async {
+    final requests = <http.Request>[];
+    final backend = _backend(requests, (_) => http.Response('{}', 201));
+
+    await backend.ensureSession(
+      QueuedSession(
+        sessionId: session.sessionId,
+        deviceId: session.deviceId,
+        startedAtUtc: session.startedAtUtc,
+        rodovia: 'BR-101',
+        sentido: Sentido.norte,
+      ),
+    );
+
+    final body = jsonDecode(requests.single.body)! as Map<String, Object?>;
+    expect(body['rodovia'], 'BR-101');
+    expect(body['sentido'], 'norte');
+  });
+
+  test('a capture with no road sends the body it always sent', () async {
+    final requests = <http.Request>[];
+    final backend = _backend(requests, (_) => http.Response('{}', 201));
+
+    await backend.ensureSession(session);
+
+    final body = jsonDecode(requests.single.body)! as Map<String, Object?>;
+    expect(body.containsKey('rodovia'), isFalse);
+    expect(body.containsKey('sentido'), isFalse);
   });
 
   test('uploads the recorded container with its segment metadata', () async {

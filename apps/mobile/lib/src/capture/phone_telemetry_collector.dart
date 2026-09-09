@@ -2,20 +2,50 @@ import 'dart:async';
 
 import 'package:geolocator/geolocator.dart';
 import 'package:greenv_capture/src/capture/capture_ports.dart';
+import 'package:greenv_capture/src/capture/capture_runtime.dart';
 import 'package:greenv_capture/src/capture/relative_orientation.dart';
 import 'package:greenv_capture/src/domain/capture_models.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 
+const _streamSettings = LocationSettings(
+  accuracy: LocationAccuracy.bestForNavigation,
+  distanceFilter: 0,
+);
+
+/// The poll carries a deadline the stream must not have: the next poll is scheduled from the
+/// reply, so a request that never returns would end polling for the rest of the segment.
+const _pollSettings = LocationSettings(
+  accuracy: LocationAccuracy.bestForNavigation,
+  distanceFilter: 0,
+  timeLimit: Duration(seconds: 5),
+);
+
+Future<Position> _askThePlatform() =>
+    Geolocator.getCurrentPosition(locationSettings: _pollSettings);
+
 final class PhoneTelemetryCollector implements TelemetryCollector {
-  PhoneTelemetryCollector(this._monotonicNanos);
+  /// [positionProbe] and [poller] are seams for tests; the defaults are the real platform and a
+  /// real timer, so neither call site has to know they exist.
+  PhoneTelemetryCollector(
+    this._monotonicNanos, {
+    Future<Position> Function()? positionProbe,
+    SegmentScheduler? poller,
+    this.pollInterval = const Duration(seconds: 1),
+  }) : _positionProbe = positionProbe ?? _askThePlatform,
+       _poller = poller ?? TimerSegmentScheduler();
 
   final int Function() _monotonicNanos;
+  final Future<Position> Function() _positionProbe;
+  final SegmentScheduler _poller;
+  final Duration pollInterval;
   final List<Map<String, Object?>> _locations = [];
   final List<Map<String, Object?>> _motions = [];
   final List<StreamSubscription<dynamic>> _subscriptions = [];
   AccelerometerEvent? _gravity;
   UserAccelerometerEvent? _userAcceleration;
   Position? _previousPosition;
+  DateTime? _lastFixAt;
+  bool _polling = false;
   final RelativeOrientation _orientation = RelativeOrientation();
   int? _lastMotionNanos;
   double _sessionDistanceMeters = 0;
@@ -50,6 +80,7 @@ final class PhoneTelemetryCollector implements TelemetryCollector {
     _monotonicStartNanos = monotonicStartNanos;
     _orientation.reset();
     _lastMotionNanos = null;
+    _lastFixAt = null;
 
     _startMotion();
     await _startLocation();
@@ -92,18 +123,42 @@ final class PhoneTelemetryCollector implements TelemetryCollector {
       }
       _subscriptions.add(
         Geolocator.getPositionStream(
-          locationSettings: const LocationSettings(
-            accuracy: LocationAccuracy.bestForNavigation,
-            distanceFilter: 0,
-          ),
+          locationSettings: _streamSettings,
         ).listen(_recordLocation, onError: (_) {}),
       );
+      // The stream is `watchPosition` on the web, and a network-derived provider fires it only
+      // when the position CHANGES: a workstation delivered two fixes 19 ms apart and then nothing
+      // for the remaining 9.9 s of the segment, so 61% of its frames carried no position at all.
+      // Asking outright once a second gets an answer whatever the provider counts as a change. A
+      // phone's GNSS stream already delivers at that rate and the poll returns the same reading,
+      // which `_recordLocation` drops.
+      _polling = true;
+      _schedulePoll();
     } on Object {
       // Capture continues without GNSS; affected frames carry unavailable location evidence.
     }
   }
 
+  void _schedulePoll() => _poller.schedule(pollInterval, _poll);
+
+  Future<void> _poll() async {
+    try {
+      final position = await _positionProbe();
+      // The segment can end while the platform is still thinking, and a fix that arrives after it
+      // belongs to no segment.
+      if (_polling) _recordLocation(position);
+    } on Object {
+      // A refused or timed-out probe is not fatal: the stream may still be delivering.
+    }
+    if (_polling) _schedulePoll();
+  }
+
   void _recordLocation(Position position) {
+    // The stream and the poll both deliver, and on a stationary device they deliver the same
+    // reading twice. A fix is identified by when the receiver produced it, not by when it reached
+    // here, so a repeat is dropped rather than inflating the segment's fix count.
+    if (_lastFixAt != null && !position.timestamp.isAfter(_lastFixAt!)) return;
+    _lastFixAt = position.timestamp;
     final previous = _previousPosition;
     if (previous != null) {
       _sessionDistanceMeters += Geolocator.distanceBetween(
@@ -179,6 +234,8 @@ final class PhoneTelemetryCollector implements TelemetryCollector {
   }
 
   Future<void> _cancelSubscriptions() async {
+    _polling = false;
+    _poller.cancel();
     for (final subscription in _subscriptions) {
       await subscription.cancel();
     }

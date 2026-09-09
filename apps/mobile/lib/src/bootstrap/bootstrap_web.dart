@@ -117,6 +117,9 @@ final class _PreviewRecorder implements SegmentRecorder {
   bool get isInitialized => _initialized;
 
   @override
+  double? get capturedFrameRate => null;
+
+  @override
   Widget buildPreview() => const ColoredBox(
     color: Color(0xFF232027),
     child: Center(
@@ -192,9 +195,6 @@ final class _PreviewBackend implements CaptureBackend {
   Future<void> ensureSession(QueuedSession session) async {
     if (!online) throw StateError('offline design preview');
   }
-
-  @override
-  Future<String> segmentState(QueuedSegment segment) async => 'ready';
 
   @override
   Future<void> uploadSegment(QueuedSegment segment) async {

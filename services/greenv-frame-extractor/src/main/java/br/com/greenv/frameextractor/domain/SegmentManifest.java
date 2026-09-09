@@ -22,5 +22,21 @@ public record SegmentManifest(
         long frameMetadataBytes,
         List<FrameRecord> sampledFrames,
         boolean sourceDeleted,
-        Instant createdAt) {
+        Instant createdAt,
+        String samplingStrategy,
+        double nativeFps,
+        double pathMeters,
+        double netDisplacementMeters,
+        double usableFixSpanSeconds,
+        List<FrameGroup> groups,
+        // Written onto the artifact and not only passed through the announcement, so the frames
+        // and the measurement computed from them agree about which road they describe. A manifest
+        // cut before the app asked keeps its nulls; nothing rewrites it with a later guess.
+        String rodovia,
+        String sentido) {
+
+    public SegmentManifest {
+        sampledFrames = sampledFrames == null ? List.of() : List.copyOf(sampledFrames);
+        groups = groups == null ? List.of() : List.copyOf(groups);
+    }
 }

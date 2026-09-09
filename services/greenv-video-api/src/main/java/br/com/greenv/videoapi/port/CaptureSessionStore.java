@@ -38,6 +38,19 @@ public interface CaptureSessionStore {
     CaptureSegmentDocument markQueueFailed(
             UUID sessionId, int segmentIndex, String errorCode, String errorMessage, Instant now);
 
+    /**
+     * Records that worker 2 measured this segment. Idempotent by construction: the worker republishes
+     * the same result when it redelivers, and the row simply reads the same afterwards.
+     */
+    CaptureSegmentDocument recordMeasurement(
+            UUID sessionId,
+            int segmentIndex,
+            String objectKey,
+            String runId,
+            boolean mock,
+            Instant measuredAt,
+            Instant now);
+
     CaptureSessionDocument completeSession(UUID sessionId, int lastSegmentIndex, Instant endedAt, Instant now);
 
     long segmentCount(UUID sessionId);

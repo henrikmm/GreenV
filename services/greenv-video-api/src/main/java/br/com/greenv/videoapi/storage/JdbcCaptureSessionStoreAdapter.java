@@ -2,6 +2,7 @@ package br.com.greenv.videoapi.storage;
 
 import br.com.greenv.videoapi.domain.CaptureSegmentDocument;
 import br.com.greenv.videoapi.domain.CaptureSessionDocument;
+import br.com.greenv.videoapi.domain.Sentido;
 import br.com.greenv.videoapi.port.CaptureSessionStore;
 import br.com.greenv.videoapi.service.ApplicationException;
 import br.com.greenv.videoapi.service.FailureKind;
@@ -31,8 +32,9 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
     public CaptureSessionDocument createSession(CaptureSessionDocument session) {
         jdbcTemplate.update("""
                 INSERT INTO capture_sessions (
-                    session_id, device_id, state, started_at, created_at, updated_at, expires_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    session_id, device_id, state, started_at, created_at, updated_at, expires_at,
+                    rodovia, sentido
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 session.sessionId(),
                 session.deviceId(),
@@ -40,7 +42,9 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                 timestamp(session.startedAt()),
                 timestamp(session.createdAt()),
                 timestamp(session.updatedAt()),
-                timestamp(session.expiresAt()));
+                timestamp(session.expiresAt()),
+                session.rodovia(),
+                session.sentido() == null ? null : session.sentido().wireValue());
         return session;
     }
 
@@ -177,6 +181,31 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
     }
 
     @Override
+    public CaptureSegmentDocument recordMeasurement(
+            UUID sessionId,
+            int segmentIndex,
+            String objectKey,
+            String runId,
+            boolean mock,
+            Instant measuredAt,
+            Instant now) {
+        jdbcTemplate.update("""
+                UPDATE capture_segments
+                SET measurement_state = 'measured', measurement_object_key = ?, measurement_run_id = ?,
+                    measurement_is_mock = ?, measured_at = ?, updated_at = ?
+                WHERE session_id = ? AND segment_index = ?
+                """,
+                objectKey,
+                runId,
+                mock,
+                timestamp(measuredAt),
+                timestamp(now),
+                sessionId,
+                segmentIndex);
+        return getSegment(sessionId, segmentIndex);
+    }
+
+    @Override
     public CaptureSessionDocument completeSession(UUID sessionId, int lastSegmentIndex, Instant endedAt, Instant now) {
         jdbcTemplate.update("""
                 UPDATE capture_sessions
@@ -222,7 +251,9 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                 instant(result, "created_at"),
                 instant(result, "updated_at"),
                 instant(result, "expires_at"),
-                result.getObject("last_segment_index", Integer.class));
+                result.getObject("last_segment_index", Integer.class),
+                result.getString("rodovia"),
+                Sentido.of(result.getString("sentido")));
     }
 
     private static CaptureSegmentDocument mapSegment(ResultSet result, int row) throws SQLException {
@@ -243,6 +274,11 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                 result.getObject("frame_count", Integer.class),
                 result.getString("error_code"),
                 result.getString("error_message"),
+                result.getString("measurement_state"),
+                result.getString("measurement_object_key"),
+                result.getString("measurement_run_id"),
+                result.getObject("measurement_is_mock", Boolean.class),
+                instant(result, "measured_at"),
                 instant(result, "created_at"),
                 instant(result, "updated_at"));
     }

@@ -131,6 +131,188 @@ variable "worker_image" {
   }
 }
 
+variable "measurement_worker_image" {
+  description = <<-EOT
+    Measurement worker container image, preferably pinned by sha256 digest. Built from the
+    repository root rather than from the service directory, because the image carries
+    `measurement/` and a baked model cache - the worker spawns Verge Studio as a process.
+  EOT
+  type        = string
+
+  validation {
+    condition     = length(trimspace(var.measurement_worker_image)) > 0
+    error_message = "measurement_worker_image cannot be empty."
+  }
+}
+
+variable "measurement_enabled" {
+  description = <<-EOT
+    Whether the frame extractor announces every finished segment for measurement. False by
+    default: turning it on makes each capture wake a paid GPU with nobody in the loop, and
+    AGENTS.md wants that agreed in conversation rather than inherited from a default. The
+    measurement worker, its queues and its roles exist either way and cost nothing at zero
+    replicas, so this is one variable and no new resources.
+  EOT
+  type        = bool
+  default     = false
+
+  # A `runpod` deployment needs nothing more named: Terraform creates the endpoint, and the
+  # template it is built from is provisioned during the apply. Only the plain HTTP dialect has
+  # nowhere to send a segment unless someone says where.
+  validation {
+    condition = (
+      !var.measurement_enabled ||
+      var.depth_service_adapter == "runpod" ||
+      var.depth_service_base_url != null
+    )
+    error_message = "measurement_enabled with depth_service_adapter = \"http\" needs depth_service_base_url. Without it, every announced segment fails and lands in the poison queue."
+  }
+
+  # Creating the endpoint - and the template under it - is an API call, and an API call needs a
+  # key. Refusing here beats failing halfway through an apply with a 401 from two different places.
+  validation {
+    condition = (
+      !var.measurement_enabled ||
+      var.depth_service_adapter != "runpod" ||
+      var.depth_service_endpoint_id != null ||
+      var.runpod_api_key != null
+    )
+    error_message = "Creating a RunPod endpoint needs runpod_api_key (export TF_VAR_runpod_api_key). Set depth_service_endpoint_id instead to use an endpoint that already exists, which Terraform then never touches."
+  }
+
+  validation {
+    condition     = !var.measurement_enabled || var.depth_service_adapter != "runpod" || var.depth_service_token != null
+    error_message = "A RunPod endpoint authenticates every request with an API key, so depth_service_token is required when depth_service_adapter is \"runpod\"."
+  }
+}
+
+variable "depth_service_adapter" {
+  description = <<-EOT
+    How the measurement worker reaches the depth service: `http` for a plain endpoint named by
+    depth_service_base_url, `runpod` for a RunPod serverless endpoint named by
+    depth_service_endpoint_id. The service itself is never created by this configuration.
+  EOT
+  type        = string
+  default     = "http"
+
+  validation {
+    condition     = contains(["http", "runpod"], var.depth_service_adapter)
+    error_message = "depth_service_adapter must be http or runpod."
+  }
+}
+
+variable "depth_service_base_url" {
+  description = <<-EOT
+    Base URL of the depth reconstruction service, including whatever path prefix it serves the
+    contract under. Left null the worker falls back to Verge Studio's local mock, which is not in
+    the image, so it fails every message instead of inventing a reading.
+  EOT
+  type        = string
+  default     = null
+  nullable    = true
+
+  validation {
+    condition     = var.depth_service_base_url == null || can(regex("^https://[a-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?$", var.depth_service_base_url))
+    error_message = "depth_service_base_url must be an https URL when provided."
+  }
+}
+
+variable "depth_service_endpoint_id" {
+  description = "RunPod serverless endpoint identifier. Required when depth_service_adapter is runpod."
+  type        = string
+  default     = null
+  nullable    = true
+
+  validation {
+    condition     = var.depth_service_endpoint_id == null || can(regex("^[a-z0-9]{6,40}$", var.depth_service_endpoint_id))
+    error_message = "depth_service_endpoint_id must be 6 to 40 lowercase alphanumeric characters."
+  }
+}
+
+variable "depth_service_token" {
+  description = <<-EOT
+    Bearer credential for the depth service, mounted as a Container Apps secret. One token serves
+    both adapters: the HTTP client sends it as an Authorization header and RunPod authenticates
+    its serverless endpoints the same way. Anyone holding it can spend GPU time.
+  EOT
+  type        = string
+  default     = null
+  nullable    = true
+  sensitive   = true
+
+  validation {
+    condition     = var.depth_service_token == null || try(length(trimspace(var.depth_service_token)), 0) > 0
+    error_message = "depth_service_token cannot be empty when provided."
+  }
+}
+
+variable "measurement_worker_max_replicas" {
+  description = <<-EOT
+    Maximum number of measurement worker replicas. One, because one segment is one whole depth
+    run: a 112-frame run fills an L4 to 99.95% of its 22.03 GiB usable
+    (measurement/docs/REGISTRY.md), so a second replica cannot get a GPU and would only wait
+    inside the depth service's own lock while billing a second Container Apps replica. Raise it
+    only against a depth service that can genuinely serve more than one run at a time.
+  EOT
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.measurement_worker_max_replicas >= 1 && var.measurement_worker_max_replicas <= 4
+    error_message = "measurement_worker_max_replicas must be between 1 and 4."
+  }
+}
+
+variable "measurement_queue_visibility_timeout_seconds" {
+  description = <<-EOT
+    Azure Queue visibility lease for a measurement message. Thirty minutes, matching the worker's
+    own assessment timeout, because a measurement is a depth run plus a CPU pass - minutes, not
+    seconds. A lease that expires mid-run redelivers the message and pays for the same segment's
+    GPU time twice, which is why this is much longer than the extraction lease beside it.
+  EOT
+  type        = number
+  default     = 1800
+
+  validation {
+    condition     = var.measurement_queue_visibility_timeout_seconds >= 300 && var.measurement_queue_visibility_timeout_seconds <= 604800
+    error_message = "measurement_queue_visibility_timeout_seconds must be between 300 seconds and 7 days."
+  }
+}
+
+variable "measurement_classes" {
+  description = <<-EOT
+    Cityscapes labels counted as the area of interest, comma separated. `terrain` alone is Verge
+    Studio's own default and reads 0.000 m on a plant taped at 0.980 m, because Cityscapes files
+    vertically growing plants under `vegetation` and only horizontally spreading growth under
+    `terrain` (measurement/docs/evidence/2026-09-05-class-fit.md). Roçada is about the vertical
+    kind. No class policy here is validated; the union is the one whose failure mode is visible
+    rather than silent, and it is recorded on every frame of every packet.
+  EOT
+  type        = string
+  default     = "terrain,vegetation"
+
+  validation {
+    condition     = can(regex("^[a-z]+(,[a-z]+)*$", var.measurement_classes))
+    error_message = "measurement_classes must be comma-separated lowercase Cityscapes label names with no spaces."
+  }
+}
+
+variable "depth_max_frames" {
+  description = <<-EOT
+    Frames sent to the depth service in one run. 112 is Verge Studio's best graded setting and the
+    cap the frame extractor already samples to; an L4 runs out of memory above 144 and a recorded
+    112-frame run peaked at 99.95% of the card (measurement/docs/REGISTRY.md). Lower it before
+    running long segments through this automatically.
+  EOT
+  type        = number
+  default     = 112
+
+  validation {
+    condition     = var.depth_max_frames >= 2 && var.depth_max_frames <= 144
+    error_message = "depth_max_frames must be between 2 and 144; an L4 runs out of memory above 144 at 504 px."
+  }
+}
+
 variable "container_registry" {
   description = "Optional credentials for a private image registry. Leave every field null for public images."
   type = object({
@@ -320,7 +502,7 @@ variable "manage_cloudflare_zone_security_settings" {
 }
 
 variable "deployment_revision" {
-  description = "Suffix appended to the Container Apps revision names. Change it to roll a fresh revision of both workloads without changing anything else, which is how a revision left stuck by a failed image pull is recovered."
+  description = "Suffix appended to the Container Apps revision names. Change it to roll a fresh revision of all three workloads without changing anything else, which is how a revision left stuck by a failed image pull is recovered."
   type        = string
   default     = null
   nullable    = true
@@ -409,4 +591,82 @@ variable "cookie_same_site" {
     condition     = contains(["Lax", "Strict", "None"], var.cookie_same_site)
     error_message = "cookie_same_site must be Lax, Strict or None."
   }
+}
+
+variable "runpod_api_key" {
+  description = <<-EOT
+    RunPod account key, used to create and read the depth endpoint. Set it as
+    `TF_VAR_runpod_api_key` in the shell, never in a file: `terraform.tfvars` is gitignored today
+    and one `git add -f` away from not being.
+
+    Unused unless `measurement_enabled` reaches the depth stage through RunPod.
+  EOT
+  type        = string
+  sensitive   = true
+  default     = null
+}
+
+variable "depth_template_id" {
+  description = <<-EOT
+    RunPod template the depth endpoint is built from.
+
+    `services/greenv-depth-runpod/provision.mjs` creates the template and writes this id into
+    `infrastructure/runpod.auto.tfvars`, which Terraform loads on its own - run the script, then
+    apply. The script owns the template because this provider has a data source for templates and
+    no resource: the image, the container disk and the bucket credentials cannot be expressed here.
+
+    Null leaves the endpoint uncreated, which is what a deployment naming an endpoint someone else
+    made in `depth_service_endpoint_id` wants.
+  EOT
+  type        = string
+  default     = null
+}
+
+variable "depth_gpu_type_ids" {
+  description = <<-EOT
+    GPU types the depth endpoint may schedule on, in RunPod's own spelling.
+
+    Every memory ceiling on record was measured on an L4. The handler refuses a smaller card at
+    startup rather than being killed mid-run, so a wider list here is a promise this repository
+    cannot keep - widen it only alongside a measurement.
+  EOT
+  type        = list(string)
+  default     = ["NVIDIA L4"]
+
+  validation {
+    condition     = length(var.depth_gpu_type_ids) > 0
+    error_message = "An endpoint with no GPU type can never schedule a worker."
+  }
+}
+
+variable "depth_idle_timeout_seconds" {
+  description = <<-EOT
+    How long a depth worker stays warm after finishing, in seconds.
+
+    This is where the bill lives. Segments arriving back to back from one drive ride a single warm
+    worker and save a model load each; a lone segment pays the whole tail. Short by default, to be
+    raised deliberately once a real drive shows how segments actually arrive.
+  EOT
+  type        = number
+  default     = 60
+
+  validation {
+    condition     = var.depth_idle_timeout_seconds >= 1 && var.depth_idle_timeout_seconds <= 3600
+    error_message = "RunPod accepts an idle timeout between 1 and 3600 seconds."
+  }
+}
+
+variable "depth_image" {
+  description = <<-EOT
+    The RunPod handler image, preferably pinned by sha256 digest like every other image here.
+
+    It reaches RunPod through the template `provision.mjs` creates during the apply, not through a
+    container app, which is why it is not spelled `*_image` beside the other three: nothing in
+    Azure ever pulls it.
+
+    Built from `services/greenv-depth-runpod/`, FROM the DA3 service image, and about 15.3 GB
+    unpacked - see that directory's README.
+  EOT
+  type        = string
+  default     = "ghcr.io/matomomitsu/greenv-depth-runpod@sha256:98de81166e77fa96ba21e2374862db97d080d08f3e5816bce6c21d8a413ce4fa"
 }

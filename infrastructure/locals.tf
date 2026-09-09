@@ -1,4 +1,29 @@
 locals {
+  # Terraform creates the depth endpoint only when this deployment actually measures through
+  # RunPod and a template name is given. Without the name there is nothing to point an endpoint
+  # at: the template carries the image and the bucket credentials, and this provider cannot
+  # create one - see runpod.tf.
+  creates_depth_endpoint = (
+    var.measurement_enabled
+    && var.depth_service_adapter == "runpod"
+    # Naming an endpoint is naming one that already exists. Terraform reaches for the RunPod API
+    # only when nobody has.
+    && var.depth_service_endpoint_id == null
+  )
+
+  # The template is provisioned during the apply unless a specific one was named.
+  provisions_depth_template = local.creates_depth_endpoint && var.depth_template_id == null
+
+  depth_template_id = (
+    var.depth_template_id != null
+    ? var.depth_template_id
+    : (local.provisions_depth_template ? data.external.depth_template[0].result.template_id : null)
+  )
+
+  # The endpoint this deployment talks to: the one Terraform just created, or one a person made
+  # by hand and named in a variable.
+  depth_endpoint_id = local.creates_depth_endpoint ? runpod_endpoint.depth[0].id : var.depth_service_endpoint_id
+
   name_prefix         = "${var.project_name}-${var.environment}"
   runtime_name_prefix = substr(local.name_prefix, 0, 20)
   suffix              = random_string.resource_suffix.result
@@ -8,6 +33,20 @@ locals {
   segment_queue_name   = "greenv-segment-extract-v2"
   poison_queue_name    = "greenv-segment-extract-poison"
   r2_endpoint          = "https://${var.cloudflare_account_id}.r2.cloudflarestorage.com"
+
+  # An Azure queue name allows only lowercase letters, digits and single hyphens, so the RabbitMQ
+  # names the services default to (greenv.segment.measure.v1) cannot be used verbatim. These are
+  # those names with the dots replaced, which is the convention the extraction queue above set.
+  measurement_queue_name        = "greenv-segment-measure-v1"
+  measurement_result_queue_name = "greenv-segment-measured-v1"
+  measurement_poison_queue_name = "greenv-segment-measure-poison"
+
+  # RBAC scopes for the measurement identity's three queue roles, one queue each. See the comment
+  # above those assignments in azure.tf for why they are narrower than the account-scoped pair
+  # beside them, and why the scope is composed here rather than read off the queue resource.
+  measurement_queue_scope        = "${azurerm_storage_account.queue.id}/queueServices/default/queues/${azurerm_storage_queue.measurement.name}"
+  measurement_result_queue_scope = "${azurerm_storage_account.queue.id}/queueServices/default/queues/${azurerm_storage_queue.measurement_result.name}"
+  measurement_poison_queue_scope = "${azurerm_storage_account.queue.id}/queueServices/default/queues/${azurerm_storage_queue.measurement_poison.name}"
 
   # Every edge rule is scoped to this one hostname. The zone holds unrelated subdomains and a
   # zone-wide rule would reach all of them.
@@ -89,6 +128,14 @@ locals {
 
     # Empty leaves CORS disabled, which is what a phone-only deployment wants. A browser client
     # needs its exact origin listed; this never replaces the Bearer token.
+    # The other end of the measurement loop. Worker 2 publishes its result here and, without this
+    # name, the API's consumer is never created: the queue fills and nothing reads it, which is
+    # exactly the gap this deployment exists to close.
+    #
+    # Set unconditionally, because the queue exists whether or not measurement is enabled - an
+    # empty queue costs a poll and a disabled one would need a second apply to switch on.
+    GREENV_AZURE_MEASURED_QUEUE_NAME = local.measurement_result_queue_name
+
     GREENV_ALLOWED_ORIGINS = join(",", var.api_allowed_origins)
 
     # Every token is signed for and validated against this issuer, so it is what answers "did our
@@ -119,7 +166,85 @@ locals {
     GREENV_RABBITMQ_LISTENER_ENABLED           = "false"
     PORT                                       = "8081"
     SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE = "2"
+
+    # Whether a finished segment announces itself for measurement at all. The extractor defaults
+    # it to false, and so does this stack: switching it on makes every capture wake a paid GPU
+    # with nobody in the loop, and AGENTS.md wants that agreed in conversation rather than
+    # inherited from a default. The queue, the consumer and the roles all exist either way, so
+    # turning it on is one variable and no new resources.
+    GREENV_MEASUREMENT_ENABLED = tostring(var.measurement_enabled)
+
+    # One name for one queue, read by the announcer here and by the consumer below.
+    GREENV_MEASUREMENT_QUEUE = azurerm_storage_queue.measurement.name
   })
+
+  # Worker 2, the measurement stage.
+  #
+  # Built from the same common_environment the two Java services use, because it addresses the same
+  # R2 bucket, the same queue account and the same object keys. Two services that disagree about
+  # which bucket they are using fail silently, and that failure looks like an empty dashboard
+  # rather than an error - the reasoning is written out in
+  # services/greenv-measurement-worker/src/config.mjs, which copies these names deliberately.
+  # Sharing the map is what makes them agree by construction instead of by review.
+  measurement_environment = merge(local.common_environment, local.depth_service_environment, {
+    AZURE_CLIENT_ID = azurerm_user_assigned_identity.measurement.client_id
+
+    # Overridden, not inherited. common_environment names the extraction queue, and this worker
+    # must never be able to address it: GREENV_AZURE_QUEUE_NAME always means "the queue this
+    # service consumes", which here is the measurement one.
+    GREENV_AZURE_QUEUE_NAME        = azurerm_storage_queue.measurement.name
+    GREENV_AZURE_POISON_QUEUE_NAME = azurerm_storage_queue.measurement_poison.name
+
+    GREENV_MEASUREMENT_QUEUE_ENABLED = "true"
+    GREENV_MEASUREMENT_QUEUE         = azurerm_storage_queue.measurement.name
+
+    # The worker's own name for where it announces a finished packet, which the API reads. On
+    # RabbitMQ that value is a routing key; on Azure Queue there are no exchanges, so the
+    # destination is the queue itself. Same name rather than a new one: a second spelling is how
+    # two services end up talking past each other.
+    GREENV_MEASUREMENT_RESULT_ROUTING_KEY = azurerm_storage_queue.measurement_result.name
+
+    GREENV_AZURE_QUEUE_MAX_MESSAGES = "1"
+
+    # Two attempts, where extraction gets five. A retry there costs CPU; a retry here wakes the
+    # GPU again for the same segment, so five attempts at a message that can never succeed is
+    # five machine lifetimes billed. One retry covers a transient depth-service failure; the
+    # second failure belongs in the poison queue where a person can look at it.
+    GREENV_AZURE_QUEUE_MAX_DEQUEUE_COUNT = "2"
+
+    GREENV_QUEUE_VISIBILITY_SECONDS = tostring(var.measurement_queue_visibility_timeout_seconds)
+
+    # Queues are infrastructure; this file declares them and the worker must not.
+    GREENV_RABBITMQ_DYNAMIC = "false"
+
+    # Never, in a deployment. Without a reachable depth service the worker falls back to Verge
+    # Studio's fixture-backed mock, which answers every request with the same reconstruction of an
+    # unrelated scene - a packet built that way pairs this road's frames with someone else's
+    # geometry. A mock run was mistaken for a real one on 2026-08-05; this is the switch that
+    # stops it happening in the cloud. It is deliberately not a variable.
+    GREENV_MEASUREMENT_ALLOW_MOCK = "false"
+
+    GREENV_MEASUREMENT_CLASSES = var.measurement_classes
+    GREENV_INFER_ADAPTER       = var.depth_service_adapter
+    GREENV_INFER_MAX_FRAMES    = tostring(var.depth_max_frames)
+
+    PORT = "8090"
+  })
+
+  # Where the depth service is, and nothing about what it is.
+  #
+  # It is not created here and never will be: a paid GPU endpoint that bills for the machine's
+  # whole lifetime rather than for the seconds it computes (docs/AUTOMATIC-HEIGHT.md). Terraform
+  # wires an address and a credential; a person decides the service exists.
+  #
+  # Both entries are absent when unset, which leaves the worker on its built-in default of
+  # http://127.0.0.1:5173/api - the local Vite mock, which is not in this image. It then fails
+  # every message instead of inventing a reading, and GREENV_MEASUREMENT_ALLOW_MOCK above refuses
+  # the packet even if something did answer.
+  depth_service_environment = merge(
+    var.depth_service_base_url == null ? {} : { GREENV_INFER_BASE_URL = var.depth_service_base_url },
+    local.depth_endpoint_id == null ? {} : { GREENV_INFER_RUNPOD_ENDPOINT_ID = local.depth_endpoint_id },
+  )
 
   shared_secret_environment = {
     GREENV_AWS_ACCESS_KEY    = "r2-access-key"
@@ -132,6 +257,15 @@ locals {
     GREENV_JWT_PRIVATE_KEY = "jwt-signing-key"
     SPRING_FLYWAY_PASSWORD = "database-password"
   })
+
+  measurement_secret_environment = merge(
+    local.shared_secret_environment,
+    # One token serves both depth adapters: the HTTP client sends it as a Bearer header and RunPod
+    # authenticates its serverless endpoints the same way, so a second variable would only be a
+    # second thing to rotate. Absent when unset, so a deployment that has not agreed to GPU spend
+    # carries no credential that could start it.
+    var.depth_service_token == null ? {} : { GREENV_INFER_TOKEN = "depth-service-token" },
+  )
 
   registry_enabled = try(length(trimspace(var.container_registry.server)), 0) > 0
 

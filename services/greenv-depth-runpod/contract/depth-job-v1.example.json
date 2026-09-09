@@ -1,0 +1,196 @@
+{
+  "contract": "greenv.depth-job/1",
+  "why": [
+    "One depth job, in and out. Read by services/greenv-depth-runpod/test_handler.py and by",
+    "services/greenv-measurement-worker/test/runpod-contract.test.mjs, so the two sides of the",
+    "RunPod queue are pinned to one file and cannot drift apart. A change here has to be made",
+    "true on both sides in the same commit, or one of the two test suites fails.",
+    "Nothing in this file was produced by a GPU: the numbers are illustrative, the SHAs are real",
+    "digests of the filler bytes in `service.artifactBytes` so the handler's integrity check is",
+    "exercised, and no endpoint has ever been deployed."
+  ],
+
+  "worker": {
+    "endpoint": "https://api.runpod.ai/v2/greenv-depth",
+    "fps": 10,
+    "processRes": 504,
+    "maxFrames": 112,
+    "sourceDurationSeconds": 10,
+    "storage": { "bucket": "greenv-captures", "endpoint": "https://r2.example", "region": "auto" }
+  },
+
+  "input": {
+    "frames": [
+      {
+        "name": "frame-0001.jpg",
+        "key": "capture-sessions/2f1d9c48-5c2f-4a4b-9c1e-0a6b3d7e5f21/segments/00000000/sampled-frames/frame-0001.jpg"
+      },
+      {
+        "name": "frame-0002.jpg",
+        "key": "capture-sessions/2f1d9c48-5c2f-4a4b-9c1e-0a6b3d7e5f21/segments/00000000/sampled-frames/frame-0002.jpg"
+      },
+      {
+        "name": "frame-0003.jpg",
+        "key": "capture-sessions/2f1d9c48-5c2f-4a4b-9c1e-0a6b3d7e5f21/segments/00000000/sampled-frames/frame-0003.jpg"
+      }
+    ],
+    "storage": { "bucket": "greenv-captures", "endpoint": "https://r2.example", "region": "auto" },
+    "params": { "fps": 10, "process_res": 504, "max_frames": 112, "source_duration_s": 10 }
+  },
+
+  "device": {
+    "available": true,
+    "model_loaded": true,
+    "busy": false,
+    "device_name": "NVIDIA L4",
+    "current_bytes": 7134511104,
+    "peak_bytes": 7134511104,
+    "total_bytes": 23659151360
+  },
+
+  "service": {
+    "manifest": {
+      "schema_version": "verge.infer-manifest/0.1.0",
+      "run_id": "20260909-013000-abcdef",
+      "model_repository_id": "depth-anything/DA3NESTED-GIANT-LARGE-1.1",
+      "model_revision": "b2359bdf726fb44ef62acca04d629dcf158053e7",
+      "depth_mode": "metric",
+      "linear_unit": "metre",
+      "params": {
+        "fps": 10,
+        "source_duration_s": 10,
+        "process_res": 504,
+        "process_res_method": "upper_bound_resize",
+        "ref_view_strategy": "middle",
+        "infer_gs": false,
+        "max_frames": 112
+      },
+      "frames": {
+        "count": 3,
+        "requested_count": 3,
+        "width": 1024,
+        "height": 576,
+        "capped": false,
+        "effective_fps": 10
+      },
+      "timing": { "gpu_seconds": 21.9, "wall_seconds": 41.2, "model_load_seconds": null },
+      "vram": {
+        "peak_bytes": 15294529536,
+        "current_bytes": 7134511104,
+        "total_bytes": 23659151360,
+        "device_name": "NVIDIA L4",
+        "torch_peak_bytes": 12483241472,
+        "baseline_bytes": 7134511104
+      },
+      "artifacts": [
+        {
+          "kind": "glb",
+          "name": "export.glb",
+          "size_bytes": 48,
+          "sha256": "fcf9e935ceb5086c83af273685397d000552388fb92b8ea6243db1460de23292",
+          "url": "/artifact/20260909-013000-abcdef/export.glb",
+          "gs_uri": null
+        },
+        {
+          "kind": "npz",
+          "name": "verge-result.npz",
+          "size_bytes": 96,
+          "sha256": "d92ae5691bc49a05cea94cd978298a9355fe8b8c12e74bbddd803b327127734b",
+          "url": "/artifact/20260909-013000-abcdef/verge-result.npz",
+          "gs_uri": null
+        },
+        {
+          "kind": "npz_native",
+          "name": "result.npz",
+          "size_bytes": 64,
+          "sha256": "7ce100971f64e7001e8fe5a51973ecdfe1ced42befe7ee8d5fd6219506b5393c",
+          "url": "/artifact/20260909-013000-abcdef/result.npz",
+          "gs_uri": null
+        }
+      ],
+      "diagnostics": {
+        "native_npz": { "result.npz": ["depth", "conf", "extrinsics", "intrinsics", "images"] },
+        "export_dir_listing": ["export.glb", "result.npz", "verge-result.npz"],
+        "publish_mode": "local",
+        "publish_errors": []
+      },
+      "transient": true,
+      "expires_after_days": 3
+    },
+    "artifactBytes": {
+      "export.glb": { "fill": "g", "size_bytes": 48 },
+      "verge-result.npz": { "fill": "n", "size_bytes": 96 },
+      "result.npz": { "fill": "x", "size_bytes": 64 }
+    },
+    "signedUrlTemplate": "https://r2.example/greenv-captures/{key}?X-Amz-Signature=example"
+  },
+
+  "output": {
+    "schema_version": "verge.infer-manifest/0.1.0",
+    "run_id": "20260909-013000-abcdef",
+    "model_repository_id": "depth-anything/DA3NESTED-GIANT-LARGE-1.1",
+    "model_revision": "b2359bdf726fb44ef62acca04d629dcf158053e7",
+    "depth_mode": "metric",
+    "linear_unit": "metre",
+    "params": {
+      "fps": 10,
+      "source_duration_s": 10,
+      "process_res": 504,
+      "process_res_method": "upper_bound_resize",
+      "ref_view_strategy": "middle",
+      "infer_gs": false,
+      "max_frames": 112
+    },
+    "frames": {
+      "count": 3,
+      "requested_count": 3,
+      "width": 1024,
+      "height": 576,
+      "capped": false,
+      "effective_fps": 10
+    },
+    "timing": { "gpu_seconds": 21.9, "wall_seconds": 41.2, "model_load_seconds": null },
+    "vram": {
+      "peak_bytes": 15294529536,
+      "current_bytes": 7134511104,
+      "total_bytes": 23659151360,
+      "device_name": "NVIDIA L4",
+      "torch_peak_bytes": 12483241472,
+      "baseline_bytes": 7134511104
+    },
+    "artifacts": [
+      {
+        "kind": "glb",
+        "name": "scene.glb",
+        "size_bytes": 48,
+        "sha256": "fcf9e935ceb5086c83af273685397d000552388fb92b8ea6243db1460de23292",
+        "url": "https://r2.example/greenv-captures/capture-sessions/2f1d9c48-5c2f-4a4b-9c1e-0a6b3d7e5f21/segments/00000000/depth/20260909-013000-abcdef/scene.glb?X-Amz-Signature=example",
+        "object_key": "capture-sessions/2f1d9c48-5c2f-4a4b-9c1e-0a6b3d7e5f21/segments/00000000/depth/20260909-013000-abcdef/scene.glb"
+      },
+      {
+        "kind": "npz",
+        "name": "result.npz",
+        "size_bytes": 96,
+        "sha256": "d92ae5691bc49a05cea94cd978298a9355fe8b8c12e74bbddd803b327127734b",
+        "url": "https://r2.example/greenv-captures/capture-sessions/2f1d9c48-5c2f-4a4b-9c1e-0a6b3d7e5f21/segments/00000000/depth/20260909-013000-abcdef/result.npz?X-Amz-Signature=example",
+        "object_key": "capture-sessions/2f1d9c48-5c2f-4a4b-9c1e-0a6b3d7e5f21/segments/00000000/depth/20260909-013000-abcdef/result.npz"
+      }
+    ],
+    "diagnostics": {
+      "native_npz": { "result.npz": ["depth", "conf", "extrinsics", "intrinsics", "images"] },
+      "export_dir_listing": ["export.glb", "result.npz", "verge-result.npz"],
+      "publish_mode": "local",
+      "publish_errors": []
+    },
+    "transient": true,
+    "expires_after_days": 3,
+    "published": {
+      "handler_contract": "greenv.depth-job/1",
+      "bucket": "greenv-captures",
+      "prefix": "capture-sessions/2f1d9c48-5c2f-4a4b-9c1e-0a6b3d7e5f21/segments/00000000/depth/20260909-013000-abcdef",
+      "signed_url_ttl_seconds": 43200,
+      "frame_ceiling": 112,
+      "skipped": ["result.npz (npz_native)"]
+    }
+  }
+}

@@ -5,45 +5,240 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schemaVersion", "sessionId", "segmentIndex", "sourceGeneration",
-    "telemetryGeneration", "durationMillis", "encodedFrameCount",
-    "goodLocationFrames", "degradedLocationFrames", "unavailableLocationFrames",
-    "locationSampleCount", "motionSampleCount", "frameMetadataObjectKey",
-    "frameMetadataSha256", "frameMetadataBytes", "sampledFrames",
-    "sourceDeleted", "createdAt"
+    "schemaVersion",
+    "sessionId",
+    "segmentIndex",
+    "sourceGeneration",
+    "telemetryGeneration",
+    "durationMillis",
+    "encodedFrameCount",
+    "goodLocationFrames",
+    "degradedLocationFrames",
+    "unavailableLocationFrames",
+    "locationSampleCount",
+    "motionSampleCount",
+    "frameMetadataObjectKey",
+    "frameMetadataSha256",
+    "frameMetadataBytes",
+    "sampledFrames",
+    "sourceDeleted",
+    "createdAt",
+    "samplingStrategy",
+    "nativeFps",
+    "pathMeters",
+    "netDisplacementMeters",
+    "usableFixSpanSeconds",
+    "groups"
   ],
   "properties": {
-    "schemaVersion": { "const": 2 },
-    "sessionId": { "type": "string", "format": "uuid" },
-    "segmentIndex": { "type": "integer", "minimum": 0 },
-    "sourceGeneration": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-    "telemetryGeneration": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-    "durationMillis": { "type": "integer", "minimum": 1, "maximum": 30000 },
-    "encodedFrameCount": { "type": "integer", "minimum": 1 },
-    "goodLocationFrames": { "type": "integer", "minimum": 0 },
-    "degradedLocationFrames": { "type": "integer", "minimum": 0 },
-    "unavailableLocationFrames": { "type": "integer", "minimum": 0 },
-    "locationSampleCount": { "type": "integer", "minimum": 0 },
-    "motionSampleCount": { "type": "integer", "minimum": 0 },
-    "frameMetadataObjectKey": { "type": "string", "minLength": 1, "maxLength": 1024 },
-    "frameMetadataSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-    "frameMetadataBytes": { "type": "integer", "minimum": 1 },
+    "schemaVersion": {
+      "const": 2
+    },
+    "sessionId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "segmentIndex": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "sourceGeneration": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "telemetryGeneration": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "durationMillis": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 30000
+    },
+    "encodedFrameCount": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "goodLocationFrames": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "degradedLocationFrames": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "unavailableLocationFrames": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "locationSampleCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "motionSampleCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "frameMetadataObjectKey": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "frameMetadataSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "frameMetadataBytes": {
+      "type": "integer",
+      "minimum": 1
+    },
     "sampledFrames": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["index", "fileName", "timestampSeconds", "sizeBytes", "sha256"],
+        "required": [
+          "index",
+          "fileName",
+          "timestampSeconds",
+          "sizeBytes",
+          "sha256",
+          "sourceFrameIndex",
+          "distanceMeters",
+          "groupIndex"
+        ],
         "properties": {
-          "index": { "type": "integer", "minimum": 0 },
-          "fileName": { "type": "string", "pattern": "^frame-[0-9]{4}\\.jpg$" },
-          "timestampSeconds": { "type": "number", "minimum": 0 },
-          "sizeBytes": { "type": "integer", "minimum": 1 },
-          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+          "index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "fileName": {
+            "type": "string",
+            "pattern": "^frame-[0-9]{4}\\.jpg$"
+          },
+          "timestampSeconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "sourceFrameIndex": {
+            "type": "integer",
+            "minimum": -1
+          },
+          "distanceMeters": {
+            "type": "number",
+            "minimum": 0
+          },
+          "groupIndex": {
+            "type": "integer",
+            "minimum": -1
+          }
         }
       }
     },
-    "sourceDeleted": { "type": "boolean" },
-    "createdAt": { "type": "string", "format": "date-time" }
+    "sourceDeleted": {
+      "type": "boolean"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "samplingStrategy": {
+      "type": "string",
+      "enum": [
+        "distance-groups",
+        "insufficient-motion",
+        "time-uniform-no-telemetry",
+        "time-uniform-sparse-telemetry"
+      ]
+    },
+    "nativeFps": {
+      "type": "number",
+      "minimum": 0
+    },
+    "pathMeters": {
+      "type": "number",
+      "minimum": 0
+    },
+    "netDisplacementMeters": {
+      "type": "number",
+      "minimum": 0
+    },
+    "usableFixSpanSeconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "rodovia": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 32
+    },
+    "sentido": {
+      "enum": ["norte", "sul", "leste", "oeste", null]
+    },
+    "groups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "index",
+          "frameIndices",
+          "startMeters",
+          "endMeters",
+          "medianBaselineMeters",
+          "minBaselineMeters",
+          "maxBaselineMeters",
+          "withinGradedEnvelope",
+          "published"
+        ],
+        "properties": {
+          "index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "frameIndices": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "startMeters": {
+            "type": "number",
+            "minimum": 0
+          },
+          "endMeters": {
+            "type": "number",
+            "minimum": 0
+          },
+          "medianBaselineMeters": {
+            "type": "number",
+            "minimum": 0
+          },
+          "minBaselineMeters": {
+            "type": "number",
+            "minimum": 0
+          },
+          "maxBaselineMeters": {
+            "type": "number",
+            "minimum": 0
+          },
+          "withinGradedEnvelope": {
+            "type": "boolean"
+          },
+          "published": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
   }
 }

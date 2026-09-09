@@ -172,7 +172,12 @@ public class ExtractionService implements LegacyFrameProcessor {
                         frame.getFileName().toString(),
                         Math.min(durationSeconds, index / effectiveFps),
                         Files.size(frame),
-                        pipelineStore.sha256(frame)));
+                        pipelineStore.sha256(frame),
+                        // The legacy whole-video path samples by rate and carries no telemetry, so
+                        // it can name neither the encoded frame nor a distance along the road.
+                        -1,
+                        0.0,
+                        -1));
             } catch (IOException exception) {
                 throw new ExtractionException("frame_stat_failed", "could not inspect extracted frame", true, exception);
             }

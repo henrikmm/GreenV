@@ -189,7 +189,78 @@ class CaptureSessionControllerIntegrationTest {
                 request.schemaVersion() == 2
                         && request.videoObjectKey().endsWith("/source.mp4")
                         && request.telemetryObjectKey().endsWith("/telemetry.json")
-                        && !request.outputPrefix().contains("://")));
+                        && !request.outputPrefix().contains("://")
+                        // This capture named no road, and nothing invented one for it.
+                        && request.rodovia() == null
+                        && request.sentido() == null));
+    }
+
+    @Test
+    void carriesTheRoadFromTheSessionOntoEverySegmentItQueues() throws Exception {
+        HttpClient client = HttpClient.newHttpClient();
+        String sessions = "http://127.0.0.1:" + port + "/v2/capture-sessions";
+        HttpResponse<String> created = send(client, HttpRequest.newBuilder(URI.create(sessions))
+                .header("content-type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString("""
+                        {"deviceId":"road-phone","rodovia":"br-101","sentido":"Norte"}
+                        """)));
+        assertThat(created.statusCode()).isEqualTo(201);
+        // Normalised on the way in. `br-101` and `BR-101` joining as two roads is the failure
+        // that actually happens on a dashboard keyed by (rodovia, sentido, km).
+        assertThat(objectMapper.readTree(created.body()).path("rodovia").asString()).isEqualTo("BR-101");
+        assertThat(objectMapper.readTree(created.body()).path("sentido").asString()).isEqualTo("norte");
+
+        String sessionId = objectMapper.readTree(created.body()).path("sessionId").asString();
+        String segment = sessions + "/" + sessionId + "/segments/0";
+        byte[] video = "road-video".getBytes(StandardCharsets.UTF_8);
+        byte[] telemetry = "{}".getBytes(StandardCharsets.UTF_8);
+        assertThat(upload(client, segment + "/video", "video/mp4", video, sha256(video)).statusCode())
+                .isEqualTo(200);
+        assertThat(upload(client, segment + "/telemetry", "application/json", telemetry, sha256(telemetry))
+                .statusCode()).isEqualTo(200);
+        assertThat(send(client, HttpRequest.newBuilder(URI.create(segment + "/complete"))
+                .POST(HttpRequest.BodyPublishers.noBody())).statusCode()).isEqualTo(202);
+
+        // The extraction request is the only way the road reaches the two workers: neither of them
+        // has a database, and the measurement packet cannot be joined to a trecho without it.
+        verify(taskPublisher).publish(org.mockito.ArgumentMatchers.argThat(request ->
+                "BR-101".equals(request.rodovia()) && "norte".equals(request.sentido())));
+
+        HttpResponse<String> reread = send(
+                client, HttpRequest.newBuilder(URI.create(sessions + "/" + sessionId)).GET());
+        assertThat(objectMapper.readTree(reread.body()).path("rodovia").asString()).isEqualTo("BR-101");
+        assertThat(objectMapper.readTree(reread.body()).path("sentido").asString()).isEqualTo("norte");
+    }
+
+    @Test
+    void refusesASentidoOutsideTheClosedVocabulary() throws Exception {
+        HttpClient client = HttpClient.newHttpClient();
+        String sessions = "http://127.0.0.1:" + port + "/v2/capture-sessions";
+
+        HttpResponse<String> refused = send(client, HttpRequest.newBuilder(URI.create(sessions))
+                .header("content-type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString("""
+                        {"deviceId":"road-phone","rodovia":"BR-101","sentido":"nordeste"}
+                        """)));
+
+        assertThat(refused.statusCode()).isEqualTo(400);
+        assertThat(objectMapper.readTree(refused.body()).path("title").asString()).isEqualTo("invalid_sentido");
+    }
+
+    @Test
+    void treatsAnEmptyRoadAsAbsentRatherThanAsAValue() throws Exception {
+        HttpClient client = HttpClient.newHttpClient();
+        String sessions = "http://127.0.0.1:" + port + "/v2/capture-sessions";
+
+        HttpResponse<String> created = send(client, HttpRequest.newBuilder(URI.create(sessions))
+                .header("content-type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString("""
+                        {"deviceId":"blank-phone","rodovia":"   ","sentido":""}
+                        """)));
+
+        assertThat(created.statusCode()).isEqualTo(201);
+        assertThat(objectMapper.readTree(created.body()).path("rodovia").isNull()).isTrue();
+        assertThat(objectMapper.readTree(created.body()).path("sentido").isNull()).isTrue();
     }
 
     private static HttpResponse<String> upload(

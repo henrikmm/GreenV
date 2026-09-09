@@ -35,7 +35,12 @@ public class CaptureSessionController {
 
     @PostMapping
     ResponseEntity<CaptureSessionResponse> create(@Valid @RequestBody CreateCaptureSessionRequest request) {
-        var session = captureSessionUseCase.create(request.sessionId(), request.deviceId(), request.startedAt());
+        var session = captureSessionUseCase.create(
+                request.sessionId(),
+                request.deviceId(),
+                request.startedAt(),
+                request.rodovia(),
+                request.sentido());
         var response = CaptureSessionResponse.from(captureSessionUseCase.getSession(session.sessionId()));
         return ResponseEntity
                 .created(URI.create(baseUrl() + "/v2/capture-sessions/" + session.sessionId()))
@@ -131,6 +136,13 @@ public class CaptureSessionController {
             produces = MediaType.APPLICATION_JSON_VALUE)
     byte[] manifest(@PathVariable UUID sessionId, @PathVariable int segmentIndex) {
         return captureSessionUseCase.manifest(sessionId, segmentIndex);
+    }
+
+    @GetMapping(
+            path = "/{sessionId}/segments/{segmentIndex}/measurement",
+            produces = MediaType.APPLICATION_JSON_VALUE)
+    byte[] measurement(@PathVariable UUID sessionId, @PathVariable int segmentIndex) {
+        return captureSessionUseCase.measurement(sessionId, segmentIndex);
     }
 
     private static String baseUrl() {

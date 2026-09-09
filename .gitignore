@@ -31,6 +31,12 @@ venv/
 *.local.json
 !.claude/settings.local.json.example
 
+# Agent worktrees. They are checkouts of this same repository, so git records each one as a
+# gitlink and carries a broken submodule wherever the branch goes. They also hold absolute paths
+# from whichever git created them, which is why a worktree made under WSL breaks `git commit` for
+# the Windows client in the same repository.
+.claude/worktrees/
+
 # Terraform working data, local state and saved plans. The dependency lock is
 # tracked so CI and developer machines resolve the same provider versions.
 **/.terraform/

@@ -39,11 +39,19 @@ public class TelemetryAssociator {
                     telemetry.capturedAtUtc().plus(frame.presentationTimeNanos(), ChronoUnit.NANOS),
                     frame.keyFrame(),
                     quality,
-                    selectedLocation == null ? null : location.ageNanos / 1_000_000,
+                    // The age is reported whenever a sample exists, including one dropped for being
+                    // past the ceiling. Nulling it with the sample made "no fix was ever recorded"
+                    // and "the nearest fix was 2.1 s away" identical in the metadata, and only the
+                    // second of those says the phone had a receiver that was simply too slow.
+                    ageMillis(location),
                     selectedLocation,
-                    selectedMotion == null ? null : motion.ageNanos / 1_000_000,
+                    ageMillis(motion),
                     selectedMotion);
         }).toList();
+    }
+
+    private static Long ageMillis(Nearest<?> nearest) {
+        return nearest.value == null ? null : nearest.ageNanos / 1_000_000;
     }
 
     private static String locationQuality(LocationSample location, long ageNanos) {

@@ -1,6 +1,7 @@
 package br.com.greenv.videoapi.api;
 
 import br.com.greenv.videoapi.domain.CaptureSessionSummary;
+import br.com.greenv.videoapi.domain.Sentido;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -14,7 +15,9 @@ public record CaptureSessionResponse(
         Instant expiresAt,
         Integer lastSegmentIndex,
         long segmentCount,
-        long readySegmentCount) {
+        long readySegmentCount,
+        String rodovia,
+        Sentido sentido) {
 
     public static CaptureSessionResponse from(CaptureSessionSummary summary) {
         var session = summary.session();
@@ -28,6 +31,8 @@ public record CaptureSessionResponse(
                 session.expiresAt(),
                 session.lastSegmentIndex(),
                 summary.segmentCount(),
-                summary.readySegmentCount());
+                summary.readySegmentCount(),
+                session.rodovia(),
+                session.sentido());
     }
 }

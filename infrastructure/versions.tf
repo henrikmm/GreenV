@@ -14,6 +14,17 @@ terraform {
       source  = "kislerdm/neon"
       version = "~> 0.15"
     }
+    # Community-tier, like kislerdm/neon above. It owns exactly one resource here, the depth
+    # endpoint, and only when this deployment reaches the depth stage through RunPod.
+    runpod = {
+      source  = "decentralized-infrastructure/runpod"
+      version = "~> 1.0"
+    }
+    # Runs the RunPod template provisioner during the apply. See runpod.tf.
+    external = {
+      source  = "hashicorp/external"
+      version = "~> 2.3"
+    }
     random = {
       source  = "hashicorp/random"
       version = "~> 3.7"

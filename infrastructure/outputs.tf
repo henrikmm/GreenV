@@ -24,6 +24,11 @@ output "worker_container_app_name" {
   value       = azurerm_container_app.worker.name
 }
 
+output "measurement_worker_container_app_name" {
+  description = "Azure Container App running the measurement worker."
+  value       = azurerm_container_app.measurement.name
+}
+
 output "resource_group_name" {
   description = "Azure resource group that contains the runtime and queue."
   value       = azurerm_resource_group.this.name
@@ -42,6 +47,33 @@ output "segment_queue_name" {
 output "poison_queue_name" {
   description = "Queue containing messages that exhausted delivery attempts."
   value       = azurerm_storage_queue.poison.name
+}
+
+output "measurement_queue_name" {
+  description = "Queue on which a finished segment is announced for measurement."
+  value       = azurerm_storage_queue.measurement.name
+}
+
+output "measurement_result_queue_name" {
+  description = "Queue on which a finished measurement packet is announced."
+  value       = azurerm_storage_queue.measurement_result.name
+}
+
+output "measurement_poison_queue_name" {
+  description = "Measurement messages that exhausted delivery attempts. Each one cost GPU time."
+  value       = azurerm_storage_queue.measurement_poison.name
+}
+
+output "measurement_state" {
+  description = <<-EOT
+    Whether a finished segment is measured automatically, and against which depth service. Every
+    automatic measurement wakes a paid GPU, so this says out loud what the deployment will spend.
+  EOT
+  value = !var.measurement_enabled ? "disabled: segments are extracted but never announced for measurement" : format(
+    "enabled: every finished segment is measured through the %s depth service at %s",
+    var.depth_service_adapter,
+    var.depth_service_adapter == "runpod" ? local.depth_endpoint_id : var.depth_service_base_url,
+  )
 }
 
 output "r2_bucket_name" {
@@ -89,4 +121,12 @@ output "jwt_public_key_pem" {
   EOT
   value       = tls_private_key.jwt_signing.public_key_pem
   sensitive   = false
+}
+
+output "depth_endpoint_id" {
+  description = <<-EOT
+    The RunPod endpoint the measurement worker sends depth jobs to, whether Terraform created it
+    or a person did. Null when this deployment does not reach the depth stage at all.
+  EOT
+  value       = local.depth_endpoint_id
 }

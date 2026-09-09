@@ -5,8 +5,9 @@ segment carries GNSS location, altitude, accuracy, speed, course, cumulative dis
 linear acceleration, angular velocity and a segment-relative orientation. The client writes the
 video, telemetry and SHA-256 digests to its application documents before attempting the network.
 
-The upload queue is restart-safe. A failed or accepted upload remains local until the Video API
-reports that the worker has published and re-read the verified manifest. Moving the app to the
+The upload queue is restart-safe. A capture remains local until the Video API has accepted its
+bytes, and is dropped as soon as it has - what the worker later makes of a segment is never waited
+for, because the phone cannot act on the answer and the wait keeps a finished capture on screen. Moving the app to the
 background closes the current segment and stops recording; capture never continues invisibly.
 
 The presentation is isolated from Verge Studio's React application. It follows the supplied
@@ -23,7 +24,7 @@ Implemented:
 - GNSS position, altitude, accuracy, speed, course and cumulative route distance.
 - Gravity, linear acceleration, angular velocity and segment-relative orientation.
 - A restart-safe on-device queue with SHA-256 checksums and serialized retry.
-- The versioned `/v2/capture-sessions` API flow and worker-verification polling.
+- The versioned `/v2/capture-sessions` API flow, up to and including segment delivery.
 - Bearer-token authentication against a deployed API, compiled in with `GREENV_API_TOKEN`.
 - A browser capture build that records from a workstation webcam and uploads to a deployed API.
 - Motiva splash/authentication presentation, operations home, upload/capture and map views.
@@ -45,7 +46,7 @@ Not implemented yet:
 | `lib/src/capture/camera_segment_recorder.dart` | Native camera initialization/start/stop |
 | `lib/src/capture/phone_telemetry_collector.dart` | GNSS and inertial sampling |
 | `lib/src/storage/persistent_capture_queue.dart` | Durable local files and queue index |
-| `lib/src/upload/queue_uploader.dart` | Serialized, idempotent upload and verification polling |
+| `lib/src/upload/queue_uploader.dart` | Serialized, idempotent upload; drops what the API accepted |
 | `lib/src/api/http_capture_backend.dart` | `/v2/capture-sessions` HTTP adapter, Bearer token included |
 | `lib/src/bootstrap/capture_configuration.dart` | The three `--dart-define` settings, in one place |
 | `lib/src/storage/browser_capture_queue.dart` | In-memory queue for the browser capture build |
@@ -106,7 +107,7 @@ For an iOS simulator, uninstalling resets the same application container:
 xcrun simctl uninstall booted br.com.greenv.greenvCapture
 ```
 
-Both operations are destructive to captures that have not reached worker `ready`. To reset the
+Both operations are destructive to captures the API has not accepted yet. To reset the
 backend separately, use `docker compose down -v` from the repository root; that deletes its local
 database, queue and capture volumes.
 
@@ -173,9 +174,9 @@ camera, the backend and the session for fakes, when the point is to look at layo
 Four things differ from the phone, on purpose:
 
 - **The queue is in memory.** A browser page has no application-documents directory, so a reload
-  discards any segment the worker has not yet reported as `ready`. Everything else is real: the
-  SHA-256 digests are computed over the actual bytes, and a segment is deleted only after
-  verification.
+  discards any segment the API has not accepted yet. Everything else is real: the SHA-256 digests
+  are computed over the actual bytes, and a segment is dropped only once the upload came back
+  accepted.
 - **The container is WebM, not MP4.** A browser's `MediaRecorder` encodes VP9/WebM; the segment
   upload declares that, and the API accepts `video/mp4` and `video/webm` alike because the worker
   probes the container. The stored object keeps its `source.mp4` name.
@@ -240,8 +241,7 @@ press record
   -> every 10 s: stop MP4, close telemetry, copy both into the queue, hash, start next segment
   -> upload video and telemetry with the same segment idempotency key
   -> ask API to queue extraction
-  -> poll segment state
-  -> delete local segment only when worker state is ready
+  -> delete the local segment as soon as the API accepted it
 press stop/background
   -> close and queue the segment in progress
   -> close the session and release wakelock
@@ -270,7 +270,7 @@ capture-queue/
 
 `queue-v1.json.writing` is the temporary atomic-write file. The camera plugin's temporary MP4 is
 deleted only after the durable queue copy and both SHA-256 digests exist. A queued directory is
-deleted only after the API reports the worker-generated manifest as `ready`. Uninstalling the app
+deleted as soon as the API has accepted the segment's bytes. Uninstalling the app
 or clearing its data removes this queue.
 
 ## Telemetry document
@@ -294,8 +294,8 @@ flutter build apk --debug
 flutter build web
 ```
 
-The tests cover ten-second rotation, queue persistence across restart, offline retry, deletion
-only after worker `ready`, normalized relative orientation, auth/navigation rendering, and the
+The tests cover ten-second rotation, queue persistence across restart, offline retry, deletion on
+delivery, normalized relative orientation, auth/navigation rendering, and the
 idle/recording Motiva states.
 
 The latest verified debug artifact is produced at
@@ -309,7 +309,7 @@ The latest verified debug artifact is produced at
 | USB phone cannot reach API | Run `adb reverse tcp:8080 tcp:8080` and compile with the loopback `GREENV_API_URL` above |
 | Camera action reports a permission error | Grant camera permission in platform settings, then retry; the action remains available |
 | GPS stays unavailable | Enable the device location service and precise/when-in-use permission; video capture is independent |
-| Queue count does not fall | Inspect API segment state and worker logs; files intentionally remain through `queued`, `validating` and `failed` |
+| Queue count does not fall | The uploads are failing: read `lastError` on the queued segment, then check the API. A segment is dropped the moment an upload is accepted |
 | Android native build has stale cache errors after moving the project | Run `flutter clean`, `flutter pub get`, then rebuild |
 | Web shows a route icon instead of camera | You are running `--dart-define=GREENV_WEB_CAPTURE=false`, the design preview. Drop it for the real camera |
 | Every API call fails with 401 | The build was compiled without `GREENV_API_TOKEN`, or the token is stale |
@@ -326,3 +326,80 @@ frames. The worker therefore probes every encoded presentation timestamp and map
 segment's monotonic clock anchor. GNSS older than two seconds and motion older than 100 ms are not
 attached to a frame. The quaternion is gyroscope-integrated relative orientation from the start of
 that segment, not absolute attitude, and it can drift.
+
+## Recording frame rate
+
+The camera's frame rate bounds how tightly a stretch of road can be reconstructed. A stretch is
+measured from the frames recorded while crossing it, so at 30 fps a twenty-metre stretch holds 112
+views at 20 km/h and only 22 at 100 km/h — below the smallest count Verge Studio has graded.
+
+| recording | 60 km/h | 100 km/h | 120 km/h | graded up to |
+|---|---:|---:|---:|---|
+| 30 fps | 38 views | 22 | 18 | 34 km/h |
+| 60 fps | 76 | 43 | 36 | 68 km/h |
+| 120 fps | 112 | 86 | 71 | 135 km/h |
+
+**Nothing configures this.** The recorder walks a ladder at startup and keeps the first format the
+device accepts:
+
+| | resolution | rate |
+|---|---|---|
+| 1 | 720p | 240 |
+| 2 | 1080p | 240 |
+| 3 | 720p | 120 |
+| 4 | 1080p | 120 |
+| 5 | 720p | 60 |
+| 6 | 720p | platform default |
+
+Highest rate first, and at equal rate the **lower** resolution first: the worker resizes every frame
+to a 1024 px long edge before publishing and 720p is already 1280 px across, so 1080p would discard
+72% of what it captured while costing the 64 MB upload budget. 1080p is on the ladder only because
+some devices offer a high-rate format there and not at 720p. 4K is not on it at all — it would
+discard 93% and, on most phones, cost the frame rate too.
+
+The two platforms fail differently, which is why this is a ladder rather than one request:
+
+- **iOS** searches the formats at the requested resolution and clamps to the closest rate it finds,
+  so rung 1 nearly always succeeds and yields the fastest format 720p has on that device.
+- **Android** asks CameraX for an exact `[fps, fps]` range and the bind throws when no format offers
+  it, so a 30 fps phone falls through to the last rung. The range reaches video capture, not only
+  the preview (`android_camera_camerax.dart:424`).
+
+**Neither platform reports the rate it achieved** — `CameraValue` does not carry it — so the app
+cannot log what it got. The worker measures it per segment and records it in the manifest as
+`nativeFps`. That is the number to trust, and the way to check a device is to record one segment and
+read it.
+
+Setting the iOS Camera app to 120 fps changes nothing here: that setting belongs to Apple's app, and
+this one opens its own capture session.
+
+This ladder has not been run on a device that offers 120 fps.
+
+### In the browser
+
+The browser build asks for `frameRate: {ideal: 240, min: 24}` at 720p — `ideal` rather than `exact`,
+because an unsatisfiable `exact` makes `getUserMedia` reject the device outright, and a 30 fps webcam
+is still worth opening.
+
+It is also the one platform that **reports what it granted**, through
+`track.getSettings().frameRate`, so the recorder reads it back and exposes it as `capturedFrameRate`.
+AVFoundation and CameraX accept a requested rate and never say what they settled on.
+
+The recording bitrate scales with the rate, at roughly 90 kbit per 720p frame. MediaRecorder's
+default is a fixed budget for the whole stream, so at 120 fps it would give each frame a quarter of
+the bits it gives at 30 — and compression artefacts are exactly what breaks the feature matching this
+footage exists for.
+
+To find out what a camera can actually do, paste this into the browser console on any page:
+
+```js
+const s = await navigator.mediaDevices.getUserMedia({
+  video: { width: {ideal:1280}, height: {ideal:720}, frameRate: {ideal:240, min:24} } });
+const t = s.getVideoTracks()[0];
+console.log('granted', t.getSettings(), 'max', t.getCapabilities?.().frameRate);
+t.stop();
+```
+
+Most USB webcams top out at 30 fps at 720p whatever is asked, and many that advertise 60 offer it
+only at a lower resolution. If `granted.frameRate` comes back 30, the camera is the limit, not this
+code — and the worker's `nativeFps` will agree.

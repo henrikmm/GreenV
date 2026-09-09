@@ -20,6 +20,9 @@ final class FakeRecorder implements SegmentRecorder {
   bool get isInitialized => initialized;
 
   @override
+  double? get capturedFrameRate => null;
+
+  @override
   Widget buildPreview() => const ColoredBox(color: Color(0xFF33283A));
 
   @override
@@ -45,8 +48,11 @@ final class FakeTelemetry implements TelemetryCollector {
   int begins = 0;
   int finishes = 0;
 
+  /// Settable, because how vague the fix is decides what the capture screen says about it.
+  double? horizontalAccuracyMeters = 4.2;
+
   @override
-  double? get latestHorizontalAccuracyMeters => 4.2;
+  double? get latestHorizontalAccuracyMeters => horizontalAccuracyMeters;
 
   @override
   double? get latestSpeedMetersPerSecond => 8;
@@ -106,7 +112,6 @@ final class FakeScheduler implements SegmentScheduler {
 
 final class FakeBackend implements CaptureBackend {
   bool online = true;
-  String workerState = 'queued';
   int sessions = 0;
   int uploads = 0;
   int completions = 0;
@@ -124,7 +129,20 @@ final class FakeBackend implements CaptureBackend {
   }
 
   @override
-  Future<String> segmentState(QueuedSegment segment) async => workerState;
+  Future<void> completeSession(QueuedSession session) async => completions += 1;
+}
+
+/// Opens sessions but refuses the bytes, which is the failure the queue exists for.
+final class FailingUploadBackend implements CaptureBackend {
+  int sessions = 0;
+  int completions = 0;
+
+  @override
+  Future<void> ensureSession(QueuedSession session) async => sessions += 1;
+
+  @override
+  Future<void> uploadSegment(QueuedSegment segment) async =>
+      throw const SocketExceptionForTest();
 
   @override
   Future<void> completeSession(QueuedSession session) async => completions += 1;

@@ -48,13 +48,36 @@ function build() {
       root: resolve(text("GREENV_PIPELINE_ROOT", join(homedir(), ".greenv", "pipeline"))),
       bucket: text("GREENV_S3_BUCKET", null),
       endpoint: text("GREENV_S3_ENDPOINT", null),
-      region: text("GREENV_S3_REGION", "auto"),
+      // The three settings below are named and defaulted after greenv-video-api and
+      // greenv-frame-extractor, which read them at `greenv.storage.s3.*` in their
+      // application.properties, so one `.env` and one Terraform `common_environment` block
+      // configure all three services against one bucket.
+      //
+      // The region used to come from GREENV_S3_REGION, a name nothing in this repository sets;
+      // the deployment sets GREENV_AWS_REGION, which the worker never saw. The default stays
+      // `auto` rather than the services' `us-east-1` because they can also address real AWS,
+      // and R2 — which wants `auto` — is the only endpoint this worker has been pointed at.
+      region: text("GREENV_AWS_REGION", "auto"),
+      // The deployment sets this false. The adapter used to force path style on whenever an
+      // endpoint was set, which contradicted both other services reading this same flag about
+      // this same bucket.
+      pathStyleAccess: flag("GREENV_S3_PATH_STYLE_ACCESS", false),
+      // R2 has no instance metadata and no role to assume, so the deployment injects a scoped
+      // key pair as secrets. Left unset, the adapter falls back to the AWS SDK's own credential
+      // chain — a developer's ~/.aws/credentials, or a real AWS deployment with a task role.
+      accessKey: text("GREENV_AWS_ACCESS_KEY", null),
+      secretKey: text("GREENV_AWS_SECRET_KEY", null),
     },
 
     queue: {
       // Absent RabbitMQ settings are not an error: the HTTP trigger alone is a legitimate
       // deployment, and it is the one the tests and a backfill use.
       enabled: flag("GREENV_MEASUREMENT_QUEUE_ENABLED", true),
+      // Which transport carries a segment here and a result back. The name is the Java services'
+      // own, and infrastructure/locals.tf already sets it to azure-queue for every container app
+      // in the deployment, so this worker reads the switch the rest of the stack is already
+      // reading rather than adding a fourth thing that can disagree.
+      adapter: text("GREENV_SEGMENT_QUEUE_ADAPTER", "rabbitmq"),
       host: text("GREENV_RABBITMQ_HOST", "127.0.0.1"),
       port: number("GREENV_RABBITMQ_PORT", 5672),
       user: text("GREENV_RABBITMQ_USER", "guest"),
@@ -69,13 +92,46 @@ function build() {
       // One segment occupies the depth service for its whole run and the CPU for the whole
       // assessment. Prefetching more only makes messages time out in a buffer.
       prefetch: 1,
+
+      // Azure Queue Storage has no exchange, so the one exchange and two routing keys above
+      // become two queue names. They are separate settings rather than reused ones because an
+      // Azure queue name is 3-63 lower-case alphanumerics and dashes: `greenv.segment.measure.v1`
+      // is a legal RabbitMQ queue and an illegal Azure one.
+      azure: {
+        queue: text("GREENV_AZURE_MEASUREMENT_QUEUE_NAME", null),
+        resultQueue: text("GREENV_AZURE_MEASURED_QUEUE_NAME", null),
+        // Where a segment goes when it will never succeed. Optional: without it such a message is
+        // deleted, which is what the RabbitMQ path does with one anyway.
+        poisonQueue: text("GREENV_AZURE_MEASUREMENT_POISON_QUEUE_NAME", null),
+        endpoint: text("GREENV_AZURE_QUEUE_ENDPOINT", null),
+        connectionString: text("GREENV_AZURE_STORAGE_CONNECTION_STRING", null),
+        // The same bound as `prefetch`, for the same reason.
+        maximumMessages: 1,
+        // How long a received segment stays invisible to other readers. This is the deadline for
+        // the whole measurement, not for an acknowledgement, so it tracks
+        // GREENV_MEASUREMENT_TIMEOUT_MS rather than the seconds the Java services use for a poll
+        // that only queues work. Too short and Azure redelivers a segment still being measured.
+        visibilityTimeoutSeconds: number("GREENV_MEASUREMENT_VISIBILITY_SECONDS", 30 * 60),
+        pollDelayMs: number("GREENV_CLOUD_QUEUE_POLL_DELAY_MS", 1000),
+      },
     },
 
     infer: {
-      // The DA3 service. Points at the Vite mock by default so a fresh checkout runs end to end
-      // without a GPU and without spending anything.
-      // The base carries whatever path prefix the deployment needs: the Vite mock serves the
-      // contract under /api, the deployed FastAPI serves it at the origin.
+      // The DA3 service. The base carries whatever path prefix the deployment needs: the Vite
+      // fixture serves the contract under /api, the deployed FastAPI serves it at the origin.
+      //
+      // The default is the fixture, but it will not answer this worker. Its privileged routes -
+      // which every POST is - require an `Origin` header naming loopback on 5173 AND a nonce that
+      // the dev server only injects into the HTML it serves, so it answers browsers and refuses
+      // processes. Observed 8 Sep 2026 from the compose stack:
+      //   POST http://<host>:5173/api/infer failed with 403:
+      //   {"detail":"local API requires a loopback origin on port 5173"}
+      // Running end to end therefore needs a real depth service, which costs money and needs the
+      // user's agreement each time (AGENTS.md), or a stand-in that does not exist yet.
+      // `http` is the FastAPI dialect above. `runpod` addresses a serverless endpoint, which is a
+      // job queue rather than one request, and sends frames by object key instead of by upload -
+      // see src/infer-runpod.mjs. Default unchanged, so nothing moves for anyone already running.
+      adapter: text("GREENV_INFER_ADAPTER", "http"),
       baseUrl: text("GREENV_INFER_BASE_URL", "http://127.0.0.1:5173/api"),
       token: text("GREENV_INFER_TOKEN", null),
       // Verge Studio grades 112 frames at 504 px as its best setting, and an L4 runs out above
@@ -85,6 +141,16 @@ function build() {
       maxFrames: number("GREENV_INFER_MAX_FRAMES", 112),
       fps: number("GREENV_INFER_FPS", 10),
       timeoutMs: number("GREENV_INFER_TIMEOUT_MS", 15 * 60 * 1000),
+      runpod: {
+        // The endpoint's id, not a URL: `infrastructure/locals.tf` hands it over under this name,
+        // and two services that disagree about a variable name never meet. The API host is
+        // separate so a self-hosted proxy or a future API version needs no code change.
+        endpointId: text("GREENV_INFER_RUNPOD_ENDPOINT_ID", null),
+        apiBase: text("GREENV_INFER_RUNPOD_API_BASE", "https://api.runpod.ai/v2"),
+        // A cold endpoint spends about a minute starting before it computes anything, so polling
+        // faster than this only buys requests.
+        pollIntervalMs: number("GREENV_INFER_RUNPOD_POLL_MS", 5000),
+      },
     },
 
     measurement: {
@@ -123,6 +189,48 @@ function build() {
   }
   if (config.storage.adapter === "s3" && !config.storage.bucket) {
     throw new Error("GREENV_S3_BUCKET is required when the object-storage adapter is s3");
+  }
+  if (!["rabbitmq", "azure-queue"].includes(config.queue.adapter)) {
+    throw new Error(`GREENV_SEGMENT_QUEUE_ADAPTER must be "rabbitmq" or "azure-queue", got "${config.queue.adapter}"`);
+  }
+  if (config.queue.enabled && config.queue.adapter === "azure-queue") {
+    // Checked at startup rather than at the first message: a worker that cannot name its queues
+    // is a worker that will look healthy and drain nothing.
+    if (!config.queue.azure.queue || !config.queue.azure.resultQueue) {
+      throw new Error(
+        "GREENV_AZURE_MEASUREMENT_QUEUE_NAME and GREENV_AZURE_MEASURED_QUEUE_NAME are required when the segment-queue adapter is azure-queue",
+      );
+    }
+    if (!config.queue.azure.connectionString && !config.queue.azure.endpoint) {
+      throw new Error(
+        "GREENV_AZURE_QUEUE_ENDPOINT or GREENV_AZURE_STORAGE_CONNECTION_STRING is required when the segment-queue adapter is azure-queue",
+      );
+    }
+  }
+  // Both or neither. Half a pair is a typo in a secret name, and the fallback would swallow it:
+  // the worker would start, reach for a credential chain that has nothing in it, and fail on the
+  // first frame with an SDK error naming none of the variables the deployment actually set. Both
+  // Java services refuse the same way (CloudClientConfiguration#credentials).
+  if (Boolean(config.storage.accessKey) !== Boolean(config.storage.secretKey)) {
+    throw new Error(
+      "GREENV_AWS_ACCESS_KEY and GREENV_AWS_SECRET_KEY must be set together, or both left unset " +
+        "to use the AWS default credential chain",
+    );
+  }
+  if (!["http", "runpod"].includes(config.infer.adapter)) {
+    throw new Error(`GREENV_INFER_ADAPTER must be "http" or "runpod", got "${config.infer.adapter}"`);
+  }
+  if (config.infer.adapter === "runpod") {
+    // The credential is the depth stage's own, under the name the deployment already uses for
+    // the FastAPI service's bearer: one endpoint, one token, whichever dialect reaches it.
+    if (!config.infer.runpod.endpointId || !config.infer.token) {
+      throw new Error("GREENV_INFER_RUNPOD_ENDPOINT_ID and GREENV_INFER_TOKEN are required when the infer adapter is runpod");
+    }
+    if (config.storage.adapter !== "s3") {
+      // The handler reads the frames itself, from a bucket. A worker whose frames are on its own
+      // filesystem has nothing to hand over, and would spend a GPU start to find that out.
+      throw new Error("the runpod infer adapter needs GREENV_OBJECT_STORAGE_ADAPTER=s3: the depth handler reads frames from the bucket");
+    }
   }
   return config;
 }

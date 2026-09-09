@@ -1,4 +1,4 @@
-// The automatic trigger.
+// The automatic trigger, over RabbitMQ. `azure.mjs` is the same trigger over Azure Queue Storage.
 //
 // One message per segment, because one segment is one depth run: the extractor samples 10 fps
 // over at most 112 frames, which is about 100 JPEGs for a ten-second segment, and an L4 runs out
@@ -24,7 +24,7 @@ import amqplib from "amqplib";
 const MAX_ATTEMPTS = Number(process.env.GREENV_MEASUREMENT_MAX_ATTEMPTS ?? 3);
 const RETRY_DELAY_MS = Number(process.env.GREENV_MEASUREMENT_RETRY_DELAY_MS ?? 15_000);
 
-export async function connectQueue(config, { log = () => {}, onLost } = {}) {
+export async function connectRabbitQueue(config, { log = () => {}, onLost } = {}) {
   const url = `amqp://${encodeURIComponent(config.user)}:${encodeURIComponent(config.password)}@${config.host}:${config.port}`;
   const connection = await amqplib.connect(url);
   const channel = await connection.createChannel();

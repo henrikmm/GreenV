@@ -21,6 +21,7 @@ import br.com.greenv.videoapi.port.CaptureSessionUseCase;
 import br.com.greenv.videoapi.port.IdentifierGenerator;
 import br.com.greenv.videoapi.port.IdentityAdminUseCase;
 import br.com.greenv.videoapi.port.JwkSetProvider;
+import br.com.greenv.videoapi.port.MeasurementAnnouncementReader;
 import br.com.greenv.videoapi.port.OAuthClientStore;
 import br.com.greenv.videoapi.port.SecretHasher;
 import br.com.greenv.videoapi.port.SessionCookieWriter;
@@ -41,12 +42,14 @@ import br.com.greenv.videoapi.storage.JdbcUserStoreAdapter;
 import br.com.greenv.videoapi.storage.LocalCaptureObjectStorageAdapter;
 import br.com.greenv.videoapi.storage.S3CaptureObjectStorageAdapter;
 import br.com.greenv.videoapi.storage.AzureBlobCaptureObjectStorageAdapter;
+import br.com.greenv.videoapi.task.AzureQueueMeasurementResultAdapter;
 import br.com.greenv.videoapi.task.AzureQueueSegmentWorkQueueAdapter;
 import br.com.greenv.videoapi.token.BCryptSecretHasherAdapter;
 import br.com.greenv.videoapi.token.NimbusAccessTokenIssuerAdapter;
 import br.com.greenv.videoapi.token.NimbusAccessTokenVerifierAdapter;
 import br.com.greenv.videoapi.token.RsaJwkSetProviderAdapter;
 import br.com.greenv.videoapi.task.AzureServiceBusSegmentWorkQueueAdapter;
+import br.com.greenv.videoapi.task.JacksonMeasurementAnnouncementReaderAdapter;
 import br.com.greenv.videoapi.task.JacksonSegmentMessageSerializerAdapter;
 import br.com.greenv.videoapi.task.RabbitMqSegmentWorkQueueAdapter;
 import br.com.greenv.videoapi.task.SqsSegmentWorkQueueAdapter;
@@ -93,6 +96,8 @@ class CloudAgnosticArchitectureTest {
         assertThat(SegmentWorkQueue.class).isAssignableFrom(AzureServiceBusSegmentWorkQueueAdapter.class);
         assertThat(SegmentMessageSerializer.class)
                 .isAssignableFrom(JacksonSegmentMessageSerializerAdapter.class);
+        assertThat(MeasurementAnnouncementReader.class)
+                .isAssignableFrom(JacksonMeasurementAnnouncementReaderAdapter.class);
         assertThat(IdentifierGenerator.class).isAssignableFrom(MonotonicUuidV7IdentifierAdapter.class);
         assertThat(UserStore.class).isAssignableFrom(JdbcUserStoreAdapter.class);
         assertThat(AuthSessionStore.class).isAssignableFrom(JdbcAuthSessionStoreAdapter.class);
@@ -120,6 +125,8 @@ class CloudAgnosticArchitectureTest {
         assertThat(RsaJwkSetProviderAdapter.class.getSimpleName()).endsWith("Adapter");
         assertThat(BCryptSecretHasherAdapter.class.getSimpleName()).endsWith("Adapter");
         assertThat(ResponseSessionCookieWriterAdapter.class.getSimpleName()).endsWith("Adapter");
+        assertThat(JacksonMeasurementAnnouncementReaderAdapter.class.getSimpleName()).endsWith("Adapter");
+        assertThat(AzureQueueMeasurementResultAdapter.class.getSimpleName()).endsWith("Adapter");
     }
 
     @Test
@@ -148,6 +155,7 @@ class CloudAgnosticArchitectureTest {
         assertAdapterValue(SqsSegmentWorkQueueAdapter.class, "sqs");
         assertAdapterValue(AzureQueueSegmentWorkQueueAdapter.class, "azure-queue");
         assertAdapterValue(AzureServiceBusSegmentWorkQueueAdapter.class, "azure-service-bus");
+        assertAdapterValue(AzureQueueMeasurementResultAdapter.class, "azure-queue");
     }
 
     @Test

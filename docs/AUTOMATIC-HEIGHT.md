@@ -44,12 +44,30 @@ nobody drains only grows. `compose.yaml` sets it.
 { "schemaVersion": 1, "sessionId": "...", "segmentIndex": 0,
   "idempotencyKey": "mobile:session:0", "outputPrefix": "capture-sessions/<id>/segments/00000000",
   "sourceGeneration": "<sha256 of the source mp4>", "sampledFrameCount": 100,
-  "capturedAt": "...", "requestedAt": "..." }
+  "capturedAt": "...", "requestedAt": "...",
+  "rodovia": "BR-101", "sentido": "norte" }
 ```
 
-The message carries identifiers only. The worker reads the manifest, the frame metadata and the
-frames themselves from object storage under `outputPrefix`, so this envelope never has to be kept
-in step with what those files contain.
+The message carries identifiers and the road, and nothing else. The worker reads the manifest, the
+frame metadata and the frames themselves from object storage under `outputPrefix`, so this envelope
+never has to be kept in step with what those files contain.
+
+The road is the exception, and it has to be: the worker calls Verge Studio, which keeps exactly
+four fields per frame and cannot look anything up. `rodovia` and `sentido` come from the capture
+session — the operator names them on the capture screen before recording — and travel
+`POST /v2/capture-sessions` → `capture_sessions` → the extraction request → `segment-manifest-v2.json`
+→ this announcement. Both are `null` for a capture recorded before the app asked, and null reaches
+the packet as null. `sentido` is one of `norte`, `sul`, `leste`, `oeste`; the API refuses anything
+else with `invalid_sentido`, and the extractor refuses a queue message carrying anything else with
+`invalid_segment_request`.
+
+The deployment runs no broker, so the same three hops also travel over Azure Queue Storage:
+`GREENV_SEGMENT_QUEUE_ADAPTER=azure-queue` switches all three services at once. The bodies above
+and below are unchanged — a queue is not a contract — but Azure Queue has no exchange, so each
+routing key becomes a queue of its own, named by `GREENV_AZURE_MEASUREMENT_QUEUE_NAME` and
+`GREENV_AZURE_MEASURED_QUEUE_NAME`. Retry changes shape with it: there is no delayed republish, a
+failed segment simply reappears when its visibility timeout expires, and one that will never
+succeed goes to a poison queue instead of being dropped.
 
 ### Over HTTP — for a backfill, or a re-measure
 
@@ -104,7 +122,8 @@ the one thing `GRASS-QUALITY.md` explicitly forbids.
 The seam is `frameContext`, keyed by canonical frame number, and the worker fills what it can:
 
 - `capturado_em` comes from the frame's own telemetry.
-- `rodovia` and `sentido` are passed through from the request, when GreenV knows them.
+- `rodovia` and `sentido` come from the capture session, named once by the operator before the
+  route starts. Null when nobody named them, which is honest rather than convenient.
 - `km` stays `null`, and that raises the `road-metadata-missing` blocker in the packet. Correct
   and visible, rather than silent and wrong.
 
@@ -227,6 +246,10 @@ chain carries operational traffic.
 | Object storage | `GREENV_OBJECT_STORAGE_ADAPTER` | `local` (or `s3`) |
 | Trigger queue | `GREENV_MEASUREMENT_QUEUE` | `greenv.segment.measure.v1` |
 | Announce from the extractor | `GREENV_MEASUREMENT_ENABLED` | `false` |
+| Queue transport | `GREENV_SEGMENT_QUEUE_ADAPTER` | `rabbitmq` (or `azure-queue`) |
+| Trigger queue, on Azure | `GREENV_AZURE_MEASUREMENT_QUEUE_NAME` | none |
+| Result queue, on Azure | `GREENV_AZURE_MEASURED_QUEUE_NAME` | none |
+| Measurement visibility, seconds | `GREENV_MEASUREMENT_VISIBILITY_SECONDS` | `1800`, the measurement timeout |
 
 **About the mock.** With no depth service configured, the worker talks to Verge Studio's
 fixture-backed stand-in, which answers every request with the same four-frame reconstruction of an

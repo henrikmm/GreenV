@@ -7,12 +7,19 @@ import br.com.greenv.frameextractor.port.MeasurementWorkQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
 
 @Component
-@ConditionalOnProperty(name = "greenv.measurement.enabled", havingValue = "true")
+// Written as an expression rather than a second @ConditionalOnProperty so that this stays the
+// publisher for every transport that is not azure-queue. The port must always have exactly one
+// implementation: naming rabbitmq here instead would leave a deployment with sqs or
+// azure-service-bus and measurement enabled with no MeasurementWorkQueue bean at all, and a worker
+// that fails to start is how every uploaded segment once ended up sitting in `queued`.
+@ConditionalOnExpression(
+        "'${greenv.measurement.enabled:false}' == 'true'"
+                + " and '${greenv.adapters.segment-queue:rabbitmq}' != 'azure-queue'")
 public class RabbitMqMeasurementWorkQueueAdapter implements MeasurementWorkQueue {
 
     private static final Logger LOG = LoggerFactory.getLogger(RabbitMqMeasurementWorkQueueAdapter.class);
