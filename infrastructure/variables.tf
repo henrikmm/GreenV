@@ -156,14 +156,28 @@ variable "measurement_enabled" {
   type        = bool
   default     = false
 
+  # A `runpod` deployment needs nothing more named: Terraform creates the endpoint, and the
+  # template it is built from is provisioned during the apply. Only the plain HTTP dialect has
+  # nowhere to send a segment unless someone says where.
   validation {
     condition = (
       !var.measurement_enabled ||
-      (var.depth_service_adapter == "runpod"
-        ? (var.depth_service_endpoint_id != null || var.depth_template_id != null)
-      : var.depth_service_base_url != null)
+      var.depth_service_adapter == "runpod" ||
+      var.depth_service_base_url != null
     )
-    error_message = "measurement_enabled needs a depth service: set depth_service_base_url, or - with depth_service_adapter = \"runpod\" - either depth_template_id for Terraform to create the endpoint, or depth_service_endpoint_id for one that already exists. Without one, every announced segment fails and lands in the poison queue."
+    error_message = "measurement_enabled with depth_service_adapter = \"http\" needs depth_service_base_url. Without it, every announced segment fails and lands in the poison queue."
+  }
+
+  # Creating the endpoint - and the template under it - is an API call, and an API call needs a
+  # key. Refusing here beats failing halfway through an apply with a 401 from two different places.
+  validation {
+    condition = (
+      !var.measurement_enabled ||
+      var.depth_service_adapter != "runpod" ||
+      var.depth_service_endpoint_id != null ||
+      var.runpod_api_key != null
+    )
+    error_message = "Creating a RunPod endpoint needs runpod_api_key (export TF_VAR_runpod_api_key). Set depth_service_endpoint_id instead to use an endpoint that already exists, which Terraform then never touches."
   }
 
   validation {
@@ -640,4 +654,19 @@ variable "depth_idle_timeout_seconds" {
     condition     = var.depth_idle_timeout_seconds >= 1 && var.depth_idle_timeout_seconds <= 3600
     error_message = "RunPod accepts an idle timeout between 1 and 3600 seconds."
   }
+}
+
+variable "depth_image" {
+  description = <<-EOT
+    The RunPod handler image, preferably pinned by sha256 digest like every other image here.
+
+    It reaches RunPod through the template `provision.mjs` creates during the apply, not through a
+    container app, which is why it is not spelled `*_image` beside the other three: nothing in
+    Azure ever pulls it.
+
+    Built from `services/greenv-depth-runpod/`, FROM the DA3 service image, and about 15.3 GB
+    unpacked - see that directory's README.
+  EOT
+  type        = string
+  default     = "ghcr.io/matomomitsu/greenv-depth-runpod@sha256:98de81166e77fa96ba21e2374862db97d080d08f3e5816bce6c21d8a413ce4fa"
 }

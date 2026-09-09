@@ -25,6 +25,13 @@ data "external" "depth_template" {
   count = local.provisions_depth_template ? 1 : 0
 
   program = ["node", "${path.module}/../services/greenv-depth-runpod/provision.mjs", "--json"]
+
+  # The image the depth stage runs, pinned here beside the other three rather than defaulted
+  # inside the script. `query` reaches the program on stdin and is visible in the plan, which an
+  # image reference may be and a credential may not - the credentials stay in the environment.
+  query = {
+    image = var.depth_image
+  }
 }
 
 resource "runpod_endpoint" "depth" {

@@ -769,9 +769,9 @@ run "creates_the_depth_endpoint_from_the_provisioned_template" {
   }
 }
 
-# Naming neither a template nor an existing endpoint is the same mistake as naming no depth
-# service at all, and it fails the same way.
-run "rejects_a_runpod_deployment_with_neither_endpoint_nor_template" {
+# Terraform creates the endpoint and provisions the template under it, and both are API calls.
+# Without a key it would fail halfway through an apply, from two places, with a 401.
+run "rejects_a_runpod_deployment_with_no_api_key" {
   command = plan
 
   variables {

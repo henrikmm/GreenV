@@ -24,7 +24,7 @@
 
 const API = process.env.RUNPOD_API_BASE ?? "https://rest.runpod.io/v1";
 
-export const settings = (env) => {
+export const settings = (env, query = {}) => {
   // Terraform's own spellings are accepted as fallbacks, so `terraform apply` needs no second set
   // of exports: TF_VAR_runpod_api_key is already in the shell for the provider, and the R2 pair is
   // already there for the workers.
@@ -52,7 +52,11 @@ export const settings = (env) => {
     // Terraform finds the template by this id, not by this name, so the name is only what a human
     // reads in the RunPod console - and what makes a second run recognise its own work.
     name: env.RUNPOD_TEMPLATE_NAME?.trim() || "greenv-depth",
-    image: env.GREENV_DEPTH_IMAGE?.trim() || "ghcr.io/matomomitsu/greenv-depth-runpod:pipeline",
+    // Terraform passes this on stdin so the image is pinned in `terraform.tfvars` beside the other
+    // three, rather than defaulted in two places that will drift. The literal below is only for a
+    // hand run, and it names a tag where Terraform names a digest - which is the difference
+    // between "whatever is newest" and "the one that was tested".
+    image: query.image?.trim() || env.GREENV_DEPTH_IMAGE?.trim() || "ghcr.io/matomomitsu/greenv-depth-runpod:pipeline",
     // The bucket credentials the handler reads through the ordinary AWS chain. Nothing else about
     // the bucket belongs here: the worker names bucket, endpoint and region in every job, so one
     // template serves any bucket the caller can address.
@@ -177,11 +181,22 @@ function redact(body) {
   return { ...body, env: Object.fromEntries(Object.keys(body.env ?? {}).map((key) => [key, "<set>"])) };
 }
 
+async function readJsonStdin() {
+  const chunks = [];
+  for await (const chunk of process.stdin) chunks.push(chunk);
+  const text = Buffer.concat(chunks).toString("utf8").trim();
+  return text ? JSON.parse(text) : {};
+}
+
 if (process.argv[1] === new URL(import.meta.url).pathname) {
+  await (async () => {
   // Terraform's external data source reads stdout as one JSON object of strings and treats
   // anything else there as a failure, so in this mode every human-readable line goes to stderr.
   const asJson = process.argv.includes("--json");
-  provision(settings(process.env), asJson ? { log: (line) => console.error(line), write: async () => {} } : {})
+  // The external data source writes its query to stdin as one JSON object. A hand run has no
+  // stdin to read, so it is not waited for.
+  const query = asJson ? await readJsonStdin() : {};
+  provision(settings(process.env, query), asJson ? { log: (line) => console.error(line), write: async () => {} } : {})
     .then((result) => {
       if (asJson) {
         process.stdout.write(JSON.stringify({ template_id: result.templateId }));
@@ -204,4 +219,5 @@ if (process.argv[1] === new URL(import.meta.url).pathname) {
       console.error(error.message);
       process.exit(1);
     });
+  })();
 }
