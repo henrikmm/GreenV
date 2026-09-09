@@ -20,6 +20,11 @@ terraform {
       source  = "decentralized-infrastructure/runpod"
       version = "~> 1.0"
     }
+    # Runs the RunPod template provisioner during the apply. See runpod.tf.
+    external = {
+      source  = "hashicorp/external"
+      version = "~> 2.3"
+    }
     random = {
       source  = "hashicorp/random"
       version = "~> 3.7"

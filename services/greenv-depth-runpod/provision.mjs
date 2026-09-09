@@ -1,17 +1,20 @@
 #!/usr/bin/env node
 // Create (or bring into line) the RunPod template this handler runs from.
 //
-// Terraform owns the endpoint, through `decentralized-infrastructure/runpod`. It does not own the
-// template, because that provider has a data source for templates and no resource — and the
-// template is where the image, the container disk and the bucket credentials live. So the split is
-// not a preference: this script creates the template and writes its id into
-// `infrastructure/runpod.auto.tfvars`, which Terraform loads by itself. Run this, then apply.
+// You do not normally run this. `terraform apply` does, through the external data source in
+// `infrastructure/runpod.tf`, so the whole deployment stays one command.
+//
+// It exists because `decentralized-infrastructure/runpod` has `runpod_endpoint` and no template
+// resource — confirmed against the provider binary's own schema, not its docs — and the template
+// is where the image, the container disk and the bucket credentials live. Terraform owns the
+// endpoint; this owns the template it is built from.
 //
 // Nothing about the endpoint is decided here — not the GPU, not the worker counts, not the
 // timeouts. Those live in `infrastructure/runpod.tf` and its variables, in one place, because two
 // records of the same number are two records that will disagree.
 //
-//   RUNPOD_API_KEY=... GREENV_AWS_ACCESS_KEY=... GREENV_AWS_SECRET_KEY=... node provision.mjs
+//   node provision.mjs           # by hand, printing what it did
+//   node provision.mjs --json    # what Terraform runs: one JSON object on stdout, logs on stderr
 //
 // It is idempotent by name: it reads what exists, creates what does not, and patches what drifted
 // rather than silently keeping it. Creating a template costs nothing, and neither does the
@@ -22,9 +25,19 @@
 const API = process.env.RUNPOD_API_BASE ?? "https://rest.runpod.io/v1";
 
 export const settings = (env) => {
-  const required = (name) => {
-    const value = (env[name] ?? "").trim();
-    if (!value) throw new Error(`${name} is required`);
+  // Terraform's own spellings are accepted as fallbacks, so `terraform apply` needs no second set
+  // of exports: TF_VAR_runpod_api_key is already in the shell for the provider, and the R2 pair is
+  // already there for the workers.
+  const first = (...names) => {
+    for (const name of names) {
+      const value = (env[name] ?? "").trim();
+      if (value) return value;
+    }
+    return null;
+  };
+  const required = (...names) => {
+    const value = first(...names);
+    if (!value) throw new Error(`${names[0]} is required`);
     return value;
   };
   const number = (name, fallback) => {
@@ -35,7 +48,7 @@ export const settings = (env) => {
     return value;
   };
   return {
-    apiKey: required("RUNPOD_API_KEY"),
+    apiKey: required("RUNPOD_API_KEY", "TF_VAR_runpod_api_key"),
     // Terraform finds the template by this id, not by this name, so the name is only what a human
     // reads in the RunPod console - and what makes a second run recognise its own work.
     name: env.RUNPOD_TEMPLATE_NAME?.trim() || "greenv-depth",
@@ -43,8 +56,8 @@ export const settings = (env) => {
     // The bucket credentials the handler reads through the ordinary AWS chain. Nothing else about
     // the bucket belongs here: the worker names bucket, endpoint and region in every job, so one
     // template serves any bucket the caller can address.
-    accessKey: required("GREENV_AWS_ACCESS_KEY"),
-    secretKey: required("GREENV_AWS_SECRET_KEY"),
+    accessKey: required("GREENV_AWS_ACCESS_KEY", "TF_VAR_r2_access_key_id"),
+    secretKey: required("GREENV_AWS_SECRET_KEY", "TF_VAR_r2_secret_access_key"),
     // The image is 15.3 GB unpacked; 50 GB is RunPod's own default and leaves room for the ~110 MB
     // a run materialises. Not checked against a real worker.
     containerDiskInGb: number("RUNPOD_CONTAINER_DISK_GB", 50),
@@ -165,8 +178,15 @@ function redact(body) {
 }
 
 if (process.argv[1] === new URL(import.meta.url).pathname) {
-  provision(settings(process.env))
+  // Terraform's external data source reads stdout as one JSON object of strings and treats
+  // anything else there as a failure, so in this mode every human-readable line goes to stderr.
+  const asJson = process.argv.includes("--json");
+  provision(settings(process.env), asJson ? { log: (line) => console.error(line), write: async () => {} } : {})
     .then((result) => {
+      if (asJson) {
+        process.stdout.write(JSON.stringify({ template_id: result.templateId }));
+        return;
+      }
       if (result.dryRun) return;
       console.log("");
       console.log(`wrote ${result.tfvarsPath}`);

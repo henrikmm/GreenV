@@ -6,7 +6,18 @@ locals {
   creates_depth_endpoint = (
     var.measurement_enabled
     && var.depth_service_adapter == "runpod"
-    && var.depth_template_id != null
+    # Naming an endpoint is naming one that already exists. Terraform reaches for the RunPod API
+    # only when nobody has.
+    && var.depth_service_endpoint_id == null
+  )
+
+  # The template is provisioned during the apply unless a specific one was named.
+  provisions_depth_template = local.creates_depth_endpoint && var.depth_template_id == null
+
+  depth_template_id = (
+    var.depth_template_id != null
+    ? var.depth_template_id
+    : (local.provisions_depth_template ? data.external.depth_template[0].result.template_id : null)
   )
 
   # The endpoint this deployment talks to: the one Terraform just created, or one a person made

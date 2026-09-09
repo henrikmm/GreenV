@@ -10,15 +10,28 @@
 # `runpod_endpoint` covers scaling, GPU selection and timeouts, and it stops there: RunPod's
 # *template* — the image, the container disk and the environment the worker starts with — has a
 # data source but no resource. So the template is created by
-# `services/greenv-depth-runpod/provision.mjs`, which writes its id into
-# `runpod.auto.tfvars` for the apply that follows. Splitting it this way is not a preference; it
-# is what the provider can do.
+# `services/greenv-depth-runpod/provision.mjs`, called below during the apply itself so the whole
+# deployment stays one command. Splitting it this way is not a preference; it is what the provider
+# can do.
+
+# Creating the template as part of reading it is a side effect in a data source, which is not
+# ordinary — it is here because the alternative is a second command a person runs first and
+# forgets once. The script is idempotent by name, so a plan that runs it twice gets the same id
+# twice and changes nothing; and `terraform destroy` leaves the template behind, which is a
+# template holding no GPU and costing nothing.
+#
+# Set `depth_template_id` to skip this entirely and name a template made some other way.
+data "external" "depth_template" {
+  count = local.provisions_depth_template ? 1 : 0
+
+  program = ["node", "${path.module}/../services/greenv-depth-runpod/provision.mjs", "--json"]
+}
 
 resource "runpod_endpoint" "depth" {
   count = local.creates_depth_endpoint ? 1 : 0
 
   name        = "${local.runtime_name_prefix}-depth"
-  template_id = var.depth_template_id
+  template_id = local.depth_template_id
 
   compute_type = "GPU"
 

@@ -106,33 +106,45 @@ worker ends up running something nobody can identify. `measurement/scripts/cloud
 
 ## The endpoint
 
-Two steps, and neither costs anything: a template holds the image and the credentials, and the
+One command, and it costs nothing to run: a template holds the image and the credentials, and the
 endpoint Terraform builds from it keeps `workers_min` at 0, so there is no worker until a request
 arrives.
 
 ```bash
-export RUNPOD_API_KEY=...            # RunPod console -> Settings -> API Keys
-export GREENV_AWS_ACCESS_KEY=...     # the R2 key the rest of the stack uses
-export GREENV_AWS_SECRET_KEY=...
-node services/greenv-depth-runpod/provision.mjs      # creates the template
-
 cd infrastructure
-export TF_VAR_runpod_api_key="$RUNPOD_API_KEY"
-export TF_VAR_depth_service_token="$RUNPOD_API_KEY" # the worker authenticates with the same key
-terraform apply                                      # creates the endpoint
+export TF_VAR_runpod_api_key=...        # RunPod console -> Settings -> API Keys
+export TF_VAR_depth_service_token="$TF_VAR_runpod_api_key"   # the worker authenticates with it too
+export TF_VAR_r2_access_key_id=...      # the R2 pair the rest of the stack already uses
+export TF_VAR_r2_secret_access_key=...
+terraform apply
 ```
 
-**Why two tools.** `decentralized-infrastructure/runpod` has a `runpod_endpoint` resource and, for
-templates, a data source and no resource — and the template is exactly where the image, the
-container disk and the bucket credentials live. So the script owns the template and writes its id
-into `infrastructure/runpod.auto.tfvars`, which Terraform loads with no flag and nothing pasted.
-Everything about the *endpoint* — the GPU, the worker counts, the timeouts — lives in
-`infrastructure/runpod.tf`, in one place, because two records of one number will disagree.
+with two lines in `terraform.tfvars`:
 
-The script is idempotent by name: it reads what exists, creates what does not, and patches what
-drifted. `RUNPOD_DRY_RUN=true` prints the request body and sends nothing, with the secrets shown as
-`<set>` so the output is safe to paste. It never sends a job: the first job is what bills, and
-`AGENTS.md` asks for agreement before that, every time.
+```hcl
+measurement_enabled   = true
+depth_service_adapter = "runpod"
+```
+
+**Why a script runs inside the apply.** `decentralized-infrastructure/runpod` has a
+`runpod_endpoint` resource and no template resource — checked against the provider binary's own
+schema, `terraform providers schema -json`, not against its docs. The template is exactly where the
+image, the container disk and the bucket credentials live, so `provision.mjs` creates it and
+Terraform reads its id through an `external` data source during the plan. The script accepts the
+`TF_VAR_*` spellings, so nothing has to be exported twice, and it needs `node` on the machine
+running Terraform.
+
+Creating the template as part of reading it is a side effect in a data source, which is not
+ordinary. It is here because the alternative is a second command someone runs first and forgets
+once. The script is idempotent by name, so a second plan gets the same id and changes nothing.
+
+Set `depth_template_id` to skip it and name a template made another way; set
+`depth_service_endpoint_id` to skip both and name an endpoint that already exists.
+
+Everything about the *endpoint* — the GPU, the worker counts, the timeouts — lives in
+`infrastructure/runpod.tf`, in one place, because two records of one number will disagree. The
+script never sends a job: the first job is what bills, and `AGENTS.md` asks for agreement before
+that, every time.
 
 The endpoint settings Terraform applies, and why:
 
