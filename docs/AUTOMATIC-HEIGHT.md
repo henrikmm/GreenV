@@ -51,6 +51,14 @@ The message carries identifiers only. The worker reads the manifest, the frame m
 frames themselves from object storage under `outputPrefix`, so this envelope never has to be kept
 in step with what those files contain.
 
+The deployment runs no broker, so the same three hops also travel over Azure Queue Storage:
+`GREENV_SEGMENT_QUEUE_ADAPTER=azure-queue` switches all three services at once. The bodies above
+and below are unchanged — a queue is not a contract — but Azure Queue has no exchange, so each
+routing key becomes a queue of its own, named by `GREENV_AZURE_MEASUREMENT_QUEUE_NAME` and
+`GREENV_AZURE_MEASURED_QUEUE_NAME`. Retry changes shape with it: there is no delayed republish, a
+failed segment simply reappears when its visibility timeout expires, and one that will never
+succeed goes to a poison queue instead of being dropped.
+
 ### Over HTTP — for a backfill, or a re-measure
 
 ```bash
@@ -227,6 +235,10 @@ chain carries operational traffic.
 | Object storage | `GREENV_OBJECT_STORAGE_ADAPTER` | `local` (or `s3`) |
 | Trigger queue | `GREENV_MEASUREMENT_QUEUE` | `greenv.segment.measure.v1` |
 | Announce from the extractor | `GREENV_MEASUREMENT_ENABLED` | `false` |
+| Queue transport | `GREENV_SEGMENT_QUEUE_ADAPTER` | `rabbitmq` (or `azure-queue`) |
+| Trigger queue, on Azure | `GREENV_AZURE_MEASUREMENT_QUEUE_NAME` | none |
+| Result queue, on Azure | `GREENV_AZURE_MEASURED_QUEUE_NAME` | none |
+| Measurement visibility, seconds | `GREENV_MEASUREMENT_VISIBILITY_SECONDS` | `1800`, the measurement timeout |
 
 **About the mock.** With no depth service configured, the worker talks to Verge Studio's
 fixture-backed stand-in, which answers every request with the same four-frame reconstruction of an

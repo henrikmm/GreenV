@@ -18,7 +18,8 @@ class RabbitMqMeasurementResultAdapterTest {
 
     private final CaptureSessionUseCase useCase = mock(CaptureSessionUseCase.class);
     private final RabbitMqMeasurementResultAdapter adapter =
-            new RabbitMqMeasurementResultAdapter(useCase, JsonMapper.builder().build());
+            new RabbitMqMeasurementResultAdapter(
+                    useCase, new JacksonMeasurementAnnouncementReaderAdapter(JsonMapper.builder().build()));
 
     @Test
     void readsTheIdentityOutOfTheWorkersWholeEnvelope() {
