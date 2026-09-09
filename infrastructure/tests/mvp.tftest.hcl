@@ -75,13 +75,14 @@ run "plans_cost_conscious_mvp_defaults" {
   command = plan
 
   variables {
-    cloudflare_account_id = "00000000000000000000000000000000"
-    r2_bucket_name        = "greenv-mvp-captures-test"
-    r2_access_key_id      = "test-access-key"
-    r2_secret_access_key  = "test-secret-key"
-    api_image             = "ghcr.io/example/greenv-video-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    worker_image          = "ghcr.io/example/greenv-frame-extractor@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-    budget_contact_emails = ["finops@example.com"]
+    cloudflare_account_id    = "00000000000000000000000000000000"
+    r2_bucket_name           = "greenv-mvp-captures-test"
+    r2_access_key_id         = "test-access-key"
+    r2_secret_access_key     = "test-secret-key"
+    api_image                = "ghcr.io/example/greenv-video-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    worker_image             = "ghcr.io/example/greenv-frame-extractor@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    measurement_worker_image = "ghcr.io/example/greenv-measurement-worker@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    budget_contact_emails    = ["finops@example.com"]
   }
 
   assert {
@@ -179,6 +180,139 @@ run "plans_cost_conscious_mvp_defaults" {
   }
 
   assert {
+    condition = (
+      azurerm_container_app.measurement.template[0].min_replicas == 0 &&
+      azurerm_container_app.measurement.workload_profile_name == "Consumption"
+    )
+    error_message = "The measurement worker must scale to zero: it is idle between drives and its image is over a gigabyte to keep warm."
+  }
+
+  # One segment is one whole depth run. A 112-frame run fills an L4 to 99.95% of its 22.03 GiB
+  # usable (measurement/docs/REGISTRY.md), so a second replica cannot get a GPU - it would only
+  # wait inside the depth service's own lock while billing a second Container Apps replica.
+  assert {
+    condition     = azurerm_container_app.measurement.template[0].max_replicas == 1
+    error_message = "The measurement worker must default to one replica; a second cannot get a GPU."
+  }
+
+  # Container Apps Consumption accepts memory only at 2 GiB per vCPU, so changing one number
+  # without the other fails at apply rather than here. This is the invariant behind the sizing
+  # comment in container-apps.tf, which is reasoning rather than a measured working set.
+  assert {
+    condition = alltrue([
+      for container in [
+        azurerm_container_app.api.template[0].container[0],
+        azurerm_container_app.worker.template[0].container[0],
+        azurerm_container_app.measurement.template[0].container[0],
+      ] : tonumber(trimsuffix(container.memory, "Gi")) == container.cpu * 2
+    ])
+    error_message = "Container Apps Consumption only accepts 2 GiB of memory per vCPU."
+  }
+
+  assert {
+    condition = (
+      azurerm_container_app.measurement.template[0].container[0].cpu == 2 &&
+      azurerm_container_app.measurement.template[0].container[0].memory == "4Gi"
+    )
+    error_message = "The measurement worker holds a ~108 MB reconstruction and spawns a segmentation model; 4 GiB is the margin an unmeasured working set needs."
+  }
+
+  # Scaling on the extraction queue would wake this worker for every segment cut, GPU and all.
+  # The identities cannot be compared here - a mocked provider gives no id during plan - so the
+  # separation is asserted on the names, which are literals.
+  assert {
+    condition = (
+      azurerm_container_app.measurement.template[0].custom_scale_rule[0].custom_rule_type == "azure-queue" &&
+      azurerm_container_app.measurement.template[0].custom_scale_rule[0].metadata.queueName == azurerm_storage_queue.measurement.name &&
+      azurerm_container_app.measurement.template[0].custom_scale_rule[0].metadata.queueName != azurerm_storage_queue.segment.name &&
+      azurerm_container_app.measurement.template[0].custom_scale_rule[0].metadata.queueLength == "1"
+    )
+    error_message = "The measurement worker must scale on its own queue through a managed identity, one segment at a time."
+  }
+
+  assert {
+    condition = (
+      length(azurerm_container_app.measurement.identity[0].identity_ids) == 1 &&
+      azurerm_user_assigned_identity.measurement.name != azurerm_user_assigned_identity.worker.name
+    )
+    error_message = "The measurement worker must run as its own managed identity, not the frame worker's."
+  }
+
+  # POST /measurements has no authentication of its own and every accepted call wakes a paid GPU.
+  assert {
+    condition     = length(azurerm_container_app.measurement.ingress) == 0
+    error_message = "The measurement worker's manual trigger must not be reachable; it spends GPU money on request."
+  }
+
+  # Without a reachable depth service the worker falls back to a fixture-backed mock that answers
+  # with an unrelated scene's geometry. A mock run was mistaken for a real one on 2026-08-05.
+  assert {
+    condition     = local.measurement_environment.GREENV_MEASUREMENT_ALLOW_MOCK == "false"
+    error_message = "A deployed revision must never publish a mock packet."
+  }
+
+  # A lease that expires mid-run redelivers the message and pays for the same segment's GPU twice.
+  assert {
+    condition = (
+      local.measurement_environment.GREENV_QUEUE_VISIBILITY_SECONDS == "1800" &&
+      local.measurement_environment.GREENV_AZURE_QUEUE_MAX_DEQUEUE_COUNT == "2"
+    )
+    error_message = "A measurement lease must outlive the slowest run, and a doomed message must not be retried five times at GPU prices."
+  }
+
+  # The shared map names the extraction queue, so the override is the thing that keeps this worker
+  # off another worker's messages. It reads the same bucket by construction, which is the reason
+  # the map is shared at all.
+  assert {
+    condition = (
+      local.measurement_environment.GREENV_AZURE_QUEUE_NAME == azurerm_storage_queue.measurement.name &&
+      local.measurement_environment.GREENV_AZURE_POISON_QUEUE_NAME == azurerm_storage_queue.measurement_poison.name &&
+      local.measurement_environment.GREENV_MEASUREMENT_RESULT_ROUTING_KEY == azurerm_storage_queue.measurement_result.name &&
+      local.measurement_environment.GREENV_S3_BUCKET == local.common_environment.GREENV_S3_BUCKET
+    )
+    error_message = "The measurement worker must address its own three queues and the same bucket the extractor wrote the frames to."
+  }
+
+  # False by default. Turning it on makes every capture wake a paid GPU, which AGENTS.md wants
+  # agreed in conversation rather than inherited from a default.
+  assert {
+    condition = (
+      local.worker_environment.GREENV_MEASUREMENT_ENABLED == "false" &&
+      local.worker_environment.GREENV_MEASUREMENT_QUEUE == azurerm_storage_queue.measurement.name
+    )
+    error_message = "Automatic measurement must stay off by default, and the announcer must name the queue its consumer reads."
+  }
+
+  assert {
+    condition = (
+      azurerm_role_assignment.measurement_queue_contributor.role_definition_name == "Storage Queue Data Contributor" &&
+      azurerm_role_assignment.measurement_result_sender.role_definition_name == "Storage Queue Data Message Sender" &&
+      azurerm_role_assignment.measurement_poison_sender.role_definition_name == "Storage Queue Data Message Sender"
+    )
+    error_message = "The measurement identity must drain its own queue and only publish to the result and poison queues."
+  }
+
+  assert {
+    condition = length(distinct([
+      azurerm_storage_queue.segment.name,
+      azurerm_storage_queue.poison.name,
+      azurerm_storage_queue.measurement.name,
+      azurerm_storage_queue.measurement_result.name,
+      azurerm_storage_queue.measurement_poison.name,
+    ])) == 5
+    error_message = "Every queue in the account must be distinct; sharing one would run the wrong stage on a redelivery."
+  }
+
+  # Nothing has authorised GPU spend, so no depth credential is mounted.
+  assert {
+    condition = (
+      length([for secret in azurerm_container_app.measurement.secret : secret if secret.name == "depth-service-token"]) == 0 &&
+      !contains(keys(local.measurement_secret_environment), "GREENV_INFER_TOKEN")
+    )
+    error_message = "The depth-service secret must exist only when a token is configured."
+  }
+
+  assert {
     condition     = azurerm_storage_account.queue.account_replication_type == "LRS"
     error_message = "The MVP queue account must use cost-conscious LRS replication."
   }
@@ -238,14 +372,15 @@ run "plans_dns_only_custom_domain" {
   command = plan
 
   variables {
-    cloudflare_account_id = "00000000000000000000000000000000"
-    cloudflare_zone_id    = "11111111111111111111111111111111"
-    api_hostname          = "api.example.com"
-    r2_bucket_name        = "greenv-mvp-captures-test"
-    r2_access_key_id      = "test-access-key"
-    r2_secret_access_key  = "test-secret-key"
-    api_image             = "ghcr.io/example/greenv-video-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    worker_image          = "ghcr.io/example/greenv-frame-extractor@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    cloudflare_account_id    = "00000000000000000000000000000000"
+    cloudflare_zone_id       = "11111111111111111111111111111111"
+    api_hostname             = "api.example.com"
+    r2_bucket_name           = "greenv-mvp-captures-test"
+    r2_access_key_id         = "test-access-key"
+    r2_secret_access_key     = "test-secret-key"
+    api_image                = "ghcr.io/example/greenv-video-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    worker_image             = "ghcr.io/example/greenv-frame-extractor@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    measurement_worker_image = "ghcr.io/example/greenv-measurement-worker@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
     container_registry = {
       server   = "ghcr.io"
       username = "greenv-ci"
@@ -294,6 +429,7 @@ run "plans_dns_only_edge_defaults" {
     r2_secret_access_key              = "test-secret-key"
     api_image                         = "ghcr.io/example/greenv-video-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     worker_image                      = "ghcr.io/example/greenv-frame-extractor@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    measurement_worker_image          = "ghcr.io/example/greenv-measurement-worker@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
     cloudflare_proxy_enabled          = false
     restrict_api_origin_to_cloudflare = false
   }
@@ -341,6 +477,7 @@ run "plans_protected_edge_configuration" {
     r2_secret_access_key                = "test-secret-key"
     api_image                           = "ghcr.io/example/greenv-video-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     worker_image                        = "ghcr.io/example/greenv-frame-extractor@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    measurement_worker_image            = "ghcr.io/example/greenv-measurement-worker@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
     api_allowed_origins                 = ["http://localhost:5173"]
     cloudflare_proxy_enabled            = true
     restrict_api_origin_to_cloudflare   = true
@@ -422,6 +559,7 @@ run "rejects_origin_restriction_without_the_proxy" {
     r2_secret_access_key              = "test-secret-key"
     api_image                         = "ghcr.io/example/greenv-video-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     worker_image                      = "ghcr.io/example/greenv-frame-extractor@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    measurement_worker_image          = "ghcr.io/example/greenv-measurement-worker@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
     cloudflare_proxy_enabled          = false
     restrict_api_origin_to_cloudflare = true
   }
@@ -441,6 +579,7 @@ run "manages_zone_tls_only_behind_its_flag" {
     r2_secret_access_key                     = "test-secret-key"
     api_image                                = "ghcr.io/example/greenv-video-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     worker_image                             = "ghcr.io/example/greenv-frame-extractor@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    measurement_worker_image                 = "ghcr.io/example/greenv-measurement-worker@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
     manage_cloudflare_zone_security_settings = true
   }
 
@@ -459,45 +598,170 @@ run "manages_zone_tls_only_behind_its_flag" {
   }
 }
 
-run "rolls_both_workloads_on_a_new_deployment_revision" {
+run "rolls_every_workload_on_a_new_deployment_revision" {
   command = plan
 
   variables {
-    cloudflare_account_id = "00000000000000000000000000000000"
-    r2_bucket_name        = "greenv-mvp-captures-test"
-    r2_access_key_id      = "test-access-key"
-    r2_secret_access_key  = "test-secret-key"
-    api_image             = "ghcr.io/example/greenv-video-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    worker_image          = "ghcr.io/example/greenv-frame-extractor@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-    deployment_revision   = "keep-source"
+    cloudflare_account_id    = "00000000000000000000000000000000"
+    r2_bucket_name           = "greenv-mvp-captures-test"
+    r2_access_key_id         = "test-access-key"
+    r2_secret_access_key     = "test-secret-key"
+    api_image                = "ghcr.io/example/greenv-video-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    worker_image             = "ghcr.io/example/greenv-frame-extractor@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    measurement_worker_image = "ghcr.io/example/greenv-measurement-worker@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    deployment_revision      = "keep-source"
   }
 
   assert {
     condition = (
       azurerm_container_app.api.template[0].revision_suffix == "keep-source" &&
-      azurerm_container_app.worker.template[0].revision_suffix == "keep-source"
+      azurerm_container_app.worker.template[0].revision_suffix == "keep-source" &&
+      azurerm_container_app.measurement.template[0].revision_suffix == "keep-source"
     )
-    error_message = "One suffix must roll both workloads, so a stuck revision is recovered in a single apply."
+    error_message = "One suffix must roll all three workloads, so a stuck revision is recovered in a single apply."
   }
 
   assert {
-    condition     = length("${azurerm_container_app.worker.name}--${var.deployment_revision}") <= 64
+    condition = alltrue([
+      for name in [azurerm_container_app.worker.name, azurerm_container_app.measurement.name] :
+      length("${name}--${var.deployment_revision}") <= 64
+    ])
     error_message = "The revision name must satisfy Azure's 64-character limit."
   }
+}
+
+# Turning measurement on is the deliberate act that authorises GPU spend, so the wiring it needs is
+# asserted separately from the default deployment above.
+run "plans_automatic_measurement_against_a_depth_service" {
+  command = plan
+
+  variables {
+    cloudflare_account_id    = "00000000000000000000000000000000"
+    r2_bucket_name           = "greenv-mvp-captures-test"
+    r2_access_key_id         = "test-access-key"
+    r2_secret_access_key     = "test-secret-key"
+    api_image                = "ghcr.io/example/greenv-video-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    worker_image             = "ghcr.io/example/greenv-frame-extractor@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    measurement_worker_image = "ghcr.io/example/greenv-measurement-worker@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    measurement_enabled      = true
+    depth_service_base_url   = "https://verge-da3.example.com/api"
+    depth_service_token      = "test-depth-token"
+  }
+
+  assert {
+    condition = (
+      local.worker_environment.GREENV_MEASUREMENT_ENABLED == "true" &&
+      local.measurement_environment.GREENV_INFER_BASE_URL == "https://verge-da3.example.com/api" &&
+      local.measurement_environment.GREENV_INFER_ADAPTER == "http"
+    )
+    error_message = "Enabling measurement must both start the announcements and name the depth service that answers them."
+  }
+
+  assert {
+    condition = (
+      local.measurement_secret_environment.GREENV_INFER_TOKEN == "depth-service-token" &&
+      anytrue([
+        for secret in azurerm_container_app.measurement.secret :
+        secret.name == "depth-service-token" && secret.value == "test-depth-token"
+      ])
+    )
+    error_message = "The depth credential must travel as a Container Apps secret, never as a plain environment value."
+  }
+
+  # 112 frames at 504 px is Verge Studio's best graded setting and already peaked at 99.95% of an
+  # L4's 22.03 GiB usable; the extractor caps its own sampling there (measurement/docs/REGISTRY.md).
+  assert {
+    condition     = local.measurement_environment.GREENV_INFER_MAX_FRAMES == "112"
+    error_message = "A run must not be sent more frames than an L4 has been observed to survive."
+  }
+
+  # The union, not `terrain` alone: Cityscapes files vertically growing plants under `vegetation`,
+  # and `terrain` alone reads 0.000 m on a plant taped at 0.980 m
+  # (measurement/docs/evidence/2026-09-05-class-fit.md). No policy here is validated.
+  assert {
+    condition     = local.measurement_environment.GREENV_MEASUREMENT_CLASSES == "terrain,vegetation"
+    error_message = "The class policy must reach the worker, because roçada is about the vegetation class."
+  }
+}
+
+run "plans_a_runpod_depth_endpoint" {
+  command = plan
+
+  variables {
+    cloudflare_account_id     = "00000000000000000000000000000000"
+    r2_bucket_name            = "greenv-mvp-captures-test"
+    r2_access_key_id          = "test-access-key"
+    r2_secret_access_key      = "test-secret-key"
+    api_image                 = "ghcr.io/example/greenv-video-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    worker_image              = "ghcr.io/example/greenv-frame-extractor@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    measurement_worker_image  = "ghcr.io/example/greenv-measurement-worker@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    measurement_enabled       = true
+    depth_service_adapter     = "runpod"
+    depth_service_endpoint_id = "abc123def456"
+    depth_service_token       = "test-runpod-api-key"
+  }
+
+  assert {
+    condition = (
+      local.measurement_environment.GREENV_INFER_ADAPTER == "runpod" &&
+      local.measurement_environment.GREENV_INFER_RUNPOD_ENDPOINT_ID == "abc123def456" &&
+      !contains(keys(local.measurement_environment), "GREENV_INFER_BASE_URL")
+    )
+    error_message = "A RunPod deployment must name its endpoint and not also carry a plain base URL to disagree with."
+  }
+}
+
+# Announcing segments with nowhere to send them fills the poison queue, and every message in it
+# would have cost GPU time to get there.
+run "rejects_automatic_measurement_without_a_depth_service" {
+  command = plan
+
+  variables {
+    cloudflare_account_id    = "00000000000000000000000000000000"
+    r2_bucket_name           = "greenv-mvp-captures-test"
+    r2_access_key_id         = "test-access-key"
+    r2_secret_access_key     = "test-secret-key"
+    api_image                = "ghcr.io/example/greenv-video-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    worker_image             = "ghcr.io/example/greenv-frame-extractor@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    measurement_worker_image = "ghcr.io/example/greenv-measurement-worker@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    measurement_enabled      = true
+  }
+
+  expect_failures = [var.measurement_enabled]
+}
+
+run "rejects_a_runpod_endpoint_without_an_api_key" {
+  command = plan
+
+  variables {
+    cloudflare_account_id     = "00000000000000000000000000000000"
+    r2_bucket_name            = "greenv-mvp-captures-test"
+    r2_access_key_id          = "test-access-key"
+    r2_secret_access_key      = "test-secret-key"
+    api_image                 = "ghcr.io/example/greenv-video-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    worker_image              = "ghcr.io/example/greenv-frame-extractor@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    measurement_worker_image  = "ghcr.io/example/greenv-measurement-worker@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    measurement_enabled       = true
+    depth_service_adapter     = "runpod"
+    depth_service_endpoint_id = "abc123def456"
+  }
+
+  expect_failures = [var.measurement_enabled]
 }
 
 run "issues_and_binds_a_managed_certificate_for_the_custom_hostname" {
   command = plan
 
   variables {
-    cloudflare_account_id = "00000000000000000000000000000000"
-    cloudflare_zone_id    = "11111111111111111111111111111111"
-    api_hostname          = "api.example.com"
-    r2_bucket_name        = "greenv-mvp-captures-test"
-    r2_access_key_id      = "test-access-key"
-    r2_secret_access_key  = "test-secret-key"
-    api_image             = "ghcr.io/example/greenv-video-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    worker_image          = "ghcr.io/example/greenv-frame-extractor@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    cloudflare_account_id    = "00000000000000000000000000000000"
+    cloudflare_zone_id       = "11111111111111111111111111111111"
+    api_hostname             = "api.example.com"
+    r2_bucket_name           = "greenv-mvp-captures-test"
+    r2_access_key_id         = "test-access-key"
+    r2_secret_access_key     = "test-secret-key"
+    api_image                = "ghcr.io/example/greenv-video-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    worker_image             = "ghcr.io/example/greenv-frame-extractor@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    measurement_worker_image = "ghcr.io/example/greenv-measurement-worker@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
   }
 
   assert {
@@ -536,12 +800,13 @@ run "omits_the_certificate_without_a_custom_hostname" {
   command = plan
 
   variables {
-    cloudflare_account_id = "00000000000000000000000000000000"
-    r2_bucket_name        = "greenv-mvp-captures-test"
-    r2_access_key_id      = "test-access-key"
-    r2_secret_access_key  = "test-secret-key"
-    api_image             = "ghcr.io/example/greenv-video-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    worker_image          = "ghcr.io/example/greenv-frame-extractor@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    cloudflare_account_id    = "00000000000000000000000000000000"
+    r2_bucket_name           = "greenv-mvp-captures-test"
+    r2_access_key_id         = "test-access-key"
+    r2_secret_access_key     = "test-secret-key"
+    api_image                = "ghcr.io/example/greenv-video-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    worker_image             = "ghcr.io/example/greenv-frame-extractor@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    measurement_worker_image = "ghcr.io/example/greenv-measurement-worker@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
   }
 
   assert {

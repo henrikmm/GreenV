@@ -6,17 +6,33 @@ This Terraform stack creates the low-idle-cost MVP environment without changing 
 mobile -> Cloudflare DNS -> Azure Container Apps API (0..3 replicas)
                               |-> Neon PostgreSQL
                               |-> private Cloudflare R2 bucket
-                              `-> Azure Queue
+                              `-> Azure Queue (extraction)
 
-Azure Queue -> managed-identity KEDA trigger -> frame worker (0..4 replicas)
-                                                   |-> Neon PostgreSQL
-                                                   `-> private Cloudflare R2 bucket
+Azure Queue (extraction) -> managed-identity KEDA trigger -> frame worker (0..4 replicas)
+                                                                |-> Neon PostgreSQL
+                                                                |-> private Cloudflare R2 bucket
+                                                                `-> Azure Queue (measurement)
+
+Azure Queue (measurement) -> managed-identity KEDA trigger -> measurement worker (0..1 replicas)
+                                                                |-> private Cloudflare R2 bucket
+                                                                |-> depth service (GPU, NOT created here)
+                                                                `-> Azure Queue (measurement result)
 ```
 
-The API is the only public workload. The worker has no ingress. Azure Queue uses two user-assigned
-managed identities: the API can send messages, while the worker can read, delete, retry and move
-exhausted messages to the poison queue. R2 uses its S3 API because that is the application adapter
+The API is the only public workload. Neither worker has ingress. Azure Queue uses three
+user-assigned managed identities: the API can send messages, the frame worker can read, delete,
+retry and move exhausted messages to the poison queue, and the measurement identity can do the same
+on its own queue only — its three roles are scoped to one queue each rather than to the whole
+account, so a measurement worker misconfigured onto the extraction queue gets a 403 instead of
+deleting another worker's messages. R2 uses its S3 API because that is the application adapter
 contract. PostgreSQL, queue payloads and object keys remain provider-neutral.
+
+**The depth service is deliberately absent from this Terraform.** It is a paid GPU endpoint that
+bills for the machine's whole lifetime, not for the seconds it computes, and
+[`AGENTS.md`](../AGENTS.md) requires the user's agreement in conversation before anything wakes it.
+This configuration wires an address and a credential; someone else decides the service exists. That
+is also why `measurement_enabled` is `false` by default — see
+[Automatic measurement](#automatic-measurement-is-off-by-default) below.
 
 The current API does not yet authenticate mobile devices. Terraform provisions TLS and cloud
 identity between services; it does not add application authentication. Do not invite external
@@ -30,9 +46,10 @@ is run.
 
 - one Azure resource group, Consumption Container Apps environment and capped Log Analytics
   workspace;
-- one public API Container App and one private queue-driven worker, both with minimum replicas 0;
-- one LRS StorageV2 account used only for the segment and poison queues;
-- separate Azure managed identities and least-purpose queue roles;
+- one public API Container App and two private queue-driven workers, all with minimum replicas 0;
+- one LRS StorageV2 account holding five queues: segment extraction and its poison queue, and
+  measurement, its result queue and its poison queue;
+- three separate Azure managed identities and least-purpose queue roles;
 - a bootstrap root that creates separate deletion-protected R2 state and application buckets;
 - one Neon PostgreSQL 17 project with pooled connections, autoscaling and the account's permitted
   scale-to-zero interval;
@@ -50,7 +67,10 @@ charge for the MVP. Private GHCR or any OCI registry is supported through `conta
   subscription;
 - a Cloudflare API token with R2 bucket write and, when using a custom hostname, DNS write access;
 - a Neon API key for the organization where the project will be created;
-- published API and worker images, preferably pinned by `@sha256:<digest>`;
+- published API, frame worker and measurement worker images, preferably pinned by
+  `@sha256:<digest>`. The measurement worker's image builds from the repository root, not from its
+  own directory, because it carries `measurement/` and a baked model cache:
+  `docker build -f services/greenv-measurement-worker/Dockerfile .`;
 - permission to create two R2 S3 credential pairs after the bootstrap creates their buckets.
 
 Cloudflare's Terraform provider can create R2 buckets but cannot mint the S3 access-key pair used
@@ -149,6 +169,60 @@ unset GHCR_READ_TOKEN
 ```
 
 Set `api_hostname = null` and `cloudflare_zone_id = null` to deploy without a custom domain.
+
+## Automatic measurement is off by default
+
+`measurement_enabled = false` is the whole difference between a deployment that costs nothing when
+idle and one that spends on every capture. It controls one setting on the frame extractor —
+`GREENV_MEASUREMENT_ENABLED` — which is whether a finished segment is announced for measurement at
+all. The measurement worker, its three queues and its role assignments exist either way; at zero
+replicas with an empty queue they bill nothing.
+
+Turning it on is what buys GPU time. One segment is one depth run, and that service bills for the
+machine's whole lifetime: about a minute of work and up to fifteen minutes of billed idle for a
+lone segment, with back-to-back segments from one drive riding a single warm instance. A drive that
+uploads continuously is affordable; one segment an hour is not. The numbers and the licence
+restriction are in [`docs/AUTOMATIC-HEIGHT.md`](../docs/AUTOMATIC-HEIGHT.md), and
+[`AGENTS.md`](../AGENTS.md) requires the user's agreement in conversation before anything wakes it.
+
+Terraform refuses to enable measurement without a depth service, because announcing segments with
+nowhere to send them fills the poison queue with messages that each cost GPU time to fail:
+
+```hcl
+measurement_enabled    = true
+depth_service_base_url = "https://verge-da3.example.com"
+```
+
+```hcl
+measurement_enabled       = true
+depth_service_adapter     = "runpod"
+depth_service_endpoint_id = "<runpod endpoint id>"
+```
+
+RunPod also requires the API key, and either adapter takes its credential the same way — export it
+rather than writing it into `terraform.tfvars`:
+
+```bash
+export TF_VAR_depth_service_token='<depth service bearer token or RunPod API key>'
+```
+
+Two settings on the worker are deliberately not variables. `GREENV_MEASUREMENT_ALLOW_MOCK` is
+pinned to `false`: without a reachable depth service the worker falls back to Verge Studio's
+fixture-backed mock, which answers every request with the same reconstruction of an unrelated
+scene, and a packet built that way pairs this road's frames with someone else's geometry. A mock
+run was mistaken for a real one on 2026-08-05. The worker also has no ingress at all, which is a
+stronger statement than the frame extractor's: it answers `POST /measurements` as a manual trigger
+for backfills, that endpoint has no authentication of its own, and every accepted call wakes a paid
+GPU. Run a backfill through the replica instead, after agreeing the spend:
+
+```bash
+az containerapp exec --resource-group "$(terraform output -raw resource_group_name)" \
+  --name "$(terraform output -raw measurement_worker_container_app_name)" \
+  --command "sh"
+```
+
+`terraform output measurement_state` says which of the two states the configuration is in and, when
+enabled, which depth service will answer.
 
 ## The custom hostname takes two applies
 
@@ -317,7 +391,11 @@ $apiToken = terraform output -raw api_bearer_token
 Invoke-RestMethod "$api/actuator/health"
 az containerapp replica list --resource-group (terraform output -raw resource_group_name) --name (terraform output -raw api_container_app_name)
 az containerapp replica list --resource-group (terraform output -raw resource_group_name) --name (terraform output -raw worker_container_app_name)
+az containerapp replica list --resource-group (terraform output -raw resource_group_name) --name (terraform output -raw measurement_worker_container_app_name)
 ```
+
+With `measurement_enabled = false` the third app has no replicas and never will, which is the
+expected result rather than a fault.
 
 From Git Bash, verify that health is public, missing/invalid credentials are rejected and the valid
 credential reaches the application. The script does not create or modify capture data:
@@ -346,8 +424,8 @@ inspection; moving or deleting one is an operational decision, not an automatic 
 
 - `terraform plan` before every apply; apply a saved plan so the reviewed graph is the deployed
   graph.
-- **The worker's queue scale rule always shows as a change, and that is expected.** Azure stores it
-  as a native `azureQueue` rule, and the provider reads that back as `azure_queue_scale_rule`,
+- **Each worker's queue scale rule always shows as a change, and that is expected.** Azure stores
+  it as a native `azureQueue` rule, and the provider reads that back as `azure_queue_scale_rule`,
   which never matches the declared `custom_scale_rule`. The declaration cannot change:
   `azure_queue_scale_rule` requires an `authentication` block with a storage connection string
   secret and has no identity option, so `custom_scale_rule` with `custom_rule_type = "azure-queue"`
@@ -359,7 +437,8 @@ inspection; moving or deleting one is an operational decision, not an automatic 
   workload dead even after the credential is corrected — and a further `terraform apply` changes
   nothing, because the declared state already matches. `az containerapp revision restart` does not
   help either; with `min_replicas = 0` the platform has no reason to try. Change
-  `deployment_revision` and apply: it rolls a fresh revision of both workloads and nothing else.
+  `deployment_revision` and apply: it rolls a fresh revision of all three workloads and nothing
+  else.
 
   ```bash
   az containerapp revision list -n ca-greenv-mvp-worker -g rg-greenv-mvp -o table
@@ -386,11 +465,22 @@ inspection; moving or deleting one is an operational decision, not an automatic 
   are the idempotency boundary.
 - Keep the queue visibility timeout above the measured worst FFmpeg attempt. The MVP default is
   300 seconds (five minutes) and must be changed from evidence, not guesswork.
+- The measurement queue has its own, much longer lease:
+  `measurement_queue_visibility_timeout_seconds` defaults to 1,800 seconds, matching the worker's
+  assessment timeout. A measurement is a depth run plus a CPU pass, minutes rather than seconds,
+  and a lease that expires mid-run redelivers the message and pays for the same segment's GPU time
+  twice. For the same reason a measurement message is retried once rather than five times before it
+  is poisoned.
+- **Every message in the measurement poison queue cost GPU time to get there.** Read it before
+  re-enqueueing anything, and confirm the depth service is healthy first; a broken endpoint turns a
+  drive's worth of segments into a drive's worth of billed failures.
 - **Nothing deletes capture artifacts.** R2 has no lifecycle rule, `expires_at` is recorded but no
   scheduler acts on it, and the worker keeps the source segment so a later measurement stage can
   re-sample it. Source, frames and manifests all accumulate: roughly 8.5 MB per ten-second segment,
   about 3 GB per hour of driving, against R2's 10 GB free tier. Agree a retention rule and add
-  lifecycle deletion before a pilot runs for more than a few hours.
+  lifecycle deletion before a pilot runs for more than a few hours. With `measurement_enabled`,
+  each measured segment adds a packet — `assessment.json`, a self-contained `report.html` and
+  `SHA256SUMS` — under `<outputPrefix>/measurement/`, which has not been sized here.
 - The capture and state buckets use `prevent_destroy`. To retire the environment, export the data,
   remove that guard in a reviewed change and run a fresh plan before deletion.
 - The API uses Neon's pooled endpoint for normal JDBC traffic and its direct endpoint for Flyway.
@@ -407,6 +497,7 @@ inspection; moving or deleting one is an operational decision, not an automatic 
 | R2 Terraform backend | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | bucket-scoped masked secrets |
 | R2 application adapter | `TF_VAR_r2_access_key_id`, `TF_VAR_r2_secret_access_key` | application-bucket-scoped masked secrets |
 | MVP API Bearer token | generated when omitted, or `TF_VAR_api_bearer_token` | masked secret with at least 32 random characters |
+| Depth service (GPU) | `TF_VAR_depth_service_token` | masked secret; anyone holding it can spend GPU time |
 
 Do not pass secret values with `-var` because command history can retain them.
 

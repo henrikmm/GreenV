@@ -131,6 +131,172 @@ variable "worker_image" {
   }
 }
 
+variable "measurement_worker_image" {
+  description = <<-EOT
+    Measurement worker container image, preferably pinned by sha256 digest. Built from the
+    repository root rather than from the service directory, because the image carries
+    `measurement/` and a baked model cache - the worker spawns Verge Studio as a process.
+  EOT
+  type        = string
+
+  validation {
+    condition     = length(trimspace(var.measurement_worker_image)) > 0
+    error_message = "measurement_worker_image cannot be empty."
+  }
+}
+
+variable "measurement_enabled" {
+  description = <<-EOT
+    Whether the frame extractor announces every finished segment for measurement. False by
+    default: turning it on makes each capture wake a paid GPU with nobody in the loop, and
+    AGENTS.md wants that agreed in conversation rather than inherited from a default. The
+    measurement worker, its queues and its roles exist either way and cost nothing at zero
+    replicas, so this is one variable and no new resources.
+  EOT
+  type        = bool
+  default     = false
+
+  validation {
+    condition = (
+      !var.measurement_enabled ||
+      (var.depth_service_adapter == "runpod" ? var.depth_service_endpoint_id != null : var.depth_service_base_url != null)
+    )
+    error_message = "measurement_enabled needs a depth service: set depth_service_base_url, or depth_service_endpoint_id with depth_service_adapter = \"runpod\". Without one, every announced segment fails and lands in the poison queue."
+  }
+
+  validation {
+    condition     = !var.measurement_enabled || var.depth_service_adapter != "runpod" || var.depth_service_token != null
+    error_message = "A RunPod endpoint authenticates every request with an API key, so depth_service_token is required when depth_service_adapter is \"runpod\"."
+  }
+}
+
+variable "depth_service_adapter" {
+  description = <<-EOT
+    How the measurement worker reaches the depth service: `http` for a plain endpoint named by
+    depth_service_base_url, `runpod` for a RunPod serverless endpoint named by
+    depth_service_endpoint_id. The service itself is never created by this configuration.
+  EOT
+  type        = string
+  default     = "http"
+
+  validation {
+    condition     = contains(["http", "runpod"], var.depth_service_adapter)
+    error_message = "depth_service_adapter must be http or runpod."
+  }
+}
+
+variable "depth_service_base_url" {
+  description = <<-EOT
+    Base URL of the depth reconstruction service, including whatever path prefix it serves the
+    contract under. Left null the worker falls back to Verge Studio's local mock, which is not in
+    the image, so it fails every message instead of inventing a reading.
+  EOT
+  type        = string
+  default     = null
+  nullable    = true
+
+  validation {
+    condition     = var.depth_service_base_url == null || can(regex("^https://[a-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?$", var.depth_service_base_url))
+    error_message = "depth_service_base_url must be an https URL when provided."
+  }
+}
+
+variable "depth_service_endpoint_id" {
+  description = "RunPod serverless endpoint identifier. Required when depth_service_adapter is runpod."
+  type        = string
+  default     = null
+  nullable    = true
+
+  validation {
+    condition     = var.depth_service_endpoint_id == null || can(regex("^[a-z0-9]{6,40}$", var.depth_service_endpoint_id))
+    error_message = "depth_service_endpoint_id must be 6 to 40 lowercase alphanumeric characters."
+  }
+}
+
+variable "depth_service_token" {
+  description = <<-EOT
+    Bearer credential for the depth service, mounted as a Container Apps secret. One token serves
+    both adapters: the HTTP client sends it as an Authorization header and RunPod authenticates
+    its serverless endpoints the same way. Anyone holding it can spend GPU time.
+  EOT
+  type        = string
+  default     = null
+  nullable    = true
+  sensitive   = true
+
+  validation {
+    condition     = var.depth_service_token == null || try(length(trimspace(var.depth_service_token)), 0) > 0
+    error_message = "depth_service_token cannot be empty when provided."
+  }
+}
+
+variable "measurement_worker_max_replicas" {
+  description = <<-EOT
+    Maximum number of measurement worker replicas. One, because one segment is one whole depth
+    run: a 112-frame run fills an L4 to 99.95% of its 22.03 GiB usable
+    (measurement/docs/REGISTRY.md), so a second replica cannot get a GPU and would only wait
+    inside the depth service's own lock while billing a second Container Apps replica. Raise it
+    only against a depth service that can genuinely serve more than one run at a time.
+  EOT
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.measurement_worker_max_replicas >= 1 && var.measurement_worker_max_replicas <= 4
+    error_message = "measurement_worker_max_replicas must be between 1 and 4."
+  }
+}
+
+variable "measurement_queue_visibility_timeout_seconds" {
+  description = <<-EOT
+    Azure Queue visibility lease for a measurement message. Thirty minutes, matching the worker's
+    own assessment timeout, because a measurement is a depth run plus a CPU pass - minutes, not
+    seconds. A lease that expires mid-run redelivers the message and pays for the same segment's
+    GPU time twice, which is why this is much longer than the extraction lease beside it.
+  EOT
+  type        = number
+  default     = 1800
+
+  validation {
+    condition     = var.measurement_queue_visibility_timeout_seconds >= 300 && var.measurement_queue_visibility_timeout_seconds <= 604800
+    error_message = "measurement_queue_visibility_timeout_seconds must be between 300 seconds and 7 days."
+  }
+}
+
+variable "measurement_classes" {
+  description = <<-EOT
+    Cityscapes labels counted as the area of interest, comma separated. `terrain` alone is Verge
+    Studio's own default and reads 0.000 m on a plant taped at 0.980 m, because Cityscapes files
+    vertically growing plants under `vegetation` and only horizontally spreading growth under
+    `terrain` (measurement/docs/evidence/2026-09-05-class-fit.md). Roçada is about the vertical
+    kind. No class policy here is validated; the union is the one whose failure mode is visible
+    rather than silent, and it is recorded on every frame of every packet.
+  EOT
+  type        = string
+  default     = "terrain,vegetation"
+
+  validation {
+    condition     = can(regex("^[a-z]+(,[a-z]+)*$", var.measurement_classes))
+    error_message = "measurement_classes must be comma-separated lowercase Cityscapes label names with no spaces."
+  }
+}
+
+variable "depth_max_frames" {
+  description = <<-EOT
+    Frames sent to the depth service in one run. 112 is Verge Studio's best graded setting and the
+    cap the frame extractor already samples to; an L4 runs out of memory above 144 and a recorded
+    112-frame run peaked at 99.95% of the card (measurement/docs/REGISTRY.md). Lower it before
+    running long segments through this automatically.
+  EOT
+  type        = number
+  default     = 112
+
+  validation {
+    condition     = var.depth_max_frames >= 2 && var.depth_max_frames <= 144
+    error_message = "depth_max_frames must be between 2 and 144; an L4 runs out of memory above 144 at 504 px."
+  }
+}
+
 variable "container_registry" {
   description = "Optional credentials for a private image registry. Leave every field null for public images."
   type = object({
@@ -320,7 +486,7 @@ variable "manage_cloudflare_zone_security_settings" {
 }
 
 variable "deployment_revision" {
-  description = "Suffix appended to the Container Apps revision names. Change it to roll a fresh revision of both workloads without changing anything else, which is how a revision left stuck by a failed image pull is recovered."
+  description = "Suffix appended to the Container Apps revision names. Change it to roll a fresh revision of all three workloads without changing anything else, which is how a revision left stuck by a failed image pull is recovered."
   type        = string
   default     = null
   nullable    = true
