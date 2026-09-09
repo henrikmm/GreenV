@@ -22,6 +22,8 @@
 // is 0. The first *job* is what bills, `AGENTS.md` asks for agreement before each one, and this
 // script never sends one.
 
+import { pathToFileURL } from "node:url";
+
 const API = process.env.RUNPOD_API_BASE ?? "https://rest.runpod.io/v1";
 
 export const settings = (env, query = {}) => {
@@ -188,7 +190,11 @@ async function readJsonStdin() {
   return text ? JSON.parse(text) : {};
 }
 
-if (process.argv[1] === new URL(import.meta.url).pathname) {
+// `pathToFileURL`, not a string compare against `pathname`: on Windows argv[1] is `C:\path\file`
+// and the URL's pathname is `/C:/path/file`, so the usual POSIX idiom never matches and this file
+// exits 0 having done nothing. Terraform then reports "unexpected end of JSON input", which names
+// the symptom and not this line. Observed 9 Sep 2026 running the apply on Windows.
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   await (async () => {
   // Terraform's external data source reads stdout as one JSON object of strings and treats
   // anything else there as a failure, so in this mode every human-readable line goes to stderr.
@@ -196,7 +202,15 @@ if (process.argv[1] === new URL(import.meta.url).pathname) {
   // The external data source writes its query to stdin as one JSON object. A hand run has no
   // stdin to read, so it is not waited for.
   const query = asJson ? await readJsonStdin() : {};
-  provision(settings(process.env, query), asJson ? { log: (line) => console.error(line), write: async () => {} } : {})
+  // `settings` throws for a missing credential, and it throws synchronously - outside the promise
+  // chain below, where it would reach the terminal as a stack trace instead of the one line it is.
+  Promise.resolve()
+    .then(() =>
+      provision(
+        settings(process.env, query),
+        asJson ? { log: (line) => console.error(line), write: async () => {} } : {},
+      ),
+    )
     .then((result) => {
       if (asJson) {
         process.stdout.write(JSON.stringify({ template_id: result.templateId }));
