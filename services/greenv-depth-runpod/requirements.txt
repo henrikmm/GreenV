@@ -1,0 +1,10 @@
+# What the handler adds to the DA3 image. Everything else — torch, xformers, Depth Anything 3,
+# fastapi, uvicorn — comes from the base and is pinned in measurement/server/Dockerfile.
+#
+# Ranges rather than exact pins, and that is a statement of fact rather than a preference: this
+# image has never been built, so no resolver has ever chosen a version here and writing one down
+# would be a guess dressed as a record. The first build resolves them; pin what it picks in the
+# same change that records the build, the way measurement/server/Dockerfile pins its own.
+runpod~=1.7
+boto3~=1.35
+httpx==0.28.1

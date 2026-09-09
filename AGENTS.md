@@ -17,6 +17,7 @@ except where a directory carries its own — today only `measurement/` does.
 | `services/greenv-video-api/` | Capture sessions, jobs, storage keys — the control plane | Spring Boot, Java 21, Gradle |
 | `services/greenv-frame-extractor/` | Worker 1: samples frames, attaches GNSS, cuts road stretches | Spring Boot, Java 21, ffmpeg |
 | `services/greenv-measurement-worker/` | Worker 2: reconstructs, segments and measures a segment. Calls `measurement/` as a process — see [docs/AUTOMATIC-HEIGHT.md](docs/AUTOMATIC-HEIGHT.md) | Node 22 |
+| `services/greenv-depth-runpod/` | The depth stage as a RunPod serverless job, wrapping `measurement/server/`. **Never deployed** | Python 3.12, Docker |
 | `services/capture-smoke/` | One end-to-end check of the compose stack | Shell, Docker |
 | `infrastructure/` | Scale-to-zero MVP cloud resources and R2 state bootstrap | Terraform |
 | `measurement/` | Verge Studio: metric height from video. **A git subtree — read the rule below** | TypeScript, Python, its own agreement |
@@ -31,6 +32,7 @@ apps/web            npm ci && npm run build
 apps/mobile         flutter test && flutter analyze
 services/*          ./gradlew check
 measurement worker  npm ci && npm test
+depth handler       python test_handler.py
 infrastructure      terraform fmt -check -recursive && terraform init -backend=false && terraform validate && terraform test
 measurement         npm ci --prefix app && ./scripts/verify.sh
 whole local stack   docker compose up --build
@@ -133,6 +135,7 @@ Checking costs nothing and wakes nothing.
 | `apps/mobile` | `flutter test && flutter analyze` |
 | `services/*` | `./gradlew check` |
 | `services/greenv-measurement-worker` | `npm test` |
+| `services/greenv-depth-runpod` | `python test_handler.py`, plus the worker's `npm test` — they share one contract example |
 | `infrastructure` | `terraform fmt -check -recursive`, `terraform validate`, then mocked `terraform test` |
 | `measurement` | `./scripts/verify.sh`, plus whatever `measurement/AGENTS.md` requires |
 | The compose stack | `docker compose --profile test up --build capture-smoke` |

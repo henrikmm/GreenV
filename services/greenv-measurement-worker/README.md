@@ -87,7 +87,8 @@ GREENV_RUNPOD_API_KEY=<key>
 GREENV_RUNPOD_POLL_MS=5000
 ```
 
-The handler this expects does not exist yet. Its contract is one job in, one manifest out:
+The handler this expects is [`services/greenv-depth-runpod`](../greenv-depth-runpod/README.md).
+Its contract is one job in, one manifest out:
 
 ```
 input   { frames: [{ name, key }], storage: { bucket, endpoint, region },
@@ -97,9 +98,11 @@ output  { run_id, frames: { count }, artifacts: [{ kind: "glb"|"npz", url, size_
 
 `url` must be absolute - a signed bucket link - because a serverless handler has no origin of its
 own to serve files from; the adapter rejects a relative one rather than resolving it against
-RunPod's API host. Building that image means wrapping `measurement/server/` the way
-`measurement/scripts/deploy.sh` wraps it for Cloud Run.
+RunPod's API host. Both sides of that envelope are pinned to one file,
+`services/greenv-depth-runpod/contract/depth-job-v1.example.json`, which
+`test/runpod-contract.test.mjs` and the handler's own tests each read, so the client and the
+handler cannot drift apart without a test failing.
 
 **Nothing here has been run against RunPod.** The adapter is exercised by
 `test/infer-runpod.test.mjs` against a double that answers the way the API documents; no endpoint
-has been deployed and no GPU has been woken.
+has been deployed, no image has been built and no GPU has been woken.
