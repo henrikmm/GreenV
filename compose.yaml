@@ -129,6 +129,12 @@ services:
       # That costs real money for the machine's whole lifetime, not for the seconds it computes
       # (measurement/AGENTS.md). Left unset, every packet is marked `mock: true` and describes
       # a fixture scene rather than the captured road.
+      # Two reasons this default does not produce a reading, both observed on 8 Sep 2026:
+      # `host.docker.internal` is pinned to host-gateway below, which is the Docker network's own
+      # gateway and not the workstation; and the Vite fixture refuses any client that is not the
+      # browser it served (see services/greenv-measurement-worker/src/config.mjs). Everything up to
+      # the depth call runs: the segment is consumed, its 100 frames are downloaded, and the failure
+      # is recorded as depth_inference_failed.
       GREENV_INFER_BASE_URL: ${GREENV_INFER_BASE_URL:-http://host.docker.internal:5173/api}
       GREENV_MEASUREMENT_ALLOW_MOCK: ${GREENV_MEASUREMENT_ALLOW_MOCK:-false}
 

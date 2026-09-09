@@ -72,10 +72,17 @@ function build() {
     },
 
     infer: {
-      // The DA3 service. Points at the Vite mock by default so a fresh checkout runs end to end
-      // without a GPU and without spending anything.
-      // The base carries whatever path prefix the deployment needs: the Vite mock serves the
-      // contract under /api, the deployed FastAPI serves it at the origin.
+      // The DA3 service. The base carries whatever path prefix the deployment needs: the Vite
+      // fixture serves the contract under /api, the deployed FastAPI serves it at the origin.
+      //
+      // The default is the fixture, but it will not answer this worker. Its privileged routes -
+      // which every POST is - require an `Origin` header naming loopback on 5173 AND a nonce that
+      // the dev server only injects into the HTML it serves, so it answers browsers and refuses
+      // processes. Observed 8 Sep 2026 from the compose stack:
+      //   POST http://<host>:5173/api/infer failed with 403:
+      //   {"detail":"local API requires a loopback origin on port 5173"}
+      // Running end to end therefore needs a real depth service, which costs money and needs the
+      // user's agreement each time (AGENTS.md), or a stand-in that does not exist yet.
       baseUrl: text("GREENV_INFER_BASE_URL", "http://127.0.0.1:5173/api"),
       token: text("GREENV_INFER_TOKEN", null),
       // Verge Studio grades 112 frames at 504 px as its best setting, and an L4 runs out above
