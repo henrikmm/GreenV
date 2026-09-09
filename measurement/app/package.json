@@ -19,6 +19,7 @@
     "@huggingface/transformers": "3.8.1",
     "@xyflow/react": "^12.11.2",
     "dockview": "^4.4.0",
+    "esbuild": "^0.28.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "three": "^0.178.0"
