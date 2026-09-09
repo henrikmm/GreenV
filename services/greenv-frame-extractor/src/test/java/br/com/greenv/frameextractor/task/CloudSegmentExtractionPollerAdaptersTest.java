@@ -72,7 +72,7 @@ class CloudSegmentExtractionPollerAdaptersTest {
                 poisonQueue,
                 codec(),
                 useCase,
-                new AzureQueueProperties("segments", "connection", "", false, 1, 300, "poison", 5));
+                new AzureQueueProperties("segments", "connection", "", false, 1, 300, "poison", 5, "measure"));
 
         poller.process(message);
 
@@ -96,7 +96,7 @@ class CloudSegmentExtractionPollerAdaptersTest {
                 poisonQueue,
                 codec,
                 mock(SegmentExtractionUseCase.class),
-                new AzureQueueProperties("segments", "connection", "", false, 1, 300, "poison", 5));
+                new AzureQueueProperties("segments", "connection", "", false, 1, 300, "poison", 5, "measure"));
 
         poller.process(message);
 
