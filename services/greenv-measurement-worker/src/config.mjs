@@ -55,6 +55,11 @@ function build() {
       // Absent RabbitMQ settings are not an error: the HTTP trigger alone is a legitimate
       // deployment, and it is the one the tests and a backfill use.
       enabled: flag("GREENV_MEASUREMENT_QUEUE_ENABLED", true),
+      // Which transport carries a segment here and a result back. The name is the Java services'
+      // own, and infrastructure/locals.tf already sets it to azure-queue for every container app
+      // in the deployment, so this worker reads the switch the rest of the stack is already
+      // reading rather than adding a fourth thing that can disagree.
+      adapter: text("GREENV_SEGMENT_QUEUE_ADAPTER", "rabbitmq"),
       host: text("GREENV_RABBITMQ_HOST", "127.0.0.1"),
       port: number("GREENV_RABBITMQ_PORT", 5672),
       user: text("GREENV_RABBITMQ_USER", "guest"),
@@ -69,6 +74,28 @@ function build() {
       // One segment occupies the depth service for its whole run and the CPU for the whole
       // assessment. Prefetching more only makes messages time out in a buffer.
       prefetch: 1,
+
+      // Azure Queue Storage has no exchange, so the one exchange and two routing keys above
+      // become two queue names. They are separate settings rather than reused ones because an
+      // Azure queue name is 3-63 lower-case alphanumerics and dashes: `greenv.segment.measure.v1`
+      // is a legal RabbitMQ queue and an illegal Azure one.
+      azure: {
+        queue: text("GREENV_AZURE_MEASUREMENT_QUEUE_NAME", null),
+        resultQueue: text("GREENV_AZURE_MEASURED_QUEUE_NAME", null),
+        // Where a segment goes when it will never succeed. Optional: without it such a message is
+        // deleted, which is what the RabbitMQ path does with one anyway.
+        poisonQueue: text("GREENV_AZURE_MEASUREMENT_POISON_QUEUE_NAME", null),
+        endpoint: text("GREENV_AZURE_QUEUE_ENDPOINT", null),
+        connectionString: text("GREENV_AZURE_STORAGE_CONNECTION_STRING", null),
+        // The same bound as `prefetch`, for the same reason.
+        maximumMessages: 1,
+        // How long a received segment stays invisible to other readers. This is the deadline for
+        // the whole measurement, not for an acknowledgement, so it tracks
+        // GREENV_MEASUREMENT_TIMEOUT_MS rather than the seconds the Java services use for a poll
+        // that only queues work. Too short and Azure redelivers a segment still being measured.
+        visibilityTimeoutSeconds: number("GREENV_MEASUREMENT_VISIBILITY_SECONDS", 30 * 60),
+        pollDelayMs: number("GREENV_CLOUD_QUEUE_POLL_DELAY_MS", 1000),
+      },
     },
 
     infer: {
@@ -143,6 +170,23 @@ function build() {
   }
   if (config.storage.adapter === "s3" && !config.storage.bucket) {
     throw new Error("GREENV_S3_BUCKET is required when the object-storage adapter is s3");
+  }
+  if (!["rabbitmq", "azure-queue"].includes(config.queue.adapter)) {
+    throw new Error(`GREENV_SEGMENT_QUEUE_ADAPTER must be "rabbitmq" or "azure-queue", got "${config.queue.adapter}"`);
+  }
+  if (config.queue.enabled && config.queue.adapter === "azure-queue") {
+    // Checked at startup rather than at the first message: a worker that cannot name its queues
+    // is a worker that will look healthy and drain nothing.
+    if (!config.queue.azure.queue || !config.queue.azure.resultQueue) {
+      throw new Error(
+        "GREENV_AZURE_MEASUREMENT_QUEUE_NAME and GREENV_AZURE_MEASURED_QUEUE_NAME are required when the segment-queue adapter is azure-queue",
+      );
+    }
+    if (!config.queue.azure.connectionString && !config.queue.azure.endpoint) {
+      throw new Error(
+        "GREENV_AZURE_QUEUE_ENDPOINT or GREENV_AZURE_STORAGE_CONNECTION_STRING is required when the segment-queue adapter is azure-queue",
+      );
+    }
   }
   if (!["http", "runpod"].includes(config.infer.adapter)) {
     throw new Error(`GREENV_INFER_ADAPTER must be "http" or "runpod", got "${config.infer.adapter}"`);
