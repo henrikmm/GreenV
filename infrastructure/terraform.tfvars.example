@@ -19,6 +19,29 @@ r2_bucket_name        = "greenv-mvp-captures-replace-me"
 api_image    = "ghcr.io/matomomitsu/greenv-video-api@sha256:7c38a8595b934f2214a0b452fe659949358aa1fca75e84402231a15839266d5c"
 worker_image = "ghcr.io/matomomitsu/greenv-frame-extractor@sha256:aed92fada08fc0496bf72468fc93d450faa528c836e8a021848059e3268d0415"
 
+# Worker 2. Built from the repository root rather than from its own directory: the image carries
+# `measurement/` and a baked model cache, because the worker spawns Verge Studio as a process.
+# There is no published digest yet; replace this placeholder before planning.
+measurement_worker_image = "ghcr.io/matomomitsu/greenv-measurement-worker@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+
+# Automatic vegetation height. False keeps the third app deployed and idle at zero replicas, which
+# costs nothing: the extractor simply never announces a finished segment.
+#
+# True makes every captured segment wake the depth service, which bills for the machine's whole
+# lifetime - roughly a minute of work and up to fifteen minutes of billed idle per lone segment
+# (docs/AUTOMATIC-HEIGHT.md). AGENTS.md wants that agreed before it is switched on, and it cannot
+# be switched on without naming a depth service below.
+measurement_enabled = false
+
+# The depth service is not created by this configuration and never will be. Point at an existing
+# endpoint, or set depth_service_adapter = "runpod" with depth_service_endpoint_id instead.
+# depth_service_base_url = "https://verge-da3.example.com"
+# depth_service_adapter     = "runpod"
+# depth_service_endpoint_id = "replace-with-runpod-endpoint-id"
+#
+# The credential is a secret: export TF_VAR_depth_service_token rather than writing it here.
+# Anyone holding it can spend GPU time.
+
 # Optional. Omit to let Terraform create and persist a 48-character token.
 # api_bearer_token = "replace-with-at-least-32-random-characters"
 
