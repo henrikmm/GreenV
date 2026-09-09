@@ -58,7 +58,7 @@ export interface ResultReadout {
 export interface ResultInput {
   floor: FloorState;
   measurement?: { rawM: number; rulerKind: "floor_height" | "extent" };
-  target?: { code: string; name: string; truthM: number | null };
+  target?: { code: string; name: string; truthM: number | null; temporary?: boolean };
   blind: boolean;
 }
 
@@ -91,6 +91,7 @@ export function describeResult({ floor, measurement, target, blind }: ResultInpu
    * app presenting held evidence as a current answer, which is the exact failure `floor-state.ts`
    * was written to end.
    */
+  if (target?.temporary) return { ...blank, note: "semantic grass · inspect the per-cell grid and quality report" };
   if (floor.kind === "failed") {
     return { ...blank, kind: "refused", note: `NO GROUND — ${floor.message}` };
   }

@@ -43,6 +43,8 @@ import {
 import { percentile, type NpyArray } from "../lib/npz";
 import { turbo } from "../lib/turbo";
 import { OutputRow, PaneControls } from "./pane-chrome";
+import { useAdvanced } from "../lib/ui-mode";
+import { useGrassRun } from "../measurement/grass-grid-store";
 import { ProvenanceBanner } from "./provenance";
 
 const OUTPUTS = [
@@ -129,6 +131,21 @@ export function Depth2D() {
   const incoming = resolveInput(graph, VIEWER_2D_ID, "depth");
   const field = incoming?.value as DepthFieldValue | undefined;
   const descriptor = field ? closestFrame(field, ui.canonicalFrame) : undefined;
+  const advanced = useAdvanced();
+  const grassRun = useGrassRun();
+
+  /**
+   * Which pixels of THIS frame fed the cell currently being inspected.
+   *
+   * Empty whenever the selected cell was not measured on the frame on screen, which is itself
+   * the answer to a question worth asking: a cell is built from up to three frames, and
+   * stepping the frame slider is how you find out which ones actually saw it.
+   */
+  const grassCellPixels = useMemo(() => {
+    if (!advanced || !grassRun.provenance || !grassRun.selectedCell || !descriptor) return null;
+    const cell = grassRun.provenance.get(grassRun.selectedCell);
+    return cell?.pixelsByFrame.get(descriptor.npzIndex) ?? null;
+  }, [advanced, descriptor, grassRun.provenance, grassRun.selectedCell]);
   const namedObject = activeMeasurementObject();
   const object = activeMeasurementSubject();
   const mask = getMask();
@@ -322,6 +339,27 @@ export function Depth2D() {
       ctx.putImageData(overlay, 0, 0);
     }
 
+    // The pixels behind ONE cell of the grass grid, on the frame they were read from.
+    //
+    // This is the whole reason the overlay exists. A cell in the JSON says 1.18 m; only these
+    // pixels can say whether that is grass, a fence post or the road. They are drawn in the
+    // same --emph-hi the 3D overlay outlines the selected cell with, because they are the same
+    // claim seen twice, and they sit on top of the mask so the difference between "painted"
+    // and "actually used" is visible: everything the filters threw away is pink underneath.
+    if (advanced && grassCellPixels && arrays?.depth) {
+      const [, depthHeight, depthWidth] = arrays.depth.shape;
+      if (depthWidth > 0 && depthHeight > 0) {
+        const scaleX = canvas.width / depthWidth;
+        const scaleY = canvas.height / depthHeight;
+        ctx.fillStyle = "rgba(244, 244, 246, 0.85)";
+        for (const index of grassCellPixels) {
+          const x = (index % depthWidth) * scaleX;
+          const y = Math.floor(index / depthWidth) * scaleY;
+          ctx.fillRect(x, y, Math.max(1, scaleX), Math.max(1, scaleY));
+        }
+      }
+    }
+
     for (const prompt of prompts) {
       const x = prompt.x * canvas.width;
       const y = prompt.y * canvas.height;
@@ -341,7 +379,7 @@ export function Depth2D() {
       ctx.textBaseline = "middle";
       ctx.fillText(positive ? "+" : "−", x, y + 0.5);
     }
-  }, [arrays, descriptor, image, output, prompts, ui.masks, ui.overlayOpacity]);
+  }, [advanced, arrays, descriptor, grassCellPixels, image, output, prompts, ui.masks, ui.overlayOpacity]);
 
   useEffect(() => {
     if (field) syncMeasurementGraph();
@@ -576,9 +614,37 @@ export function Depth2D() {
         onSelect={setOutput}
         hint={tool === "segment" ? segmentationInstruction(object.id) : object.maskInstruction}
       />
+      {advanced && grassRun.selectedCell && grassRun.assessment && (
+        <div className="output-row">
+          <span className="output-label">GRASS CELL</span>
+          <span className="mono">
+            {(() => {
+              const cell = grassRun.provenance?.get(grassRun.selectedCell);
+              const coordinate = cell?.coordinate;
+              return coordinate
+                ? `${coordinate.alongRoadM.toFixed(2)} m along · ${coordinate.distanceFromRoadM.toFixed(2)} m out`
+                : "—";
+            })()}
+          </span>
+          <span className="mono">
+            {(() => {
+              const coordinate = grassRun.provenance?.get(grassRun.selectedCell)?.coordinate;
+              const cell = grassRun.assessment?.measurements.find((c) => c.coordinate.alongRoadM === coordinate?.alongRoadM && c.coordinate.distanceFromRoadM === coordinate?.distanceFromRoadM);
+              if (!cell) return "";
+              const cm = (v: number | null) => v === null ? "—" : `${(v * 100).toFixed(1)} cm`;
+              return `${cell.reason ?? "measured"} · E50 ${cm(cell.extent50M)} · E95 ${cm(cell.extent95M)} above this cell's own ground, which sits ${cm(cell.localGroundM)} above the plane · H95 from the plane ${cm(cell.h95M)} · ${cell.frameCount} frames · ${cell.sampleCount} samples · spread ${cm(cell.h95SpreadM ?? null)}`;
+            })()}
+          </span>
+          <span className="mono grass-dim">
+            {grassCellPixels
+              ? `${grassCellPixels.length.toLocaleString()} px on this frame`
+              : `not read on frame ${descriptor?.npzIndex ?? "—"}`}
+          </span>
+        </div>
+      )}
       <div className="brush-toolbar">
         <span className="tool-context"><b>{object.code}</b> {object.name}</span>
-        {namedObject && <button
+        {namedObject && !object.temporary && <button
           className={`chip-toggle${tool === "segment" ? " on" : ""}`}
           disabled={segmentBusy}
           title="Load SlimSAM locally, then left-click the object and right-click exclusions"

@@ -9,6 +9,7 @@ import br.com.greenv.frameextractor.config.ExtractorProperties;
 import br.com.greenv.frameextractor.domain.EncodedFrameTimestamp;
 import br.com.greenv.frameextractor.domain.MediaProbeResult;
 import br.com.greenv.frameextractor.domain.SamplingPlan;
+import br.com.greenv.frameextractor.domain.MeasurementRequest;
 import br.com.greenv.frameextractor.domain.SegmentExtractionRequest;
 import br.com.greenv.frameextractor.domain.SegmentTelemetry;
 import br.com.greenv.frameextractor.port.CaptureSegmentStore;
@@ -77,6 +78,8 @@ class SegmentExtractionServiceTest {
             return frames;
         });
         RecordingSegmentStore segments = new RecordingSegmentStore();
+        // Every finished segment must announce itself, or nothing downstream ever measures it.
+        List<MeasurementRequest> announced = new ArrayList<>();
         SegmentExtractionService service = new SegmentExtractionService(
                 properties,
                 objects,
@@ -88,6 +91,7 @@ class SegmentExtractionServiceTest {
                 new SamplingPlanner(),
                 new GroupPlanner(),
                 ffmpeg,
+                announced::add,
                 Clock.fixed(Instant.parse("2026-08-25T12:00:02Z"), ZoneOffset.UTC));
 
         var first = service.extract(request);
@@ -100,6 +104,12 @@ class SegmentExtractionServiceTest {
         assertThat(first.sampledFrames()).hasSize(10);
         assertThat(first.sourceDeleted()).isFalse();
         assertThat(first.frameMetadataObjectKey()).isEqualTo(prefix + "/frame-metadata-v2.json");
+        // A redelivered segment announces itself again. The measurement worker is idempotent on
+        // sourceGeneration, so a second announcement costs a manifest read and never a second
+        // depth run — whereas a missed announcement leaves the segment unmeasured forever.
+        assertThat(announced).hasSize(2);
+        assertThat(announced).allSatisfy(announcement ->
+                assertThat(announcement.outputPrefix()).isEqualTo(prefix));
         // The source segment survives extraction, so a later stage can re-sample it.
         assertThat(objects.exists(request.videoObjectKey())).isTrue();
         assertThat(segments.readyCount).isEqualTo(2);

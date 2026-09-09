@@ -2411,3 +2411,32 @@ canvas {
 .resolution-head span:not(:first-child) {
   text-align: right;
 }
+
+/* Grass grid — an Advanced development readout, styled from the existing pane vocabulary.
+   The bar reuses .phase-track/.phase-fill because it obeys the same rule: both of its terms
+   are counted, so it is a measurement rather than a prediction wearing one's clothes. */
+.grass-bar {
+  flex: 1 1 60px;
+  min-width: 40px;
+  margin: 0;
+}
+
+.grass-dim {
+  color: var(--text-dim);
+}
+
+.grass-warn {
+  color: var(--accent-err);
+}
+
+.grass-offset {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  /* Wraps with its row rather than clipping, per the control-row rule in DESIGN.md. */
+  flex-wrap: wrap;
+}
+
+.grass-offset input[type="range"] {
+  width: 72px;
+}

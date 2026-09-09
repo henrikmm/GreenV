@@ -154,8 +154,7 @@ Every change ends in the loop that matches it:
 | Viewer or geometry | `scripts/inspect.mjs` — assert real numbers on a real run, and look at it |
 | The deployed service | `scripts/smoke-infer.sh` — one short run, never a loop of GPU runs |
 
-Run `scripts/verify.sh` with a Python environment that has FastAPI installed, or the server check
-silently skips and the green tick means less than it looks:
+Run with FastAPI installed, or the server check silently skips:
 
 ```
 VERGE_PY=.venv/bin/python ./scripts/verify.sh
@@ -166,7 +165,7 @@ lockfile is the record of what the CI and the development machine both ran. Clou
 come from `.env.local`, copied from `.env.local.example`; nothing in the app hard-codes them.
 
 **How the tests are arranged.** They sit beside the code they cover, named `*.test.ts` (or
-`*.test.mjs`) — 45 files and 589 tests as of 2026-08-13. There is one runner: `vitest`, from
+`*.test.mjs`) — 45 files and 626 tests as of 2026-09-03. There is one runner: `vitest`, from
 `app/`, and its glob reaches `../geometry`, `../scripts` and `vite-plugins` deliberately, so none
 of them can drift from the app on types or on the camera convention. `vite-plugins` joined last,
 when deleting a run became archiving it: the local API is what stands between a delete and
@@ -215,8 +214,9 @@ them from the app's own runs and geometry, over no network — it cannot disagre
 | All of it, when the broken stage is not yet known | `inspect explain <id>` |
 
 `node scripts/inspect.mjs` lists the rest; images land in `.inspect/`, path printed. **Open them.**
-A height statistic over ground is only a measurement of grass if that ground is grass, and only the
-selection drawn on the source frame can tell you whether it is.
+**Class fit comes first:** the user's area of interest decides the segmentation target. Check class
+candidates against source annotations, including base and tips; a lawn class does not establish
+clumping-plant coverage. See `docs/evidence/2026-09-05-class-fit.md`.
 
 ## Claims, and what has to be attached to one
 

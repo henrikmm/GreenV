@@ -21,6 +21,46 @@ each one's date, commit and findings, drop the rest — rather than trimming as 
 rule enforced by the docs check would make that a chore on somebody's critical path, which is how
 evidence gets deleted in a hurry to make a build pass.
 
+## 2026-09-05 — automatic grass evidence, 1280×800 (working tree on 827feb9)
+
+Reviewed the saved garden run and its app-served English report using browser and pointer
+interactions. Captures are `.inspect/quality-*.png`; the numerical record is linked from REGISTRY.
+
+- **1, 4, 8, 9 — PASS, measured:** body background `rgb(13,13,15)`; tab strips 26 px,
+  labels 11 px; document width and scroll width both 1280 px. No new horizontal window overflow.
+- **2, 7, 15, 22, 24, 27 — PASS for changed surfaces:** named states, counted frame progress,
+  elapsed time, recorded-run identity, explicit unvalidated status, percentiles and abstention.
+  Semantic grass no longer appears as a separate single-object height. One new help control.
+- **3, 5, 16–18 — PASS:** five default pane tabs; resized panes; 1,000,000-point scene and
+  axis gizmo; drag-orbit changed the scene (`quality-orbit-before/after.png`). Graph focus and
+  Escape restored the panes. Colour changed from photograph to height ramp, refreshed to all
+  current automatically, then was restored; GPU remained cold. Selected wire acquired `selected`,
+  Backspace reduced 13 wires to 12, and dragging the same ports restored 13 wires.
+- **6 — PASS:** Depth view rendered with a 2.29–3.03 m legend (`quality-depth.png`).
+- **10a — PASS for chrome:** compared with `reference/advanced-measured.png`; same dark,
+  compact Advanced layout. Garden replaces door; added evidence/grid rows intentionally reduce
+  canvas height. The standalone report has no reference capture. **10b — PASS** for changed
+  status, provenance, mode, explanation and measurement surfaces.
+- **19, 21 — PASS for the changed Viewport controls:** resized to exactly 180 px; zero
+  `.output-row` children extended outside its horizontal bounds. Keyboard focus opened the new
+  explanation and Escape closed it; tooltip bounds at narrow width were x648–973, y316–412,
+  entirely within 1280×800. Existing untouched panes were not all remeasured at 180 px.
+- **20 — PASS:** Standard/Advanced remained available and persisted across reload. A running CPU
+  job survived switching away and back, completed with 61 measured / 17 abstained cells, and the
+  completed report link remained identical after another mode round trip. No console errors in
+  the final app tab. Job state was moved out of the pane after this check exposed lost links.
+- **11–14, 23, 25 — N/A:** inference planning and cloud lifecycle were unchanged; no GPU run.
+- **26 — FAIL, pre-existing:** Setup's build-skip explanation uses amber despite being a hint.
+- **28 — FAIL, pre-existing:** initial default widths were 512/512/256 but percentage labels
+  became visible only after resizing. The final layout then displayed 40/40/20.
+
+The report navigated frames and selected the greatest-disagreement cell. Original, mask and
+retained-pixel views exposed a false inclusion on blue material. Accept/reject without required
+review information were refused; no human acceptance was recorded. The source-sized mask fix
+was verified at 155,464 displayed pixels. Model masks remain temporary, while native bytes stay
+in the report. Direct local-file reopening was blocked by browser URL policy and is unverified.
+The two pre-existing presentation findings remain in TASK; no baseline captures were regenerated.
+
 ## 2026-08-13 — target identity and delete-by-archive, 1280×800 (working tree on a932364)
 
 Focused pass for the change that made a target's identity independent of its name, restored target

@@ -16,5 +16,7 @@ export * from "./gravity";
 export * from "./plane";
 export * from "./backproject";
 export * from "./measure";
+export * from "./grass-height-grid";
 export * from "./calibrate";
 export * from "./uncertainty";
+export * from "./semantic-mask";

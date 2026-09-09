@@ -1,3 +1,4 @@
+import type { SemanticMaskProvenance } from "./grass-quality";
 import { useSyncExternalStore } from "react";
 import { median, nmad, type Vec3 } from "../../../geometry";
 import { sha256Hex } from "../graph/cache-key";
@@ -81,6 +82,8 @@ export interface SegmentationAttemptStats {
 }
 
 export interface MeasurementObject {
+  /** Generated targets are kept only in an explicitly saved quality packet. */
+  temporary?: boolean;
   id: string;
   code: string;
   name: string;
@@ -173,6 +176,9 @@ export const DOOR_TARGETS: readonly MeasurementObject[] = [
 ] as const;
 
 export interface MaskRecord {
+  semantic?: SemanticMaskProvenance;
+  nativeSemanticMask?: { width: number; height: number; data: Uint8Array };
+  temporary?: boolean;
   width: number;
   height: number;
   data: Uint8Array;
@@ -424,7 +430,11 @@ export function setActiveClip(clip: string): void {
 
 export function addTarget(target: Omit<MeasurementObject, "builtin">, clip = activeClip): void {
   const targets = targetSets[clip] ?? (targetSets[clip] = []);
-  if (targets.some((item) => item.id === target.id)) return;
+  const existing = targets.find((item) => item.id === target.id);
+  if (existing) {
+    if (target.temporary) { Object.assign(existing, target); commit(); }
+    return;
+  }
   targets.push({ ...target });
   state.activeObjectId = target.id;
   state.canonicalFrame = target.suggestedFrame;
@@ -801,7 +811,7 @@ export function sessionPersistError(): string | undefined {
 function persistSession(): void {
   if (typeof window === "undefined" || !window.localStorage) return;
   const masks = Object.fromEntries(
-    Object.entries(state.masks).filter(([key]) => !isFreeMaskKey(key)).map(([key, mask]) => [
+    Object.entries(state.masks).filter(([key, mask]) => !isFreeMaskKey(key) && !mask.temporary).map(([key, mask]) => [
       key,
       {
         width: mask.width,
@@ -824,7 +834,7 @@ function persistSession(): void {
     segmentationAttempts: state.segmentationAttempts,
     // Operator-authored targets are evidence definitions, not preferences: losing them
     // orphans every trial recorded against them.
-    targetSets,
+    targetSets: Object.fromEntries(Object.entries(targetSets).map(([clip, targets]) => [clip, targets.filter((target) => !target.temporary)])),
   });
   try {
     window.localStorage.setItem(STORAGE_KEY, payload);
@@ -1022,7 +1032,8 @@ export function paintMask(x: number, y: number, radius: number, erase: boolean):
     ...current,
     data,
     revision: current.revision + 1,
-    source: current.segmentation ? "model+brush" : "brush",
+    source: current.segmentation || current.semantic ? "model+brush" : "brush",
+    nativeSemanticMask: undefined,
     segmentation: current.segmentation ? { ...current.segmentation, accepted: false } : undefined,
   };
   state.masks = { ...state.masks, [maskKey()]: next };
@@ -1063,7 +1074,8 @@ export function paintMaskStroke(
     ...current,
     data,
     revision: current.revision + 1,
-    source: current.segmentation ? "model+brush" : "brush",
+    source: current.segmentation || current.semantic ? "model+brush" : "brush",
+    nativeSemanticMask: undefined,
     segmentation: current.segmentation ? { ...current.segmentation, accepted: false } : undefined,
   };
   state.masks = { ...state.masks, [maskKey()]: next };
@@ -1109,6 +1121,9 @@ export function beginMaskCorrection(): void {
 }
 
 export interface SetMaskMetadata {
+  semantic?: SemanticMaskProvenance;
+  nativeSemanticMask?: { width: number; height: number; data: Uint8Array };
+  temporary?: boolean;
   source?: MaskSource;
   segmentation?: SegmentationProvenance;
 }
@@ -1136,6 +1151,9 @@ export function setMaskData(
       revision,
       source: metadata.source ?? "brush",
       segmentation: metadata.segmentation,
+      semantic: metadata.semantic,
+      nativeSemanticMask: metadata.nativeSemanticMask,
+      temporary: metadata.temporary,
     },
   };
   commit();

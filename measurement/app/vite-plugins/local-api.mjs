@@ -4,6 +4,7 @@
 // can be built and reviewed offline at zero cost. Swapping to the real service is a
 // base-URL change, nothing more.
 
+import { startGrassQuality, grassQualityStatus, grassQualityArtifact, discardGrassQuality, stopGrassQualityJobs } from "./grass-quality.mjs";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve, sep } from "node:path";
@@ -250,6 +251,7 @@ export function localApi(options = {}) {
       // rolling out a revision nobody is watching, and a half-applied deploy is worse than
       // none — the operator would have no log and no way to know it happened.
       server.httpServer?.on("close", killAllJobs);
+      server.httpServer?.on("close", stopGrassQualityJobs);
 
       // Clear yesterday's scratch data once, at startup. Failing to tidy up is never a reason
       // for the dev server not to come up, so this deliberately swallows its own errors.
@@ -276,6 +278,24 @@ export function localApi(options = {}) {
         }
 
         try {
+          if (url.pathname === "/api/grass-quality" && req.method === "POST") {
+            return json(res, 202, await startGrassQuality(await readJsonBody(req)));
+          }
+          const qualityRoute = /^\/api\/grass-quality\/([a-f0-9-]+)(?:\/(assessment.json|report.html|SHA256SUMS))?$/.exec(url.pathname);
+          if (qualityRoute) {
+            const [, id, artifact] = qualityRoute;
+            if (req.method === "DELETE") { await discardGrassQuality(id); return json(res, 200, { discarded: true }); }
+            if (req.method === "GET" && artifact) {
+              const bytes = await grassQualityArtifact(id, artifact);
+              res.setHeader("content-type", artifact.endsWith("html") ? "text/html; charset=utf-8" : artifact.endsWith("json") ? "application/json" : "text/plain");
+              res.setHeader("cache-control", "no-store");
+              return res.end(bytes);
+            }
+            if (req.method === "GET") {
+              const status = grassQualityStatus(id);
+              return json(res, status ? 200 : 404, status ?? { detail: "quality report expired or absent" });
+            }
+          }
           /**
            * Everything under /api/cloud/svc/ is the deployed service, reached through this
            * process so the browser never holds a credential. The app addresses a same-origin

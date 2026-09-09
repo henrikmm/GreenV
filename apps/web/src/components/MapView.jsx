@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useCallback } from 'react'
 import { MapContainer, TileLayer, GeoJSON, CircleMarker, Marker, Polyline, Tooltip, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { getPolygonStyle, EQUIPMENT_TYPES, LEVELS, formatArea, getFeatureId } from '../utils/classification'
+import { getPolygonStyle, EQUIPMENT_TYPES, LEVELS, vegetationLevel, formatArea, getFeatureId } from '../utils/classification'
 import FitBounds from './FitBounds'
 
 function routeIcon(n, { isStart, isEnd } = {}) {
@@ -103,7 +103,7 @@ export default function MapView({
     if (filterLevel === null) return geojson
     return {
       ...geojson,
-      features: geojson.features.filter(f => f.properties.vegetation_level === filterLevel),
+      features: geojson.features.filter(f => vegetationLevel(f.properties.vegetation_level) === filterLevel),
     }
   }, [geojson, filterLevel])
 
@@ -127,7 +127,7 @@ export default function MapView({
   const onEachFeature = useCallback((feature, layer) => {
     const eq = EQUIPMENT_TYPES[feature.properties.name] || { short: feature.properties.name }
     const area = feature.properties.area_m2
-    const level = feature.properties.vegetation_level || 1
+    const level = vegetationLevel(feature.properties.vegetation_level)
     const lvl = LEVELS[level]
 
     layer.on({

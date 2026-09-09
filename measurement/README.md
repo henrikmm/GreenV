@@ -13,6 +13,17 @@ this pipeline; nothing is an illustration.</sub>
 
 ---
 
+## Automatic grass evidence
+
+A saved reconstruction can now produce a whole-video grass grid and a self-contained visual
+report on the local CPU. In Advanced, press **Measure automatically**, then **Inspect report**.
+The report includes every sampled frame, raw masks, retained pixels, per-cell height percentiles,
+frame disagreement and operational blockers. All Verge interface and report text is English.
+
+See [the worker and evidence contract](docs/GRASS-QUALITY.md) for CLI usage and explicit saving.
+These are experimental measurements: visual acceptance does not establish field accuracy or an
+approved mowing priority.
+
 ## The result
 
 A clumping plant in that garden, taped at **0.980 m**. The reconstruction reads **0.998 m** —

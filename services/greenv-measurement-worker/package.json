@@ -1,0 +1,18 @@
+{
+  "name": "greenv-measurement-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Turns a captured segment into a Verge Studio grass assessment.",
+  "engines": {
+    "node": ">=22.12 <27"
+  },
+  "scripts": {
+    "start": "node src/main.mjs",
+    "test": "node --test 'test/*.test.mjs'",
+    "check": "node --test 'test/*.test.mjs'"
+  },
+  "dependencies": {
+    "amqplib": "^0.10.4"
+  }
+}

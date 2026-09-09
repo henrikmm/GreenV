@@ -28,10 +28,18 @@ const IGNORED = new Set(["node_modules", ".git", "dist", "donor", ".runs", "fixt
  * every session, so they pay their cost every time; the registry is consulted, so it may be
  * longer; the task list has to stay short enough that an out-of-date entry is obvious.
  *
- * The registry's ceiling was raised 400 -> 2000 on 2026-08-06, deliberately and once. It is the
- * only document that grows with the project rather than with the current sprint: every decision
- * that holds and every measurement worth not re-deriving lands there permanently, so a cap sized
- * for the other files was forcing real evidence back out of the record.
+ * The registry's ceiling was raised 400 -> 2000 on 2026-08-06 and 2000 -> 4000 on 2026-09-05. It
+ * is the only document that grows with the project rather than with the current sprint: every
+ * decision that holds and every measurement worth not re-deriving lands there permanently, so a
+ * cap sized for the other files was forcing real evidence back out of the record.
+ *
+ * The second raise was chosen over splitting the file into a second volume. An archive plus a
+ * live registry means two places a fact could be, and "a new fact goes to exactly one of them"
+ * is the rule the whole documentation set rests on — the first time somebody records a decision
+ * in the live half that contradicts one in the archive, neither is trustworthy and there is no
+ * way to tell which. One long file that must be searched beats two short ones that can disagree.
+ * If it is ever split, it splits by date with the boundary stated in AGENTS.md, and the archive
+ * becomes read-only in the same change.
  *
  * The task list's ceiling was doubled 180 -> 360 on 2026-08-08, when tasks became tests: a task
  * now has to state its pass condition and what it must not break BEFORE the work starts, and
@@ -53,9 +61,9 @@ const BUDGETS = [
   { file: "CLAUDE.md", lines: 40, bytes: 4 * 1024 },
   { file: "docs/TASK.md", lines: 360, bytes: 32 * 1024 },
   // Bytes scale with the lines, or the byte cap silently becomes the real limit: the registry
-  // measured 64 bytes/line on 2026-08-06, so 2000 lines is ~125 KiB. 160 KiB leaves headroom
+  // measured 64 bytes/line on 2026-08-06, so 4000 lines is ~250 KiB. 320 KiB leaves headroom
   // for tables, which run wider than prose.
-  { file: "docs/REGISTRY.md", lines: 2000, bytes: 160 * 1024 },
+  { file: "docs/REGISTRY.md", lines: 4000, bytes: 320 * 1024 },
 ];
 
 /** The one file allowed to contain unfinished work. */

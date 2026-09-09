@@ -85,6 +85,9 @@ services:
       GREENV_RABBITMQ_LISTENER_ENABLED: "true"
       GREENV_LOCAL_POLLING_ENABLED: "false"
       GREENV_PIPELINE_ROOT: /data/pipeline
+      # Announce every finished segment to the measurement worker. Off by default in the
+      # service itself, because a queue nobody drains only grows.
+      GREENV_MEASUREMENT_ENABLED: "true"
     ports:
       - "127.0.0.1:8081:8081"
     volumes:
@@ -95,6 +98,52 @@ services:
       rabbitmq:
         condition: service_healthy
       video-api:
+        condition: service_started
+    restart: unless-stopped
+
+  measurement-worker:
+    build:
+      # The repository root, because this image carries `measurement/` too: the worker spawns
+      # Verge Studio as a process rather than importing it.
+      context: .
+      dockerfile: services/greenv-measurement-worker/Dockerfile
+    environment:
+      SERVER_ADDRESS: 0.0.0.0
+      GREENV_OBJECT_STORAGE_ADAPTER: local
+      GREENV_PIPELINE_ROOT: /data/pipeline
+      GREENV_RABBITMQ_HOST: rabbitmq
+      GREENV_RABBITMQ_USER: greenv
+      GREENV_RABBITMQ_PASSWORD: greenv-local-only
+      GREENV_RABBITMQ_DYNAMIC: "true"
+
+      # There is no GPU in this stack. Without a depth service reachable from here the worker
+      # cannot produce a reading at all, so point it at one before expecting numbers:
+      #
+      #   GREENV_INFER_BASE_URL=https://<verge-da3>.run.app
+      #
+      # That costs real money for the machine's whole lifetime, not for the seconds it computes
+      # (measurement/AGENTS.md). Left unset, every packet is marked `mock: true` and describes
+      # a fixture scene rather than the captured road.
+      GREENV_INFER_BASE_URL: ${GREENV_INFER_BASE_URL:-http://host.docker.internal:5173/api}
+      GREENV_MEASUREMENT_ALLOW_MOCK: ${GREENV_MEASUREMENT_ALLOW_MOCK:-false}
+
+      # Cityscapes labels counted as the area of interest. `terrain` alone is Verge Studio's own
+      # default and reads 0.000 m on a plant taped at 0.980 m; roçada is about the vertical
+      # growth Cityscapes files under `vegetation`.
+      GREENV_MEASUREMENT_CLASSES: ${GREENV_MEASUREMENT_CLASSES:-terrain,vegetation}
+    # host.docker.internal is a Docker Desktop convenience and resolves nowhere on Docker Engine
+    # for Linux, where an unresolved host would fail every message. This maps it explicitly.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:8090:8090"
+    volumes:
+      - capture-data:/data/pipeline
+      - measurement-runs:/data/runs
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      frame-worker:
         condition: service_started
     restart: unless-stopped
 
@@ -113,5 +162,6 @@ services:
 
 volumes:
   capture-data:
+  measurement-runs:
   postgres-data:
   rabbit-data:

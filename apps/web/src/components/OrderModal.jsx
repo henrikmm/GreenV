@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, Check, MapPin } from 'lucide-react'
-import { EQUIPMENT_TYPES, LEVELS, formatArea, generateOrderId } from '../utils/classification'
+import { EQUIPMENT_TYPES, LEVELS, vegetationLevel, formatArea, generateOrderId } from '../utils/classification'
 import { buildOrder } from '../utils/orders'
 import { TEAMS } from '../data/mockTeams'
 import { useAuth } from '../context/AuthContext'
@@ -98,7 +98,8 @@ export default function OrderModal({ features, onSubmit, onClose }) {
   const { addToast } = useToast()
   const isCombined = features.length > 1
   const totalArea = features.reduce((sum, f) => sum + (f.properties.area_m2 || 0), 0)
-  const maxLevel = Math.max(...features.map(f => f.properties.vegetation_level || 1))
+  // An unassessed stretch reads 0, never 1: unknown height must not enter an order as low priority.
+  const maxLevel = Math.max(...features.map(f => vegetationLevel(f.properties.vegetation_level)))
   const lvl = LEVELS[maxLevel]
   const equipmentSet = [...new Set(features.map(f => (EQUIPMENT_TYPES[f.properties.name] || { short: f.properties.name }).short))]
 

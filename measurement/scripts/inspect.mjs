@@ -49,6 +49,7 @@ import {
   viewBasis,
 } from "./inspect/render.mjs";
 import { typed } from "./inspect/typed.mjs";
+import { DEFAULT_MODEL, findModel, segmentFrame } from "./inspect/segment-model.mjs";
 
 const HELP = `
 verge inspect — read a reconstruction from this disk. Never touches the cloud.
@@ -66,6 +67,7 @@ COMMANDS
   depth <id>                 draw one frame's depth, colour-mapped as Depth 2D maps it
   coverage <id>              what of the picture never reached the cloud, and why
   select <id>                choose points and SEE them: in the cloud and on the photograph
+  segment <id>               run the semantic model and PAINT what it called grass
   measurements <id>          every recorded named-object trial for one run
   measurement <id> <trial>   replay one exact frozen mask and draw its 2D and 3D evidence
   explain <id>               the whole chain, numbers and pictures, in one go
@@ -90,6 +92,12 @@ OPTIONS
   --mask-erode <px>         measurement replay: shrink the saved brush before back-projection
   --focus [m]                measurement replay: also draw the cloud framed on the ruler, with
                              this margin around it in metres (default 0.75)
+  --model <key>              segment: cityscapes-b0 (default) | cityscapes-b2
+  --classes <a,b>            segment: candidate Cityscapes labels (default terrain); diagnostic only
+  --floor <p>                segment: probability a winning pixel must clear (default 0.5)
+  --frames <a,b,c>           segment: several frames as one contact sheet
+  --against <trial>          segment: score the classes against a recorded brush. Name it by
+                             target ("Grass-Exe1"), trial index, or full observation id
   --voxel <m>                coverage: how close a cloud point must be to count (default 0.08)
   --cloud <glb|npz>          which cloud to work on. npz rebuilds it from the depth maps,
                              taking the confidence floor PER FRAME the way DA3 takes it once
@@ -117,6 +125,7 @@ EXAMPLES
   node scripts/inspect.mjs floor door-504px-112f
   node scripts/inspect.mjs view door-504px-112f --colour height --view top
   node scripts/inspect.mjs select door-504px-112f --band 0.02,0.6
+  node scripts/inspect.mjs segment 20260814-174814 --frame 79 --against Grass-Exe1
   node scripts/inspect.mjs explain roadside
 `;
 
@@ -131,6 +140,7 @@ const COMMANDS = {
   depth: cmdDepth,
   coverage: cmdCoverage,
   select: cmdSelect,
+  segment: cmdSegment,
   measurements: cmdMeasurements,
   measurement: cmdMeasurement,
   explain: cmdExplain,
@@ -1271,6 +1281,188 @@ async function cmdExplain(positional, flags) {
   out("");
   out("open these with the Read tool. Numbers alone will not tell you whether the");
   out("floor is under the furniture or through it.");
+}
+
+/**
+ * What the segmentation model sees, drawn on the frame it saw it in.
+ *
+ * This is the feedback loop the semantic mask is developed against. A class fraction with no
+ * picture is a number you have to trust; a painted frame with no fractions is an impression.
+ * Both, and — where a brush was recorded on the same frame — a score against what a person
+ * actually painted.
+ */
+async function cmdSegment(positional, flags) {
+  const run = resolveRun(positional[0]);
+  const T = await typed();
+  const model = flags.model ? findModel(String(flags.model)) : DEFAULT_MODEL;
+  const floor = flags.floor === undefined ? T.DEFAULT_MIN_PROBABILITY : Number(flags.floor);
+  if (!Number.isFinite(floor) || floor < 0 || floor > 1) throw new Error("--floor takes a probability from 0 to 1");
+  const selectedClasses = [...new Set(String(flags.classes ?? "terrain").split(",").map((value) => value.trim()))];
+  if (selectedClasses.some((label) => !T.CITYSCAPES_LABELS.includes(label))) {
+    throw new Error(`--classes requires Cityscapes labels: ${T.CITYSCAPES_LABELS.join(", ")}`);
+  }
+  const roles = T.CITYSCAPES_LABELS.map((label) => selectedClasses.includes(label) ? "grass" : "excluded");
+  const selectionLabel = selectedClasses.join("+");
+
+  const files = frameFiles(run.frames);
+  if (files.length === 0) throw new Error(`no source frames on this disk for ${run.id}`);
+
+  const wanted = flags.frames
+    ? String(flags.frames).split(",").map((value) => clampFrame(value.trim(), files.length))
+    : [clampFrame(flags.frame, files.length)];
+  const chosen = [...new Set(wanted)].sort((a, b) => a - b);
+
+  const brush = flags.against ? recordedBrush(run, String(flags.against)) : null;
+
+  const tiles = [];
+  const reports = [];
+  for (const index of chosen) {
+    const file = files[index];
+    if (brush && Number(numberIn(file)) !== brush.frame) {
+      throw new Error(`mask frame mismatch: source ${numberIn(file)}, brush ${brush.frame}. Use the exact painted frame.`);
+    }
+    const { logits, frame, timing } = await segmentFrame(file, model);
+    if (logits.classes !== T.CITYSCAPES_CLASS_COUNT) {
+      throw new Error(`${model.id} returned ${logits.classes} classes, not Cityscapes' ${T.CITYSCAPES_CLASS_COUNT}`);
+    }
+    const map = T.classMapFromLogits(logits);
+    const grass = T.grassMaskFromClassMap(map, { minProbability: floor, roles });
+    const fractions = [...T.classFractions(map)].sort((a, b) => b[1] - a[1]);
+
+    const photo = await readImage(file, Number(flags.size ?? 360));
+    const layers = [{ mask: grass.mask, rgb: [80, 240, 120], label: `${selectionLabel}>=${floor}` }];
+    if (brush) {
+      layers.push({ mask: brush.mask, rgb: [255, 90, 200], label: "brush", width: brush.width, height: brush.height });
+    }
+    // maskOverlay takes ONE grid for every layer, so a brush at frame resolution is resampled
+    // down to the logit grid first. Nearest-neighbour, because a fractional brush pixel is not
+    // a thing a person painted.
+    const drawn = layers.map((layer) =>
+      layer.width && layer.width !== map.width
+        ? { ...layer, mask: T.resampleMaskNearest(layer.mask, layer.width, layer.height, map.width, map.height) }
+        : layer,
+    );
+
+    const image = maskOverlay(photo, drawn, {
+      width: map.width,
+      height: map.height,
+      title: `${run.id} frame ${numberIn(file)} - ${model.key}`,
+      subtitle: `${grass.counts.kept.toLocaleString("en-GB")} px ${selectionLabel} of ${grass.counts.total.toLocaleString("en-GB")} - floor dropped ${grass.counts.droppedToFloor}`,
+    });
+    tiles.push({ image, label: numberIn(file) });
+
+    const report = {
+      frame: numberIn(file),
+      inferMs: timing.inferMs,
+      grid: `${map.width}x${map.height}`,
+      source: `${frame.width}x${frame.height}`,
+      kept: grass.counts.kept,
+      grassWins: grass.counts.grassWins,
+      droppedToFloor: grass.counts.droppedToFloor,
+      classes: fractions.map(([id, fraction]) => ({ label: T.CITYSCAPES_LABELS[id], fraction })),
+    };
+    if (brush) {
+      report.against = scoreAgainstBrush(map, brush, T, floor);
+      const prediction = T.resampleMaskNearest(grass.mask, map.width, map.height, brush.width, brush.height);
+      report.selectedAgainst = {
+        ...T.scoreSemanticMask(prediction, brush.mask, Number(numberIn(file)), brush.frame),
+        reference: brush.name,
+        resolution: `${brush.width}x${brush.height}`,
+        scope: "recorded object brush; outside-brush pixels are unannotated, so precision and IoU do not establish whole-region accuracy",
+      };
+    }
+    reports.push(report);
+  }
+
+  const image = tiles.length === 1 ? tiles[0].image : contactSheet(tiles, {
+    columns: Math.min(tiles.length, Number(flags.columns ?? 4)),
+    title: `${run.id} - ${model.key} - ${selectionLabel} at floor ${floor}`,
+    subtitle: `${tiles.length} frames - green is the candidate mask; production class policy is unchanged`,
+  });
+  const path = outPath(flags, run, "segment");
+  await writePng(image, path);
+
+  if (flags.json) return json({ id: run.id, model: model.id, revision: model.revision, selectedClasses, floor, frames: reports, image: rel(path) });
+
+  for (const report of reports) {
+    out(pairs({
+      frame: `${report.frame}  (${report.source} source, ${report.grid} logits, ${report.inferMs} ms)`,
+      [selectionLabel]: `${report.kept.toLocaleString("en-GB")} px kept of ${report.grassWins.toLocaleString("en-GB")} that won - ${report.droppedToFloor.toLocaleString("en-GB")} dropped by the floor`,
+      classes: report.classes.slice(0, 6).map((entry) => `${entry.label} ${pct(entry.fraction)}`).join("  "),
+    }));
+    if (report.against) {
+      out(`selected-class recall on recorded brush: ${pct(report.selectedAgainst.recall)} (${report.selectedAgainst.resolution}); partial annotation, not whole-region precision`);
+      out("");
+      out(table(
+        ["class", "IoU", "recall", "precision", "model px"],
+        report.against.map((row) => [row.label, round(row.iou, 3), round(row.recall, 3), round(row.precision, 3), row.modelPixels.toLocaleString("en-GB")]),
+      ));
+    }
+    out("");
+  }
+  out(pairs({ model: `${model.id} @ ${model.revision.slice(0, 12)}`, image: rel(path) }));
+}
+
+/** One recorded trial's brush, decoded from the run-length encoding the app stores it in. */
+function recordedBrush(run, trialId) {
+  const packets = readMeasurementEvidence(run);
+  const packet = packets.find((candidate) =>
+    candidate.observation?.id === trialId ||
+    candidate.evidenceId === trialId ||
+    String(candidate.observation?.trialIndex) === trialId ||
+    candidate.target?.name === trialId,
+  );
+  if (!packet) {
+    const known = packets.map((p) => `${p.target?.name}#${p.observation?.trialIndex}`).join(", ");
+    throw new Error(`no recorded trial "${trialId}" in ${run.id} — this run has ${known || "none"}`);
+  }
+  const stored = packet.observation?.mask;
+  if (!stored?.runs) throw new Error(`trial "${trialId}" has no recorded mask`);
+  const data = new Uint8Array(stored.width * stored.height);
+  for (let i = 0; i + 1 < stored.runs.length; i += 2) data.fill(1, stored.runs[i], stored.runs[i] + stored.runs[i + 1]);
+  return {
+    mask: data,
+    width: stored.width,
+    height: stored.height,
+    painted: stored.paintedPixels,
+    frame: packet.observation.canonicalFrame,
+    name: `${packet.target?.name}#${packet.observation?.trialIndex}`,
+  };
+}
+
+/**
+ * Score every class against a human brush.
+ *
+ * Precision is reported but is the least meaningful of the three here: a person paints ONE
+ * object and the model labels every instance of that class in the frame, so a low precision
+ * usually means the model found more grass than the person was asked to paint. Recall is the
+ * number that says whether the class covers what the person meant.
+ */
+function scoreAgainstBrush(map, brush, T, floor) {
+  const human = T.resampleMaskNearest(brush.mask, brush.width, brush.height, map.width, map.height);
+  const painted = human.reduce((total, value) => total + value, 0);
+  const rows = [];
+  for (const [id, label] of T.CITYSCAPES_LABELS.entries()) {
+    let intersection = 0;
+    let modelOnly = 0;
+    for (let pixel = 0; pixel < human.length; pixel++) {
+      // The floor applies to every class, not only the one we keep: a score computed on raw
+      // argmax would grade a different mask from the one the grid receives.
+      const claimed = map.classIds[pixel] === id && map.probabilities[pixel] >= floor;
+      if (claimed && human[pixel]) intersection += 1;
+      else if (claimed) modelOnly += 1;
+    }
+    const modelPixels = intersection + modelOnly;
+    if (modelPixels === 0 && intersection === 0 && id !== T.GRASS_CLASS_ID) continue;
+    rows.push({
+      label,
+      iou: intersection / (painted + modelOnly),
+      recall: painted === 0 ? 0 : intersection / painted,
+      precision: modelPixels === 0 ? 0 : intersection / modelPixels,
+      modelPixels,
+    });
+  }
+  return rows.sort((a, b) => b.recall - a.recall);
 }
 
 // ── shared machinery ────────────────────────────────────────────────────────────────────────
