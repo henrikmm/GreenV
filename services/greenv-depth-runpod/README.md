@@ -106,7 +106,29 @@ worker ends up running something nobody can identify. `measurement/scripts/cloud
 
 ## The endpoint
 
-Create a **Serverless** endpoint from that image. The settings that matter:
+`provision.mjs` creates it, and creating it costs nothing: with `workersMin` at 0 there is no
+worker until a request arrives. Export the three credentials and run it:
+
+```bash
+export RUNPOD_API_KEY=...            # RunPod console -> Settings -> API Keys
+export GREENV_AWS_ACCESS_KEY=...     # the R2 key the rest of the stack uses
+export GREENV_AWS_SECRET_KEY=...
+node services/greenv-depth-runpod/provision.mjs
+```
+
+It is idempotent by name: it reads what exists, creates what does not, and patches what drifted.
+Run it again after changing any setting below - all of them are environment variables, listed in
+`provision.mjs` with the reason for each default. `RUNPOD_DRY_RUN=true` prints the two request
+bodies and sends nothing, with the secrets shown as `<set>` so the output is safe to paste.
+
+It prints the `terraform.tfvars` lines to paste when it is done, and it never sends a job: the
+first job is what bills, and `AGENTS.md` asks for agreement before that, every time.
+
+There is no RunPod provider in the Terraform registry, which is why this is a script and not a
+resource. A `null_resource` wrapping it would add a plan nobody can read and a destroy that
+deletes a paid endpoint on a refresh nobody meant to run.
+
+The settings it applies, and why:
 
 | Setting | Value | Why |
 |---|---|---|
