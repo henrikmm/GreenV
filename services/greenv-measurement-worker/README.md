@@ -26,7 +26,7 @@ rather than from this directory.
 ## Commands
 
 ```
-npm ci && npm test        23 tests, including the whole chain on real recorded geometry
+npm ci && npm test        36 tests, including the whole chain on real recorded geometry
 npm start                 run it
 ```
 
@@ -43,7 +43,8 @@ that saved run is not on the machine — a fresh clone has none.
 | `src/run-directory.mjs` | Laying out a run in the shape Verge Studio's inspector resolves |
 | `src/frame-context.mjs` | Joining sampled frames to their telemetry; where `km` is deliberately not invented |
 | `src/measure.mjs` | Spawning Verge Studio and reading its JSON |
-| `src/queue/rabbit.mjs` | The automatic trigger |
+| `src/queue/rabbit.mjs` | The automatic trigger, over RabbitMQ |
+| `src/queue/azure.mjs` | The same trigger over Azure Queue Storage: a poll, a visibility timeout, a poison queue |
 | `src/http.mjs` | The manual trigger, for backfills and re-measures |
 | `src/storage/` | Object storage: filesystem, or any S3-compatible endpoint |
 

@@ -8,6 +8,7 @@ import com.azure.storage.blob.BlobServiceClientBuilder;
 import com.azure.storage.queue.QueueClient;
 import com.azure.storage.queue.QueueClientBuilder;
 import java.net.URI;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -77,7 +78,32 @@ public class CloudClientConfiguration {
     @ConditionalOnProperty(name = "greenv.adapters.segment-queue", havingValue = "azure-queue")
     QueueClient azureQueueClient(AzureQueueProperties properties) {
         requireText(properties.queue(), "greenv.queue.azure-queue.queue");
-        QueueClientBuilder builder = new QueueClientBuilder().queueName(properties.queue());
+        return azureQueueClient(properties, properties.queue());
+    }
+
+    /**
+     * The queue worker 2 announces measurements on, and the one an announcement that will never be
+     * read goes to. Both are built only when a measured queue is named, so a deployment without
+     * worker 2 holds no client and opens no poll — the Azure equivalent of leaving
+     * {@code greenv.capture-queue.measured-queue} empty.
+     */
+    @Bean("azureMeasuredQueueClient")
+    @ConditionalOnProperty(name = "greenv.adapters.segment-queue", havingValue = "azure-queue")
+    @ConditionalOnExpression("'${greenv.queue.azure-queue.measured-queue:}' != ''")
+    QueueClient azureMeasuredQueueClient(AzureQueueProperties properties) {
+        return azureQueueClient(properties, properties.measuredQueue());
+    }
+
+    @Bean("azureMeasuredPoisonQueueClient")
+    @ConditionalOnProperty(name = "greenv.adapters.segment-queue", havingValue = "azure-queue")
+    @ConditionalOnExpression("'${greenv.queue.azure-queue.measured-queue:}' != ''")
+    QueueClient azureMeasuredPoisonQueueClient(AzureQueueProperties properties) {
+        return azureQueueClient(
+                properties, requireText(properties.poisonQueue(), "greenv.queue.azure-queue.poison-queue"));
+    }
+
+    private QueueClient azureQueueClient(AzureQueueProperties properties, String queueName) {
+        QueueClientBuilder builder = new QueueClientBuilder().queueName(queueName);
         if (hasText(properties.connectionString())) {
             builder.connectionString(properties.connectionString());
         } else {

@@ -26,7 +26,12 @@ class CloudClientConfigurationTest {
                             "greenv-segment-extract-v2",
                             "UseDevelopmentStorage=true",
                             null,
-                            false))
+                            false,
+                            1,
+                            300,
+                            "greenv-segment-measured-poison",
+                            5,
+                            ""))
             .withPropertyValues(
                     "greenv.adapters.object-storage=s3",
                     "greenv.adapters.segment-queue=azure-queue");

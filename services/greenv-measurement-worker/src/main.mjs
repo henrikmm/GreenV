@@ -11,7 +11,7 @@ import { runpodInferClient } from "./infer-runpod.mjs";
 import { measurementRunner } from "./measure.mjs";
 import { measurementPipeline } from "./pipeline.mjs";
 import { createHttpTrigger } from "./http.mjs";
-import { connectQueue } from "./queue/rabbit.mjs";
+import { connectQueue } from "./queue/index.mjs";
 import { singleFlight } from "./gate.mjs";
 
 const log = (fields) => process.stdout.write(`${JSON.stringify({ at: new Date().toISOString(), ...fields })}\n`);
@@ -42,7 +42,10 @@ export async function start(config = loadConfig()) {
     event: "started",
     http: `${config.http.address}:${config.http.port}`,
     storage: config.storage.adapter,
-    queue: config.queue.enabled ? config.queue.queue : "disabled",
+    transport: config.queue.adapter,
+    queue: config.queue.enabled
+      ? (config.queue.adapter === "azure-queue" ? config.queue.azure.queue : config.queue.queue)
+      : "disabled",
     depth: config.infer.baseUrl,
     classes: config.measurement.classes,
   });

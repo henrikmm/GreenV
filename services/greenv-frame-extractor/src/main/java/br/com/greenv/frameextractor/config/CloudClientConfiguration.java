@@ -90,6 +90,19 @@ public class CloudClientConfiguration {
                 requireText(properties.poisonQueue(), "greenv.queue.azure-queue.poison-queue"));
     }
 
+    /**
+     * The queue worker 2 drains. Built only when this deployment both speaks Azure Queue and runs a
+     * measurement worker, so a stack without one neither names a queue nor holds a client to it.
+     */
+    @Bean("azureMeasurementQueueClient")
+    @ConditionalOnProperty(name = "greenv.adapters.segment-queue", havingValue = "azure-queue")
+    @ConditionalOnProperty(name = "greenv.measurement.enabled", havingValue = "true")
+    QueueClient azureMeasurementQueueClient(AzureQueueProperties properties) {
+        return azureQueueClient(
+                properties,
+                requireText(properties.measurementQueue(), "greenv.queue.azure-queue.measurement-queue"));
+    }
+
     private QueueClient azureQueueClient(AzureQueueProperties properties, String queueName) {
         QueueClientBuilder builder = new QueueClientBuilder().queueName(queueName);
         if (hasText(properties.connectionString())) {

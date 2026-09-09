@@ -8,6 +8,7 @@ import br.com.greenv.frameextractor.port.CaptureSegmentStore;
 import br.com.greenv.frameextractor.port.LegacyExtractionUseCase;
 import br.com.greenv.frameextractor.port.LegacyPipelineStore;
 import br.com.greenv.frameextractor.port.LegacyTaskInbox;
+import br.com.greenv.frameextractor.port.MeasurementWorkQueue;
 import br.com.greenv.frameextractor.port.SegmentExtractionUseCase;
 import br.com.greenv.frameextractor.port.SegmentObjectStorage;
 import br.com.greenv.frameextractor.port.SegmentMessageCodec;
@@ -22,6 +23,7 @@ import br.com.greenv.frameextractor.storage.LocalLegacyPipelineStoreAdapter;
 import br.com.greenv.frameextractor.storage.LocalSegmentObjectStorageAdapter;
 import br.com.greenv.frameextractor.storage.S3SegmentObjectStorageAdapter;
 import br.com.greenv.frameextractor.storage.AzureBlobSegmentObjectStorageAdapter;
+import br.com.greenv.frameextractor.task.AzureQueueMeasurementWorkQueueAdapter;
 import br.com.greenv.frameextractor.task.AzureQueueSegmentWorkQueueAdapter;
 import br.com.greenv.frameextractor.task.AzureServiceBusSegmentWorkQueueAdapter;
 import br.com.greenv.frameextractor.task.AzureQueueSegmentExtractionPollerAdapter;
@@ -77,6 +79,7 @@ class CloudAgnosticArchitectureTest {
         assertThat(SegmentWorkQueue.class).isAssignableFrom(SqsSegmentWorkQueueAdapter.class);
         assertThat(SegmentWorkQueue.class).isAssignableFrom(AzureQueueSegmentWorkQueueAdapter.class);
         assertThat(SegmentWorkQueue.class).isAssignableFrom(AzureServiceBusSegmentWorkQueueAdapter.class);
+        assertThat(MeasurementWorkQueue.class).isAssignableFrom(AzureQueueMeasurementWorkQueueAdapter.class);
         assertThat(SegmentMessageCodec.class).isAssignableFrom(JacksonSegmentMessageCodecAdapter.class);
     }
 
@@ -98,6 +101,7 @@ class CloudAgnosticArchitectureTest {
         assertAdapterValue(AzureQueueSegmentExtractionPollerAdapter.class, "azure-queue");
         assertAdapterValue(AzureServiceBusSegmentWorkQueueAdapter.class, "azure-service-bus");
         assertAdapterValue(AzureServiceBusSegmentExtractionPollerAdapter.class, "azure-service-bus");
+        assertCloudAdapterValue(AzureQueueMeasurementWorkQueueAdapter.class, "azure-queue");
     }
 
     @Test
@@ -144,5 +148,21 @@ class CloudAgnosticArchitectureTest {
 
     private static void assertAdapterValue(Class<?> adapter, String expected) {
         assertThat(adapter.getAnnotation(ConditionalOnProperty.class).havingValue()).isEqualTo(expected);
+    }
+
+    /**
+     * The same guarantee for an adapter that carries more than one condition — the measurement
+     * publisher is gated on the transport and on the measurement stage being deployed at all.
+     * {@code getAnnotation} returns null once an annotation is repeated, so the conditions are read
+     * as a list and the one naming the cloud switch is the one that has to be explicit.
+     */
+    private static void assertCloudAdapterValue(Class<?> adapter, String expected) {
+        ConditionalOnProperty cloudSwitch = Arrays.stream(
+                        adapter.getAnnotationsByType(ConditionalOnProperty.class))
+                .filter(condition -> Arrays.asList(condition.name()).contains("greenv.adapters.segment-queue"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(cloudSwitch.havingValue()).isEqualTo(expected);
+        assertThat(cloudSwitch.matchIfMissing()).isFalse();
     }
 }
