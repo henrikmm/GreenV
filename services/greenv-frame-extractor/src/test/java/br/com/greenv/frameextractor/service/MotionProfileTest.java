@@ -78,6 +78,45 @@ class MotionProfileTest {
         assertThat(motion.movedBeyondNoise(3.0, 2.0)).isTrue();
     }
 
+    /**
+     * How much of the segment the fixes cover, which is the evidence behind an abstention. Two
+     * fixes are two fixes and {@code isUsable()} says so, but 19 ms of them describe 19 ms.
+     */
+    @Test
+    void reportsTheSecondsSpannedByTheUsableFixes() {
+        var sparse = MotionProfile.from(List.of(
+                fix(seconds(0), BASE_LAT, BASE_LON, 5.0, 0.0),
+                fix(19_400_000L, BASE_LAT, BASE_LON, 5.0, 0.0)));
+
+        assertThat(sparse.isUsable()).isTrue();
+        assertThat(sparse.fixSpanSeconds()).isCloseTo(0.0194, within(0.0001));
+        assertThat(MotionProfile.from(steadyDrive(16.666_67, 11)).fixSpanSeconds())
+                .isCloseTo(10.0, within(0.001));
+        assertThat(MotionProfile.from(List.of()).fixSpanSeconds()).isZero();
+    }
+
+    /**
+     * The floor a browser's IP-derived position sets. At 50 km accuracy it stands at 100 km, so a
+     * car at 60 km/h is refused for exactly the same arithmetic as a parked phone - which is why
+     * the noise floor has to be readable on its own and not only applied.
+     */
+    @Test
+    void scalesTheNoiseFloorWithTheFixesOwnAccuracy() {
+        assertThat(MotionProfile.from(steadyDrive(16.666_67, 11)).motion().noiseFloorMeters(3.0, 2.0))
+                .isEqualTo(10.0);
+
+        List<LocationSample> vague = new ArrayList<>();
+        for (int i = 0; i < 11; i++) {
+            vague.add(fix(
+                    seconds(i), BASE_LAT + metresNorth(i * 16.666_67), BASE_LON, 50_000.0, 16.666_67));
+        }
+        var motion = MotionProfile.from(vague).motion();
+
+        assertThat(motion.netDisplacementMeters()).isCloseTo(166.7, within(0.5));
+        assertThat(motion.noiseFloorMeters(3.0, 2.0)).isEqualTo(100_000.0);
+        assertThat(motion.movedBeyondNoise(3.0, 2.0)).isFalse();
+    }
+
     @Test
     void reportsUnknownWithoutTwoUsableFixes() {
         assertThat(MotionProfile.from(List.of()).motion().isKnown()).isFalse();

@@ -27,6 +27,7 @@
     "nativeFps",
     "pathMeters",
     "netDisplacementMeters",
+    "usableFixSpanSeconds",
     "groups"
   ],
   "properties": {
@@ -154,7 +155,8 @@
       "enum": [
         "distance-groups",
         "insufficient-motion",
-        "time-uniform-no-telemetry"
+        "time-uniform-no-telemetry",
+        "time-uniform-sparse-telemetry"
       ]
     },
     "nativeFps": {
@@ -166,6 +168,10 @@
       "minimum": 0
     },
     "netDisplacementMeters": {
+      "type": "number",
+      "minimum": 0
+    },
+    "usableFixSpanSeconds": {
       "type": "number",
       "minimum": 0
     },

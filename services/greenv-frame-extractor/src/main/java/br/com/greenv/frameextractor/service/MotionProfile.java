@@ -86,6 +86,16 @@ public final class MotionProfile {
     }
 
     /**
+     * Seconds between the first and last usable fix: how much of the segment the fixes cover.
+     *
+     * <p>A verdict on the camera's motion only applies to the stretch the fixes span. Two fixes
+     * 19 ms apart inside a 9.95 s segment describe 0.2% of it and say nothing about the rest.
+     */
+    public double fixSpanSeconds() {
+        return times.length < 2 ? 0 : (times[times.length - 1] - times[0]) / 1_000_000_000.0;
+    }
+
+    /**
      * Distance travelled by {@code monotonicNanos}, interpolated between fixes and clamped at both
      * ends. Frames outside the fix range — the camera starts before the first fix arrives — take the
      * nearest endpoint rather than an extrapolation nobody measured.

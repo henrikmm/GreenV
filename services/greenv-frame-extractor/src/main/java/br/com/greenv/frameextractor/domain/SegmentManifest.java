@@ -27,6 +27,7 @@ public record SegmentManifest(
         double nativeFps,
         double pathMeters,
         double netDisplacementMeters,
+        double usableFixSpanSeconds,
         List<FrameGroup> groups) {
 
     public SegmentManifest {

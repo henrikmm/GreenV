@@ -32,10 +32,18 @@ public record SegmentMotion(
      * drops below {@code minimumMeters} for an optimistic accuracy report.
      */
     public boolean movedBeyondNoise(double minimumMeters, double accuracyMultiple) {
-        if (!isKnown()) {
-            return false;
-        }
-        double floor = Math.max(minimumMeters, medianHorizontalAccuracyMeters * accuracyMultiple);
-        return netDisplacementMeters >= floor;
+        return isKnown() && netDisplacementMeters >= noiseFloorMeters(minimumMeters, accuracyMultiple);
+    }
+
+    /**
+     * The displacement below which movement cannot be told from fix noise.
+     *
+     * <p>Exposed as well as applied, because whether a segment can reach this floor at all decides
+     * whether the fixes answer the question. At 50 km accuracy it stands at 100 km, which no
+     * ten-second segment reaches at any speed, so "did not move" is the only output the arithmetic
+     * permits and therefore not a finding.
+     */
+    public double noiseFloorMeters(double minimumMeters, double accuracyMultiple) {
+        return Math.max(minimumMeters, medianHorizontalAccuracyMeters * accuracyMultiple);
     }
 }

@@ -54,6 +54,22 @@ public class SegmentExtractionService implements SegmentProcessor {
     /** The motion floor scales with the fixes' own accuracy: a vague fix must show more movement. */
     private static final double ACCURACY_MULTIPLE = 2.0;
 
+    /**
+     * Slowest speed at which a capture is still a drive: 10 km/h, the pace of queued traffic.
+     *
+     * <p>It is the yardstick for whether the fixes are precise enough to notice motion at all. Over
+     * a ten-second segment 2.78 m/s covers 27.8 m, so any noise floor above that leaves the "moved"
+     * branch unreachable — at the 50 km accuracy a browser's IP-derived position reports, the floor
+     * is 100 km and a car at 100 km/h would be refused exactly as a parked one is.
+     */
+    private static final double SLOW_TRAFFIC_METERS_PER_SECOND = 10_000.0 / 3_600.0;
+
+    /**
+     * Share of the segment the fixes must span before their verdict covers it. Two fixes 19 ms
+     * apart in a 9.95 s segment describe 0.2% of it and are silent about the other 99.8%.
+     */
+    private static final double MIN_FIX_COVERAGE = 0.5;
+
     private static final double SAMPLE_FPS = 10.0;
     private static final int MAX_SAMPLE_FRAMES = 112;
     private static final int SAMPLE_LONG_EDGE = 1024;
@@ -154,24 +170,33 @@ public class SegmentExtractionService implements SegmentProcessor {
         // only a proxy for it — a proxy that breaks the moment the vehicle slows down.
         MotionProfile profile = MotionProfile.from(telemetry.locations());
         List<EncodedFrameTimestamp> encoded = frameTimelineProbe.probe(source);
-        List<FrameGroup> groups = planGroups(profile, encoded);
+        boolean decisive = telemetryDecidesMotion(profile, probe.durationSeconds());
+        List<FrameGroup> groups = decisive ? planGroups(profile, encoded) : List.of();
 
         List<FrameRecord> sampledFrames;
         List<FrameGroup> publishedGroups;
         String strategy;
-        if (groups.isEmpty() && profile.isUsable()) {
-            // The telemetry is trustworthy and says the camera did not move far enough for
-            // parallax. Publishing frames here would spend storage and a GPU run on views of one
-            // viewpoint, which cannot reconstruct anything. The metadata and the manifest are still
-            // written, and the source is kept, so a segment refused here can be re-sampled if this
-            // rule turns out to be wrong.
+        if (!groups.isEmpty()) {
+            strategy = "distance-groups";
+            var published = publishGroups(
+                    request.outputPrefix(), source, sampledFramesPath, scale, groups, encoded, profile);
+            sampledFrames = published.frames();
+            publishedGroups = published.groups();
+        } else if (decisive) {
+            // The telemetry could have shown movement and did not. Publishing frames here would
+            // spend storage and a GPU run on views of one viewpoint, which cannot reconstruct
+            // anything. The metadata and the manifest are still written, and the source is kept, so
+            // a segment refused here can be re-sampled if this rule turns out to be wrong.
             strategy = "insufficient-motion";
             sampledFrames = List.of();
             publishedGroups = List.of();
-        } else if (groups.isEmpty()) {
-            // No usable telemetry, so there is nothing to say the camera did not move. Refusing on
-            // ignorance would silently drop good captures, so this falls back to the uniform plan.
-            strategy = "time-uniform-no-telemetry";
+        } else {
+            // Nothing here says the camera did not move: either no telemetry arrived at all, or it
+            // arrived too sparse or too vague to decide. Refusing on ignorance would silently drop
+            // good captures, so both fall back to the uniform plan — under different names, because
+            // "the phone sent no fixes" and "the phone sent fixes worth nothing" are different
+            // faults to go and fix.
+            strategy = profile.isUsable() ? "time-uniform-sparse-telemetry" : "time-uniform-no-telemetry";
             SamplingPlan uniform =
                     samplingPlanner.sampling(SAMPLE_FPS, probe.durationSeconds(), MAX_SAMPLE_FRAMES);
             List<Path> extracted = frameSampler.extract(source, sampledFramesPath, uniform, scale);
@@ -182,12 +207,6 @@ public class SegmentExtractionService implements SegmentProcessor {
                     uniform.effectiveFps(),
                     probe.durationSeconds());
             publishedGroups = List.of();
-        } else {
-            strategy = "distance-groups";
-            var published = publishGroups(
-                    request.outputPrefix(), source, sampledFramesPath, scale, groups, encoded, profile);
-            sampledFrames = published.frames();
-            publishedGroups = published.groups();
         }
 
         SegmentManifest manifest = new SegmentManifest(
@@ -220,6 +239,9 @@ public class SegmentExtractionService implements SegmentProcessor {
                 probe.nativeFps(),
                 profile.motion().pathMeters(),
                 profile.motion().netDisplacementMeters(),
+                // The evidence behind the strategy: how much of the segment the fixes actually
+                // covered. Without it, a reader cannot tell a refusal from an abstention.
+                profile.fixSpanSeconds(),
                 publishedGroups);
         objectStorage.putJson(manifestKey, manifest);
         SegmentManifest published = objectStorage.readJson(manifestKey, SegmentManifest.class);
@@ -306,8 +328,7 @@ public class SegmentExtractionService implements SegmentProcessor {
      * few. Using the sum here would let a queue of stopped traffic look like a drive.
      */
     private List<FrameGroup> planGroups(MotionProfile profile, List<EncodedFrameTimestamp> encoded) {
-        if (!profile.isUsable()
-                || !profile.motion().movedBeyondNoise(MIN_DISPLACEMENT_METERS, ACCURACY_MULTIPLE)) {
+        if (!profile.motion().movedBeyondNoise(MIN_DISPLACEMENT_METERS, ACCURACY_MULTIPLE)) {
             return List.of();
         }
         return groupPlanner.plan(
@@ -316,6 +337,28 @@ public class SegmentExtractionService implements SegmentProcessor {
                 profile.motion().pathMeters(),
                 GroupPlanner.DEFAULT_GROUP_METERS,
                 MAX_SAMPLE_FRAMES);
+    }
+
+    /**
+     * Whether the fixes could have shown movement, quite apart from whether they did.
+     *
+     * <p>Two fixes are only a verdict when they cover the segment and are precise enough to notice
+     * a vehicle crossing it. A browser capture on 8 Sep 2026 had neither: two fixes 19 ms apart in
+     * a 9.95 s segment, both at 50 km accuracy. Coverage was 0.2% of the segment against the half
+     * required, and the noise floor stood at 50000 m × {@code ACCURACY_MULTIPLE} = 100000 m against
+     * the 2.78 m/s × 9.95 s = 27.6 m a vehicle in slow traffic would have covered. "Did not move"
+     * was not what the telemetry found there, it was the only answer the arithmetic could give.
+     */
+    private static boolean telemetryDecidesMotion(MotionProfile profile, double durationSeconds) {
+        if (!profile.isUsable()) {
+            return false;
+        }
+        if (profile.fixSpanSeconds() < durationSeconds * MIN_FIX_COVERAGE) {
+            return false;
+        }
+        double reachableMeters = SLOW_TRAFFIC_METERS_PER_SECOND * durationSeconds;
+        return profile.motion().noiseFloorMeters(MIN_DISPLACEMENT_METERS, ACCURACY_MULTIPLE)
+                <= reachableMeters;
     }
 
     /**
