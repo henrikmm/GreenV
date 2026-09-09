@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { drift, provision, settings, templateBody } from "./provision.mjs";
+import { drift, provision, settings, templateBody, updateBody } from "./provision.mjs";
 
 const ENV = {
   RUNPOD_API_KEY: "runpod-test-key",
@@ -26,12 +26,25 @@ function runpod({ templates = [] } = {}) {
     const ok = (body) => ({ ok: true, status: 200, text: async () => JSON.stringify(body) });
 
     if (path === "/templates" && method === "GET") return ok(templates);
+    if (path.startsWith("/templates/") && method === "GET") {
+      return ok(templates.find((item) => item.id === path.split("/").pop()));
+    }
     if (path === "/templates" && method === "POST") {
       const created = { id: "tpl-1", ...JSON.parse(init.body) };
       templates.push(created);
       return ok(created);
     }
     if (method === "PATCH") {
+      // RunPod answers 400 for a create-only key rather than ignoring it.
+      const sent = JSON.parse(init.body);
+      if ("isServerless" in sent) {
+        return {
+          ok: false,
+          status: 400,
+          text: async () =>
+            JSON.stringify({ error: "Extra input keys provided in request body" }),
+        };
+      }
       const id = path.split("/").pop();
       const index = templates.findIndex((item) => item.id === id);
       templates[index] = { ...templates[index], ...JSON.parse(init.body) };
@@ -138,4 +151,34 @@ test("the template says nothing about the endpoint", () => {
   for (const key of ["gpuTypeIds", "workersMin", "workersMax", "idleTimeout", "executionTimeoutMs"]) {
     assert.equal(body[key], undefined, `${key} belongs to Terraform, not to this script`);
   }
+});
+
+test("an update carries only what RunPod lets an update carry", async () => {
+  // Sending the create body back at an existing template is a 400: whether a template is
+  // serverless is decided once. Observed against a real template on 9 Sep 2026.
+  assert.equal("isServerless" in templateBody(settings(ENV)), true);
+  assert.equal("isServerless" in updateBody(templateBody(settings(ENV))), false);
+
+  const api = runpod({
+    templates: [{ id: "tpl-1", name: "greenv-depth", imageName: "ghcr.io/example/old:tag" }],
+  });
+  const tfvars = capture();
+
+  await provision(settings(ENV), { fetchImpl: api.fetchImpl, log: silent, write: tfvars.write });
+
+  assert.equal(api.templates[0].imageName, "ghcr.io/matomomitsu/greenv-depth-runpod:pipeline");
+  assert.deepEqual(tfvars.written, { "../../infrastructure/runpod.auto.tfvars": "tpl-1" });
+});
+
+test("a template whose env RunPod will not disclose is not patched on every run", () => {
+  // The listing returns no env. Reading that as a difference would patch for ever and call it
+  // idempotent, which is worse than not noticing a rotated credential.
+  const desired = templateBody(settings(ENV));
+  const withoutEnv = { id: "tpl-1", name: desired.name, imageName: desired.imageName,
+    containerDiskInGb: desired.containerDiskInGb, volumeInGb: desired.volumeInGb, ports: desired.ports,
+    isServerless: true };
+  assert.equal(drift(withoutEnv, desired), null);
+
+  // A disclosed env that disagrees is still drift.
+  assert.ok(drift({ ...withoutEnv, env: { AWS_ACCESS_KEY_ID: "stale" } }, desired));
 });

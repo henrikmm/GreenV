@@ -93,6 +93,19 @@ export function templateBody(config) {
   };
 }
 
+/**
+ * Fields RunPod accepts only when the template is created.
+ *
+ * `PATCH /templates/{id}` answers 400 "key provided in request body which is not in input schema"
+ * for these, so sending the create body back at an existing template fails outright — observed
+ * 9 Sep 2026 against template 2ah9zhdtb1. Whether a template is serverless is decided once.
+ */
+const CREATE_ONLY = ["isServerless"];
+
+export function updateBody(desired) {
+  return Object.fromEntries(Object.entries(desired).filter(([key]) => !CREATE_ONLY.includes(key)));
+}
+
 /** What an existing template would have to change to match, or null when it already does. */
 export function drift(existing, desired) {
   const differences = {};
@@ -101,10 +114,12 @@ export function drift(existing, desired) {
     const same = Array.isArray(value)
       ? Array.isArray(current) && value.length === current.length && value.every((v, i) => v === current[i])
       : key === "env"
-        ? // RunPod adds variables of its own to a running worker; only the ones we set are ours to
-          // compare, and a missing one of those is drift.
-          Object.entries(value).every(([k, v]) => (current ?? {})[k] === v)
-        : current === value;
+        ? // RunPod adds variables of its own to a running worker, so only the ones we set are ours
+          // to compare. When it returns no env at all it is not disclosing them - treating that as
+          // drift would patch on every single run, which is how idempotence quietly dies.
+          current === undefined ||
+          Object.entries(value).every(([k, v]) => current[k] === v)
+        : current === undefined || current === value;
     if (!same) differences[key] = { from: current, to: value };
   }
   return Object.keys(differences).length ? differences : null;
@@ -137,15 +152,22 @@ export async function provision(config, { fetchImpl = fetch, log = console.log, 
 
   const existing = await call("/templates");
   const list = Array.isArray(existing) ? existing : (existing?.data ?? []);
-  let template = list.find((item) => item.name === config.name);
+  const found = list.find((item) => item.name === config.name);
+  let template;
 
-  if (!template) {
+  if (!found) {
     template = await call("/templates", { method: "POST", body: JSON.stringify(wanted) });
     log(`template created: ${template.id}`);
   } else {
+    // The listing is a summary; the single-template read is what carries enough to compare
+    // against. Comparing the summary would report drift on everything it leaves out.
+    template = (await call(`/templates/${found.id}`)) ?? found;
     const changes = drift(template, wanted);
     if (changes) {
-      template = await call(`/templates/${template.id}`, { method: "PATCH", body: JSON.stringify(wanted) });
+      template = await call(`/templates/${template.id}`, {
+        method: "PATCH",
+        body: JSON.stringify(updateBody(wanted)),
+      });
       log(`template updated: ${template.id} (${Object.keys(changes).join(", ")})`);
     } else {
       log(`template unchanged: ${template.id}`);
