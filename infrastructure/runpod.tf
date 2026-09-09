@@ -40,7 +40,15 @@ resource "runpod_endpoint" "depth" {
   name        = "${local.runtime_name_prefix}-depth"
   template_id = local.depth_template_id
 
-  compute_type = "GPU"
+  # `compute_type` is deliberately not set. The provider fails the apply with
+  #
+  #   Provider produced inconsistent result after apply ... .compute_type: was
+  #   cty.StringVal("GPU"), but now cty.StringVal("")
+  #
+  # because it never reads the field back from the API. Observed 9 Sep 2026 creating this very
+  # endpoint. Naming GPU types is what makes an endpoint a GPU endpoint anyway - RunPod's own
+  # default for computeType is GPU - so leaving it unset asks the provider for nothing it cannot
+  # deliver.
 
   # Every memory ceiling on record was measured on an L4's 22.03 GiB usable: 112 frames at 504 px
   # peaked at 21.28 GiB and 160 frames ran out (measurement/docs/vram-measurements.json). The
