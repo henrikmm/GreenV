@@ -17,7 +17,7 @@ const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
 // three runs, against 10-17 ms to load this whole storage module and open the local adapter, and
 // @aws-sdk plus @smithy are 11.1 MB of the worker's 12.1 MB of production node_modules
 // (`du -sb`). A deployment that does address a bucket pays that once, on its first object.
-export async function openClient({ endpoint, region }) {
+export async function openClient({ endpoint, region, pathStyleAccess, accessKey, secretKey }) {
   let sdk;
   try {
     sdk = await import("@aws-sdk/client-s3");
@@ -30,14 +30,29 @@ export async function openClient({ endpoint, region }) {
       { cause },
     );
   }
-  return { sdk, s3: new sdk.S3Client({ region, ...(endpoint ? { endpoint, forcePathStyle: true } : {}) }) };
+  return {
+    sdk,
+    s3: new sdk.S3Client({
+      region,
+      forcePathStyle: Boolean(pathStyleAccess),
+      ...(endpoint ? { endpoint } : {}),
+      // Two credential paths, both real. R2 has no instance metadata and no role to assume, so
+      // the deployment injects a scoped key pair (GREENV_AWS_ACCESS_KEY / GREENV_AWS_SECRET_KEY,
+      // the names both Java services already read) and it has to be handed to the client
+      // explicitly. With the pair absent the key is omitted rather than passed empty, so the
+      // SDK's own chain still resolves — which is what a developer with ~/.aws/credentials and a
+      // real AWS deployment with a task role both rely on. An empty string is not "unset" to the
+      // SDK: it would sign with a blank key and fail at the endpoint instead of here.
+      ...(accessKey && secretKey ? { credentials: { accessKeyId: accessKey, secretAccessKey: secretKey } } : {}),
+    }),
+  };
 }
 
 // `connect` is the seam a test fills. Every request below reaches the network through it and
 // through nothing else, so a double is a `{ sdk, s3 }` pair of plain objects.
-export function s3Storage({ bucket, endpoint, region, connect = openClient }) {
+export function s3Storage({ bucket, endpoint, region, pathStyleAccess, accessKey, secretKey, connect = openClient }) {
   let ready = null;
-  const open = () => (ready ??= connect({ endpoint, region }));
+  const open = () => (ready ??= connect({ endpoint, region, pathStyleAccess, accessKey, secretKey }));
 
   const body = async (key) => {
     assertObjectKey(key);

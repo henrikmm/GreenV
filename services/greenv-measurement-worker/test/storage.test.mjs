@@ -81,8 +81,18 @@ function fakeBucket(objects = {}) {
   };
 }
 
-const bucketStorage = (bucket) =>
-  s3Storage({ bucket: "captures", endpoint: "https://acc.r2.cloudflarestorage.com", region: "auto", connect: bucket.connect });
+// What `loadConfig` hands the adapter for the deployed shape: R2, virtual-hosted, a scoped key
+// pair injected as a secret.
+const R2 = {
+  bucket: "captures",
+  endpoint: "https://acc.r2.cloudflarestorage.com",
+  region: "auto",
+  pathStyleAccess: false,
+  accessKey: "r2-access-key",
+  secretKey: "r2-secret-key",
+};
+
+const bucketStorage = (bucket) => s3Storage({ ...R2, connect: bucket.connect });
 
 test("objects round-trip through the s3 adapter", async () => {
   const bucket = fakeBucket();
@@ -97,9 +107,11 @@ test("objects round-trip through the s3 adapter", async () => {
   assert.equal(await storage.exists("a/b/thing.json"), true);
   assert.equal(await storage.exists("a/b/missing.json"), false);
 
-  // The client is opened once and reused, with the endpoint and region the config carried. A
-  // deployment that opened one per object would pay the SDK's handshake on every frame.
-  assert.deepEqual(bucket.opened, [{ endpoint: "https://acc.r2.cloudflarestorage.com", region: "auto" }]);
+  // The client is opened once and reused, and every setting the config carried reaches it. A
+  // deployment that opened one per object would pay the SDK's handshake on every frame; one that
+  // dropped a setting on the way would sign against the wrong host or with the wrong key.
+  const { bucket: _, ...settings } = R2;
+  assert.deepEqual(bucket.opened, [settings]);
 });
 
 // The same test the filesystem adapter gets, for the same reason: a key is data from a queue
@@ -125,16 +137,64 @@ test("a key cannot escape the storage root on s3 either", async () => {
 // container built from the Dockerfile had no SDK at all and every segment failed on its first
 // frame. Loading the real module is the only assertion that catches that coming back.
 test("the s3 adapter's SDK is a declared dependency, not an assumption", async () => {
-  const { sdk, s3 } = await openClient({ endpoint: "https://acc.r2.cloudflarestorage.com", region: "auto" });
+  const { sdk, s3 } = await openClient(R2);
   try {
     assert.ok(s3 instanceof sdk.S3Client);
     for (const command of ["GetObjectCommand", "PutObjectCommand", "HeadObjectCommand"]) {
       assert.equal(typeof sdk[command], "function", command);
     }
-    // Constructing a client sends nothing and resolves no credentials, so this test costs
-    // nothing and reaches no endpoint.
-    assert.equal(await s3.config.region(), "auto");
   } finally {
     s3.destroy();
+  }
+});
+
+// The deployment supplies R2 through GREENV_AWS_ACCESS_KEY / GREENV_AWS_SECRET_KEY and says
+// GREENV_S3_PATH_STYLE_ACCESS=false, exactly as both Java services read them. This adapter used
+// to ignore all three: no credentials at all, so the SDK reached for a chain that has nothing in
+// it on Container Apps, and forcePathStyle hardcoded to true whenever an endpoint was set.
+// Constructing a client and resolving a static key pair sends nothing, so nothing here is billed
+// and no bucket is reached.
+test("the deployment's key pair and path-style flag reach the real client", async () => {
+  const { s3 } = await openClient(R2);
+  try {
+    assert.equal(await s3.config.region(), "auto");
+    assert.equal(s3.config.forcePathStyle, false);
+    assert.equal((await s3.config.endpoint()).hostname, "acc.r2.cloudflarestorage.com");
+
+    const credentials = await s3.config.credentials();
+    assert.equal(credentials.accessKeyId, "r2-access-key");
+    assert.equal(credentials.secretAccessKey, "r2-secret-key");
+  } finally {
+    s3.destroy();
+  }
+
+  const { s3: pathStyle } = await openClient({ ...R2, pathStyleAccess: true });
+  try {
+    assert.equal(pathStyle.config.forcePathStyle, true, "the flag is read, not inferred from the endpoint");
+  } finally {
+    pathStyle.destroy();
+  }
+});
+
+// The other half of the same decision: an unset pair must leave the SDK's own chain intact, which
+// is what a developer with ~/.aws/credentials and a real AWS deployment with a task role both
+// use. Passing empty strings would look like "configured" to the SDK and fail at the endpoint
+// instead of here. The environment variables below are the first stop in that chain, so this
+// resolves offline and reaches nothing.
+test("with no key pair the SDK's own credential chain is left intact", async () => {
+  const previous = { ...process.env };
+  process.env.AWS_ACCESS_KEY_ID = "chain-key";
+  process.env.AWS_SECRET_ACCESS_KEY = "chain-secret";
+  try {
+    const { s3 } = await openClient({ ...R2, accessKey: null, secretKey: null });
+    try {
+      const credentials = await s3.config.credentials();
+      assert.equal(credentials.accessKeyId, "chain-key");
+      assert.equal(credentials.secretAccessKey, "chain-secret");
+    } finally {
+      s3.destroy();
+    }
+  } finally {
+    process.env = previous;
   }
 });
