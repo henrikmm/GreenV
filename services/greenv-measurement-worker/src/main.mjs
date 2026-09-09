@@ -19,7 +19,13 @@ const log = (fields) => process.stdout.write(`${JSON.stringify({ at: new Date().
 export async function start(config = loadConfig()) {
   const storage = objectStorage(config.storage);
   const infer = config.infer.adapter === "runpod"
-    ? runpodInferClient({ ...config.infer, ...config.infer.runpod, storage: config.storage })
+    ? runpodInferClient({
+        ...config.infer,
+        ...config.infer.runpod,
+        endpoint: `${config.infer.runpod.apiBase}/${config.infer.runpod.endpointId}`,
+        apiKey: config.infer.token,
+        storage: config.storage,
+      })
     : inferClient(config.infer);
   const runner = measurementRunner(config.measurement, (progress) => log({ event: "progress", ...progress }));
   const measure = measurementPipeline({ config, storage, infer, runner, log });

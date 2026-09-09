@@ -61,3 +61,34 @@ test("a half-configured key pair is refused, an absent one is not", () => {
   assert.throws(() => loadConfig({ ...s3, GREENV_AWS_ACCESS_KEY: "r2-access-key" }), /must be set together/);
   assert.throws(() => loadConfig({ ...s3, GREENV_AWS_SECRET_KEY: "r2-secret-key" }), /must be set together/);
 });
+
+test("the runpod adapter reads the names the deployment actually sets", () => {
+  // infrastructure/locals.tf hands over GREENV_INFER_ADAPTER, GREENV_INFER_RUNPOD_ENDPOINT_ID and
+  // GREENV_INFER_TOKEN. This worker once read GREENV_RUNPOD_ENDPOINT and GREENV_RUNPOD_API_KEY, a
+  // second spelling nothing set: it would have started, reported healthy and failed every segment
+  // on a GPU nobody could reach.
+  const env = {
+    GREENV_INFER_ADAPTER: "runpod",
+    GREENV_INFER_RUNPOD_ENDPOINT_ID: "abc123",
+    GREENV_INFER_TOKEN: "runpod-key",
+    GREENV_OBJECT_STORAGE_ADAPTER: "s3",
+    GREENV_S3_BUCKET: "greenv-captures",
+  };
+  const config = loadConfig(env);
+  assert.equal(config.infer.adapter, "runpod");
+  assert.equal(config.infer.runpod.endpointId, "abc123");
+  assert.equal(config.infer.token, "runpod-key");
+  assert.equal(config.infer.runpod.apiBase, "https://api.runpod.ai/v2");
+
+  // Absent, not empty: an unset variable is missing from the environment altogether.
+  const { GREENV_INFER_TOKEN, GREENV_INFER_RUNPOD_ENDPOINT_ID, ...unnamed } = env;
+  assert.throws(
+    () => loadConfig(unnamed),
+    /GREENV_INFER_RUNPOD_ENDPOINT_ID and GREENV_INFER_TOKEN are required/,
+  );
+  // The handler reads the frames from the bucket, so local storage cannot serve it.
+  assert.throws(
+    () => loadConfig({ ...env, GREENV_OBJECT_STORAGE_ADAPTER: "local" }),
+    /needs GREENV_OBJECT_STORAGE_ADAPTER=s3/,
+  );
+});

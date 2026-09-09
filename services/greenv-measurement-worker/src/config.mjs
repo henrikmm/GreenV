@@ -142,13 +142,14 @@ function build() {
       fps: number("GREENV_INFER_FPS", 10),
       timeoutMs: number("GREENV_INFER_TIMEOUT_MS", 15 * 60 * 1000),
       runpod: {
-        // https://api.runpod.ai/v2/<endpoint-id> - the whole prefix, so a self-hosted proxy or a
-        // future API version needs no code change.
-        endpoint: text("GREENV_RUNPOD_ENDPOINT", null),
-        apiKey: text("GREENV_RUNPOD_API_KEY", null),
+        // The endpoint's id, not a URL: `infrastructure/locals.tf` hands it over under this name,
+        // and two services that disagree about a variable name never meet. The API host is
+        // separate so a self-hosted proxy or a future API version needs no code change.
+        endpointId: text("GREENV_INFER_RUNPOD_ENDPOINT_ID", null),
+        apiBase: text("GREENV_INFER_RUNPOD_API_BASE", "https://api.runpod.ai/v2"),
         // A cold endpoint spends about a minute starting before it computes anything, so polling
         // faster than this only buys requests.
-        pollIntervalMs: number("GREENV_RUNPOD_POLL_MS", 5000),
+        pollIntervalMs: number("GREENV_INFER_RUNPOD_POLL_MS", 5000),
       },
     },
 
@@ -220,8 +221,10 @@ function build() {
     throw new Error(`GREENV_INFER_ADAPTER must be "http" or "runpod", got "${config.infer.adapter}"`);
   }
   if (config.infer.adapter === "runpod") {
-    if (!config.infer.runpod.endpoint || !config.infer.runpod.apiKey) {
-      throw new Error("GREENV_RUNPOD_ENDPOINT and GREENV_RUNPOD_API_KEY are required when the infer adapter is runpod");
+    // The credential is the depth stage's own, under the name the deployment already uses for
+    // the FastAPI service's bearer: one endpoint, one token, whichever dialect reaches it.
+    if (!config.infer.runpod.endpointId || !config.infer.token) {
+      throw new Error("GREENV_INFER_RUNPOD_ENDPOINT_ID and GREENV_INFER_TOKEN are required when the infer adapter is runpod");
     }
     if (config.storage.adapter !== "s3") {
       // The handler reads the frames itself, from a bucket. A worker whose frames are on its own

@@ -83,9 +83,9 @@ and the handler reads them from the bucket itself - which is why this adapter re
 
 ```
 GREENV_INFER_ADAPTER=runpod
-GREENV_RUNPOD_ENDPOINT=https://api.runpod.ai/v2/<endpoint-id>
-GREENV_RUNPOD_API_KEY=<key>
-GREENV_RUNPOD_POLL_MS=5000
+GREENV_INFER_RUNPOD_ENDPOINT_ID=<endpoint-id>
+GREENV_INFER_TOKEN=<runpod-api-key>
+GREENV_INFER_RUNPOD_POLL_MS=5000
 ```
 
 The handler this expects is [`services/greenv-depth-runpod`](../greenv-depth-runpod/README.md).
