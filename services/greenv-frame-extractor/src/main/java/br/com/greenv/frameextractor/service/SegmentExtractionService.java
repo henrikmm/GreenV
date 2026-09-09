@@ -8,6 +8,7 @@ import br.com.greenv.frameextractor.domain.SamplingPlan;
 import br.com.greenv.frameextractor.domain.SegmentExtractionRequest;
 import br.com.greenv.frameextractor.domain.SegmentManifest;
 import br.com.greenv.frameextractor.domain.SegmentTelemetry;
+import br.com.greenv.frameextractor.domain.Sentido;
 import br.com.greenv.frameextractor.port.CaptureSegmentStore;
 import br.com.greenv.frameextractor.port.FrameSampler;
 import br.com.greenv.frameextractor.port.FrameTimelineProbe;
@@ -172,7 +173,9 @@ public class SegmentExtractionService implements SegmentProcessor {
                 // cannot ask for it once the only copy is gone. Nothing expires capture objects
                 // yet, so this grows without bound until a retention rule exists.
                 false,
-                clock.instant());
+                clock.instant(),
+                request.rodovia(),
+                request.sentido());
         objectStorage.putJson(manifestKey, manifest);
         SegmentManifest published = objectStorage.readJson(manifestKey, SegmentManifest.class);
         verifyPublished(request.outputPrefix(), published);
@@ -207,7 +210,8 @@ public class SegmentExtractionService implements SegmentProcessor {
                 || request.capturedAt() == null
                 || request.durationMillis() <= 0
                 || request.durationMillis() > 30_000
-                || request.requestedAt() == null;
+                || request.requestedAt() == null
+                || !Sentido.isKnownOrAbsent(request.sentido());
         if (invalid) {
             throw new ExtractionException(
                     "invalid_segment_request",

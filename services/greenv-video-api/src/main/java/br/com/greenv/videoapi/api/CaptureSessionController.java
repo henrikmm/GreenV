@@ -35,7 +35,12 @@ public class CaptureSessionController {
 
     @PostMapping
     ResponseEntity<CaptureSessionResponse> create(@Valid @RequestBody CreateCaptureSessionRequest request) {
-        var session = captureSessionUseCase.create(request.sessionId(), request.deviceId(), request.startedAt());
+        var session = captureSessionUseCase.create(
+                request.sessionId(),
+                request.deviceId(),
+                request.startedAt(),
+                request.rodovia(),
+                request.sentido());
         var response = CaptureSessionResponse.from(captureSessionUseCase.getSession(session.sessionId()));
         return ResponseEntity
                 .created(URI.create(baseUrl() + "/v2/capture-sessions/" + session.sessionId()))

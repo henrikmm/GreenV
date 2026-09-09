@@ -44,12 +44,22 @@ nobody drains only grows. `compose.yaml` sets it.
 { "schemaVersion": 1, "sessionId": "...", "segmentIndex": 0,
   "idempotencyKey": "mobile:session:0", "outputPrefix": "capture-sessions/<id>/segments/00000000",
   "sourceGeneration": "<sha256 of the source mp4>", "sampledFrameCount": 100,
-  "capturedAt": "...", "requestedAt": "..." }
+  "capturedAt": "...", "requestedAt": "...",
+  "rodovia": "BR-101", "sentido": "norte" }
 ```
 
-The message carries identifiers only. The worker reads the manifest, the frame metadata and the
-frames themselves from object storage under `outputPrefix`, so this envelope never has to be kept
-in step with what those files contain.
+The message carries identifiers and the road, and nothing else. The worker reads the manifest, the
+frame metadata and the frames themselves from object storage under `outputPrefix`, so this envelope
+never has to be kept in step with what those files contain.
+
+The road is the exception, and it has to be: the worker calls Verge Studio, which keeps exactly
+four fields per frame and cannot look anything up. `rodovia` and `sentido` come from the capture
+session — the operator names them on the capture screen before recording — and travel
+`POST /v2/capture-sessions` → `capture_sessions` → the extraction request → `segment-manifest-v2.json`
+→ this announcement. Both are `null` for a capture recorded before the app asked, and null reaches
+the packet as null. `sentido` is one of `norte`, `sul`, `leste`, `oeste`; the API refuses anything
+else with `invalid_sentido`, and the extractor refuses a queue message carrying anything else with
+`invalid_segment_request`.
 
 ### Over HTTP — for a backfill, or a re-measure
 
@@ -104,7 +114,8 @@ the one thing `GRASS-QUALITY.md` explicitly forbids.
 The seam is `frameContext`, keyed by canonical frame number, and the worker fills what it can:
 
 - `capturado_em` comes from the frame's own telemetry.
-- `rodovia` and `sentido` are passed through from the request, when GreenV knows them.
+- `rodovia` and `sentido` come from the capture session, named once by the operator before the
+  route starts. Null when nobody named them, which is honest rather than convenient.
 - `km` stays `null`, and that raises the `road-metadata-missing` blocker in the packet. Correct
   and visible, rather than silent and wrong.
 

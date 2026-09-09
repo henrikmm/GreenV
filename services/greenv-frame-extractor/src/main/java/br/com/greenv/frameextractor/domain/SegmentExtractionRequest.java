@@ -16,7 +16,11 @@ public record SegmentExtractionRequest(
         String outputPrefix,
         Instant capturedAt,
         long durationMillis,
-        Instant requestedAt) {
+        Instant requestedAt,
+        // The road this capture was driven along, as the API read it off the capture session.
+        // Both null for a segment queued before the app asked, and by a build that never asks.
+        String rodovia,
+        String sentido) {
 
     public SegmentExtractionRequest nextAttempt() {
         return new SegmentExtractionRequest(
@@ -32,6 +36,8 @@ public record SegmentExtractionRequest(
                 outputPrefix,
                 capturedAt,
                 durationMillis,
-                requestedAt);
+                requestedAt,
+                rodovia,
+                sentido);
     }
 }

@@ -2,6 +2,7 @@ package br.com.greenv.videoapi.storage;
 
 import br.com.greenv.videoapi.domain.CaptureSegmentDocument;
 import br.com.greenv.videoapi.domain.CaptureSessionDocument;
+import br.com.greenv.videoapi.domain.Sentido;
 import br.com.greenv.videoapi.port.CaptureSessionStore;
 import br.com.greenv.videoapi.service.ApplicationException;
 import br.com.greenv.videoapi.service.FailureKind;
@@ -31,8 +32,9 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
     public CaptureSessionDocument createSession(CaptureSessionDocument session) {
         jdbcTemplate.update("""
                 INSERT INTO capture_sessions (
-                    session_id, device_id, state, started_at, created_at, updated_at, expires_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    session_id, device_id, state, started_at, created_at, updated_at, expires_at,
+                    rodovia, sentido
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 session.sessionId(),
                 session.deviceId(),
@@ -40,7 +42,9 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                 timestamp(session.startedAt()),
                 timestamp(session.createdAt()),
                 timestamp(session.updatedAt()),
-                timestamp(session.expiresAt()));
+                timestamp(session.expiresAt()),
+                session.rodovia(),
+                session.sentido() == null ? null : session.sentido().wireValue());
         return session;
     }
 
@@ -222,7 +226,9 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                 instant(result, "created_at"),
                 instant(result, "updated_at"),
                 instant(result, "expires_at"),
-                result.getObject("last_segment_index", Integer.class));
+                result.getObject("last_segment_index", Integer.class),
+                result.getString("rodovia"),
+                Sentido.of(result.getString("sentido")));
     }
 
     private static CaptureSegmentDocument mapSegment(ResultSet result, int row) throws SQLException {
