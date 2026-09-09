@@ -20,18 +20,25 @@ const MAX_JOBS = 32;
 
 export function createHttpTrigger({ measure, gate, log = () => {} }) {
   const jobs = new Map();
+  // Eviction timers live beside the jobs rather than on them. A Timeout hung off the job object
+  // is circular — `_idlePrev` walks back through the timer list — so `JSON.stringify` throws on
+  // it, and the entry it decorates is the finished one a caller has just been told to poll for.
+  // Observed 9 Sep 2026: every GET for a completed job answered 400 "Converting circular
+  // structure to JSON" and the result was unreachable through the API that produced it.
+  const timers = new Map();
 
   const forget = (id) => {
-    const job = jobs.get(id);
-    if (job?.timer) clearTimeout(job.timer);
+    const timer = timers.get(id);
+    if (timer) clearTimeout(timer);
+    timers.delete(id);
     jobs.delete(id);
   };
 
   const retire = (id) => {
-    const job = jobs.get(id);
-    if (!job) return;
-    job.timer = setTimeout(() => forget(id), JOB_TTL_MS);
-    job.timer.unref();
+    if (!jobs.has(id)) return;
+    const timer = setTimeout(() => forget(id), JOB_TTL_MS);
+    timer.unref();
+    timers.set(id, timer);
     // Insertion order is oldest-first, so the first finished entry is the right one to evict.
     while (jobs.size > MAX_JOBS) {
       const stale = [...jobs.entries()].find(([, candidate]) => candidate.status !== "running");
