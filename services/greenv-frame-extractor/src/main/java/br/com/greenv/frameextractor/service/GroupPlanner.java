@@ -24,16 +24,31 @@ public class GroupPlanner {
 
     /**
      * Verge Studio's graded evidence covers camera paths of roughly 14–25 m
-     * ({@code measurement/MEASUREMENTS.md}, and the door fixture's 13.91 m track). Twenty metres
-     * keeps a group inside that, so the frames in one still look at the same stretch of verge.
+     * ({@code measurement/MEASUREMENTS.md}, and the door fixture's 13.91 m track), and twenty
+     * metres kept a group inside it.
+     *
+     * <p>Ten is below that band on purpose. A ten-second segment on foot covers eight to ten
+     * metres, so a twenty-metre target rounds to one group the walk never fills, and nothing about
+     * the pipeline can be exercised without a car. Ten metres makes a walk testable at the cost of
+     * a shorter baseline than anything graded, so a reading taken from one is evidence that the
+     * pipeline ran, not evidence of a height.
      */
-    public static final double DEFAULT_GROUP_METERS = 20.0;
+    public static final double DEFAULT_GROUP_METERS = 10.0;
 
     /** Smallest frame count Verge Studio has graded — 64 frames, at {@code MEASUREMENTS.md:56}. */
     public static final int GRADED_MINIMUM_FRAMES = 64;
 
     /** Longest camera path in the graded evidence. Beyond it a group is an extrapolation. */
     public static final double GRADED_MAXIMUM_METERS = 25.0;
+
+    /**
+     * Shortest camera path in the graded evidence, the door fixture's 13.91 m track rounded up.
+     *
+     * <p>Checked as well as the maximum since the target dropped to ten metres. Without it every
+     * short group claimed the envelope simply by holding enough frames, and a walk would have been
+     * reported as graded evidence when nothing at that baseline has ever been graded.
+     */
+    public static final double GRADED_MINIMUM_METERS = 14.0;
 
     /**
      * Plans the groups for one segment.
@@ -124,7 +139,9 @@ public class GroupPlanner {
                 : (baselines[baselines.length / 2 - 1] + baselines[baselines.length / 2]) / 2.0;
 
         double length = end - start;
-        boolean graded = chosen.size() >= GRADED_MINIMUM_FRAMES && length <= GRADED_MAXIMUM_METERS;
+        boolean graded = chosen.size() >= GRADED_MINIMUM_FRAMES
+                && length >= GRADED_MINIMUM_METERS
+                && length <= GRADED_MAXIMUM_METERS;
 
         return new FrameGroup(
                 index,

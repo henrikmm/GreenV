@@ -19,29 +19,43 @@ class GroupPlannerTest {
 
     private final GroupPlanner planner = new GroupPlanner();
 
-    /** 60 km/h covers 167 m, which is nine 20 m stretches. */
+    /** 60 km/h covers 167 m, which is seventeen 10 m stretches. */
     @Test
     void cutsASteadyDriveIntoEvenStretches() {
         var plan = planAt(60);
 
-        assertThat(plan).hasSize(8);
+        assertThat(plan).hasSize(17);
         assertThat(plan).allSatisfy(group ->
-                assertThat(group.lengthMeters()).isCloseTo(166.7 / 8, within(0.1)));
-        assertThat(plan.getFirst().frameCount()).isBetween(30, 45);
+                assertThat(group.lengthMeters()).isCloseTo(166.7 / 17, within(0.1)));
+        assertThat(plan.getFirst().frameCount()).isBetween(15, 22);
     }
 
     /**
-     * The envelope table from the plan. Frames per group fall as speed rises because the camera
-     * cannot record faster, and below 64 the group leaves the range Verge Studio has graded.
+     * Nothing at the ten-metre target reaches the graded envelope, at any speed: Verge Studio's
+     * evidence starts at a 13.91 m camera path and a ten-metre stretch is shorter than anything
+     * ever graded. That is the price of making a walk testable, and this flag is what keeps the
+     * price visible in every manifest instead of hiding it.
+     */
+    @Test
+    void reportsThatTheTenMetreTargetSitsBelowTheGradedEnvelope() {
+        assertThat(planAt(20)).noneMatch(FrameGroup::withinGradedEnvelope);
+        assertThat(planAt(30)).noneMatch(FrameGroup::withinGradedEnvelope);
+        assertThat(planAt(60)).noneMatch(FrameGroup::withinGradedEnvelope);
+    }
+
+    /**
+     * The envelope table from the plan, at the twenty-metre target it was written for. Frames per
+     * group fall as speed rises because the camera cannot record faster, and below 64 the group
+     * leaves the range Verge Studio has graded.
      */
     @Test
     void reportsWhenAGroupLeavesTheGradedEnvelope() {
-        assertThat(planAt(20)).allMatch(FrameGroup::withinGradedEnvelope);
-        assertThat(planAt(30)).allMatch(FrameGroup::withinGradedEnvelope);
+        assertThat(planAt(20, FPS, 20.0)).allMatch(FrameGroup::withinGradedEnvelope);
+        assertThat(planAt(30, FPS, 20.0)).allMatch(FrameGroup::withinGradedEnvelope);
         // ~34 km/h is where a group stops fitting 64 frames, the smallest count ever graded.
-        assertThat(planAt(40)).noneMatch(FrameGroup::withinGradedEnvelope);
-        assertThat(planAt(60)).noneMatch(FrameGroup::withinGradedEnvelope);
-        assertThat(planAt(100)).noneMatch(FrameGroup::withinGradedEnvelope);
+        assertThat(planAt(40, FPS, 20.0)).noneMatch(FrameGroup::withinGradedEnvelope);
+        assertThat(planAt(60, FPS, 20.0)).noneMatch(FrameGroup::withinGradedEnvelope);
+        assertThat(planAt(100, FPS, 20.0)).noneMatch(FrameGroup::withinGradedEnvelope);
     }
 
     @Test
@@ -64,13 +78,18 @@ class GroupPlannerTest {
 
     /**
      * A faster camera is the one lever that actually moves the envelope. Nothing here is configured
-     * for it: more encoded frames simply means more of them fall inside each 20 m stretch, so the
+     * for it: more encoded frames simply means more of them fall inside each stretch, so the
      * planner spends the budget it already had on a tighter baseline.
+     *
+     * <p>Measured at the twenty-metre target, because that is the only one whose stretches reach
+     * the graded length at all. At ten metres the frame count still rises with the camera and the
+     * baseline still tightens, but the stretch is too short to be graded however many views it
+     * holds, so the envelope cannot be the thing observed.
      */
     @Test
     void usesTheExtraFramesAFasterCameraProvides() {
-        var at30 = planAt(100, 30);
-        var at120 = planAt(100, 120);
+        var at30 = planAt(100, 30, 20.0);
+        var at120 = planAt(100, 120, 20.0);
 
         // Same road, same stretches - only the views inside them change.
         assertThat(at120).hasSameSizeAs(at30);
@@ -133,6 +152,10 @@ class GroupPlannerTest {
     }
 
     private List<FrameGroup> planAt(int kilometresPerHour, int fps) {
+        return planAt(kilometresPerHour, fps, GroupPlanner.DEFAULT_GROUP_METERS);
+    }
+
+    private List<FrameGroup> planAt(int kilometresPerHour, int fps, double groupMeters) {
         List<EncodedFrameTimestamp> frames = frames(fps);
         double metersPerSecond = kilometresPerHour / 3.6;
         Map<Integer, Double> distance = new HashMap<>();
@@ -140,8 +163,7 @@ class GroupPlannerTest {
             distance.put(frame.index(), frame.presentationTimeNanos() / 1e9 * metersPerSecond);
         }
         double path = metersPerSecond * SEGMENT_SECONDS;
-        return planner.plan(
-                frames, f -> distance.get(f.index()), path, GroupPlanner.DEFAULT_GROUP_METERS, CAP);
+        return planner.plan(frames, f -> distance.get(f.index()), path, groupMeters, CAP);
     }
 
     /** Rest to 16.67 m/s with constant acceleration, integrated to distance. */
