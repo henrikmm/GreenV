@@ -203,6 +203,16 @@ locals {
     GREENV_AZURE_QUEUE_NAME        = azurerm_storage_queue.measurement.name
     GREENV_AZURE_POISON_QUEUE_NAME = azurerm_storage_queue.measurement_poison.name
 
+    # The three names this worker actually reads. The two above are the Java spelling, which the
+    # Node worker does not look at: it refuses to start without these and did, from the moment the
+    # revision was created until 10 September 2026, while four announcements sat unread in the
+    # queue with dequeueCount 0. Two spellings for one queue is how two services end up talking
+    # past each other, and this is the second time it cost a day - the extractor lost one to the
+    # same divergence a revision earlier.
+    GREENV_AZURE_MEASUREMENT_QUEUE_NAME        = azurerm_storage_queue.measurement.name
+    GREENV_AZURE_MEASURED_QUEUE_NAME           = azurerm_storage_queue.measurement_result.name
+    GREENV_AZURE_MEASUREMENT_POISON_QUEUE_NAME = azurerm_storage_queue.measurement_poison.name
+
     GREENV_MEASUREMENT_QUEUE_ENABLED = "true"
     GREENV_MEASUREMENT_QUEUE         = azurerm_storage_queue.measurement.name
 
