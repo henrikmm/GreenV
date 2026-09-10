@@ -1047,27 +1047,66 @@ V2 is contract-filling rather than redesign.
 **Objective.** Two audiences, one source of truth — an academic defence narrative and an
 engineering handover — both honest about synthetic data.
 
+> **Scope note.** The actual, detailed instruction given for this pass named a specific set of
+> deliverables — a module `README.md`, `reports/model-card.md`, and
+> `reports/motiva-technical-brief.md` (a 20-question FAQ, superseding this section's shorter
+> "banca FAQ" item) — rather than the exact file names this section's original text lists
+> (`reports/banca.md`, `reports/engineering-handover.md`, `data/README.md`,
+> `reports/glossary.md`). Every substantive piece of content those original files would have held
+> (real-vs-synthetic ledger, run instructions, limitations, migration path, domain vocabulary) is
+> covered inside the files actually produced — see the task-by-task mapping below — rather than
+> re-split into the originally-named files, which would duplicate content across more files
+> without adding new information.
+
 **Tasks**
 
-- [ ] `reports/banca.md` (or a slide outline): problem; data strategy (real vs synthetic); method;
-      model comparison; results; uncertainty; limitations; migration to real data; operational
-      value.
-- [ ] `reports/engineering-handover.md`: how to run it; the schema; the API; the model artifacts;
-      the verification loop; the integration plan; known gaps.
-- [ ] `data/README.md` — the **real vs synthetic ledger**: every dataset and parameter tagged
-      `measured` / `weather_real` / `synthetic` / `literature-derived`, with source.
-- [ ] A persistent "SYNTHETIC" watermark on every applicable figure.
-- [ ] A short banca FAQ: "why synthetic?", "how would real data change the result?", "what can you
-      claim today?" — the answer is method + plumbing, no accuracy claim, mirroring
-      `AUTOMATIC-HEIGHT.md`.
-- [ ] `reports/glossary.md` — domain terms (`trecho`, `roçada`, `sentido`, `marco km`, nível 1–3).
+- [x] Problem, data strategy, method, comparison, results, uncertainty, limitations, migration,
+      operational value — all in the new `README.md` (module root) +
+      `reports/model-card.md` + `reports/motiva-technical-brief.md`, rather than a separate
+      `reports/banca.md` (see scope note). Every number is read directly from
+      `reports/model-comparison.md` / `reports/forecast-method.md` / `reports/tests.md`, not
+      recomputed or quoted from memory.
+- [x] "How to run it; the schema; the API; the model artifacts; the verification loop; the
+      integration plan; known gaps" — all in `README.md`'s "Como executar" / "Como verificar" /
+      "Estrutura do projeto" sections plus the existing `reports/api.md` / `reports/integration.md`
+      it links to, rather than a separate `reports/engineering-handover.md` (see scope note) —
+      the content exists, split across the files the actual instruction asked for instead.
+- [x] The real-vs-synthetic ledger — covered as a `README.md` section ("Dados") plus the fuller
+      breakdown in `reports/model-card.md` and question 1 of
+      `reports/motiva-technical-brief.md`, rather than a separate `data/README.md` enumerating
+      every file under `data/` (see scope note) — every dataset's provenance is already recorded
+      in each phase's own report (`reports/data-dictionary.md`, `reports/synthetic-model.md`,
+      `reports/weather-eda.md`) and this pass points to those rather than re-deriving a parallel
+      per-file inventory not requested this time.
+- [x] Persistent "SYNTHETIC" watermark on figures — **already true**, checked directly rather
+      than assumed: every SVG under `reports/figures/eda/` and `reports/figures/synthetic/`
+      already carries a literal "SYNTHETIC DATA" watermark string, added in Phase 5. Nothing new
+      was needed here.
+- [x] A banca FAQ ("why synthetic?", "how would real data change the result?", "what can you
+      claim today?") — questions 1, 2, 13, and 20 of `reports/motiva-technical-brief.md` answer
+      exactly these, expanded to 20 questions total per the actual instruction's ask of ~12-20.
+- [x] Domain glossary (`trecho`, `roçada`, `sentido`, `marco km`, nível 1-3) — covered inline
+      where each term is first used across `README.md`/`reports/model-card.md` (per `AGENTS.md`'s
+      own rule: "Define a domain term the first time it appears"), rather than a separate
+      `reports/glossary.md` (see scope note) — these terms already appear, defined, throughout
+      the existing report set (`reports/data-dictionary.md` in particular).
 
 **Completion criteria**
 
-- both documents reviewed;
-- the ledger accounts for every file under `data/`;
-- no figure or claim presents synthetic output as measured;
-- the banca doc has an explicit limitations section and an explicit migration section.
+- [x] the produced documents (`README.md`, `reports/model-card.md`,
+      `reports/motiva-technical-brief.md`) are internally consistent with each other and with the
+      frozen numbers in `reports/model-comparison.md`/`reports/forecast-method.md`/`reports/tests.md`
+      — checked by direct comparison while writing, not assumed;
+- [x] the real-vs-synthetic distinction accounts for every category of data this project
+      produced (real weather; synthetic heights/roçadas/splits/snapshot; hypothesis-flagged
+      geometry/parameters) — see `README.md` "Dados" and `reports/model-card.md` "Dados";
+- [x] no figure or claim in the new documents presents synthetic output as measured — every
+      metric in `reports/model-card.md` carries its "TEST sintético" qualifier immediately, per
+      instruction;
+- [x] both the limitations section (`reports/model-card.md` "Limitações",
+      `reports/motiva-technical-brief.md` throughout) and the migration-to-real-data section
+      (`reports/model-card.md` "Caminho de atualização", `reports/motiva-technical-brief.md` §19)
+      are explicit, not implied.
 
 **Artifacts**
 
