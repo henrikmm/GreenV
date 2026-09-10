@@ -19,7 +19,11 @@ RUN apt-get update \
     && useradd -r -u 10001 -g greenv greenv
 
 # Verge Studio first, and its dependencies resolved through app/package.json — which is how
-# `scripts/assess-grass.mjs` resolves sharp and the transformers runtime at run time.
+# `scripts/assess-grass.mjs` resolves sharp, the transformers runtime and esbuild at run time.
+#
+# `--omit=dev` is why esbuild has to be declared in app/package.json rather than arriving through
+# vite: `scripts/inspect/typed.mjs` requires it on every measurement, and a dependency that is
+# only present because some devDependency happens to pull it in is absent from this image.
 #
 # scripts/ is copied BEFORE the install, not after: app/package.json declares
 # `"preinstall": "node ../scripts/check-node.mjs"`, so npm ci fails outright if that file is not
@@ -29,13 +33,22 @@ COPY measurement/scripts /app/measurement/scripts
 COPY measurement/app/package.json measurement/app/package-lock.json /app/measurement/app/
 RUN npm ci --omit=dev --prefix /app/measurement/app
 
-COPY measurement/geometry /app/measurement/geometry
-
 # The pinned segmentation model, ~15 MB, baked in. This is the ONE network call in the whole
 # build: the inspector refuses to download at run time by design, so a container without a warm
 # cache fails every frame with an instruction instead of quietly fetching weights in production.
 ENV VERGE_MODEL_CACHE=/app/measurement/.models
 RUN node /app/measurement/scripts/fetch-model.mjs
+
+# The two TypeScript trees `scripts/inspect/bridge.ts` re-exports from. The bridge is compiled at
+# RUN time, not at build time — `typed.mjs` bundles it on every measurement so the inspector can
+# never disagree with the geometry it inspects — which means a source file missing here fails the
+# measurement instead of the build. app/src is on the list because the bridge takes npz parsing,
+# the colour map, the up-axis rule and the road-edge grid from the app.
+#
+# Copied after the model fetch so that editing either tree does not spend this build's one
+# network call again.
+COPY measurement/geometry /app/measurement/geometry
+COPY measurement/app/src /app/measurement/app/src
 
 COPY services/greenv-measurement-worker/package.json services/greenv-measurement-worker/package-lock.json /app/worker/
 RUN npm ci --omit=dev --prefix /app/worker

@@ -1,0 +1,52 @@
+# What never reaches a Docker build context.
+#
+# One image builds from the repository root — services/greenv-measurement-worker, which has to
+# carry `measurement/` because it spawns Verge Studio as a process. Without this file the daemon
+# is handed the entire working tree: recorded runs, installed dependencies and virtual
+# environments included, against the few megabytes of source the image actually COPYs.
+#
+# It has to live HERE. Docker reads a .dockerignore from the context root, or from
+# `<dockerfile>.dockerignore` beside the named Dockerfile — never from the service directory of
+# the image being built, which is why an earlier services/greenv-measurement-worker/.dockerignore
+# was silently inert.
+#
+# The patterns follow .gitignore, for the same reason: the tree a build reads and the tree git
+# records are both the source, and neither wants what a tool regenerated.
+
+# Version control, and the agent worktrees — each one is another checkout of this repository, so
+# leaving them in sends the whole tree a second time.
+.git
+.claude/worktrees
+
+# Dependencies and build output. Every image installs from a lockfile instead.
+**/node_modules
+**/dist
+**/build
+**/.vite
+**/*.tsbuildinfo
+
+# JVM, Python, Flutter and Terraform working trees.
+**/.gradle
+**/__pycache__
+**/*.pyc
+**/*.egg-info
+**/.venv
+**/venv
+**/.dart_tool
+**/.terraform
+**/*.tfstate
+**/*.tfstate.*
+**/*.tfplan
+
+# Recorded runs and session scratch. `measurement/fixtures/` is the one place this repository
+# tracks a large artifact on purpose — 12 MB of roadside reconstruction that Verge Studio's tests
+# read from the source tree. Nothing inside an image ever opens it.
+measurement/fixtures
+**/.runs
+**/.inspect
+
+# Secrets and machine-local configuration. The runtime environment carries these; a layer that
+# baked one in would keep it for the life of the image.
+**/.env
+**/.env.local
+**/*.local.json

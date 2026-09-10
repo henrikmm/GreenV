@@ -243,6 +243,16 @@ is what makes two renders of one cloud worth comparing. The projection that puts
 on a photograph is tested as a **round trip against `backprojectMask`**, because a camera
 convention that had drifted would draw a wrong picture that looked entirely plausible.
 
+**esbuild is a declared dependency, because `scripts/` is shipped code rather than a development
+tool.** It used to arrive only through vite, which is a devDependency, so a production install
+resolved everything the inspector needs except the compiler it needs on every single run:
+`require("esbuild")` threw `MODULE_NOT_FOUND` and each measurement failed with the "run
+`npm install --prefix app` first" notice instead of a reading. That path is not hypothetical —
+GreenV spawns `scripts/assess-grass.mjs` as a process, and `typed.mjs` compiles `bridge.ts` inside
+it. Declared in `app/package.json` as `^0.28.0`, the range vite already resolves, so the two go on
+sharing one copy rather than installing a second. Observed 2026-09-09 in a `npm ci --omit=dev`
+tree: esbuild 0.28.1 resolves, and `bridge.ts` compiles in 50 ms to its 50 exports.
+
 **The graph is content-addressed.** Every node computes a key from its parameters and its
 inputs' keys. Changing something restamps that node and everything downstream of it, and nothing
 else — so adjusting a display setting never invalidates an expensive reconstruction.
