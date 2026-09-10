@@ -265,11 +265,16 @@ class SegmentExtractionServiceIntegrationTest {
                 fix(19_000_000L, -23.5, -46.6, 0.0, 5.0));
     }
 
-    /** Driving north at 10 m/s, reported by a provider that is 50 km wide about where that is. */
+    /**
+     * Driving north at 10 m/s, reported by a provider that is 50 km wide about where that is and
+     * offers no speed at all — an IP-derived browser position, which is where the 50 km comes
+     * from. Without a Doppler reading the positions are the only evidence there is, and at that
+     * accuracy they cannot tell a drive from a standstill.
+     */
     private static List<LocationSample> blindDrivingFixes() {
         List<LocationSample> fixes = new java.util.ArrayList<>();
         for (int i = 0; i <= 10; i++) {
-            fixes.add(fix(seconds(i), -23.5 + (i * 10.0) / 111_320.0, -46.6, 10.0, 50_000.0));
+            fixes.add(fix(seconds(i), -23.5 + (i * 10.0) / 111_320.0, -46.6, 0.0, 50_000.0));
         }
         return fixes;
     }
