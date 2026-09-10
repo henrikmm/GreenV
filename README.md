@@ -61,9 +61,19 @@ ordering limits and compatibility behavior.
 
 ## Status
 
-The pieces above exist and are wired to each other locally. **The connection between the capture
-pipeline and `measurement/` is not built yet**: Verge Studio measures a scene interactively today,
-and the headless entry point a worker would call is still to come. Until then the dashboard renders
-fixtures, not live measurements.
+The capture chain is built and wired end to end, and it has run: a segment becomes a grass
+measurement without anyone touching it, and two segments went through the whole pipeline against a
+live GPU on 8 September 2026. [`docs/AUTOMATIC-HEIGHT.md`](docs/AUTOMATIC-HEIGHT.md) describes that
+chain and what it does not establish.
+
+**Two gaps sit between that and an operations decision.** The dashboard has never displayed a
+measurement — `apps/web` has no API client and renders Motiva's KMZ polygons with mock levels. And
+a measurement carries no `km`, so it cannot be placed on the highway; the packet raises
+`road-metadata-missing` rather than guessing. Separately, no automatic reading has ever been
+compared with a tape, so every packet reports `operationalStatus: "not-ready"`.
+
+**[`docs/STATE-OF-THE-SYSTEM.md`](docs/STATE-OF-THE-SYSTEM.md) is the honest inventory** — what
+runs, what is written but has never executed, and the gaps ranked by what they cost. Read it before
+trusting any other document in this repository about a part it does not own.
 
 The depth model used by `measurement/` is licensed for personal and research use only.
