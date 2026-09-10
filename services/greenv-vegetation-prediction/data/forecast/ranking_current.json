@@ -1,0 +1,2459 @@
+[
+ {
+  "rank": 1,
+  "trecho_id": "SP-021:norte:000000",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 65.7,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 2,
+  "trecho_id": "SP-021:norte:001000",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 31.74,
+  "critical_height_cm": 30.0,
+  "operational_status": "not-ready",
+  "blockers": [
+   "depth-degraded"
+  ],
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "low"
+ },
+ {
+  "rank": 3,
+  "trecho_id": "SP-021:norte:001500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 53.91,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 4,
+  "trecho_id": "SP-021:norte:002500",
+  "as_of_date": "2026-07-26",
+  "current_height_cm": 50.15,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 5,
+  "trecho_id": "SP-021:norte:004000",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 71.06,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 6,
+  "trecho_id": "SP-021:norte:004500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 53.46,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 7,
+  "trecho_id": "SP-021:norte:005500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 45.84,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 8,
+  "trecho_id": "SP-021:norte:006000",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 33.39,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 9,
+  "trecho_id": "SP-021:norte:006500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 71.69,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 10,
+  "trecho_id": "SP-021:norte:007500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 34.6,
+  "critical_height_cm": 30.0,
+  "operational_status": "not-ready",
+  "blockers": [
+   "low-coverage"
+  ],
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "low"
+ },
+ {
+  "rank": 11,
+  "trecho_id": "SP-021:norte:008000",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 54.9,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 12,
+  "trecho_id": "SP-021:norte:010500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 76.29,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 13,
+  "trecho_id": "SP-021:norte:011500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 31.39,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 14,
+  "trecho_id": "SP-021:norte:012000",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 42.68,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 15,
+  "trecho_id": "SP-021:norte:012500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 40.31,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 16,
+  "trecho_id": "SP-021:norte:013000",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 36.69,
+  "critical_height_cm": 30.0,
+  "operational_status": "not-ready",
+  "blockers": [
+   "depth-degraded"
+  ],
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "low"
+ },
+ {
+  "rank": 17,
+  "trecho_id": "SP-021:norte:014000",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 32.96,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 18,
+  "trecho_id": "SP-021:norte:014500",
+  "as_of_date": "2026-07-26",
+  "current_height_cm": 44.72,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 19,
+  "trecho_id": "SP-021:norte:016000",
+  "as_of_date": "2026-08-09",
+  "current_height_cm": 32.29,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 20,
+  "trecho_id": "SP-021:norte:016500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 32.72,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 21,
+  "trecho_id": "SP-021:norte:018000",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 78.92,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 22,
+  "trecho_id": "SP-021:norte:018500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 36.44,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 23,
+  "trecho_id": "SP-021:norte:019000",
+  "as_of_date": "2026-08-16",
+  "current_height_cm": 53.78,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 24,
+  "trecho_id": "SP-021:norte:020000",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 32.51,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 25,
+  "trecho_id": "SP-021:norte:020500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 53.58,
+  "critical_height_cm": 30.0,
+  "operational_status": "not-ready",
+  "blockers": [
+   "depth-degraded"
+  ],
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "low"
+ },
+ {
+  "rank": 26,
+  "trecho_id": "SP-021:norte:021000",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 34.91,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 27,
+  "trecho_id": "SP-021:norte:022000",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 50.19,
+  "critical_height_cm": 30.0,
+  "operational_status": "not-ready",
+  "blockers": [
+   "depth-degraded"
+  ],
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "low"
+ },
+ {
+  "rank": 28,
+  "trecho_id": "SP-021:norte:022500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 34.88,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 29,
+  "trecho_id": "SP-021:norte:023500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 55.72,
+  "critical_height_cm": 30.0,
+  "operational_status": "not-ready",
+  "blockers": [
+   "depth-degraded"
+  ],
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "low"
+ },
+ {
+  "rank": 30,
+  "trecho_id": "SP-021:norte:024500",
+  "as_of_date": "2026-08-09",
+  "current_height_cm": 42.22,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 31,
+  "trecho_id": "SP-021:norte:026000",
+  "as_of_date": "2026-08-09",
+  "current_height_cm": 39.5,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 32,
+  "trecho_id": "SP-021:sul:000000",
+  "as_of_date": "2026-07-19",
+  "current_height_cm": 38.6,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 33,
+  "trecho_id": "SP-021:sul:000500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 42.4,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 34,
+  "trecho_id": "SP-021:sul:002500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 52.18,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 35,
+  "trecho_id": "SP-021:sul:003000",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 31.97,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 36,
+  "trecho_id": "SP-021:sul:004000",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 44.97,
+  "critical_height_cm": 30.0,
+  "operational_status": "not-ready",
+  "blockers": [
+   "depth-degraded"
+  ],
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "low"
+ },
+ {
+  "rank": 37,
+  "trecho_id": "SP-021:sul:004500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 68.95,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 38,
+  "trecho_id": "SP-021:sul:005000",
+  "as_of_date": "2026-08-23",
+  "current_height_cm": 47.26,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 39,
+  "trecho_id": "SP-021:sul:005500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 58.44,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 40,
+  "trecho_id": "SP-021:sul:006000",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 38.2,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 41,
+  "trecho_id": "SP-021:sul:007500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 33.0,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 42,
+  "trecho_id": "SP-021:sul:010000",
+  "as_of_date": "2026-08-09",
+  "current_height_cm": 57.14,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 43,
+  "trecho_id": "SP-021:sul:011000",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 59.39,
+  "critical_height_cm": 30.0,
+  "operational_status": "not-ready",
+  "blockers": [
+   "depth-degraded"
+  ],
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "low"
+ },
+ {
+  "rank": 44,
+  "trecho_id": "SP-021:sul:012000",
+  "as_of_date": "2026-08-23",
+  "current_height_cm": 31.91,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 45,
+  "trecho_id": "SP-021:sul:013000",
+  "as_of_date": "2026-08-09",
+  "current_height_cm": 33.51,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 46,
+  "trecho_id": "SP-021:sul:014000",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 45.33,
+  "critical_height_cm": 30.0,
+  "operational_status": "not-ready",
+  "blockers": [
+   "depth-degraded"
+  ],
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "low"
+ },
+ {
+  "rank": 47,
+  "trecho_id": "SP-021:sul:016000",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 67.37,
+  "critical_height_cm": 30.0,
+  "operational_status": "not-ready",
+  "blockers": [
+   "depth-degraded"
+  ],
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "low"
+ },
+ {
+  "rank": 48,
+  "trecho_id": "SP-021:sul:018000",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 71.17,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 49,
+  "trecho_id": "SP-021:sul:018500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 68.05,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 50,
+  "trecho_id": "SP-021:sul:019500",
+  "as_of_date": "2026-08-23",
+  "current_height_cm": 32.88,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 51,
+  "trecho_id": "SP-021:sul:020000",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 54.58,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 52,
+  "trecho_id": "SP-021:sul:022000",
+  "as_of_date": "2026-08-09",
+  "current_height_cm": 56.87,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 53,
+  "trecho_id": "SP-021:sul:024000",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 65.71,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 54,
+  "trecho_id": "SP-021:sul:024500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 45.42,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 55,
+  "trecho_id": "SP-021:sul:025000",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 32.1,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 56,
+  "trecho_id": "SP-021:sul:026000",
+  "as_of_date": "2026-07-26",
+  "current_height_cm": 34.02,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 57,
+  "trecho_id": "SP-021:sul:026500",
+  "as_of_date": "2026-08-16",
+  "current_height_cm": 55.93,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 58,
+  "trecho_id": "SP-021:sul:027000",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 74.95,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 59,
+  "trecho_id": "SP-021:sul:027500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 36.52,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 60,
+  "trecho_id": "SP-021:sul:028500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 46.27,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 61,
+  "trecho_id": "SP-021:sul:029000",
+  "as_of_date": "2026-08-23",
+  "current_height_cm": 32.17,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 0.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 0.0,
+   "confidence": 0.9
+  },
+  "status": "critical",
+  "reason": "already_at_or_above_threshold",
+  "operational_confidence": "high"
+ },
+ {
+  "rank": 62,
+  "trecho_id": "SP-021:sul:019000",
+  "as_of_date": "2026-08-09",
+  "current_height_cm": 25.65,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 15.3,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 49.8,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 63,
+  "trecho_id": "SP-021:norte:015500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 29.79,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 15.4,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 50.0,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 64,
+  "trecho_id": "SP-021:sul:001000",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 24.6,
+  "critical_height_cm": 30.0,
+  "operational_status": "not-ready",
+  "blockers": [
+   "depth-degraded"
+  ],
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 17.3,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 51.9,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "low"
+ },
+ {
+  "rank": 65,
+  "trecho_id": "SP-021:sul:023000",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 24.08,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 18.2,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 52.7,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 66,
+  "trecho_id": "SP-021:norte:010000",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 29.01,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 18.7,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 53.3,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 67,
+  "trecho_id": "SP-021:sul:022500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 28.72,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 18.8,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 53.4,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 68,
+  "trecho_id": "SP-021:norte:024000",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 23.01,
+  "critical_height_cm": 30.0,
+  "operational_status": "not-ready",
+  "blockers": [
+   "depth-degraded"
+  ],
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 18.9,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 53.5,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "low"
+ },
+ {
+  "rank": 69,
+  "trecho_id": "SP-021:sul:007000",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 23.88,
+  "critical_height_cm": 30.0,
+  "operational_status": "not-ready",
+  "blockers": [
+   "depth-degraded"
+  ],
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 19.6,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 54.2,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "low"
+ },
+ {
+  "rank": 70,
+  "trecho_id": "SP-021:norte:003500",
+  "as_of_date": "2026-08-16",
+  "current_height_cm": 26.54,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 20.7,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 55.3,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 71,
+  "trecho_id": "SP-021:sul:017500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 26.8,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 20.7,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 55.3,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 72,
+  "trecho_id": "SP-021:sul:006500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 27.11,
+  "critical_height_cm": 30.0,
+  "operational_status": "not-ready",
+  "blockers": [
+   "low-coverage"
+  ],
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 21.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 55.5,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "low"
+ },
+ {
+  "rank": 73,
+  "trecho_id": "SP-021:sul:001500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 27.04,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 22.4,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 57.0,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 74,
+  "trecho_id": "SP-021:sul:017000",
+  "as_of_date": "2026-08-16",
+  "current_height_cm": 22.85,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 23.3,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 57.8,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 75,
+  "trecho_id": "SP-021:sul:009000",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 21.08,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 24.1,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 58.6,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 76,
+  "trecho_id": "SP-021:norte:021500",
+  "as_of_date": "2026-08-16",
+  "current_height_cm": 23.36,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 26.5,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 61.0,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 77,
+  "trecho_id": "SP-021:norte:005000",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 20.73,
+  "critical_height_cm": 30.0,
+  "operational_status": "not-ready",
+  "blockers": [
+   "depth-degraded"
+  ],
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 27.2,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 61.8,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "low"
+ },
+ {
+  "rank": 78,
+  "trecho_id": "SP-021:norte:008500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 20.34,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 27.7,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 62.3,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 79,
+  "trecho_id": "SP-021:norte:025000",
+  "as_of_date": "2026-08-09",
+  "current_height_cm": 21.66,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 27.7,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 62.3,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 80,
+  "trecho_id": "SP-021:sul:013500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 18.49,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 28.3,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 62.8,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 81,
+  "trecho_id": "SP-021:sul:009500",
+  "as_of_date": "2026-08-16",
+  "current_height_cm": 22.66,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 28.4,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 63.0,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 82,
+  "trecho_id": "SP-021:norte:028000",
+  "as_of_date": "2026-08-09",
+  "current_height_cm": 20.67,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 31.3,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 65.8,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 83,
+  "trecho_id": "SP-021:norte:000500",
+  "as_of_date": "2026-08-09",
+  "current_height_cm": 20.41,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 33.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 67.6,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 84,
+  "trecho_id": "SP-021:sul:012500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 15.44,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 33.2,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 67.8,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 85,
+  "trecho_id": "SP-021:sul:016500",
+  "as_of_date": "2026-08-16",
+  "current_height_cm": 16.3,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 40.5,
+  "interval": {
+   "lower_days": 6.0,
+   "upper_days": 75.1,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 86,
+  "trecho_id": "SP-021:sul:020500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 13.77,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 42.5,
+  "interval": {
+   "lower_days": 8.0,
+   "upper_days": 77.1,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 87,
+  "trecho_id": "SP-021:norte:027500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 14.35,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 45.1,
+  "interval": {
+   "lower_days": 10.5,
+   "upper_days": 79.6,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 88,
+  "trecho_id": "SP-021:sul:023500",
+  "as_of_date": "2026-08-23",
+  "current_height_cm": 11.34,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 47.2,
+  "interval": {
+   "lower_days": 12.6,
+   "upper_days": 81.7,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 89,
+  "trecho_id": "SP-021:norte:009000",
+  "as_of_date": "2026-08-23",
+  "current_height_cm": 10.41,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 47.5,
+  "interval": {
+   "lower_days": 13.0,
+   "upper_days": 82.1,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 90,
+  "trecho_id": "SP-021:norte:003000",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 10.62,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 48.3,
+  "interval": {
+   "lower_days": 13.7,
+   "upper_days": 82.9,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 91,
+  "trecho_id": "SP-021:norte:029000",
+  "as_of_date": "2026-08-23",
+  "current_height_cm": 11.43,
+  "critical_height_cm": 30.0,
+  "operational_status": "not-ready",
+  "blockers": [
+   "depth-degraded"
+  ],
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 48.9,
+  "interval": {
+   "lower_days": 14.3,
+   "upper_days": 83.4,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "low"
+ },
+ {
+  "rank": 92,
+  "trecho_id": "SP-021:norte:015000",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 13.6,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 49.3,
+  "interval": {
+   "lower_days": 14.7,
+   "upper_days": 83.8,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 93,
+  "trecho_id": "SP-021:sul:021000",
+  "as_of_date": "2026-08-23",
+  "current_height_cm": 10.43,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 49.6,
+  "interval": {
+   "lower_days": 15.1,
+   "upper_days": 84.2,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 94,
+  "trecho_id": "SP-021:sul:002000",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 8.85,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 51.2,
+  "interval": {
+   "lower_days": 16.7,
+   "upper_days": 85.8,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 95,
+  "trecho_id": "SP-021:norte:013500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 11.27,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 51.6,
+  "interval": {
+   "lower_days": 17.0,
+   "upper_days": 86.2,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 96,
+  "trecho_id": "SP-021:norte:028500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 8.5,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 52.3,
+  "interval": {
+   "lower_days": 17.7,
+   "upper_days": 86.9,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 97,
+  "trecho_id": "SP-021:sul:021500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 14.19,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 52.8,
+  "interval": {
+   "lower_days": 18.2,
+   "upper_days": 87.4,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 98,
+  "trecho_id": "SP-021:norte:026500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 5.15,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 53.8,
+  "interval": {
+   "lower_days": 19.2,
+   "upper_days": 88.4,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 99,
+  "trecho_id": "SP-021:sul:008000",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 4.38,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 57.8,
+  "interval": {
+   "lower_days": 23.2,
+   "upper_days": 92.4,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 100,
+  "trecho_id": "SP-021:norte:009500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 6.59,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 59.8,
+  "interval": {
+   "lower_days": 25.3,
+   "upper_days": 94.4,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 101,
+  "trecho_id": "SP-021:norte:002000",
+  "as_of_date": "2026-08-09",
+  "current_height_cm": 7.71,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 60.0,
+  "interval": {
+   "lower_days": 25.4,
+   "upper_days": 94.6,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 102,
+  "trecho_id": "SP-021:sul:015500",
+  "as_of_date": "2026-08-23",
+  "current_height_cm": 5.15,
+  "critical_height_cm": 30.0,
+  "operational_status": "not-ready",
+  "blockers": [
+   "low-coverage"
+  ],
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 60.1,
+  "interval": {
+   "lower_days": 25.5,
+   "upper_days": 94.7,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "low"
+ },
+ {
+  "rank": 103,
+  "trecho_id": "SP-021:sul:028000",
+  "as_of_date": "2026-07-26",
+  "current_height_cm": 11.6,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 61.1,
+  "interval": {
+   "lower_days": 26.5,
+   "upper_days": 95.6,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 104,
+  "trecho_id": "SP-021:norte:025500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 6.07,
+  "critical_height_cm": 30.0,
+  "operational_status": "not-ready",
+  "blockers": [
+   "depth-degraded"
+  ],
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 61.6,
+  "interval": {
+   "lower_days": 27.0,
+   "upper_days": 96.1,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "low"
+ },
+ {
+  "rank": 105,
+  "trecho_id": "SP-021:norte:017000",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 6.01,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 62.6,
+  "interval": {
+   "lower_days": 28.0,
+   "upper_days": 97.1,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 106,
+  "trecho_id": "SP-021:norte:017500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 2.77,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 63.4,
+  "interval": {
+   "lower_days": 28.8,
+   "upper_days": 98.0,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 107,
+  "trecho_id": "SP-021:sul:010500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 8.85,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 64.1,
+  "interval": {
+   "lower_days": 29.5,
+   "upper_days": 98.7,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 108,
+  "trecho_id": "SP-021:sul:011500",
+  "as_of_date": "2026-08-23",
+  "current_height_cm": 5.36,
+  "critical_height_cm": 30.0,
+  "operational_status": "not-ready",
+  "blockers": [
+   "depth-degraded"
+  ],
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 64.1,
+  "interval": {
+   "lower_days": 29.5,
+   "upper_days": 98.6,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "low"
+ },
+ {
+  "rank": 109,
+  "trecho_id": "SP-021:sul:008500",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 7.22,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 64.4,
+  "interval": {
+   "lower_days": 29.8,
+   "upper_days": 99.0,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 110,
+  "trecho_id": "SP-021:norte:011000",
+  "as_of_date": "2026-08-30",
+  "current_height_cm": 4.14,
+  "critical_height_cm": 30.0,
+  "operational_status": "not-ready",
+  "blockers": [
+   "depth-degraded"
+  ],
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 68.0,
+  "interval": {
+   "lower_days": 33.5,
+   "upper_days": 102.6,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "low"
+ },
+ {
+  "rank": 111,
+  "trecho_id": "SP-021:norte:023000",
+  "as_of_date": "2026-08-02",
+  "current_height_cm": 4.3,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 68.3,
+  "interval": {
+   "lower_days": 33.8,
+   "upper_days": 102.9,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 112,
+  "trecho_id": "SP-021:norte:007000",
+  "as_of_date": "2026-08-09",
+  "current_height_cm": 7.79,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 68.9,
+  "interval": {
+   "lower_days": 34.3,
+   "upper_days": 103.5,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 113,
+  "trecho_id": "SP-021:sul:003500",
+  "as_of_date": "2026-08-23",
+  "current_height_cm": 0.0,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 69.7,
+  "interval": {
+   "lower_days": 35.2,
+   "upper_days": 104.3,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 114,
+  "trecho_id": "SP-021:norte:019500",
+  "as_of_date": "2026-07-26",
+  "current_height_cm": 10.89,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 70.8,
+  "interval": {
+   "lower_days": 36.2,
+   "upper_days": 105.4,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 115,
+  "trecho_id": "SP-021:sul:014500",
+  "as_of_date": "2026-07-26",
+  "current_height_cm": 11.05,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 71.2,
+  "interval": {
+   "lower_days": 36.6,
+   "upper_days": 105.7,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 116,
+  "trecho_id": "SP-021:norte:027000",
+  "as_of_date": "2026-07-19",
+  "current_height_cm": 5.2,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 74.2,
+  "interval": {
+   "lower_days": 39.7,
+   "upper_days": 108.8,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 117,
+  "trecho_id": "SP-021:sul:015000",
+  "as_of_date": "2026-08-02",
+  "current_height_cm": 7.19,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 75.2,
+  "interval": {
+   "lower_days": 40.6,
+   "upper_days": 109.7,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ },
+ {
+  "rank": 118,
+  "trecho_id": "SP-021:sul:025500",
+  "as_of_date": "2026-07-26",
+  "current_height_cm": 1.42,
+  "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 78.3,
+  "interval": {
+   "lower_days": 43.7,
+   "upper_days": 112.8,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null,
+  "operational_confidence": "medium"
+ }
+]

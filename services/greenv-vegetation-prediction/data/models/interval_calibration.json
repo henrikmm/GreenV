@@ -1,0 +1,41 @@
+{
+ "method": "split conformal (Vovk et al. 2005 / Lei et al. 2018): symmetric band [point - q, point + q], q = ceil((n+1)(1-alpha))-th smallest |residual| on a held-out calibration sample never used to fit the model.",
+ "calibration_split": "validation",
+ "model_frozen_from": "Phase 7 (data/models/ml_validation_metrics.json -> best_overall_height_config / best_overall_days_config)",
+ "feature_spec_version": "weather-v1+features-v1",
+ "random_state": 42,
+ "days_until_30cm": {
+  "n_calibration_population": 3282,
+  "n_excluded_beyond_horizon_point": 0,
+  "n_used": 3282,
+  "censoring_treatment": "censored VALIDATION rows (unknown true value) excluded from calibration entirely; rows whose OWN point estimate already sits at the 120-day cap are also excluded (undefined residual against a censored point) -- both counts reported above, not hidden.",
+  "population_restriction": "height_cm < 30 at the anchor row (the >=30 case is deterministic and uses no interval)",
+  "q_by_confidence": {
+   "0.8": 24.711,
+   "0.9": 34.57
+  }
+ },
+ "height": {
+  "7": {
+   "n_calibration": 4622,
+   "q_by_confidence": {
+    "0.8": 13.268,
+    "0.9": 27.129
+   }
+  },
+  "14": {
+   "n_calibration": 4306,
+   "q_by_confidence": {
+    "0.8": 17.404,
+    "0.9": 28.173
+   }
+  },
+  "30": {
+   "n_calibration": 4172,
+   "q_by_confidence": {
+    "0.8": 21.749,
+    "0.9": 29.176
+   }
+  }
+ }
+}

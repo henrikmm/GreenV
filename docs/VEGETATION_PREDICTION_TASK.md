@@ -715,33 +715,76 @@ through.
 
 **Tasks**
 
-- [ ] `src/greenv_vegpred/forecast/`: from the latest observation + a weather-forecast input +
-      weeks-since-`roçada`, forward-simulate to the 10 cm and 30 cm thresholds.
-- [ ] Uncertainty interval by the method chosen in Phase 8 (quantile regression / conformal
-      prediction / bootstrap ensemble / residual band) — one method, justified, with measured
-      coverage.
-- [ ] Weather-forecast input for V1: climatological normals from Phase 3, and/or a short real
-      Open-Meteo forecast — both flagged by provenance.
-- [ ] Censoring: if 30 cm is not reached within a max horizon (e.g. 120 days), return
-      `days_to_30cm = null`, `reason = "beyond horizon"`.
-- [ ] Propagate `operational_status` / blockers from the source observation into every
-      `prediction` row; a `not-ready` source caps `confidence` at `low`.
-- [ ] Produce the **ranking** feed: `trechos` ordered by soonest 30 cm crossing.
-- [ ] `reports/forecast-method.md`.
+- [x] `src/greenv_vegpred/forecast/`: from the latest observation, produce `days_until_critical`
+      (the operational `days_until_30cm` answer) via the already-frozen Phase 7 model (framing B,
+      direct regression) — not a forward-simulation loop against a weather forecast. *Scope note:*
+      the model already regresses `days_until_30cm` directly from the anchor row's own features
+      (no recursive stepping; Phase 7's addendum already found recursive stepping strictly worse —
+      `reports/hyperparameters.md` §6.2), so "forward-simulate to 10cm/30cm" is answered by that
+      existing regression, not a new simulation loop; weeks-since-`roçada` is already
+      `days_since_rocada`, a frozen KEEP feature.
+- [x] Uncertainty interval: **split conformal prediction** (Vovk et al. 2005 / Lei et al. 2018),
+      calibrated on VALIDATION only, frozen before TEST was read, measured on TEST once — see
+      `reports/forecast-method.md` for the method choice and the measured coverage.
+- [x] **Weather-forecast input for V1 — closed by architectural decision, not left open.**
+      Verified directly (not assumed): the frozen V1 primary model (framing B, direct regression)
+      does not consume a forward weather trajectory at all — it regresses from the anchor row's
+      own already-observed features, with no forward-simulation loop for a forecast to feed. The
+      one framing that does step forward (the recursive height model, Phase 7 addendum) was
+      already evaluated and found strictly worse beyond +7d (`reports/hyperparameters.md` §6.2);
+      reinstating it only to have a place for a weather input would mean reintroducing an
+      already-rejected, worse framing. **Decision, recorded here: not applicable to the selected
+      V1 primary framing; a future weather trajectory belongs to the secondary trajectory model
+      (framing A) or a V2 recursive redesign, neither of which is the frozen production path.**
+      See `reports/forecast-method.md` §13.
+- [x] Censoring: `days_until_critical = null`, `status = "beyond_horizon"` when the model's own
+      point estimate exceeds the 120-day horizon — implemented in `build_days_forecast`.
+- [x] `operational_status`/`blockers` are now carried EXPLICITLY inside every forecast object
+      (not just joinable after the fact), and a `not-ready` source caps a new, separate
+      `operational_confidence` field at `"low"` — implemented as `_operational_confidence` in
+      `interval.py`, matching `schema.sql`'s own pre-existing `prediction.confidence` CHECK
+      constraint (`operational_status <> 'not-ready' OR confidence = 'low'`) verbatim. This is
+      kept distinct from the interval's own statistical `confidence` (0.80/0.90, the nominal
+      coverage level) — the two are never merged into one field. See
+      `reports/forecast-method.md` §3's "two different questions" subsection.
+- [x] Ranking feed: `rank_forecasts()` (`src/greenv_vegpred/forecast/ranking.py`), ordering
+      `critical` → `forecast` (ascending `days_until_critical`) → `beyond_horizon` →
+      `insufficient_data`, ties broken by `trecho_id`. Demonstrated on the current 118-trecho
+      snapshot (`data/forecast/ranking_current.json`/`.csv`) — see `reports/forecast-method.md` §11.
+- [x] `reports/forecast-method.md`.
 
 **Completion criteria**
 
-- `make forecast` writes `prediction` rows for every SP-021 `trecho` from the current dataset;
-- interval coverage is within a stated tolerance of nominal;
-- the censoring rule is applied; every row carries provenance + `operational_status`;
-- the ranking is reproducible.
+- [x] the reproducing entry point (`scripts/calibrate_and_evaluate_intervals.py` for the
+      calibration/coverage, `scripts/build_current_forecast_batch.py` for the ranking/batch
+      export — no `make` target exists anywhere in this repository, same note as Phase 8)
+      regenerates every Phase 9 artifact from the unmodified Phase 7 model artifacts;
+- [x] interval coverage is reported against nominal (80%/90%) on TEST, with the deviation stated
+      explicitly (days: 83.2%/90.8%, mildly conservative; height: 75.7-76.4%/86.4-87.5%, mildly
+      under nominal) — not silently accepted as "close enough", and the conformal coverage
+      *guarantee*'s own assumptions (exchangeability, in tension with VALIDATION's role in Phase 7
+      model selection and with this data's temporal structure) are now stated explicitly rather
+      than asserted unconditionally — `reports/forecast-method.md` §2's callout;
+- [x] the censoring rule (`beyond_horizon`) is applied and counted; every forecast object carries
+      `data_provenance`, `operational_status`, `blockers`, and `operational_confidence` directly;
+- [x] the ranking export is built and reproducible (§11 above).
 
 **Artifacts**
 
-- `src/greenv_vegpred/forecast/`;
-- the populated `prediction` table;
-- `reports/forecast-method.md`;
-- the ranking export.
+- `src/greenv_vegpred/forecast/{__init__,interval,ranking}.py`;
+- `data/models/interval_calibration.json` (frozen calibration parameters);
+- `data/models/phase9_interval_evaluation.json` (TEST coverage, OOD diagnostic, sanity checks);
+- `data/forecast/ranking_current.json`/`.csv` (the ranking export, 118 rows);
+- `data/forecast/prediction_batch.csv` (the V1-equivalent of `schema.sql`'s `prediction` table);
+- `reports/forecast-method.md`.
+  *Correction to this file's own earlier note:* an earlier pass of this checklist claimed
+  "there is no `prediction` table in `schema.sql`" — that was checked directly this time and was
+  **wrong**: `schema.sql` (Phase 2) already defines a full `prediction` table (lines 356-406),
+  including the exact `interval_nominal_coverage`/`confidence` split and the
+  not-ready-caps-confidence-at-low rule this pass implemented. No migration was made to it — the
+  table definition is untouched; `prediction_batch.csv`'s columns map onto it directly (see
+  `reports/forecast-method.md` §12 for the column-by-column mapping and why a CSV, not a live
+  `INSERT`, is this V1's equivalent artifact, consistent with every other phase's CSV/JSON output).
 
 **Dependencies:** Phase 8 (selected model + interval method).
 

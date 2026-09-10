@@ -1,0 +1,299 @@
+{
+ "calibration": {
+  "method": "split conformal (Vovk et al. 2005 / Lei et al. 2018): symmetric band [point - q, point + q], q = ceil((n+1)(1-alpha))-th smallest |residual| on a held-out calibration sample never used to fit the model.",
+  "calibration_split": "validation",
+  "model_frozen_from": "Phase 7 (data/models/ml_validation_metrics.json -> best_overall_height_config / best_overall_days_config)",
+  "feature_spec_version": "weather-v1+features-v1",
+  "random_state": 42,
+  "days_until_30cm": {
+   "n_calibration_population": 3282,
+   "n_excluded_beyond_horizon_point": 0,
+   "n_used": 3282,
+   "censoring_treatment": "censored VALIDATION rows (unknown true value) excluded from calibration entirely; rows whose OWN point estimate already sits at the 120-day cap are also excluded (undefined residual against a censored point) -- both counts reported above, not hidden.",
+   "population_restriction": "height_cm < 30 at the anchor row (the >=30 case is deterministic and uses no interval)",
+   "q_by_confidence": {
+    "0.8": 24.711,
+    "0.9": 34.57
+   }
+  },
+  "height": {
+   "7": {
+    "n_calibration": 4622,
+    "q_by_confidence": {
+     "0.8": 13.268,
+     "0.9": 27.129
+    }
+   },
+   "14": {
+    "n_calibration": 4306,
+    "q_by_confidence": {
+     "0.8": 17.404,
+     "0.9": 28.173
+    }
+   },
+   "30": {
+    "n_calibration": 4172,
+    "q_by_confidence": {
+     "0.8": 21.749,
+     "0.9": 29.176
+    }
+   }
+  }
+ },
+ "test_days_coverage": {
+  "0.8": {
+   "n": 4562,
+   "coverage_pct": 83.2,
+   "mean_width_days": 47.88,
+   "median_width_days": 49.42,
+   "n_not_covered": 767
+  },
+  "0.9": {
+   "n": 4562,
+   "coverage_pct": 90.8,
+   "mean_width_days": 63.26,
+   "median_width_days": 66.43,
+   "n_not_covered": 420
+  },
+  "meta": {
+   "n_population": 4562,
+   "n_true_censored_in_split": 644,
+   "n_model_beyond_horizon_but_truth_known": 0
+  }
+ },
+ "test_days_coverage_stratified_90pct": {
+  "by_nivel": {
+   "nivel2": {
+    "n": 2405,
+    "coverage_pct": 92.6
+   },
+   "nivel1": {
+    "n": 1275,
+    "coverage_pct": 87.1
+   },
+   "nivel0": {
+    "n": 882,
+    "coverage_pct": 91.2
+   }
+  },
+  "by_season": {
+   "wet(Oct-Mar)": {
+    "n": 2642,
+    "coverage_pct": 93.0
+   },
+   "dry(Apr-Sep)": {
+    "n": 1920,
+    "coverage_pct": 87.8
+   }
+  },
+  "by_rocada_proximity": {
+   "recent(<14d)": {
+    "n": 1554,
+    "coverage_pct": 88.3
+   },
+   "mid(14-60d)": {
+    "n": 2570,
+    "coverage_pct": 92.2
+   },
+   "long(>60d)": {
+    "n": 438,
+    "coverage_pct": 91.6
+   }
+  }
+ },
+ "test_height_coverage": {
+  "7": {
+   "0.8": {
+    "n": 6989,
+    "coverage_pct": 75.8,
+    "mean_width_cm": 25.88,
+    "median_width_cm": 26.54
+   },
+   "0.9": {
+    "n": 6989,
+    "coverage_pct": 87.5,
+    "mean_width_cm": 48.75,
+    "median_width_cm": 54.26
+   }
+  },
+  "14": {
+   "0.8": {
+    "n": 6422,
+    "coverage_pct": 75.7,
+    "mean_width_cm": 34.01,
+    "median_width_cm": 34.81
+   },
+   "0.9": {
+    "n": 6422,
+    "coverage_pct": 87.4,
+    "mean_width_cm": 51.55,
+    "median_width_cm": 56.02
+   }
+  },
+  "30": {
+   "0.8": {
+    "n": 5920,
+    "coverage_pct": 76.4,
+    "mean_width_cm": 42.43,
+    "median_width_cm": 43.5
+   },
+   "0.9": {
+    "n": 5920,
+    "coverage_pct": 86.4,
+    "mean_width_cm": 54.36,
+    "median_width_cm": 58.35
+   }
+  }
+ },
+ "ood_days_coverage": {
+  "0.8": {
+   "n": 6104,
+   "coverage_pct": 87.2,
+   "mean_width_days": 47.43,
+   "median_width_days": 49.42,
+   "n_not_covered": 784
+  },
+  "0.9": {
+   "n": 6104,
+   "coverage_pct": 94.3,
+   "mean_width_days": 62.46,
+   "median_width_days": 65.29,
+   "n_not_covered": 350
+  },
+  "meta": {
+   "n_population": 6104,
+   "n_true_censored_in_split": 191,
+   "n_model_beyond_horizon_but_truth_known": 0
+  }
+ },
+ "ood_vs_test_composition_caveat": {
+  "frac_anchor_height_ge_30cm_test": 0.387,
+  "frac_anchor_height_ge_30cm_ood": 0.627,
+  "note": "OOD's forecast-regime population is not the same difficulty mix as TEST's -- see Phase 8's identical finding for point-accuracy. Any apparent OOD coverage improvement must be read against this composition shift, not as robustness."
+ },
+ "sanity_checks": {
+  "A_height_35_already_critical": {
+   "trecho_id": "SP-021:norte:000000",
+   "as_of_date": "2025-10-12",
+   "current_height_cm": 35.0,
+   "critical_height_cm": 30.0,
+   "model": "random_forest__keep_plus_candidate__framing_b",
+   "data_provenance": "synthetic",
+   "days_until_critical": 0.0,
+   "interval": {
+    "lower_days": 0.0,
+    "upper_days": 0.0,
+    "confidence": 0.9
+   },
+   "status": "critical",
+   "reason": "already_at_or_above_threshold"
+  },
+  "B_height_29_strong_growth": {
+   "trecho_id": "SP-021:norte:000000",
+   "as_of_date": "2025-10-12",
+   "current_height_cm": 29.0,
+   "critical_height_cm": 30.0,
+   "model": "random_forest__keep_plus_candidate__framing_b",
+   "data_provenance": "synthetic",
+   "days_until_critical": 14.1,
+   "interval": {
+    "lower_days": 0.0,
+    "upper_days": 48.7,
+    "confidence": 0.9,
+    "upper_is_horizon_bound": false
+   },
+   "status": "forecast",
+   "reason": null
+  },
+  "C_height_low_slow_growth": {
+   "trecho_id": "SP-021:norte:000000",
+   "as_of_date": "2025-10-12",
+   "current_height_cm": 4.0,
+   "critical_height_cm": 30.0,
+   "model": "random_forest__keep_plus_candidate__framing_b",
+   "data_provenance": "synthetic",
+   "days_until_critical": 40.4,
+   "interval": {
+    "lower_days": 5.9,
+    "upper_days": 75.0,
+    "confidence": 0.9,
+    "upper_is_horizon_bound": false
+   },
+   "status": "forecast",
+   "reason": null
+  },
+  "D_missing_anchor_height": {
+   "trecho_id": "SP-021:norte:000000",
+   "as_of_date": "2025-10-12",
+   "current_height_cm": null,
+   "critical_height_cm": 30.0,
+   "model": "random_forest__keep_plus_candidate__framing_b",
+   "data_provenance": "synthetic",
+   "days_until_critical": null,
+   "interval": null,
+   "status": "insufficient_data",
+   "reason": "missing_anchor_height_cm"
+  },
+  "E_lower_bound_clamped_to_zero": {
+   "point_estimate": 11.16,
+   "q90": 34.57,
+   "raw_lower_before_clamp": -23.41,
+   "forecast": {
+    "trecho_id": "SP-021:sul:005500",
+    "as_of_date": "2025-04-06",
+    "current_height_cm": 27.83,
+    "critical_height_cm": 30.0,
+    "model": "random_forest__keep_plus_candidate__framing_b",
+    "data_provenance": "synthetic",
+    "days_until_critical": 11.2,
+    "interval": {
+     "lower_days": 0.0,
+     "upper_days": 45.7,
+     "confidence": 0.9,
+     "upper_is_horizon_bound": false
+    },
+    "status": "forecast",
+    "reason": null
+   }
+  },
+  "F_upper_bound_horizon_handling": {
+   "point_estimate": 92.76,
+   "q90": 34.57,
+   "raw_upper_before_clamp": 127.33,
+   "forecast": {
+    "trecho_id": "SP-021:norte:000500",
+    "as_of_date": "2025-06-01",
+    "current_height_cm": 0.0,
+    "critical_height_cm": 30.0,
+    "model": "random_forest__keep_plus_candidate__framing_b",
+    "data_provenance": "synthetic",
+    "days_until_critical": 92.8,
+    "interval": {
+     "lower_days": 58.2,
+     "upper_days": 120.0,
+     "confidence": 0.9,
+     "upper_is_horizon_bound": true
+    },
+    "status": "forecast",
+    "reason": null
+   }
+  }
+ },
+ "example_forecast_object_90pct": {
+  "trecho_id": "SP-021:norte:000000",
+  "as_of_date": "2025-11-23",
+  "current_height_cm": 15.96,
+  "critical_height_cm": 30.0,
+  "model": "random_forest__keep_plus_candidate__framing_b",
+  "data_provenance": "synthetic",
+  "days_until_critical": 27.0,
+  "interval": {
+   "lower_days": 0.0,
+   "upper_days": 61.6,
+   "confidence": 0.9,
+   "upper_is_horizon_bound": false
+  },
+  "status": "forecast",
+  "reason": null
+ }
+}
