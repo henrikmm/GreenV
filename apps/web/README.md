@@ -1,9 +1,13 @@
-# frontend/ — Dashboard de Gestão de Vegetação
+# apps/web — Dashboard de Gestão de Vegetação
 
 Interface web interativa para visualização e gestão da vegetação ao longo do Rodoanel Oeste (SP-021).
-Login, dados e equipes são mockados — não há backend de autenticação nem de ordens de serviço
-conectado ainda (ordens vivem em `localStorage`, semeadas com um conjunto de OS de exemplo na
-primeira carga).
+
+> **Nada nesta interface vem do pipeline de captura.** O app não tem cliente de API: as duas únicas
+> chamadas de rede são `fetch('/rocada_polygons.geojson')` e `fetch('/marco_km.geojson')` em
+> `src/App.jsx`. Os 642 polígonos vêm do KMZ da Motiva e seus níveis de vegetação de uma planilha —
+> nenhum deles foi medido por este sistema. Login, equipes, tendências e ordens de serviço são
+> `src/data/mock*.js` e `localStorage`. Ligar o dashboard a uma medição real é uma das lacunas
+> listadas em [`docs/STATE-OF-THE-SYSTEM.md`](../../docs/STATE-OF-THE-SYSTEM.md).
 
 ## Stack
 
@@ -28,8 +32,8 @@ primeira carga).
 ## Setup
 
 ```bash
-cd frontend
-npm install
+cd apps/web
+npm ci
 npm run dev
 ```
 

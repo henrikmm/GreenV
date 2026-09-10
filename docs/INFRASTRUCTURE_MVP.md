@@ -3,6 +3,19 @@
 Decision date: 30 August 2026. No cloud resource was created by this change, so it incurred no
 cloud spend. Provisioning is a separate, billable action that requires explicit approval.
 
+**This document is a recommendation, not a record.** As of 10 September 2026 the Terraform has
+never been applied and no state file exists, so none of the topology below is running anywhere.
+The only GreenV workload that has ever run in a cloud is the depth service, on Google Cloud Run
+GPU, which this document does not cover — see *The depth stage* below. For what is actually
+deployed and what is only written, read
+[`STATE-OF-THE-SYSTEM.md`](STATE-OF-THE-SYSTEM.md).
+
+**Scope.** This document covers the two Java services that existed when it was written: the video
+API and the frame extractor. The measurement worker and the depth stage arrived afterwards. Both
+are in the executable Terraform and in [`infrastructure/README.md`](../infrastructure/README.md),
+which is the current description of the stack; the sections here are the reasoning behind the
+provider choices, not the current inventory.
+
 ## Recommended topology
 
 Use Azure Container Apps Consumption for both Java containers, Azure Queue Storage for segment
@@ -14,12 +27,40 @@ and the deployment runbook are in [`infrastructure/`](../infrastructure/README.m
 mobile -> Cloudflare DNS/TLS -> Video API Container App (HTTP, min replicas 0)
                                   |-> Neon PostgreSQL
                                   |-> Cloudflare R2 bucket
-                                  `-> Azure Queue
+                                  `-> Azure Queue (extraction)
 
-Azure Queue -> KEDA scale rule -> Frame Worker Container App (min replicas 0)
+Azure Queue (extraction) -> KEDA scale rule -> Frame Worker Container App (min replicas 0)
                                       |-> Neon PostgreSQL
-                                      `-> Cloudflare R2 bucket
+                                      |-> Cloudflare R2 bucket
+                                      `-> Azure Queue (measurement)
+
+Azure Queue (measurement) -> KEDA scale rule -> Measurement Worker Container App (0..1)
+                                      |-> Cloudflare R2 bucket
+                                      |-> depth service (GPU, NOT created by this Terraform)
+                                      `-> Azure Queue (measurement result)
 ```
+
+## The depth stage
+
+**The GPU is deliberately outside this topology and outside the Terraform.** It bills for the
+machine's whole lifetime rather than for the seconds it computes, and [`AGENTS.md`](../AGENTS.md)
+requires the user's agreement in conversation before anything wakes it. The Terraform wires an
+address and a credential; a person decides the service exists. `measurement_enabled` is `false` by
+default for the same reason.
+
+Two depth deployments exist in this repository and they are not interchangeable in status:
+
+| Platform | Selected by | Status |
+|---|---|---|
+| Google Cloud Run GPU (`verge-lab`) | `GREENV_INFER_ADAPTER=http` | The only GreenV workload ever deployed to any cloud. All recorded runs, VRAM ceilings and cost figures are from it |
+| RunPod serverless | `GREENV_INFER_ADAPTER=runpod` | Written, Terraformed and unit-tested; the image has never been built and no job has ever run |
+
+That makes the deployed picture **cross-cloud by construction**: Azure for compute, Cloudflare for
+objects and DNS, Neon for PostgreSQL, and Google Cloud for the GPU — with RunPod as the intended
+replacement for the last one. The application services stay provider-neutral through the adapter
+ports, but the operational cost of that spread is real: four vendor consoles, four credential
+lifetimes and four places a bill can appear. Choosing between Cloud Run and RunPod is the one
+decision that would reduce it, and it has not been made.
 
 This option is the first choice for the MVP because the existing containers run unchanged, both
 compute workloads scale to zero, R2 avoids direct object egress charges, and Container Apps can
