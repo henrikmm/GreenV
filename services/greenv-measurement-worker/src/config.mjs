@@ -133,6 +133,14 @@ function build() {
       // see src/infer-runpod.mjs. Default unchanged, so nothing moves for anyone already running.
       adapter: text("GREENV_INFER_ADAPTER", "http"),
       baseUrl: text("GREENV_INFER_BASE_URL", "http://127.0.0.1:5173/api"),
+      // Which depth service a run actually reached, in one place because it is written down in
+      // three: the start line, the "inferring" line and the `depth.service` field of every stored
+      // packet. Those all printed baseUrl whatever the adapter, so a RunPod run recorded itself as
+      // having come from Verge Studio's local fixture mock - a provenance field that names the
+      // wrong service is worse than no field, because it is read as evidence.
+      get target() {
+        return this.adapter === "runpod" ? `runpod:${this.runpod.endpointId}` : this.baseUrl;
+      },
       token: text("GREENV_INFER_TOKEN", null),
       // Verge Studio grades 112 frames at 504 px as its best setting, and an L4 runs out above
       // 144 (measurement/docs/REGISTRY.md). The frame extractor already caps its sampling at
