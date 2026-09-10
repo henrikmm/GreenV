@@ -61,8 +61,11 @@ class ArtifactStore:
                     from joblib import load
                     self._days_model = load(DAYS_MODEL_PATH)
                 except Exception as exc:  # corrupt file, incompatible sklearn/joblib version, ...
-                    self._days_model_error = f"failed to load {DAYS_MODEL_PATH.name}: {exc}"
-                    logger.warning(self._days_model_error)
+                    # Public-facing message stays filename-only (never `str(exc)`, which for some
+                    # exception types embeds the full absolute local path) -- the real exception,
+                    # with its path, is only ever logged server-side. See loader's F-01 fix note.
+                    self._days_model_error = f"failed to load {DAYS_MODEL_PATH.name} (corrupt or incompatible file)"
+                    logger.warning("failed to load %s: %s", DAYS_MODEL_PATH, exc)
         return self._days_model
 
     def model_available(self) -> bool:
@@ -75,12 +78,19 @@ class ArtifactStore:
     # ---------------------------------------------------------------- interval calibration
     def calibration(self) -> Optional[dict]:
         if self._calibration is None and self._calibration_error is None:
-            try:
-                raw = json.loads(CALIB_PATH.read_text(encoding="utf-8"))
-                self._calibration = {float(k): v for k, v in raw["days_until_30cm"]["q_by_confidence"].items()}
-            except Exception as exc:
-                self._calibration_error = f"failed to load {CALIB_PATH.name}: {exc}"
-                logger.warning(self._calibration_error)
+            # Existence is checked explicitly, before the read, so a missing file never reaches
+            # `except Exception` -- that block's `str(exc)` (e.g. FileNotFoundError's message)
+            # embeds the full absolute local path, which must never reach a client (F-01).
+            if not CALIB_PATH.exists():
+                self._calibration_error = f"{CALIB_PATH.name} not found"
+                logger.warning("calibration file missing: %s", CALIB_PATH)
+            else:
+                try:
+                    raw = json.loads(CALIB_PATH.read_text(encoding="utf-8"))
+                    self._calibration = {float(k): v for k, v in raw["days_until_30cm"]["q_by_confidence"].items()}
+                except Exception as exc:  # malformed JSON, unexpected shape, ...
+                    self._calibration_error = f"{CALIB_PATH.name} unavailable (invalid or corrupt)"
+                    logger.warning("failed to load %s: %s", CALIB_PATH, exc)
         return self._calibration
 
     def calibration_available(self) -> bool:
@@ -89,15 +99,21 @@ class ArtifactStore:
     # ---------------------------------------------------------------- Phase 9 forecast snapshot
     def snapshot(self) -> Optional[list]:
         if self._snapshot is None and self._snapshot_error is None:
-            try:
-                raw = json.loads(SNAPSHOT_PATH.read_text(encoding="utf-8"))
-                for entry in raw:
-                    entry.pop("rank", None)  # re-derived below, never trusted from disk forever
-                from ..forecast import rank_forecasts
-                self._snapshot = rank_forecasts(raw)
-            except Exception as exc:
-                self._snapshot_error = f"failed to load {SNAPSHOT_PATH.name}: {exc}"
-                logger.warning(self._snapshot_error)
+            # Same F-01 reasoning as `calibration()` above: check existence up front so the
+            # public-facing message never inherits a raw exception's embedded absolute path.
+            if not SNAPSHOT_PATH.exists():
+                self._snapshot_error = f"{SNAPSHOT_PATH.name} not found"
+                logger.warning("forecast snapshot file missing: %s", SNAPSHOT_PATH)
+            else:
+                try:
+                    raw = json.loads(SNAPSHOT_PATH.read_text(encoding="utf-8"))
+                    for entry in raw:
+                        entry.pop("rank", None)  # re-derived below, never trusted from disk forever
+                    from ..forecast import rank_forecasts
+                    self._snapshot = rank_forecasts(raw)
+                except Exception as exc:  # malformed JSON, unexpected shape, ...
+                    self._snapshot_error = f"{SNAPSHOT_PATH.name} unavailable (invalid or corrupt)"
+                    logger.warning("failed to load %s: %s", SNAPSHOT_PATH, exc)
         return self._snapshot
 
     def snapshot_available(self) -> bool:

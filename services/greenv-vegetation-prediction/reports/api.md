@@ -261,3 +261,24 @@ above and validating the new fields):**
   fake auth was added to look more "production-ready" than it is.
 - `apps/web` is not modified or integrated in this phase — the contract above is what a future,
   minimal dashboard integration would consume.
+
+## Pre-push hardening (post-Phase-13, following a read-only security audit)
+
+**Pre-push hardening: non-finite numeric inputs rejected; artifact loading errors sanitized.**
+Two gaps found by a defensive pre-push audit were fixed, with no change to any model,
+hyperparameter, threshold, feature, or metric:
+
+- `POST /predict`'s `PredictRequest` now sets `allow_inf_nan=False`, so `NaN`/`Infinity`/
+  `-Infinity` on any numeric field are rejected with `422` before reaching the model — previously,
+  a non-finite `height_cm` reached `RandomForestRegressor.predict()` and raised an unhandled
+  `ValueError` (caught only by the outermost 500 handler), and a `NaN` in an unbounded field like
+  `tmin_week_c` was silently accepted into a seemingly normal `200` response.
+- `loader.py`'s `calibration()`/`snapshot()` now check the artifact's existence up front and, on
+  any load failure, report only the artifact's filename — never the raw exception string, which
+  for a missing file embeds the full absolute local filesystem path (and, on this machine, the OS
+  username). Matches the pattern `days_model()` already used correctly.
+
+Regression tests added in `tests/test_api.py` (`TestPredictRejectsNonFiniteNumbers`,
+`TestArtifactErrorsAreSanitized`); full suite still passes (157/157) and `api/openapi.v1.yaml`
+stays in sync (no schema shape change — `allow_inf_nan` is a validation behaviour, not a JSON
+Schema constraint).

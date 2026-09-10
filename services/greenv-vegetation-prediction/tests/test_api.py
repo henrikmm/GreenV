@@ -133,6 +133,54 @@ class TestPredict:
         assert r.status_code == 422
 
 
+class TestPredictRejectsNonFiniteNumbers:
+    """Pre-push hardening regression (audit findings F-02/F-03): NaN/Infinity/-Infinity must be
+    rejected with 422, never reach the model (which would raise an unhandled `ValueError` deep in
+    scikit-learn, surfacing as an unrelated 500) and never be silently accepted into a seemingly
+    normal 200 response. httpx's own `json=` convenience encoder refuses to serialize these
+    values client-side (`allow_nan=False`), so each case below sends a hand-crafted raw JSON body
+    via `content=` -- the only way to exercise the server's own (Pydantic) validation."""
+
+    @staticmethod
+    def _post_raw(client, body: str):
+        return client.post(
+            "/api/v1/forecasts/predict", content=body.encode("utf-8"),
+            headers={"content-type": "application/json"},
+        )
+
+    @pytest.mark.parametrize("token", ["NaN", "Infinity", "-Infinity"])
+    def test_non_finite_height_cm_is_422(self, client, token):
+        body = ('{"trecho_id":"demo:001","as_of_date":"2026-09-10","height_cm":%s}' % token)
+        r = self._post_raw(client, body)
+        assert r.status_code == 422
+        assert r.json()["detail"][0]["loc"][-1] == "height_cm"
+
+    @pytest.mark.parametrize("token", ["NaN", "Infinity"])
+    def test_non_finite_auxiliary_feature_is_422(self, client, token):
+        """`tmin_week_c` has no `ge`/`le` bound at all -- before this hardening, a NaN here was
+        silently accepted (HTTP 200, a seemingly normal prediction, no error signal)."""
+        body = (
+            '{"trecho_id":"demo:001","as_of_date":"2026-09-10","height_cm":15.0,'
+            '"tmin_week_c":%s}' % token
+        )
+        r = self._post_raw(client, body)
+        assert r.status_code == 422
+        assert r.json()["detail"][0]["loc"][-1] == "tmin_week_c"
+
+    def test_response_body_for_non_finite_input_is_json_serializable_and_has_no_stack_trace(self, client):
+        """The rejected raw value is echoed back in the error detail; it must be sanitized to a
+        plain string (`"inf"`/`"nan"`) rather than crash the response encoder -- see `app.py`'s
+        `validation_exception_handler`/`_json_safe`."""
+        r = self._post_raw(client, '{"trecho_id":"demo:001","as_of_date":"2026-09-10","height_cm":Infinity}')
+        assert r.status_code == 422
+        assert "Traceback" not in r.text
+        assert r.json()["detail"][0]["input"] == "inf"
+
+    def test_valid_finite_payload_still_returns_200(self, client):
+        r = client.post("/api/v1/forecasts/predict", json=VALID_PREDICT_PAYLOAD)
+        assert r.status_code == 200
+
+
 class TestModelAbsent:
     """Item 13 — simulated WITHOUT touching the real `.joblib` on disk."""
 
@@ -160,6 +208,65 @@ class TestModelAbsent:
         )
         assert r.status_code == 200
         assert r.json()["status"] == "critical"
+
+
+class TestArtifactErrorsAreSanitized:
+    """Pre-push hardening regression (audit finding F-01): a missing or corrupt snapshot/
+    calibration file must never surface an absolute local filesystem path (which, on this
+    developer's machine, embeds the OS username), a traceback, or a raw Python exception string
+    in the client-facing response body. Uses `tmp_path` -- the real, committed artifacts under
+    `data/` are never touched, moved, or overwritten."""
+
+    def test_missing_snapshot_error_has_no_absolute_path(self, monkeypatch, tmp_path):
+        missing = tmp_path / "does-not-exist.json"
+        monkeypatch.setattr(loader, "SNAPSHOT_PATH", missing)
+        loader.get_store.cache_clear()
+        client = TestClient(app, raise_server_exceptions=False)
+
+        r = client.get("/api/v1/forecasts/ranking")
+
+        assert r.status_code == 503
+        assert str(tmp_path) not in r.text
+        assert "does-not-exist.json" in r.text  # filename alone is fine, expected
+        assert "Traceback" not in r.text
+
+    def test_missing_calibration_error_has_no_absolute_path(self, monkeypatch, tmp_path):
+        missing = tmp_path / "also-missing.json"
+        monkeypatch.setattr(loader, "CALIB_PATH", missing)
+        loader.get_store.cache_clear()
+        client = TestClient(app, raise_server_exceptions=False)
+
+        r = client.get("/health")
+
+        assert r.status_code == 200
+        assert r.json()["calibration_available"] is False
+        assert str(tmp_path) not in r.text
+
+    def test_corrupt_snapshot_error_has_no_absolute_path_or_raw_exception(self, monkeypatch, tmp_path):
+        corrupt = tmp_path / "corrupt.json"
+        corrupt.write_text("{not valid json", encoding="utf-8")
+        monkeypatch.setattr(loader, "SNAPSHOT_PATH", corrupt)
+        loader.get_store.cache_clear()
+        client = TestClient(app, raise_server_exceptions=False)
+
+        r = client.get("/api/v1/forecasts/ranking")
+
+        assert r.status_code == 503
+        assert str(tmp_path) not in r.text
+        assert "Expecting property name" not in r.text  # raw JSONDecodeError message, unsanitized
+
+    def test_corrupt_calibration_error_has_no_absolute_path_or_raw_exception(self, monkeypatch, tmp_path):
+        corrupt = tmp_path / "corrupt-calib.json"
+        corrupt.write_text("{not valid json", encoding="utf-8")
+        monkeypatch.setattr(loader, "CALIB_PATH", corrupt)
+        loader.get_store.cache_clear()
+        client = TestClient(app, raise_server_exceptions=False)
+
+        r = client.get("/health")
+
+        assert r.status_code == 200
+        assert r.json()["calibration_available"] is False
+        assert str(tmp_path) not in r.text
 
 
 class TestNoSensitiveDataLeaks:

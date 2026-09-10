@@ -10,7 +10,11 @@ reselect anything; see `loader.py` for how the frozen artifacts are (or are not)
 """
 from __future__ import annotations
 
+import math
+
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -75,3 +79,27 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
     """The default handler already does exactly this; declared explicitly so the safe shape
     (`{"detail": ...}`, no stack trace) is guaranteed rather than assumed."""
     return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+
+def _json_safe(value):
+    """Recursively replaces a non-finite float (NaN/Infinity/-Infinity) with its plain string
+    form. Needed only for validation-error bodies: pydantic-core echoes the rejected raw value
+    back in each error's `input` field (see `schemas.PredictRequest`'s `allow_inf_nan=False`,
+    added as pre-push hardening), and Starlette's `JSONResponse` renders with `allow_nan=False` --
+    so without this, a correctly-rejected NaN/Infinity/-Infinity input would make the response
+    body itself fail to serialize, and the resulting secondary error would surface as an unrelated
+    500 instead of the intended 422."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return str(value)  # "nan", "inf", "-inf"
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(v) for v in value]
+    return value
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """Same status code and body shape as FastAPI's own default handler for this exception --
+    declared explicitly only to route the rejected-value echo through `_json_safe` first."""
+    return JSONResponse(status_code=422, content={"detail": _json_safe(jsonable_encoder(exc.errors()))})

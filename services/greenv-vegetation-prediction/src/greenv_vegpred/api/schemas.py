@@ -113,7 +113,15 @@ class PredictRequest(BaseModel):
     field named `true_height_cm`, `generator_seed`, `provenance`, or `dataset` here at all, so a
     client cannot submit one, let alone use it to impersonate real data; `data_provenance` in the
     response is always hardcoded to `"synthetic"` server-side, never taken from the request."""
-    model_config = ConfigDict(extra="forbid", json_schema_extra={
+    # `allow_inf_nan=False` (pre-push hardening) rejects NaN/Infinity/-Infinity on every float
+    # field of this model with a 422, before any value reaches the frozen Random Forest -- without
+    # it, Pydantic v2's `ge`/`le` constraints do NOT implicitly reject non-finite floats, so a
+    # value like `height_cm: Infinity` previously passed validation and reached
+    # `RandomForestRegressor.predict()`, which raises an unhandled `ValueError` (caught only by
+    # the outermost 500 handler) -- and a `NaN` in an unbounded field (e.g. `tmin_week_c`) was
+    # silently accepted and produced a seemingly-normal 200 response. This does not change any
+    # valid range already frozen for these fields (`ge`/`le` bounds are untouched).
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False, json_schema_extra={
         "example": {
             "trecho_id": "SP-021:norte:000000", "as_of_date": "2026-09-10",
             "height_cm": 15.96, "height_prev_cm": 13.2, "weekly_growth_cm": 2.76,
