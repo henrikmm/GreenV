@@ -36,6 +36,13 @@ class SegmentExtractionServiceIntegrationTest {
      */
     private static final int SEGMENT_SECONDS = 10;
 
+    /**
+     * A real phone's monotonic clock: forty-one minutes of uptime, read from the capture of
+     * 9 September 2026. Anchoring the fixture near zero made an uptime reading and a presentation
+     * time interchangeable, and that is exactly the confusion this harness has to be able to see.
+     */
+    private static final long UPTIME_NANOS = 2_458_962_421_000L;
+
     @TempDir
     Path temporaryDirectory;
 
@@ -57,7 +64,7 @@ class SegmentExtractionServiceIntegrationTest {
                 UUID.fromString("2d995d67-dd6f-4792-af22-480c43b37f2f"),
                 0,
                 Instant.parse("2026-08-25T12:00:00Z"),
-                1_000,
+                UPTIME_NANOS,
                 "segment_anchor",
                 List.of(),
                 List.of());
@@ -173,6 +180,29 @@ class SegmentExtractionServiceIntegrationTest {
                 .allSatisfy(frame -> assertThat(frame.sourceFrameIndex()).isNotNegative());
         assertThat(result.manifest.groups())
                 .allSatisfy(group -> assertThat(group.frameCount()).isGreaterThanOrEqualTo(2));
+        // Frames are placed along the path rather than piled at its start. Reading a frame's
+        // presentation time against the phone's uptime clock put every one of them before the
+        // first fix, so every group held one viewpoint and none survived.
+        assertThat(result.manifest.sampledFrames())
+                .last()
+                .satisfies(frame -> assertThat(frame.distanceMeters()).isGreaterThan(50.0));
+    }
+
+    /**
+     * Walking is the only way to exercise this pipeline without a car, and it used to be
+     * impossible: nine metres of Doppler-measured path against a floor scaled to the fixes' 12.5 m
+     * accuracy needed 25 m in ten seconds, which is 9 km/h. The speed never reads a position, so
+     * the accuracy of the positions says nothing about how well it measured the path.
+     */
+    @Test
+    void cutsAWalkIntoStretchesToo() throws Exception {
+        var result = run(walkingFixes());
+
+        assertThat(result.manifest.samplingStrategy()).isEqualTo("distance-groups");
+        assertThat(result.manifest.pathMeters()).isCloseTo(9.0, within(0.2));
+        assertThat(result.manifest.groups()).hasSize(1);
+        assertThat(result.manifest.sampledFrames()).isNotEmpty();
+        assertThat(result.announced()).hasSize(1);
     }
 
     /**
@@ -244,6 +274,18 @@ class SegmentExtractionServiceIntegrationTest {
         return fixes;
     }
 
+    /**
+     * A person walking with the phone at 0.9 m/s, and the 12.5 m horizontal accuracy a handset
+     * reports between buildings — the numbers from session 01a08885 on 9 September 2026.
+     */
+    private static List<LocationSample> walkingFixes() {
+        List<LocationSample> fixes = new java.util.ArrayList<>();
+        for (int i = 0; i <= SEGMENT_SECONDS; i++) {
+            fixes.add(fix(seconds(i), -23.5 + (i * 0.9) / 111_320.0, -46.6, 0.9, 12.5));
+        }
+        return fixes;
+    }
+
     private static long seconds(int value) {
         return value * 1_000_000_000L;
     }
@@ -251,7 +293,7 @@ class SegmentExtractionServiceIntegrationTest {
     private static LocationSample fix(
             long offsetNanos, double latitude, double longitude, double speed, double accuracy) {
         return new LocationSample(
-                1_000L + offsetNanos, latitude, longitude, null, accuracy, null, speed,
+                UPTIME_NANOS + offsetNanos, latitude, longitude, null, accuracy, null, speed,
                 null, null, null, null);
     }
 
@@ -278,7 +320,7 @@ class SegmentExtractionServiceIntegrationTest {
                 UUID.fromString("2d995d67-dd6f-4792-af22-480c43b37f2f"),
                 1,
                 Instant.parse("2026-08-25T12:00:00Z"),
-                1_000,
+                UPTIME_NANOS,
                 "segment_anchor",
                 locations,
                 List.of());

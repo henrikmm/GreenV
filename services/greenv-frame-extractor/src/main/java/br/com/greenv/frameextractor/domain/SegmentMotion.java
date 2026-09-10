@@ -26,24 +26,37 @@ public record SegmentMotion(
         return usableFixes >= 2;
     }
 
-    /**
-     * Whether the camera moved far enough for the displacement to be motion rather than noise.
-     * The floor scales with the measured accuracy because that is what sets the noise, and never
-     * drops below {@code minimumMeters} for an optimistic accuracy report.
-     */
+    /** Whether the camera moved far enough for the movement to be motion rather than noise. */
     public boolean movedBeyondNoise(double minimumMeters, double accuracyMultiple) {
-        return isKnown() && netDisplacementMeters >= noiseFloorMeters(minimumMeters, accuracyMultiple);
+        return isKnown() && movementMeters() >= noiseFloorMeters(minimumMeters, accuracyMultiple);
     }
 
     /**
-     * The displacement below which movement cannot be told from fix noise.
+     * The distance the floor is judged against, which depends on how the path was measured.
+     *
+     * <p>Doppler speed does not know where the phone is, so integrating it cannot accumulate
+     * position error: the path is the honest reading and the straight line adds nothing. When there
+     * is no speed and the path is a sum of great-circle hops the opposite holds, because that sum
+     * accumulates fix noise while the displacement cancels it.
+     */
+    public double movementMeters() {
+        return fromSpeed ? pathMeters : netDisplacementMeters;
+    }
+
+    /**
+     * The movement below which nothing can be told from noise.
      *
      * <p>Exposed as well as applied, because whether a segment can reach this floor at all decides
-     * whether the fixes answer the question. At 50 km accuracy it stands at 100 km, which no
-     * ten-second segment reaches at any speed, so "did not move" is the only output the arithmetic
-     * permits and therefore not a finding.
+     * whether the fixes answer the question.
+     *
+     * <p>Scaling the floor with fix accuracy only makes sense for the displacement. Applied to a
+     * Doppler path it demanded car speed of a measurement that never used position: at 12 m
+     * accuracy the bar stood at 25 m in ten seconds, which is 9 km/h, so a walk of 8.8 m at
+     * 3 km/h was recorded, believed and then refused (segment 01a08885 #2, 9 September 2026).
      */
     public double noiseFloorMeters(double minimumMeters, double accuracyMultiple) {
-        return Math.max(minimumMeters, medianHorizontalAccuracyMeters * accuracyMultiple);
+        return fromSpeed
+                ? minimumMeters
+                : Math.max(minimumMeters, medianHorizontalAccuracyMeters * accuracyMultiple);
     }
 }

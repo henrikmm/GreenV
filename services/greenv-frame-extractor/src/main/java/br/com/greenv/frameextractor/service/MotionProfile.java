@@ -1,5 +1,6 @@
 package br.com.greenv.frameextractor.service;
 
+import br.com.greenv.frameextractor.domain.EncodedFrameTimestamp;
 import br.com.greenv.frameextractor.domain.LocationSample;
 import br.com.greenv.frameextractor.domain.SegmentMotion;
 import java.util.ArrayList;
@@ -33,7 +34,18 @@ public final class MotionProfile {
         this.motion = motion;
     }
 
-    public static MotionProfile from(List<LocationSample> locations) {
+    /**
+     * Builds the profile on the segment's own clock.
+     *
+     * <p>A fix carries the phone's uptime in nanoseconds, hundreds of billions of them, while an
+     * encoded frame's presentation time starts at zero. Keeping the fixes on the uptime clock put
+     * every frame before the first fix, so every frame took distance zero, every group collapsed to
+     * one viewpoint and no segment could ever be cut into groups — observed across every capture
+     * between 7 and 9 September 2026. Rebasing here, and taking the frame itself in
+     * {@link #distanceAt(EncodedFrameTimestamp)} rather than a bare long, is what stops the two
+     * clocks being mixed again.
+     */
+    public static MotionProfile from(List<LocationSample> locations, long monotonicStartNanos) {
         List<LocationSample> usable = usable(locations);
         if (usable.size() < 2) {
             return new MotionProfile(new long[0], new double[0], SegmentMotion.UNKNOWN);
@@ -48,7 +60,7 @@ public final class MotionProfile {
         double travelled = 0;
         for (int i = 0; i < usable.size(); i++) {
             LocationSample fix = usable.get(i);
-            times[i] = fix.monotonicNanos();
+            times[i] = fix.monotonicNanos() - monotonicStartNanos;
             if (i > 0) {
                 travelled += fromSpeed
                         ? integrateSpeed(usable.get(i - 1), fix)
@@ -96,22 +108,23 @@ public final class MotionProfile {
     }
 
     /**
-     * Distance travelled by {@code monotonicNanos}, interpolated between fixes and clamped at both
-     * ends. Frames outside the fix range — the camera starts before the first fix arrives — take the
-     * nearest endpoint rather than an extrapolation nobody measured.
+     * Distance travelled by the time this frame was captured, interpolated between fixes and
+     * clamped at both ends. Frames outside the fix range — the camera starts before the first fix
+     * arrives — take the nearest endpoint rather than an extrapolation nobody measured.
      */
-    public double distanceAt(long monotonicNanos) {
+    public double distanceAt(EncodedFrameTimestamp frame) {
+        long at = frame.presentationTimeNanos();
         if (times.length == 0) {
             return 0;
         }
-        if (monotonicNanos <= times[0]) {
+        if (at <= times[0]) {
             return distances[0];
         }
-        if (monotonicNanos >= times[times.length - 1]) {
+        if (at >= times[times.length - 1]) {
             return distances[distances.length - 1];
         }
         int high = 1;
-        while (high < times.length && times[high] < monotonicNanos) {
+        while (high < times.length && times[high] < at) {
             high++;
         }
         int low = high - 1;
@@ -119,7 +132,7 @@ public final class MotionProfile {
         if (span <= 0) {
             return distances[low];
         }
-        double fraction = (double) (monotonicNanos - times[low]) / span;
+        double fraction = (double) (at - times[low]) / span;
         return distances[low] + fraction * (distances[high] - distances[low]);
     }
 
