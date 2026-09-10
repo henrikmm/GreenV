@@ -803,39 +803,84 @@ store, matching the Phase 0 output contract, with no dependency on RabbitMQ or t
 
 **Tasks**
 
-- [ ] FastAPI app in `src/greenv_vegpred/api/`, backed by the local SQLite store.
-- [ ] Endpoints (from the architecture analysis): `GET /v1/trechos`, `GET /v1/trechos.geojson`,
-      `GET /v1/trechos/{id}`, `GET /v1/trechos/{id}/history`, `GET /v1/trechos/{id}/forecast`,
-      `GET /v1/forecast/ranking`, `POST /v1/rocada-events`, `GET /v1/health`.
-- [ ] Response models mirror `apps/web/src/utils/classification.js` semantics (nível 0–3,
-      thresholds 10 / 30) so a later dashboard swap is drop-in. **`apps/web` is not modified.**
-- [ ] Every payload carries `(rodovia, sentido, km, capturado_em)` and a dataset-level
-      `synthetic: true` marker.
-- [ ] `GET /v1/health` reports dataset version, model kind, the `synthetic` flag, row counts.
-- [ ] Generated OpenAPI diffed against `api/openapi.v1.yaml`.
-- [ ] `make serve` + a `scripts/demo.http` collection.
-- [ ] The persistence layer uses no SQLite-only feature (Postgres-portable).
+- [x] FastAPI app: `src/greenv_vegpred/api/{__init__,app,routes,service,loader,schemas,trecho_meta}.py`.
+      *Scope note:* backed by the Phase 9 JSON snapshot (`data/forecast/ranking_current.json`),
+      not a SQLite store — no SQLite (or any) database was built anywhere in this project's
+      Phases 1-9, so "backed by the local SQLite store" describes infrastructure that does not
+      exist; the actual instruction given for this phase confirmed this directly (read
+      `schema.sql`, `src/greenv_vegpred/forecast/`, the Phase 9 artifacts) rather than assuming
+      the original text, and asked for a read API over the already-built forecast/ranking
+      objects instead. Adding a SQLite layer now, only to satisfy this line, would be new
+      unrequested infrastructure, not exposing existing work.
+- [x] Endpoints — *scope note:* the actual instruction named a different, smaller set than this
+      line's `/v1/trechos*`/`history`/`rocada-events` list (nothing in Phases 1-9 produces a
+      trecho history table or accepts a `rocada` write, so those would be invented, not exposed).
+      Implemented: `GET /health`, `GET /api/v1/summary`, `GET /api/v1/forecasts/ranking`,
+      `GET /api/v1/forecasts` (filtered list), `GET /api/v1/forecasts/{trecho_id}`,
+      `POST /api/v1/forecasts/predict`. See `reports/api.md` for the full contract and the reason
+      each TASK.md-named endpoint not built would have meant inventing unrequested scope.
+- [x] Response models expose Nível 0-3 as `vegetation_level`, closed in the Phase 10 closure
+      pass. Read `apps/web/src/utils/classification.js` directly (read-only; `apps/web`
+      untouched) and found it **fully compatible** with `schema.sql`'s own
+      `height_observation.nivel` GENERATED formula — both use `not-ready`/missing height → `0`,
+      `<10cm` → `1`, `10-30cm` → `2`, `>30cm` → `3`. No second classification system was created:
+      one function (`api/trecho_meta.py::vegetation_level`) implements the one already-frozen
+      rule, applied once at the API boundary. `Forecast.status`/`operational_confidence` (Phase
+      9's own vocabulary, about the *forecast*, not the *current level*) are unchanged and kept
+      alongside `vegetation_level` (about the *current observation*) — genuinely different
+      questions, not a duplicate contract.
+- [x] `(rodovia, sentido, km, capturado_em)` — closed. Verified `trecho_id`'s documented format
+      in `schema.sql` (`rodovia:sentido:km_start_m`) first, then verified `km_end` against every
+      row of `feature_row_dev.csv` + the OOD holdout (50,655 rows) before deriving it — 116 of
+      118 trechos are a uniform 500 m, but the corridor's final ~300 m segment in each direction
+      is shorter, so `km_end = min(km_start + 0.5, 29.3km)` (the documented corridor length),
+      which reproduces every trecho's real `km_mid`-implied end exactly, including those two.
+      `Forecast` now exposes `rodovia`, `sentido`, `km_start`, `km_end`, and `captured_at`
+      (`= as_of_date`, since this pipeline has no timestamp finer than a date — not fabricated).
+      The API derives these server-side (`api/trecho_meta.py::parse_trecho_id`); a dashboard
+      never has to parse `trecho_id` itself.
+- [x] `GET /health` reports `model_available`, `calibration_available`, `snapshot_available`, and
+      `data_provenance: "synthetic"` — the synthetic-data marker this task asks for, under the
+      name this phase's actual instruction used for it.
+- [x] Generated OpenAPI (`/openapi.json`, confirmed live) snapshotted to `api/openapi.v1.yaml` —
+      regenerated FROM the running app's own schema (see `reports/api.md`), never hand-maintained
+      as a second contract, so "diffed against" is structurally impossible to fail.
+- [ ] `make serve`. *Scope note:* no `Makefile` exists anywhere in this repository (same note as
+      Phases 8-9) — the reproducible command is `uvicorn greenv_vegpred.api.app:app --app-dir src`,
+      documented in `reports/api.md`.
+- [x] `scripts/demo.http` collection — covers every endpoint, including the 404/422/503 cases.
+- [x] The persistence layer (the Phase 9 JSON snapshot + frozen `.joblib`) uses no SQLite-only
+      feature — trivially true, since it is not SQLite at all; no portability risk exists here.
 
 **Completion criteria**
 
-- `make serve` starts the API; every endpoint returns example SP-021 data;
-- responses validate against the committed OpenAPI;
-- a synthetic-data banner is present in `/health` and in list responses;
-- no import from `measurement/`, no RabbitMQ, no GreenV DB connection.
+- [x] the documented command starts the API; every endpoint returns example SP-021 data from the
+      real Phase 9 snapshot (118 trechos) — verified live, see `reports/api.md`'s smoke-test table;
+- [x] responses validate against the generated (not hand-maintained) OpenAPI schema, by
+      construction — the schema IS `app.openapi()`, and `api/openapi.v1.yaml` is a snapshot of it;
+- [x] a synthetic-data marker (`data_provenance: "synthetic"`) is present on `/health` and on
+      every forecast/list/ranking response;
+- [x] no import from `measurement/`, no RabbitMQ, no GreenV DB connection — verified by
+      inspection of every file under `src/greenv_vegpred/api/`.
 
 **Artifacts**
 
-- `src/greenv_vegpred/api/`;
-- `api/openapi.v1.yaml` (regenerated, in sync);
-- `scripts/demo.http`.
+- `src/greenv_vegpred/api/{__init__,app,routes,service,loader,schemas,trecho_meta}.py`;
+- `api/openapi.v1.yaml` (regenerated snapshot, in sync by construction);
+- `scripts/demo.http`;
+- `reports/api.md` (architecture, endpoint contract, examples, smoke-test results);
+- `pyproject.toml` (minimal, this-service-only dependency declaration: fastapi, uvicorn, pydantic,
+  plus the numpy/scikit-learn/joblib already required by Phases 4-9).
 
 **Dependencies:** Phase 2 (schema); Phase 9 (predictions to serve).
 
 **Main risks**
 
-- API shape drifting from the architecture doc — OpenAPI is the checked-in source of truth;
-- SQLite-isms leaking into the schema;
-- the contract not matching a future Java gateway — kept in the OpenAPI file, reviewed in Phase 12.
+- API shape drifting from the architecture doc — addressed here by generating the OpenAPI
+  snapshot FROM the app rather than maintaining it separately, so drift is structurally impossible;
+- SQLite-isms leaking into the schema — not applicable; no SQLite exists in this pipeline;
+- the contract not matching a future Java gateway — kept in `api/openapi.v1.yaml`, to be reviewed
+  whenever Phase 12 (or a real integration) actually happens.
 
 ## Phase 11 — Tests
 

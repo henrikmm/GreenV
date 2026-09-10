@@ -1,0 +1,83 @@
+### Phase 10 — demo HTTP collection for the GreenV Vegetation Prediction API.
+### Works with VS Code's "REST Client" extension or IntelliJ's HTTP client.
+### Start the server first: uvicorn greenv_vegpred.api.app:app --app-dir src --port 8000
+### All data returned is synthetic (data_provenance: "synthetic") -- see reports/api.md.
+
+@host = http://127.0.0.1:8000
+
+### Health -- never runs a prediction, just reports what's loaded.
+GET {{host}}/health
+
+### Operational summary, computed from the current snapshot (not hard-coded).
+GET {{host}}/api/v1/summary
+
+### Top-5 ranking by urgency (critical -> forecast by soonest -> beyond_horizon -> insufficient_data).
+GET {{host}}/api/v1/forecasts/ranking?limit=5
+
+### Full ranking (all 118 trechos in the current snapshot).
+GET {{host}}/api/v1/forecasts/ranking
+
+### List forecasts, filtered by status (transparent equality filter, no query language).
+GET {{host}}/api/v1/forecasts?status=forecast
+
+### List forecasts, filtered by operational_status.
+GET {{host}}/api/v1/forecasts?operational_status=not-ready
+
+### One trecho's forecast (replace with a real trecho_id from the ranking response above).
+GET {{host}}/api/v1/forecasts/SP-021:norte:000000
+
+### A trecho_id that does not exist -> 404.
+GET {{host}}/api/v1/forecasts/SP-021:norte:999999
+
+### Dynamic inference, valid request, height below threshold (needs the frozen model).
+POST {{host}}/api/v1/forecasts/predict
+Content-Type: application/json
+
+{
+  "trecho_id": "demo:001",
+  "as_of_date": "2026-09-10",
+  "height_cm": 15.96,
+  "height_prev_cm": 13.2,
+  "weekly_growth_cm": 2.76,
+  "days_since_rocada": 42,
+  "gdd_week_tb15_c": 38.5,
+  "tmin_week_c": 17.2,
+  "rain_30d_mm": 64.0,
+  "water_deficit_30d": -12.5,
+  "operational_status": "ready"
+}
+
+### Dynamic inference, height already at/above threshold -> deterministic, no model needed.
+POST {{host}}/api/v1/forecasts/predict
+Content-Type: application/json
+
+{
+  "trecho_id": "demo:002",
+  "as_of_date": "2026-09-10",
+  "height_cm": 35.0
+}
+
+### Dynamic inference, INVALID: an extra/forbidden field -> 422 (never accepted, not even ignored).
+POST {{host}}/api/v1/forecasts/predict
+Content-Type: application/json
+
+{
+  "trecho_id": "demo:003",
+  "as_of_date": "2026-09-10",
+  "height_cm": 10.0,
+  "true_height_cm": 999.0
+}
+
+### Dynamic inference, INVALID: missing the one required field -> 422.
+POST {{host}}/api/v1/forecasts/predict
+Content-Type: application/json
+
+{
+  "trecho_id": "demo:004",
+  "as_of_date": "2026-09-10"
+}
+
+### OpenAPI JSON (matches api/openapi.v1.yaml) and interactive docs.
+GET {{host}}/openapi.json
+
+### GET {{host}}/docs

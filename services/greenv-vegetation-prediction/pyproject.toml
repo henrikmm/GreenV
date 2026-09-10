@@ -1,0 +1,21 @@
+[project]
+name = "greenv-vegpred"
+version = "0.1.0"
+description = "GreenV vegetation-height forecasting prototype (Phases 1-10) -- synthetic-data-only, not a field-validated service."
+requires-python = ">=3.11"
+dependencies = [
+    "numpy",
+    "scikit-learn",
+    "joblib",
+    "fastapi>=0.115,<0.116",
+    "uvicorn[standard]>=0.30,<0.31",
+    "pydantic>=2,<3",
+]
+
+# This file declares dependencies for THIS service only -- it is not a repository-wide Python
+# project and does not revive Phase 0's setup. numpy/scikit-learn/joblib were already required by
+# Phases 4-9 (installed ad hoc during those phases); fastapi/uvicorn/pydantic are new, for Phase
+# 10's API layer only. No build backend / packaging metadata beyond [project] is declared: this
+# service is run in place (`uvicorn greenv_vegpred.api.app:app`, from src/ on PYTHONPATH), not
+# installed as a distributable package -- `pip install -r` an equivalent requirements list, or
+# `pip install fastapi "uvicorn[standard]" pydantic scikit-learn joblib numpy`, both work.
