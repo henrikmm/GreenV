@@ -9,6 +9,7 @@ import ProgressChart from '../components/charts/ProgressChart'
 import LevelDonut from '../components/charts/LevelDonut'
 import TeamBarChart from '../components/charts/TeamBarChart'
 import MiniCorridorMap from '../components/charts/MiniCorridorMap'
+import VegetationPredictionPanel from '../components/VegetationPredictionPanel'
 import { EQUIPMENT_TYPES, formatArea } from '../utils/classification'
 import { TEAMS } from '../data/mockTeams'
 import { generateWeeklyProgress } from '../data/mockTrends'
@@ -193,6 +194,8 @@ export default function DashboardPage({ geojson, orders }) {
             <TeamBarChart data={stats.teamData} onBarClick={(id) => navigate(`/equipes/${id}`)} />
           </Card>
         </div>
+
+        <VegetationPredictionPanel />
       </div>
     </div>
   )

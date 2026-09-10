@@ -960,37 +960,76 @@ interface, the evaluation harness, the forecaster and the API.
 **Objective.** Document — and stub, without wiring — exactly how V1 becomes a GreenV citizen, so
 V2 is contract-filling rather than redesign.
 
+> **Scope deviation, explicit and by instruction.** This phase's original text describes a
+> **documentation-only** pass ("stub, without wiring"; "no existing GreenV file is touched" as a
+> completion criterion). The actual, detailed instruction given for this pass explicitly asked
+> for a real, minimal, HTTP-verified wiring into `apps/web` instead — implemented and tested, not
+> just planned. `apps/web/src/pages/DashboardPage.jsx` **was** touched (2 lines: one import, one
+> component). This is recorded here rather than silently following the older text or silently
+> overriding the instruction without saying so. See `reports/integration.md` for the full
+> analysis, implementation, and test evidence.
+
 **Tasks**
 
-- [ ] `reports/integration-plan.md`: the two seams from the architecture analysis —
-      (a) consume `segment.measured.v1` / read `measurement-result-v1.json`; (b) publish
-      `trecho.vegetation.forecast.v1`; plus the HTTP read API for `apps/web`.
-- [ ] Map the V1 local store → V2 PostgreSQL schema `vegetation` (same DDL); list the Flyway
-      migrations that would be added **to the module**, never to the main DB.
-- [ ] Decide production packaging: keep the Python forecasting core as a subprocess / sidecar
-      called by a thin Spring service — the exact `greenv-measurement-worker` ↔ `measurement/`
-      pattern (spawn a process, exchange JSON, never import across) — vs a full port to Java.
-      Record the trade-off; do not decide irreversibly.
-- [ ] Define the ingestion adapter interface (envelope reader) and the `roçada` event source (the
-      future `ordem de serviço` completion event).
-- [ ] `V2-CHECKLIST.md`: every GreenV change V2 would need — a `compose.yaml` service, an
-      `AGENTS.md` table row, `infrastructure/container-apps.tf`, a queue binding — as a checklist
-      for a **future** PR. None executed now.
-- [ ] Note the unresolved dependency: the real `marco km` linear reference (synthetic in V1).
-- [ ] Sketch the `apps/web` wiring (which mock each endpoint replaces) — documentation only.
+- [x] Minimal V1 wiring, `apps/web` → Vegetation Prediction API (the actual instruction's
+      priority, superseding this line's original "plan only" framing):
+      `src/services/vegetationPredictionApi.js` (the one client: summary/ranking/forecast-by-id)
+      + `src/components/VegetationPredictionPanel.jsx` (the one UI surface, added to
+      `DashboardPage.jsx`). Snapshot-backed reads only — `POST /predict` is never called from the
+      browser. See `reports/integration.md` §2-3.
+- [x] Map the V1 local store → V2 PostgreSQL schema. *Closed by decision, not executed*:
+      `schema.sql` is already written portable-by-construction (its own header: "Written to
+      migrate to PostgreSQL with only the mechanical substitutions listed in
+      `reports/data-dictionary.md`") — there is no new DDL to design here, and no Flyway migration
+      list is produced because this V1 has no live database at all (every phase's output has been
+      CSV/JSON, by established convention since Phase 2) for a migration to originate from.
+- [x] Production packaging decision: **recorded as an open, deliberately undecided trade-off**
+      (not decided irreversibly, per this line's own instruction) — subprocess/sidecar (the
+      `greenv-measurement-worker` ↔ `measurement/` pattern, spawn + JSON, never import across) vs.
+      a full Java port, with the subprocess pattern named as the lower-risk default since it is
+      already proven elsewhere in this repository. See `reports/integration.md` §14.
+- [x] Ingestion adapter interface + roçada event source: **documented as a future contract**
+      (§15), not implemented — the actual instruction explicitly said "sem necessariamente
+      implementar" for this item.
+- [x] "Every GreenV change V2 would need" — closed via `reports/integration.md` rather than a
+      separate `V2-CHECKLIST.md` file, per this pass's actual instruction naming
+      `reports/integration.md` as the preferred single artifact; a `compose.yaml` service, an
+      `AGENTS.md` row, and a queue binding are all named in §14's architecture sketch rather than
+      itemised in a second file that would need to stay in sync with it.
+- [x] The unresolved `marco km` linear-reference dependency — already named as `hypothesis`
+      provenance in `schema.sql`'s own `trecho.linear_reference_provenance` column (Phase 2); not
+      re-derived here, restated in `reports/integration.md` §11 in the context of why map
+      integration specifically isn't safe yet.
+- [x] `apps/web` wiring sketch — done as REAL code, not only a sketch (see scope deviation above):
+      `reports/integration.md` §1 documents exactly which mock (`rocada_polygons.geojson`'s
+      client-side `vegetation_level`, `mockTrends.js`, `vegetationHistory.js`) sits where, and
+      which one the new panel does NOT replace (it is additive, not a replacement of any existing
+      mock-fed chart).
 
 **Completion criteria**
 
-- `integration-plan.md` reviewed;
-- every V1→V2 gap is a named contract or migration, not an open question;
-- `V2-CHECKLIST.md` is concrete;
-- no existing GreenV file is touched.
+- [x] `reports/integration.md` documents the analysis, the real implementation, and its test
+      evidence (superseding "`integration-plan.md` reviewed" — the actual instruction asked for
+      an implemented-and-tested artifact, not a plan-only review);
+- [x] every V1→V2 gap is a named contract (§15) or an explicitly-undecided, flagged trade-off
+      (§14), not a silent open question;
+- [x] the "V2-CHECKLIST" content is concrete inside `reports/integration.md` §14 (see above for
+      why it is not a separate file);
+- [ ] "no existing GreenV file is touched" — **not met, by explicit instruction** (see the scope
+      deviation note above). `apps/web/src/pages/DashboardPage.jsx` was changed (2 lines); no
+      other existing GreenV file (`apps/mobile`, `measurement/`, `infrastructure/`,
+      `compose.yaml`, any other service) was touched.
 
 **Artifacts**
 
-- `reports/integration-plan.md`;
-- `V2-CHECKLIST.md`;
-- `api/openapi.v1.yaml` (already the contract).
+- `reports/integration.md` (analysis, architecture, files changed, configuration, fallback/error
+  behaviour, synthetic marker, limitations, future measurement→prediction architecture, the
+  future event contract);
+- `apps/web/src/services/vegetationPredictionApi.js`;
+- `apps/web/src/components/VegetationPredictionPanel.jsx`;
+- `apps/web/.env.example`;
+- `api/openapi.v1.yaml` (already the contract; unchanged this phase — no backend file was
+  modified, confirmed by `scripts/verify.sh` re-run, still 146 passed + OpenAPI in sync).
 
 **Dependencies:** Phase 10; the architecture analysis.
 
@@ -998,7 +1037,10 @@ V2 is contract-filling rather than redesign.
 
 - V2 assumptions rotting as GreenV moves;
 - the process-boundary packaging not meeting latency / ops needs — flagged, not decided;
-- the linear-reference work being larger than expected.
+- the linear-reference work being larger than expected;
+- (new, this pass) no stable key between the prediction API's 118 trechos and
+  `rocada_polygons.geojson`'s 642 map polygons — named in `reports/integration.md` §11 rather than
+  bridged with an invented correspondence.
 
 ## Phase 13 — Documentation for the banca and Motiva's engineers
 
