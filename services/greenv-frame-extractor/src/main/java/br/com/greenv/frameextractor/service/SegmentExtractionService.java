@@ -175,7 +175,8 @@ public class SegmentExtractionService implements SegmentProcessor {
         // Where the camera actually went. Frames are spaced along this rather than along the clock,
         // because what multi-view geometry needs is camera translation between views and time is
         // only a proxy for it — a proxy that breaks the moment the vehicle slows down.
-        MotionProfile profile = MotionProfile.from(telemetry.locations());
+        MotionProfile profile =
+                MotionProfile.from(telemetry.locations(), telemetry.monotonicStartNanos());
         List<EncodedFrameTimestamp> encoded = frameTimelineProbe.probe(source);
         boolean decisive = telemetryDecidesMotion(profile, probe.durationSeconds());
         List<FrameGroup> groups = decisive ? planGroups(profile, encoded) : List.of();
@@ -352,11 +353,10 @@ public class SegmentExtractionService implements SegmentProcessor {
      * Cuts the segment's travelled distance into stretches, or returns nothing when there is no
      * trustworthy motion to cut.
      *
-     * <p>The motion floor is checked against NET DISPLACEMENT, never the accumulated path. The
-     * phone's `distanceFromSessionStartMeters` is a running sum of great-circle hops, so at a
-     * standstill it accumulates fix noise instead of cancelling it — simulated at 5 m accuracy, a
-     * parked phone sums tens of metres that never happened, while its displacement stays within a
-     * few. Using the sum here would let a queue of stopped traffic look like a drive.
+     * <p>Which distance the floor is checked against is {@link br.com.greenv.frameextractor.domain.SegmentMotion#movementMeters()}'s
+     * to decide, because it depends on whether the path came from Doppler speed or from summing
+     * positions. Summed positions accumulate fix noise at a standstill, so a parked phone reports
+     * tens of metres of path it never travelled and only the displacement stays honest.
      */
     private List<FrameGroup> planGroups(MotionProfile profile, List<EncodedFrameTimestamp> encoded) {
         if (!profile.motion().movedBeyondNoise(MIN_DISPLACEMENT_METERS, ACCURACY_MULTIPLE)) {
@@ -364,7 +364,7 @@ public class SegmentExtractionService implements SegmentProcessor {
         }
         return groupPlanner.plan(
                 encoded,
-                frame -> profile.distanceAt(frame.presentationTimeNanos()),
+                profile::distanceAt,
                 profile.motion().pathMeters(),
                 GroupPlanner.DEFAULT_GROUP_METERS,
                 MAX_SAMPLE_FRAMES);
@@ -436,7 +436,7 @@ public class SegmentExtractionService implements SegmentProcessor {
                         stored.bytes(),
                         stored.sha256(),
                         sourceIndex,
-                        profile.distanceAt(frame.presentationTimeNanos()),
+                        profile.distanceAt(frame),
                         group.index()));
                 published++;
             }

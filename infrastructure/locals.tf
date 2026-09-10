@@ -176,6 +176,14 @@ locals {
 
     # One name for one queue, read by the announcer here and by the consumer below.
     GREENV_MEASUREMENT_QUEUE = azurerm_storage_queue.measurement.name
+
+    # The same queue again, under the name the Azure Queue adapter reads. The line above feeds
+    # greenv.measurement.queue, which only the RabbitMQ announcer uses; the Azure client binds
+    # greenv.queue.azure-queue.measurement-queue from this one, refuses to be built empty, and
+    # took the whole container down with it. The revision ca-greenv-mvp-worker--measurement failed
+    # to activate on 9 September 2026 for exactly this, Container Apps kept serving the revision
+    # from 7 September, and every capture that day was extracted by the previous image.
+    GREENV_AZURE_MEASUREMENT_QUEUE_NAME = azurerm_storage_queue.measurement.name
   })
 
   # Worker 2, the measurement stage.
