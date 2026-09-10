@@ -1,0 +1,110 @@
+{
+ "per_dataset": {
+  "main": {
+   "n_observations": 17151,
+   "n_feature_rows": 16894,
+   "excluded_dec004_or_anchor": 257
+  },
+  "seed2": {
+   "n_observations": 17209,
+   "n_feature_rows": 16930,
+   "excluded_dec004_or_anchor": 279
+  },
+  "ood": {
+   "n_observations": 17108,
+   "n_feature_rows": 16831,
+   "excluded_dec004_or_anchor": 277
+  }
+ },
+ "dev_total_rows": 33824,
+ "ood_total_rows": 16831,
+ "temporal_split_counts": {
+  "train": 18486,
+  "excluded": 1414,
+  "validation": 5500,
+  "test": 8424
+ },
+ "blocked_split_counts": {
+  "train": 22652,
+  "validation": 6864,
+  "test": 4308
+ },
+ "built_at": "2026-09-10T15:42:52Z",
+ "feature_spec_version": "weather-v1+features-v1",
+ "keep_columns": [
+  "height_cm",
+  "height_prev_cm",
+  "weekly_growth_cm",
+  "days_since_rocada",
+  "gdd_week_tb15_c",
+  "tmin_week_c",
+  "rain_30d_mm",
+  "water_deficit_30d",
+  "operational_status"
+ ],
+ "candidate_columns": [
+  "height_lag2_cm",
+  "weeks_observed_last_8",
+  "rocada_in_new_cycle",
+  "gdd_week_tb10_c",
+  "gdd_week_tb17_c",
+  "tmean_week_c",
+  "tmax_week_c",
+  "rain_7d_mm",
+  "rain_14d_mm",
+  "shortwave_7d_mj_m2",
+  "et0_7d_mm",
+  "water_deficit_90d",
+  "relative_humidity_7d_pct",
+  "week_of_year",
+  "season_sin",
+  "season_cos",
+  "dry_season_flag",
+  "vegetation_type",
+  "km_mid",
+  "centroid_lat",
+  "centroid_lon",
+  "grid_cell_id",
+  "cell_coverage",
+  "frame_count",
+  "blockers",
+  "nivel_observed"
+ ],
+ "metadata_columns": [
+  "feature_row_id",
+  "trecho_id",
+  "rodovia",
+  "sentido",
+  "iso_year",
+  "iso_week",
+  "as_of_date",
+  "split",
+  "split_blocked_trecho",
+  "split_scheme",
+  "feature_spec_version",
+  "week_days_present",
+  "target_days_until_30cm_horizon_days",
+  "target_height_plus_7d_actual_offset_days",
+  "target_height_plus_14d_actual_offset_days",
+  "target_height_plus_30d_actual_offset_days",
+  "built_at"
+ ],
+ "exclude_leakage_columns": [
+  "true_height_cm",
+  "nivel_true",
+  "generator_version",
+  "generator_seed",
+  "generator_params_hash",
+  "data_source",
+  "provenance",
+  "dataset",
+  "scenario"
+ ],
+ "target_columns": [
+  "target_height_plus_7d_cm",
+  "target_height_plus_14d_cm",
+  "target_height_plus_30d_cm",
+  "target_days_until_30cm",
+  "target_days_until_30cm_censored"
+ ]
+}

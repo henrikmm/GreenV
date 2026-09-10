@@ -1,0 +1,163 @@
+{
+ "dataset": "main",
+ "scenario": "baseline",
+ "seed": 42,
+ "generator_version": "synth-v1.0.0",
+ "generator_params_hash": "932480f22477dd00",
+ "is_synthetic": 1,
+ "n_trechos": 118,
+ "period": [
+  "2023-01-01",
+  "2026-09-01"
+ ],
+ "n_height_observations": 17151,
+ "n_rocada_events": 2577,
+ "missing_weeks_pct": 24.69,
+ "height_true": {
+  "min": 3.06,
+  "p05": 5.19,
+  "median": 22.62,
+  "mean": 28.61,
+  "p95": 69.83,
+  "max": 116.44,
+  "negative_count": 0,
+  "over_150_count": 0
+ },
+ "height_observed": {
+  "min": 0.0,
+  "median": 22.94,
+  "mean": 28.63,
+  "max": 121.27,
+  "negative_count": 0
+ },
+ "weekly_growth_cm_per_week": {
+  "p05": -4.99,
+  "median": 6.42,
+  "mean": 7.2,
+  "p95": 22.18,
+  "max": 51.28,
+  "negative_share_pct": 18.33
+ },
+ "rocada": {
+  "total": 2577,
+  "per_trecho_per_year": 5.96,
+  "interval_days": {
+   "p10": 33.0,
+   "median": 51.0,
+   "p90": 107.0
+  },
+  "height_at_cut_cm": {
+   "min": 30.8,
+   "median": 67.0,
+   "mean": 68.1,
+   "max": 125.8
+  },
+  "reason_share": {
+   "trigger": 93.0,
+   "proactive": 7.0
+  }
+ },
+ "nivel_true_pct": {
+  "0": 0.0,
+  "1": 23.97,
+  "2": 36.32,
+  "3": 39.71
+ },
+ "nivel_observed_pct": {
+  "0": 18.54,
+  "1": 18.27,
+  "2": 30.6,
+  "3": 32.59
+ },
+ "operational_not_ready_pct": 18.54,
+ "growth_vs_gdd_binned": {
+  "x": [
+   3.5,
+   11.2,
+   18.7,
+   25.2,
+   31.1,
+   36.6,
+   41.6,
+   47.1,
+   52.3,
+   61.5
+  ],
+  "y": [
+   0.818,
+   2.374,
+   3.837,
+   5.222,
+   6.992,
+   8.076,
+   9.289,
+   10.899,
+   11.877,
+   12.621
+  ]
+ },
+ "growth_vs_water_deficit30_binned": {
+  "x": [
+   -91.4,
+   -70.9,
+   -57.3,
+   -48.0,
+   -34.2,
+   -14.7,
+   6.9,
+   29.1,
+   67.0,
+   129.0
+  ],
+  "y": [
+   6.658,
+   5.0,
+   5.287,
+   5.158,
+   5.861,
+   6.147,
+   6.611,
+   8.414,
+   10.513,
+   12.249
+  ]
+ },
+ "seasonality_month_mean_true_height_cm": [
+  32.2,
+  34.3,
+  32.2,
+  30.4,
+  26.1,
+  22.3,
+  22.4,
+  27.4,
+  28.9,
+  27.4,
+  29.9,
+  31.0
+ ],
+ "seasonality_month_mean_growth_cm_per_week": [
+  10.85,
+  12.97,
+  11.29,
+  8.31,
+  5.43,
+  2.19,
+  1.98,
+  4.75,
+  6.93,
+  7.0,
+  8.24,
+  10.48
+ ],
+ "between_trecho": {
+  "mean_height_cm": {
+   "min": 19.7,
+   "mean": 28.6,
+   "max": 38.6,
+   "cv": 0.141
+  },
+  "mean_growth_cm_per_week_cv": 0.316
+ },
+ "implausible_weektoweek_jumps": 1
+}

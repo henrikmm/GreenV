@@ -1,0 +1,328 @@
+{
+ "n_train": 18486,
+ "n_validation": 5500,
+ "height": {
+  "7": {
+   "persistence": {
+    "n": 4622,
+    "mae": 12.165,
+    "rmse": 20.318,
+    "r2": -0.033,
+    "n_target_missing_excluded": 878,
+    "n_used_fallback": 0
+   },
+   "last_growth": {
+    "n": 4622,
+    "mae": 13.654,
+    "rmse": 24.855,
+    "r2": -0.546,
+    "n_target_missing_excluded": 878,
+    "n_used_fallback": 600
+   },
+   "seasonal_climatology": {
+    "n": 4622,
+    "mae": 16.42,
+    "rmse": 19.796,
+    "r2": 0.02,
+    "n_target_missing_excluded": 878,
+    "n_used_fallback": 0
+   },
+   "mechanistic": {
+    "n": 4622,
+    "mae": 11.174,
+    "rmse": 21.043,
+    "r2": -0.108,
+    "n_target_missing_excluded": 878,
+    "n_used_fallback": 0
+   }
+  },
+  "14": {
+   "persistence": {
+    "n": 4306,
+    "mae": 18.374,
+    "rmse": 26.217,
+    "r2": -0.75,
+    "n_target_missing_excluded": 1194,
+    "n_used_fallback": 0
+   },
+   "last_growth": {
+    "n": 4306,
+    "mae": 23.976,
+    "rmse": 38.482,
+    "r2": -2.77,
+    "n_target_missing_excluded": 1194,
+    "n_used_fallback": 554
+   },
+   "seasonal_climatology": {
+    "n": 4306,
+    "mae": 16.259,
+    "rmse": 19.601,
+    "r2": 0.022,
+    "n_target_missing_excluded": 1194,
+    "n_used_fallback": 0
+   },
+   "mechanistic": {
+    "n": 4306,
+    "mae": 17.201,
+    "rmse": 28.363,
+    "r2": -1.048,
+    "n_target_missing_excluded": 1194,
+    "n_used_fallback": 0
+   }
+  },
+  "30": {
+   "persistence": {
+    "n": 4172,
+    "mae": 22.499,
+    "rmse": 28.725,
+    "r2": -1.208,
+    "n_target_missing_excluded": 1328,
+    "n_used_fallback": 0
+   },
+   "last_growth": {
+    "n": 4172,
+    "mae": 40.556,
+    "rmse": 56.359,
+    "r2": -7.5,
+    "n_target_missing_excluded": 1328,
+    "n_used_fallback": 551
+   },
+   "seasonal_climatology": {
+    "n": 4172,
+    "mae": 15.96,
+    "rmse": 19.23,
+    "r2": 0.01,
+    "n_target_missing_excluded": 1328,
+    "n_used_fallback": 0
+   },
+   "mechanistic": {
+    "n": 4172,
+    "mae": 25.627,
+    "rmse": 36.495,
+    "r2": -2.564,
+    "n_target_missing_excluded": 1328,
+    "n_used_fallback": 0
+   }
+  }
+ },
+ "days_until_30cm": {
+  "naive_days_until_30cm": {
+   "n": 4213,
+   "mae_days": 17.4,
+   "median_abs_error_days": 6.47,
+   "within_3d_pct": 42.9,
+   "within_7d_pct": 55.5,
+   "n_true_not_censored": 5237,
+   "n_scored": 4213,
+   "n_baseline_predicted_censored_but_true_had_answer": 1024,
+   "n_true_censored": 263,
+   "baseline_also_censored_when_true_censored": 83,
+   "baseline_also_censored_when_true_censored_pct": 31.6,
+   "n_used_fallback_in_scored_or_censored": 655,
+   "fallback_rate_cm_per_week": 9.52,
+   "fallback_rate_fit_n": 13097
+  },
+  "mechanistic_days_until_30cm": {
+   "n": 4755,
+   "mae_days": 14.39,
+   "median_abs_error_days": 6.54,
+   "within_3d_pct": 41.3,
+   "within_7d_pct": 55.0,
+   "n_true_not_censored": 5237,
+   "n_scored": 4755,
+   "n_baseline_predicted_censored_but_true_had_answer": 482,
+   "n_true_censored": 263,
+   "baseline_also_censored_when_true_censored": 105,
+   "baseline_also_censored_when_true_censored_pct": 39.9,
+   "n_used_fallback_in_scored_or_censored": 0,
+   "fit_stats": {
+    "n_entities_with_local_rate": 118,
+    "n_entities_total": 118,
+    "n_rate_samples": 15006,
+    "global_rate_cm_per_day": 0.68
+   },
+   "train_avg_daily_gdd_tb15": 5.25,
+   "mechanistic_fit_stats": {
+    "n_entities_with_local_rate": 118,
+    "n_entities_total": 118,
+    "n_rate_samples": 15006,
+    "global_rate_cm_per_day": 0.68
+   }
+  }
+ },
+ "hard_cases": {
+  "n_validation_rows": 5500,
+  "negative_observed_weekly_growth_clipped_to_zero": 1144,
+  "not_ready_anchor_rows": 1025,
+  "new_cycle_rows_no_local_rate": 717,
+  "target_missing_pct": {
+   "plus_7d": 15.96,
+   "plus_14d": 21.71,
+   "plus_30d": 24.15
+  },
+  "days_until_30cm_true_censored_pct": 4.78
+ },
+ "stratified": {
+  "height_plus_7d": {
+   "by_current_nivel": {
+    "nivel0": {
+     "n": 855,
+     "persistence_mae": 12.71,
+     "last_growth_mae": 14.32,
+     "seasonal_climatology_mae": 16.67,
+     "mechanistic_mae": 11.66
+    },
+    "nivel1": {
+     "n": 876,
+     "persistence_mae": 6.19,
+     "last_growth_mae": 6.08,
+     "seasonal_climatology_mae": 17.52,
+     "mechanistic_mae": 4.95
+    },
+    "nivel3": {
+     "n": 1310,
+     "persistence_mae": 21.76,
+     "last_growth_mae": 25.49,
+     "seasonal_climatology_mae": 24.15,
+     "mechanistic_mae": 21.29
+    },
+    "nivel2": {
+     "n": 1581,
+     "persistence_mae": 7.23,
+     "last_growth_mae": 7.68,
+     "seasonal_climatology_mae": 9.28,
+     "mechanistic_mae": 5.98
+    }
+   },
+   "by_season": {
+    "wet(Oct-Mar)": {
+     "n": 1309,
+     "persistence_mae": 20.2,
+     "last_growth_mae": 20.6,
+     "seasonal_climatology_mae": 20.72,
+     "mechanistic_mae": 17.88
+    },
+    "dry(Apr-Sep)": {
+     "n": 3313,
+     "persistence_mae": 8.99,
+     "last_growth_mae": 10.91,
+     "seasonal_climatology_mae": 14.72,
+     "mechanistic_mae": 8.53
+    }
+   },
+   "by_rocada_proximity": {
+    "mid(14-60d)": {
+     "n": 2571,
+     "persistence_mae": 15.17,
+     "last_growth_mae": 17.01,
+     "seasonal_climatology_mae": 17.07,
+     "mechanistic_mae": 14.0
+    },
+    "recent(<14d)": {
+     "n": 884,
+     "persistence_mae": 7.13,
+     "last_growth_mae": 6.59,
+     "seasonal_climatology_mae": 17.34,
+     "mechanistic_mae": 5.74
+    },
+    "long(>60d)": {
+     "n": 1167,
+     "persistence_mae": 9.35,
+     "last_growth_mae": 11.61,
+     "seasonal_climatology_mae": 14.28,
+     "mechanistic_mae": 9.06
+    }
+   }
+  },
+  "days_until_30cm": {
+   "naive_days_until_30cm": {
+    "by_current_nivel": {
+     "nivel0": {
+      "n": 759,
+      "mae_days": 27.9
+     },
+     "nivel1": {
+      "n": 539,
+      "mae_days": 32.63
+     },
+     "nivel2": {
+      "n": 1333,
+      "mae_days": 25.91
+     },
+     "nivel3": {
+      "n": 1582,
+      "mae_days": 0.0
+     }
+    },
+    "by_season": {
+     "wet(Oct-Mar)": {
+      "n": 1437,
+      "mae_days": 11.09
+     },
+     "dry(Apr-Sep)": {
+      "n": 2776,
+      "mae_days": 20.66
+     }
+    },
+    "by_rocada_proximity": {
+     "mid(14-60d)": {
+      "n": 2359,
+      "mae_days": 15.81
+     },
+     "recent(<14d)": {
+      "n": 813,
+      "mae_days": 29.51
+     },
+     "long(>60d)": {
+      "n": 1041,
+      "mae_days": 11.53
+     }
+    }
+   },
+   "mechanistic_days_until_30cm": {
+    "by_current_nivel": {
+     "nivel0": {
+      "n": 867,
+      "mae_days": 23.67
+     },
+     "nivel1": {
+      "n": 644,
+      "mae_days": 21.41
+     },
+     "nivel2": {
+      "n": 1662,
+      "mae_days": 20.53
+     },
+     "nivel3": {
+      "n": 1582,
+      "mae_days": 0.0
+     }
+    },
+    "by_season": {
+     "wet(Oct-Mar)": {
+      "n": 1537,
+      "mae_days": 10.37
+     },
+     "dry(Apr-Sep)": {
+      "n": 3218,
+      "mae_days": 16.31
+     }
+    },
+    "by_rocada_proximity": {
+     "mid(14-60d)": {
+      "n": 2677,
+      "mae_days": 12.72
+     },
+     "recent(<14d)": {
+      "n": 843,
+      "mae_days": 18.76
+     },
+     "long(>60d)": {
+      "n": 1235,
+      "mae_days": 15.04
+     }
+    }
+   }
+  }
+ }
+}

@@ -1,0 +1,205 @@
+{
+ "n_usable_rows": 32410,
+ "n_total_rows_incl_embargo_excluded": 33824,
+ "height_cm": {
+  "min": 0.0,
+  "median": 22.7,
+  "mean": 28.57,
+  "p95": 70.42,
+  "max": 121.27
+ },
+ "weekly_growth_cm": {
+  "n": 27584,
+  "median": 7.09,
+  "mean": 8.53,
+  "p95": 26.89,
+  "negative_pct": 17.88
+ },
+ "nivel_observed_pct": {
+  "0": 18.6,
+  "1": 18.28,
+  "2": 30.89,
+  "3": 32.22
+ },
+ "days_since_rocada": {
+  "median": 32,
+  "p95": 101
+ },
+ "new_cycle_rows_pct": 14.89,
+ "seasonality_month_mean_height_cm": [
+  32.3,
+  34.2,
+  32.0,
+  29.7,
+  26.1,
+  21.9,
+  22.9,
+  28.3,
+  29.2,
+  27.2,
+  30.4,
+  31.0
+ ],
+ "seasonality_month_mean_growth_cm": [
+  11.91,
+  14.92,
+  13.16,
+  10.0,
+  6.61,
+  2.81,
+  2.48,
+  5.88,
+  8.91,
+  8.48,
+  9.86,
+  12.37
+ ],
+ "growth_vs_gdd_binned": {
+  "x": [
+   3.4,
+   11.1,
+   18.7,
+   25.5,
+   31.3,
+   37.0,
+   41.9,
+   47.3,
+   52.4,
+   61.3
+  ],
+  "y": [
+   1.16,
+   2.98,
+   4.54,
+   6.7,
+   8.36,
+   9.63,
+   10.73,
+   12.62,
+   13.69,
+   14.88
+  ]
+ },
+ "growth_vs_deficit30_binned": {
+  "x": [
+   -89.6,
+   -68.8,
+   -55.8,
+   -46.7,
+   -32.3,
+   -13.7,
+   6.9,
+   28.9,
+   63.8,
+   125.6
+  ],
+  "y": [
+   7.94,
+   5.68,
+   7.24,
+   6.37,
+   6.29,
+   7.47,
+   8.08,
+   9.37,
+   11.87,
+   14.35
+  ]
+ },
+ "between_trecho_mean_height_cv": 0.11,
+ "between_trecho_mean_growth_cv": 0.233,
+ "target_missingness_pct": {
+  "plus_7d": 16.24,
+  "plus_14d": 22.17,
+  "plus_30d": 25.69,
+  "days_until_30cm_censored": 3.52
+ },
+ "correlations": {
+  "target_height_plus_7d_cm": {
+   "height_cm": 0.463,
+   "height_prev_cm": 0.295,
+   "height_lag2_cm": 0.155,
+   "weekly_growth_cm": 0.299,
+   "days_since_rocada": 0.271,
+   "gdd_week_tb15_c": 0.157,
+   "gdd_week_tb10_c": 0.155,
+   "gdd_week_tb17_c": 0.153,
+   "tmin_week_c": 0.152,
+   "tmean_week_c": 0.156,
+   "tmax_week_c": 0.14,
+   "rain_7d_mm": 0.082,
+   "rain_14d_mm": 0.107,
+   "rain_30d_mm": 0.124,
+   "shortwave_7d_mj_m2": 0.114,
+   "et0_7d_mm": 0.117,
+   "water_deficit_30d": 0.096,
+   "water_deficit_90d": 0.059,
+   "relative_humidity_7d_pct": 0.026,
+   "week_of_year": -0.035,
+   "season_sin": 0.017,
+   "season_cos": 0.147,
+   "dry_season_flag": -0.126,
+   "km_mid": -0.011,
+   "cell_coverage": 0.005,
+   "weeks_observed_last_8": -0.014
+  },
+  "target_days_until_30cm": {
+   "height_cm": -0.54,
+   "height_prev_cm": -0.433,
+   "height_lag2_cm": -0.339,
+   "weekly_growth_cm": -0.334,
+   "days_since_rocada": -0.31,
+   "gdd_week_tb15_c": -0.257,
+   "gdd_week_tb10_c": -0.256,
+   "gdd_week_tb17_c": -0.248,
+   "tmin_week_c": -0.243,
+   "tmean_week_c": -0.255,
+   "tmax_week_c": -0.238,
+   "rain_7d_mm": -0.131,
+   "rain_14d_mm": -0.156,
+   "rain_30d_mm": -0.184,
+   "shortwave_7d_mj_m2": -0.202,
+   "et0_7d_mm": -0.21,
+   "water_deficit_30d": -0.122,
+   "water_deficit_90d": -0.059,
+   "relative_humidity_7d_pct": -0.025,
+   "week_of_year": 0.01,
+   "season_sin": 0.037,
+   "season_cos": -0.247,
+   "dry_season_flag": 0.216,
+   "km_mid": -0.004,
+   "cell_coverage": -0.028,
+   "weeks_observed_last_8": 0.019
+  }
+ },
+ "outliers": {
+  "height_abs_z_gt_5": 0,
+  "growth_abs_z_gt_5": 59
+ },
+ "main_vs_seed2": {
+  "main": {
+   "n": 16194,
+   "mean_height": 28.6,
+   "median_height": 22.82,
+   "mean_growth": 8.5,
+   "nivel_pct": {
+    "0": 18.4,
+    "1": 18.4,
+    "2": 30.7,
+    "3": 32.6
+   }
+  },
+  "seed2": {
+   "n": 16216,
+   "mean_height": 28.55,
+   "median_height": 22.61,
+   "mean_growth": 8.55,
+   "nivel_pct": {
+    "0": 18.8,
+    "1": 18.2,
+    "2": 31.1,
+    "3": 31.9
+   }
+  }
+ }
+}

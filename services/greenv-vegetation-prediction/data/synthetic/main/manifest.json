@@ -1,0 +1,218 @@
+{
+ "kind": "synthetic_heights",
+ "is_synthetic": 1,
+ "dataset": "main",
+ "created_at": "2026-09-09T05:24:54Z",
+ "generator_version": "synth-v1.0.0",
+ "seed": 42,
+ "scenario": "baseline",
+ "generator_params_hash": "932480f22477dd00",
+ "period": [
+  "2023-01-01",
+  "2026-09-01"
+ ],
+ "n_trechos": 118,
+ "n_observation_weeks": 193,
+ "n_height_observations": 17151,
+ "n_rocada_events": 2577,
+ "data_source": "synthetic",
+ "provenance": "synthetic",
+ "driven_by": "data/real/weather/processed/ (real ERA5-seamless; provenance weather_real)",
+ "weather_feature_spec": "weather-v1 (reports/methodology-decisions.md)",
+ "note": "SYNTHETIC. Not a measurement. true_height_cm is a simulator diagnostic, never a training target.",
+ "resolved_params": {
+  "R0": 0.085,
+  "GDD_REF": 5.0,
+  "LAG_FLOOR": 0.1,
+  "DEF_SHIFT": 15.0,
+  "DEF_SCALE": 40.0,
+  "A_S": 0.03,
+  "PHI_S": 20.0,
+  "K_RAD": 0.1,
+  "SW_CUM_REF": 250.0,
+  "SIGMA_PROC": 0.15,
+  "H_FLOOR": 2.0,
+  "DH_MAX": 5.0,
+  "H_HARDCAP": 150.0,
+  "HMAX_SD": 12.0,
+  "VEG_SHIFT": {
+   "braquiaria": 8.0,
+   "capim_gordura": 15.0,
+   "ruderal_mix": -10.0
+  },
+  "VEG_PROBS": {
+   "braquiaria": 0.55,
+   "capim_gordura": 0.2,
+   "ruderal_mix": 0.25
+  },
+  "S_CV": 0.3,
+  "S_CLIP": [
+   0.5,
+   1.8
+  ],
+  "TRIG_SD": 8.0,
+  "TRIG_CLIP": [
+   25.0,
+   70.0
+  ],
+  "DELAY_MEAN": 8.0,
+  "DELAY_GAMMA_SHAPE": 2.5,
+  "DELAY_CLIP": [
+   2,
+   45
+  ],
+  "INSPECT_HIT": 0.9,
+  "PROACTIVE_RATE": 0.05,
+  "SEASON_FACTOR_WET": 1.0,
+  "SEASON_FACTOR_DRY": 0.55,
+  "WET_MONTHS": [
+   10,
+   11,
+   12,
+   1,
+   2,
+   3
+  ],
+  "SIGMA_MEAS_OUTLIER_P": 0.02,
+  "SIGMA_MEAS_OUTLIER_MULT": 3.0,
+  "MISS_GAP_BONUS": 0.35,
+  "MISS_P_CLIP": 0.85,
+  "OBS_CLIP": [
+   0.0,
+   160.0
+  ],
+  "COVERAGE_MEAN": 0.8,
+  "COVERAGE_SD": 0.16,
+  "FRAME_LAMBDA": 85,
+  "DEGRADED_P": 0.16,
+  "COVERAGE_NOT_READY": 0.5,
+  "FRAME_NOT_READY": 25,
+  "H0_MEAN": 20.0,
+  "H0_SD": 10.0,
+  "TAU0_LO": 5,
+  "TAU0_HI": 60,
+  "Tb": 15.0,
+  "W_MIN": 0.65,
+  "TRIG0": 50.0,
+  "LAG": 8.0,
+  "RES_RANGE": [
+   3.0,
+   8.0
+  ],
+  "H0_PLATEAU": 90.0,
+  "SIGMA_MEAS": 4.0,
+  "MISS_P": 0.25,
+  "NOT_READY_TARGET": 0.2,
+  "CV_M": 0.25,
+  "scenario": "baseline",
+  "hydric_response": "logistic",
+  "trecho_effect_dist": "lognormal_unimodal",
+  "regrowth_curve": "logistic",
+  "winter_maintenance_freeze": []
+ },
+ "literature_params": {
+  "gdd_base_temperature": {
+   "value": 15.0,
+   "range": [
+    10.0,
+    17.0
+   ],
+   "unit": "degC",
+   "confidence": "literature-confirmed"
+  },
+  "water_deficit_growth_multiplier": {
+   "value": 0.65,
+   "range": [
+    0.4,
+    1.0
+   ],
+   "unit": "fraction of well-watered growth rate under sustained deficit",
+   "confidence": "literature-confirmed"
+  },
+  "mowing_trigger_height_cm": {
+   "value": 50.0,
+   "range": [
+    30.0,
+    60.0
+   ],
+   "unit": "cm",
+   "confidence": "literature-confirmed"
+  },
+  "regrowth_lag_days": {
+   "value": 8.0,
+   "range": [
+    5.0,
+    14.0
+   ],
+   "unit": "days",
+   "confidence": "literature-unconfirmed"
+  },
+  "regrowth_time_to_near_max_rate_days": {
+   "value": 21.0,
+   "range": [
+    14.0,
+    28.0
+   ],
+   "unit": "days",
+   "confidence": "literature-unconfirmed"
+  },
+  "rocada_residual_height_cm": {
+   "value": 5.0,
+   "range": [
+    3.0,
+    8.0
+   ],
+   "unit": "cm",
+   "confidence": "hypothesis"
+  },
+  "plateau_height_cm": {
+   "value": 90.0,
+   "range": [
+    60.0,
+    120.0
+   ],
+   "unit": "cm",
+   "confidence": "hypothesis"
+  },
+  "measurement_noise_sigma_cm": {
+   "value": 4.0,
+   "range": [
+    2.0,
+    8.0
+   ],
+   "unit": "cm",
+   "confidence": "hypothesis"
+  },
+  "missing_week_probability": {
+   "value": 0.25,
+   "range": [
+    0.1,
+    0.5
+   ],
+   "unit": "P(no capture in a given trecho-week)",
+   "confidence": "hypothesis"
+  },
+  "not_ready_fraction": {
+   "value": 0.2,
+   "range": [
+    0.05,
+    0.4
+   ],
+   "unit": "fraction of produced observations carrying operationalStatus=not-ready",
+   "confidence": "literature-confirmed"
+  },
+  "trecho_random_effect_cv": {
+   "value": 0.25,
+   "range": [
+    0.15,
+    0.4
+   ],
+   "unit": "coefficient of variation of the per-trecho growth-rate multiplier",
+   "confidence": "hypothesis"
+  }
+ },
+ "outputs": [
+  "data/synthetic/main/height_observations.csv",
+  "data/synthetic/main/rocada_events.csv"
+ ]
+}

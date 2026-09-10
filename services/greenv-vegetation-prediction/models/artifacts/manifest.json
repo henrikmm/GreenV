@@ -1,0 +1,122 @@
+{
+ "feature_spec_version": "weather-v1+features-v1",
+ "n_train": 18486,
+ "n_validation": 5500,
+ "feature_sets": {
+  "keep": [
+   "height_cm",
+   "height_prev_cm",
+   "weekly_growth_cm",
+   "days_since_rocada",
+   "gdd_week_tb15_c",
+   "tmin_week_c",
+   "rain_30d_mm",
+   "water_deficit_30d",
+   "operational_status"
+  ],
+  "keep_plus_candidate": [
+   "height_cm",
+   "height_prev_cm",
+   "weekly_growth_cm",
+   "days_since_rocada",
+   "gdd_week_tb15_c",
+   "tmin_week_c",
+   "rain_30d_mm",
+   "water_deficit_30d",
+   "operational_status",
+   "height_lag2_cm",
+   "rocada_in_new_cycle",
+   "dry_season_flag",
+   "water_deficit_90d",
+   "vegetation_type"
+  ]
+ },
+ "models": [
+  {
+   "kind": "height",
+   "key": "ridge__keep",
+   "file": "height__ridge__keep.joblib",
+   "feature_set": "keep",
+   "algorithm": "ridge"
+  },
+  {
+   "kind": "height",
+   "key": "random_forest__keep",
+   "file": "height__random_forest__keep.joblib",
+   "feature_set": "keep",
+   "algorithm": "random_forest"
+  },
+  {
+   "kind": "height",
+   "key": "gradient_boosting__keep",
+   "file": "height__gradient_boosting__keep.joblib",
+   "feature_set": "keep",
+   "algorithm": "gradient_boosting"
+  },
+  {
+   "kind": "height",
+   "key": "ridge__keep_plus_candidate",
+   "file": "height__ridge__keep_plus_candidate.joblib",
+   "feature_set": "keep_plus_candidate",
+   "algorithm": "ridge"
+  },
+  {
+   "kind": "height",
+   "key": "random_forest__keep_plus_candidate",
+   "file": "height__random_forest__keep_plus_candidate.joblib",
+   "feature_set": "keep_plus_candidate",
+   "algorithm": "random_forest"
+  },
+  {
+   "kind": "height",
+   "key": "gradient_boosting__keep_plus_candidate",
+   "file": "height__gradient_boosting__keep_plus_candidate.joblib",
+   "feature_set": "keep_plus_candidate",
+   "algorithm": "gradient_boosting"
+  },
+  {
+   "kind": "days_until_30cm",
+   "key": "ridge__keep",
+   "file": "days_until_30cm__ridge__keep.joblib",
+   "feature_set": "keep",
+   "algorithm": "ridge"
+  },
+  {
+   "kind": "days_until_30cm",
+   "key": "random_forest__keep",
+   "file": "days_until_30cm__random_forest__keep.joblib",
+   "feature_set": "keep",
+   "algorithm": "random_forest"
+  },
+  {
+   "kind": "days_until_30cm",
+   "key": "gradient_boosting__keep",
+   "file": "days_until_30cm__gradient_boosting__keep.joblib",
+   "feature_set": "keep",
+   "algorithm": "gradient_boosting"
+  },
+  {
+   "kind": "days_until_30cm",
+   "key": "ridge__keep_plus_candidate",
+   "file": "days_until_30cm__ridge__keep_plus_candidate.joblib",
+   "feature_set": "keep_plus_candidate",
+   "algorithm": "ridge"
+  },
+  {
+   "kind": "days_until_30cm",
+   "key": "random_forest__keep_plus_candidate",
+   "file": "days_until_30cm__random_forest__keep_plus_candidate.joblib",
+   "feature_set": "keep_plus_candidate",
+   "algorithm": "random_forest"
+  },
+  {
+   "kind": "days_until_30cm",
+   "key": "gradient_boosting__keep_plus_candidate",
+   "file": "days_until_30cm__gradient_boosting__keep_plus_candidate.joblib",
+   "feature_set": "keep_plus_candidate",
+   "algorithm": "gradient_boosting"
+  }
+ ],
+ "best_overall_height_config": "random_forest__keep_plus_candidate",
+ "best_overall_days_config": "random_forest__keep_plus_candidate"
+}

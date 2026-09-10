@@ -1,0 +1,80 @@
+{
+ "comparison": "Open-Meteo era5_seamless cell -23.5:-46.8  vs  NASA POWER 0.5deg point -23.5:-46.8",
+ "period": "2023-01-01..2026-09-01",
+ "n_days": 1340,
+ "note": "NASA POWER used because INMET API is unreachable from this environment (connection reset).",
+ "metrics": {
+  "tmin": {
+   "n": 1338,
+   "pearson_r": 0.967,
+   "mean_bias_OM_minus_POWER": -1.112,
+   "mae": 1.204,
+   "rmse": 1.417,
+   "OM_mean": 14.46,
+   "POWER_mean": 15.57
+  },
+  "tmean": {
+   "n": 1338,
+   "pearson_r": 0.976,
+   "mean_bias_OM_minus_POWER": -2.129,
+   "mae": 2.131,
+   "rmse": 2.264,
+   "OM_mean": 18.53,
+   "POWER_mean": 20.66
+  },
+  "tmax": {
+   "n": 1338,
+   "pearson_r": 0.916,
+   "mean_bias_OM_minus_POWER": -3.865,
+   "mae": 3.874,
+   "rmse": 4.209,
+   "OM_mean": 23.65,
+   "POWER_mean": 27.51
+  },
+  "sw": {
+   "n": 1336,
+   "pearson_r": 0.905,
+   "mean_bias_OM_minus_POWER": 1.095,
+   "mae": 2.003,
+   "rmse": 2.795,
+   "OM_mean": 17.33,
+   "POWER_mean": 16.24
+  },
+  "rh": {
+   "n": 1338,
+   "pearson_r": 0.876,
+   "mean_bias_OM_minus_POWER": 3.815,
+   "mae": 5.351,
+   "rmse": 6.468,
+   "OM_mean": 78.34,
+   "POWER_mean": 74.53
+  },
+  "precip": {
+   "n": 1338,
+   "pearson_r": 0.708,
+   "mean_bias_OM_minus_POWER": 0.512,
+   "mae": 2.041,
+   "rmse": 4.37,
+   "OM_mean": 3.23,
+   "POWER_mean": 2.72
+  }
+ },
+ "annual_precip_mm": {
+  "2023": {
+   "open_meteo": 1226,
+   "nasa_power": 1254
+  },
+  "2024": {
+   "open_meteo": 1290,
+   "nasa_power": 1001
+  },
+  "2025": {
+   "open_meteo": 1038,
+   "nasa_power": 754
+  },
+  "2026": {
+   "open_meteo": 801,
+   "nasa_power": 629
+  }
+ }
+}

@@ -1,0 +1,338 @@
+# Literature-derived parameters for the synthetic vegetation-height generator (Phase 4).
+#
+# Phase 1 artifact of docs/VEGETATION_PREDICTION_TASK.md.
+# Rapid review, 2026-09-09. NOTHING HERE IS A GreenV MEASUREMENT.
+#
+# Every parameter carries:
+#   value              central estimate for the generator
+#   range              plausible span to sweep in a sensitivity / OOD run
+#   unit
+#   source             citation (DOI / URL / doc), or "none" if unsourced
+#   climate_zone       the zone the source data comes from
+#   species_assumption the species/cultivar the value is transferred from
+#   confidence         literature-confirmed | literature-unconfirmed | hypothesis
+#   notes
+#
+# confidence meaning:
+#   literature-confirmed    read from primary full text in this review
+#   literature-unconfirmed  read only from a search-result summary; primary text not opened
+#   hypothesis              no reliable source; an engineering guess, MUST be swept and disclosed
+
+schema_version: 1
+reviewed_on: "2026-09-09"
+review_type: "rapid (web search + partial full-text)"
+target_scenario: "SP-021 / Rodoanel Oeste, subtropical SP, C4-dominant roadside verge, ~500 m trechos, weekly capture"
+
+# --------------------------------------------------------------------------
+# BUSINESS RULE (given by Motiva; NOT from literature — do not sweep)
+# --------------------------------------------------------------------------
+nivel_thresholds:
+  level_1_max_cm: 10
+  level_3_min_cm: 30
+  unit: cm
+  source: "docs/VEGETATION_PREDICTION_TASK.md (Motiva business rule); externally corroborated by DNIT roadside standard (max tolerated height 30 cm)"
+  climate_zone: n/a
+  species_assumption: n/a
+  confidence: literature-confirmed
+  notes: >
+    Nivel 1 < 10 cm, Nivel 2 10-30 cm, Nivel 3 > 30 cm. DNIT (gov.br/dnit Faixa de Dominio;
+    Resolucao 9/2020) uses 30 cm as the maintenance limit, so the threshold is not arbitrary.
+
+# --------------------------------------------------------------------------
+# THERMAL RESPONSE
+# --------------------------------------------------------------------------
+gdd_base_temperature:
+  value: 15.0
+  range: [10.0, 17.0]
+  unit: degC
+  source: "Villa Nova et al. (2007) Ciencia Rural 37(2), DOI 10.1590/S0103-84782007000200039 (Tb=15 C elephantgrass, 11.5 C stargrass, Piracicaba SP); temperate default 10 C from NMSU B-826"
+  climate_zone: "subtropical SP (Villa Nova); temperate rangeland (NMSU)"
+  species_assumption: "Pennisetum purpureum / Cynodon; transferred to the Urochloa/Panicum-dominant verge"
+  confidence: literature-confirmed
+  notes: >
+    Tb for Urochloa and Panicum specifically was NOT found with a citation. Brazilian forage
+    literature puts the range at 14-17 C and calls it controversial and cultivar-dependent
+    (Ciencia Rural 'Metodo alternativo...', unconfirmed). Sweep 10-17 C.
+
+gdd_daily_formula:
+  value: "GDD_day = max(0, (Tmax + Tmin)/2 - Tb)"
+  range: n/a
+  unit: "degC.day"
+  source: "ScienceDirect Topics 'Growing Degree-Day'; NMSU B-826"
+  climate_zone: n/a
+  species_assumption: n/a
+  confidence: literature-confirmed
+  notes: >
+    Simple average form. Consider a 'corrected GDD' / photothermal-unit variant as an alternative
+    driver: Brazilian marandu work found corrected GDD and corrected Tmin equally strong (R2~0.75).
+
+tmin_linear_dm_slope:
+  value: 6.39
+  range: [4.0, 9.0]
+  unit: "kg DM ha^-1 day^-1 per degC of Tmin"
+  source: "Tonato, Barioni, Pedreira et al. (2010) Pesq. Agropec. Bras. 45(7), scielo B3fW8YhjT9jGpmMFc76t7kQ. Model for Urochloa decumbens cv. Basilisk after local calibration: TA = -74.124 + 6.39*Tmin, SE 3.95"
+  climate_zone: "Central Brazil, C4 grasses"
+  species_assumption: "Urochloa decumbens cv. Basilisk (cutting trial)"
+  confidence: literature-confirmed
+  notes: >
+    This is a DRY-MATTER accumulation rate under a cutting regime, not standing height on an
+    unmown verge. Convert with dm_to_height_bulk_density. The intercept (-74.124) implies ~0
+    growth near Tmin ~11-12 C, roughly consistent with gdd_base_temperature. Genus skill was
+    Cynodon R2 0.60-0.70 > Urochloa 0.55-0.60 > Panicum <0.40 -- keep large unexplained variance.
+
+tmin_multivariate_model_skill:
+  value: 0.84
+  range: [0.40, 0.84]
+  unit: "R2"
+  source: "Pequeno, Pedreira, Villa Nova (2011) Pesq. Agropec. Bras. 46(7), scielo S0100-204X2011000700001 -- capim-marandu; best model Tmin+Rg+ETR, R2=0.84, RMSE 14.72 kg/ha/day"
+  climate_zone: "SP (Sao Carlos region), rainfed"
+  species_assumption: "Urochloa brizantha cv. Marandu"
+  confidence: literature-unconfirmed
+  notes: >
+    Full text could not be fetched (certificate error); values from search summary. Use only as
+    an order-of-magnitude: a good climatic model of weekly DM still has ~15 kg/ha/day RMSE, so
+    the synthetic measurement noise should be at least comparable after unit conversion.
+
+winter_growth_multiplier:
+  value: 0.5
+  range: [0.35, 0.7]
+  unit: "fraction of summer/spring growth rate"
+  source: "Search summary of Brazilian morphogenesis studies (cv. Marandu leaf-appearance rate winter ~50% of summer); Paciullo et al. Pesq. Agropec. Bras. (winter reduction regardless of shading)"
+  climate_zone: "subtropical/tropical Brazil"
+  species_assumption: "Urochloa brizantha"
+  confidence: literature-unconfirmed
+  notes: >
+    PREFER to leave seasonality EMERGENT from real weekly GDD/radiation/rainfall in the Open-Meteo
+    data. Use this only as a small residual multiplier or a cross-check, never stacked on top of
+    the weather-driven signal.
+
+# --------------------------------------------------------------------------
+# RADIATION
+# --------------------------------------------------------------------------
+radiation_use_efficiency:
+  value: 0.53
+  range: [0.45, 1.20]
+  unit: "g DM per MJ intercepted PAR"
+  source: "AoB PLANTS 17(4) 2025, DOI 10.1093/aobpla/plaf036 (C4-grass monoculture RUE 0.53, range 0.45-0.57); Agronomy J meta-analysis DOI 10.2134/agronj2018.10.0645 (forage RUE 0.91-2.76)"
+  climate_zone: "mixed; C4 grass systems"
+  species_assumption: "generic C4 forage grass"
+  confidence: literature-confirmed
+  notes: >
+    Optional radiation-driven growth path: dDM = RUE * fIPAR * PAR. fIPAR from a Beer-Lambert law
+    on LAI/height is itself a hypothesis. Use as a bounded cross-check on the temperature path.
+
+# --------------------------------------------------------------------------
+# WATER
+# --------------------------------------------------------------------------
+water_deficit_growth_multiplier:
+  value: 0.65
+  range: [0.4, 1.0]
+  unit: "fraction of well-watered growth rate under sustained deficit"
+  source: "AoB PLANTS 2015, DOI 10.1093/aobpla/plv107 (drought reduced shoot dry mass ~35% in two C4 forage grasses); Sci. Reports 2025, DOI 10.1038/s41598-025-18760-x (intra-season dry spells cut forage production)"
+  climate_zone: "tropical C4 forage"
+  species_assumption: "Pennisetum purpureum, Brachiaria hybrid Mulato II"
+  confidence: literature-confirmed
+  notes: >
+    Apply as a smooth multiplier driven by a rolling rainfall balance or ETR/ETP. ~35% reduction
+    -> multiplier ~0.65 under sustained deficit; recovers to ~1.0 within the wet season.
+
+drought_hard_slowdown_threshold_months:
+  value: 4
+  range: [3, 5]
+  unit: months without effective rain
+  source: "EMBRAPA cultivar material for cv. Marandu (needs >800 mm/yr, does not tolerate droughts >4 months) -- search summary"
+  climate_zone: "Brazil"
+  species_assumption: "Urochloa brizantha cv. Marandu"
+  confidence: literature-unconfirmed
+  notes: "SP winters are dry but rarely 4 months rainless; mostly a safety clamp."
+
+annual_precip_requirement_mm:
+  value: 800
+  range: [700, 1000]
+  unit: mm/year
+  source: "EMBRAPA cv. Marandu material (search summary)"
+  climate_zone: Brazil
+  species_assumption: "Urochloa brizantha"
+  confidence: literature-unconfirmed
+  notes: "SP metropolitan region receives ~1300-1500 mm/yr, so not a limiting factor here."
+
+# --------------------------------------------------------------------------
+# HUMIDITY
+# --------------------------------------------------------------------------
+humidity_direct_effect:
+  value: null
+  range: null
+  unit: n/a
+  source: none
+  climate_zone: n/a
+  species_assumption: n/a
+  confidence: hypothesis
+  notes: >
+    No quantitative humidity->height-growth relationship found. Humidity acts indirectly via VPD /
+    evaporative demand, already captured by the water term. DO NOT give humidity an explicit term
+    in the generator. It MAY be offered to the models as a candidate feature (marked hypothesis).
+
+# --------------------------------------------------------------------------
+# REGROWTH AFTER ROCADA (defoliation)
+# --------------------------------------------------------------------------
+regrowth_curve_shape:
+  value: "logistic"
+  range: ["logistic", "monomolecular"]
+  unit: n/a
+  source: "'A practical equation for pasture growth under grazing' (ResearchGate 229497968); 'Ecophysiology of C4 Forage Grasses' (ResearchGate 282458615); PMC6290090"
+  climate_zone: "mixed (temperate + C4 review)"
+  species_assumption: "grass swards generally"
+  confidence: literature-confirmed
+  notes: >
+    Herbage mass vs time-since-defoliation is sigmoid: lag -> near-exponential -> linear ->
+    plateau. Model post-rocada height as a logistic approach to plateau_height_cm with the
+    rate coefficient scaled by that week's GDD/radiation/water.
+
+regrowth_lag_days:
+  value: 8
+  range: [5, 14]
+  unit: days
+  source: "'Effect of intensity of defoliation on regrowth of pasture' (ResearchGate 248893512): severe/early cutting lengthened the lag phase by >1 week"
+  climate_zone: temperate
+  species_assumption: "ryegrass / timothy / orchardgrass"
+  confidence: literature-unconfirmed
+  notes: >
+    Longer lag for a lower residual cut height. Qualitative shape transfers to C4; exact length
+    for a roadside mechanical cut is an assumption -- sweep 5-14 days.
+
+regrowth_time_to_near_max_rate_days:
+  value: 21
+  range: [14, 28]
+  unit: days
+  source: "same defoliation literature: regrowths of 14-28 days reach close to the maximum average growth rate"
+  climate_zone: temperate
+  species_assumption: "grass swards generally"
+  confidence: literature-unconfirmed
+  notes: "Sets where the logistic curve's inflection sits after a rocada."
+
+rocada_residual_height_cm:
+  value: 5
+  range: [3, 8]
+  unit: cm
+  source: none
+  climate_zone: n/a
+  species_assumption: n/a
+  confidence: hypothesis
+  notes: "Mechanical roadside mowing cut-to height. No citation found. Pure assumption -- sweep."
+
+# --------------------------------------------------------------------------
+# STANDING HEIGHT LIMITS
+# --------------------------------------------------------------------------
+plateau_height_cm:
+  value: 90
+  range: [60, 120]
+  unit: cm
+  source: none
+  climate_zone: n/a
+  species_assumption: "tall C4 verge grass (Urochloa brizantha, Panicum maximum, Melinis)"
+  confidence: hypothesis
+  notes: >
+    Maximum standing height of an unmown verge before lodging/senescence caps it. No citation
+    found. DNIT triggers mowing at 50 cm, so heights above ~50-60 cm are rare in a MANAGED verge
+    but the generator must be able to exceed 30 cm to be useful. Sweep 60-120 cm.
+
+mowing_trigger_height_cm:
+  value: 50
+  range: [30, 60]
+  unit: cm
+  source: "GOINFRA 'Conservacao - Rocagem Manual e Mecanica' norm; DNIT Faixa de Dominio (rocagem when vegetation reaches 0.50 m)"
+  climate_zone: n/a (Brazilian road maintenance practice)
+  species_assumption: n/a
+  confidence: literature-confirmed
+  notes: >
+    Drives the synthetic rocada schedule: cut a trecho when modelled height would exceed ~50 cm,
+    plus operational scatter (crew availability, batching nearby trechos).
+
+# --------------------------------------------------------------------------
+# DM <-> HEIGHT CONVERSION  (weakest link in the chain)
+# --------------------------------------------------------------------------
+dm_to_height_bulk_density:
+  value: 180
+  range: [100, 260]
+  unit: "kg DM ha^-1 per cm of standing height"
+  source: "Rising Plate Meter calibrations: NZ standard kg DM/ha = 140*CSH + 500; fixed multipliers 250-260 kg/ha/cm (pasture.io Rising Plate Meter Equations; Springer 10.1007/s11119-026-10410-0; Super-G factsheet)"
+  climate_zone: temperate
+  species_assumption: "ryegrass / clover swards (COMPRESSED sward height)"
+  confidence: literature-unconfirmed
+  notes: >
+    THE WEAKEST LINK. All calibrations are temperate dense swards and use COMPRESSED height; a lax
+    stemmy C4 verge has a lower bulk density and standing height ~1.5-2x compressed height (that
+    factor is itself a hypothesis). Needed to turn the Brazilian DM-rate coefficients into a
+    height-growth rate. Sweep widely and treat any single value as provisional.
+
+# --------------------------------------------------------------------------
+# MEASUREMENT / SAMPLING PROCESS (mimics the GreenV automatic reading)
+# --------------------------------------------------------------------------
+measurement_noise_sigma_cm:
+  value: 4
+  range: [2, 8]
+  unit: cm
+  source: "none numeric; qualitative from docs/AUTOMATIC-HEIGHT.md (no reading graded against a tape; h95SpreadM between-view disagreement carried on every packet)"
+  climate_zone: n/a
+  species_assumption: n/a
+  confidence: hypothesis
+  notes: >
+    Per-observation Gaussian noise on the synthetic height. Anchor loosely to the ~15 kg/ha/day
+    RMSE of the Brazilian weekly DM models after unit conversion, and to the fact that the real
+    instrument is unvalidated. Sweep 2-8 cm.
+
+missing_week_probability:
+  value: 0.25
+  range: [0.1, 0.5]
+  unit: "P(no capture in a given trecho-week)"
+  source: none
+  climate_zone: n/a
+  species_assumption: n/a
+  confidence: hypothesis
+  notes: >
+    'Ideal capture once a week' (TASK.md) is an ideal, not a guarantee -- a drive can be skipped,
+    a segment can come back not-ready. Missing weeks are GAPS, never zeros.
+
+not_ready_fraction:
+  value: 0.2
+  range: [0.05, 0.4]
+  unit: "fraction of produced observations carrying operationalStatus=not-ready"
+  source: "docs/AUTOMATIC-HEIGHT.md (every real packet currently carries operationalStatus not-ready; road-metadata-missing blocker on the automatic path)"
+  climate_zone: n/a
+  species_assumption: n/a
+  confidence: literature-confirmed
+  notes: >
+    In the real system TODAY this fraction is effectively 1.0 (all packets not-ready). For the
+    synthetic dataset, model a mix so the pipeline learns to carry the status through; the value
+    here is the share flagged for reasons OTHER than the blanket road-metadata-missing blocker.
+
+# --------------------------------------------------------------------------
+# PER-TRECHO HETEROGENEITY
+# --------------------------------------------------------------------------
+trecho_random_effect_cv:
+  value: 0.25
+  range: [0.15, 0.4]
+  unit: "coefficient of variation of the per-trecho growth-rate multiplier"
+  source: "none numeric; implied by the low Panicum R2 (<0.40) in Tonato et al. 2010 -- climate explains less than half the variance"
+  climate_zone: n/a
+  species_assumption: n/a
+  confidence: hypothesis
+  notes: >
+    Soil depth, aspect, shading, drainage, sward composition differ trecho to trecho. A per-trecho
+    latent multiplier (and its own plateau, its own residual cut height) is what stops a climate
+    model from fitting the synthetic data too easily -- and is realistic.
+
+# --------------------------------------------------------------------------
+# LINEAR REFERENCE (km) -- SYNTHETIC in V1
+# --------------------------------------------------------------------------
+linear_reference:
+  value: "synthetic anchor-point polyline for SP-021 km 0..29.3"
+  range: n/a
+  unit: n/a
+  source: "pattern from apps/web/src/utils/classification.js ROAD_ANCHORS; GreenV has no marco km linear reference in-repo (docs/AUTOMATIC-HEIGHT.md)"
+  climate_zone: n/a
+  species_assumption: n/a
+  confidence: hypothesis
+  notes: >
+    ~59 trechos of 500 m per sentido. The real marco km reference is the unresolved dependency
+    between a measurement and a trecho on the map. Everything derived from km in V1 is SYNTHETIC.

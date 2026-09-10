@@ -1,0 +1,293 @@
+{
+ "provider": "open-meteo",
+ "model": "era5_seamless",
+ "api": "https://archive-api.open-meteo.com/v1/archive",
+ "timezone": "America/Sao_Paulo",
+ "start_date": "2023-01-01",
+ "end_date": "2026-09-01",
+ "daily_variables": [
+  "temperature_2m_min",
+  "temperature_2m_mean",
+  "temperature_2m_max",
+  "precipitation_sum",
+  "rain_sum",
+  "shortwave_radiation_sum",
+  "et0_fao_evapotranspiration",
+  "relative_humidity_2m_mean",
+  "wind_speed_10m_mean"
+ ],
+ "windspeed_unit": "ms",
+ "precipitation_unit": "mm",
+ "retrieved_at": "2026-09-09T04:50:42Z",
+ "license": "CC-BY-4.0 (Open-Meteo; data by Copernicus Climate Change Service / ECMWF ERA5, ERA5-Land)",
+ "attribution": "Weather data by Open-Meteo.com (CC BY 4.0); source: Copernicus / ECMWF ERA5 & ERA5-Land reanalysis",
+ "provenance": "weather_real",
+ "spatial_representation": {
+  "source": "GreenV apps/web ROAD_ANCHORS (approximate); provenance=hypothesis; NOT official",
+  "road_anchors_km_lat_lon": [
+   [
+    0.0,
+    -23.408,
+    -46.729
+   ],
+   [
+    5.0,
+    -23.431,
+    -46.752
+   ],
+   [
+    10.0,
+    -23.46,
+    -46.77
+   ],
+   [
+    15.0,
+    -23.495,
+    -46.785
+   ],
+   [
+    20.0,
+    -23.54,
+    -46.8
+   ],
+   [
+    25.0,
+    -23.585,
+    -46.815
+   ],
+   [
+    29.3,
+    -23.629,
+    -46.83
+   ]
+  ],
+  "sample_step_km": 2.0,
+  "sample_points": [
+   {
+    "km": 0.0,
+    "lat": -23.408,
+    "lon": -46.729
+   },
+   {
+    "km": 2.0,
+    "lat": -23.4172,
+    "lon": -46.7382
+   },
+   {
+    "km": 4.0,
+    "lat": -23.4264,
+    "lon": -46.7474
+   },
+   {
+    "km": 6.0,
+    "lat": -23.4368,
+    "lon": -46.7556
+   },
+   {
+    "km": 8.0,
+    "lat": -23.4484,
+    "lon": -46.7628
+   },
+   {
+    "km": 10.0,
+    "lat": -23.46,
+    "lon": -46.77
+   },
+   {
+    "km": 12.0,
+    "lat": -23.474,
+    "lon": -46.776
+   },
+   {
+    "km": 14.0,
+    "lat": -23.488,
+    "lon": -46.782
+   },
+   {
+    "km": 16.0,
+    "lat": -23.504,
+    "lon": -46.788
+   },
+   {
+    "km": 18.0,
+    "lat": -23.522,
+    "lon": -46.794
+   },
+   {
+    "km": 20.0,
+    "lat": -23.54,
+    "lon": -46.8
+   },
+   {
+    "km": 22.0,
+    "lat": -23.558,
+    "lon": -46.806
+   },
+   {
+    "km": 24.0,
+    "lat": -23.576,
+    "lon": -46.812
+   },
+   {
+    "km": 26.0,
+    "lat": -23.5952,
+    "lon": -46.8185
+   },
+   {
+    "km": 28.0,
+    "lat": -23.6157,
+    "lon": -46.8255
+   },
+   {
+    "km": 29.3,
+    "lat": -23.629,
+    "lon": -46.83
+   }
+  ],
+  "point_to_cell": [
+   {
+    "sample_km": 0.0,
+    "query_lat": -23.408,
+    "query_lon": -46.729,
+    "cell_lat": -23.4,
+    "cell_lon": -46.7
+   },
+   {
+    "sample_km": 2.0,
+    "query_lat": -23.4172,
+    "query_lon": -46.7382,
+    "cell_lat": -23.4,
+    "cell_lon": -46.7
+   },
+   {
+    "sample_km": 4.0,
+    "query_lat": -23.4264,
+    "query_lon": -46.7474,
+    "cell_lat": -23.4,
+    "cell_lon": -46.7
+   },
+   {
+    "sample_km": 6.0,
+    "query_lat": -23.4368,
+    "query_lon": -46.7556,
+    "cell_lat": -23.4,
+    "cell_lon": -46.8
+   },
+   {
+    "sample_km": 8.0,
+    "query_lat": -23.4484,
+    "query_lon": -46.7628,
+    "cell_lat": -23.4,
+    "cell_lon": -46.8
+   },
+   {
+    "sample_km": 10.0,
+    "query_lat": -23.46,
+    "query_lon": -46.77,
+    "cell_lat": -23.5,
+    "cell_lon": -46.8
+   },
+   {
+    "sample_km": 12.0,
+    "query_lat": -23.474,
+    "query_lon": -46.776,
+    "cell_lat": -23.5,
+    "cell_lon": -46.8
+   },
+   {
+    "sample_km": 14.0,
+    "query_lat": -23.488,
+    "query_lon": -46.782,
+    "cell_lat": -23.5,
+    "cell_lon": -46.8
+   },
+   {
+    "sample_km": 16.0,
+    "query_lat": -23.504,
+    "query_lon": -46.788,
+    "cell_lat": -23.5,
+    "cell_lon": -46.8
+   },
+   {
+    "sample_km": 18.0,
+    "query_lat": -23.522,
+    "query_lon": -46.794,
+    "cell_lat": -23.5,
+    "cell_lon": -46.8
+   },
+   {
+    "sample_km": 20.0,
+    "query_lat": -23.54,
+    "query_lon": -46.8,
+    "cell_lat": -23.5,
+    "cell_lon": -46.8
+   },
+   {
+    "sample_km": 22.0,
+    "query_lat": -23.558,
+    "query_lon": -46.806,
+    "cell_lat": -23.6,
+    "cell_lon": -46.8
+   },
+   {
+    "sample_km": 24.0,
+    "query_lat": -23.576,
+    "query_lon": -46.812,
+    "cell_lat": -23.6,
+    "cell_lon": -46.8
+   },
+   {
+    "sample_km": 26.0,
+    "query_lat": -23.5952,
+    "query_lon": -46.8185,
+    "cell_lat": -23.6,
+    "cell_lon": -46.8
+   },
+   {
+    "sample_km": 28.0,
+    "query_lat": -23.6157,
+    "query_lon": -46.8255,
+    "cell_lat": -23.6,
+    "cell_lon": -46.8
+   },
+   {
+    "sample_km": 29.3,
+    "query_lat": -23.629,
+    "query_lon": -46.83,
+    "cell_lat": -23.6,
+    "cell_lon": -46.8
+   }
+  ],
+  "distinct_cells": [
+   {
+    "grid_cell_id": "open-meteo:era5_seamless:-23.4:-46.7",
+    "file": "openmeteo_era5_seamless_-23.4_-46.7_2023-01-01_2026-09-01.json",
+    "cell_lat": -23.4,
+    "cell_lon": -46.7,
+    "elevation_m": 805.0
+   },
+   {
+    "grid_cell_id": "open-meteo:era5_seamless:-23.4:-46.8",
+    "file": "openmeteo_era5_seamless_-23.4_-46.8_2023-01-01_2026-09-01.json",
+    "cell_lat": -23.4,
+    "cell_lon": -46.8,
+    "elevation_m": 793.0
+   },
+   {
+    "grid_cell_id": "open-meteo:era5_seamless:-23.5:-46.8",
+    "file": "openmeteo_era5_seamless_-23.5_-46.8_2023-01-01_2026-09-01.json",
+    "cell_lat": -23.5,
+    "cell_lon": -46.8,
+    "elevation_m": 975.0
+   },
+   {
+    "grid_cell_id": "open-meteo:era5_seamless:-23.6:-46.8",
+    "file": "openmeteo_era5_seamless_-23.6_-46.8_2023-01-01_2026-09-01.json",
+    "cell_lat": -23.6,
+    "cell_lon": -46.8,
+    "elevation_m": 797.0
+   }
+  ],
+  "n_distinct_cells": 4
+ }
+}

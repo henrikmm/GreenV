@@ -1,0 +1,21 @@
+{
+ "note": "complements models/artifacts/manifest.json; recursive and framing-A models are wrappers around existing artifacts and are not re-saved here.",
+ "models": [
+  {
+   "file": "height__ols__keep_plus_candidate.joblib",
+   "feature_set": "keep_plus_candidate"
+  },
+  {
+   "file": "height__lasso__keep_plus_candidate.joblib",
+   "feature_set": "keep_plus_candidate"
+  },
+  {
+   "file": "days_until_30cm__ols__keep_plus_candidate.joblib",
+   "feature_set": "keep_plus_candidate"
+  },
+  {
+   "file": "days_until_30cm__lasso__keep_plus_candidate.joblib",
+   "feature_set": "keep_plus_candidate"
+  }
+ ]
+}

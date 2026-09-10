@@ -1,0 +1,11 @@
+{
+ "model_ready_list_is_clean": true,
+ "all_keep_candidate_columns_present": true,
+ "diagnostic_columns_excluded_from_model_ready": true,
+ "administrative_identity_excluded": true,
+ "cycle_reset_nulls_lag_and_growth": true,
+ "targets_within_horizon": true,
+ "dev_ood_disjoint": true,
+ "temporal_splits_date_disjoint": true,
+ "overall_pass": true
+}

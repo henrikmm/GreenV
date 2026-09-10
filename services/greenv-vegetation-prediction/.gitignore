@@ -1,0 +1,27 @@
+# Large, deterministically regenerable synthetic data.
+# Regenerate with:  python scripts/generate_synthetic.py
+# The small reproducibility records (manifest.json, qc/*.json) and the
+# watermarked figures ARE tracked; only the bulk CSVs are ignored.
+data/synthetic/*/height_observations.csv
+
+# Large, deterministically regenerable feature matrix (Phase 5).
+# Regenerate with:  python scripts/build_features.py && python scripts/eda_features.py
+# leakage_audit.json / build_stats.json / eda_stats.json (small, the actual
+# evidence) ARE tracked; only the bulk feature_row CSVs are ignored.
+data/features/feature_row_dev.csv
+data/features/feature_row_ood_holdout.csv
+
+# Local prototype build artifacts (Phase 0+ territory)
+*.sqlite
+*.sqlite3
+__pycache__/
+*.pyc
+.venv/
+
+# Large, deterministically regenerable model weights (Phase 7/8): the frozen Random Forest
+# artifacts are 13-45 MB each -- over AGENTS.md's 5 MB commit limit. Regenerate with:
+#   python scripts/train_and_evaluate_ml.py            (height__/days_until_30cm__*__keep*)
+# manifest.json / manifest_addendum.json (small, the actual reproducibility record) ARE tracked;
+# every other model artifact here (Ridge/OLS/Lasso/HistGB, all well under 1 MB) IS tracked too --
+# only the four Random Forest files are large enough to need this.
+models/artifacts/*random_forest*.joblib

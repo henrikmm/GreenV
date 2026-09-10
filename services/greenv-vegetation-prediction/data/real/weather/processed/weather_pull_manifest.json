@@ -1,0 +1,36 @@
+{
+ "kind": "weather_pull",
+ "is_synthetic": 0,
+ "created_at": "2026-09-09T04:50:42Z",
+ "provider": "open-meteo",
+ "model": "era5_seamless",
+ "license": "CC-BY-4.0 (Open-Meteo; data by Copernicus Climate Change Service / ECMWF ERA5, ERA5-Land)",
+ "provenance": "weather_real",
+ "date_range": [
+  "2023-01-01",
+  "2026-09-01"
+ ],
+ "n_daily_rows": 5360,
+ "n_distinct_weather_cells": 4,
+ "trechos_per_cell": {
+  "open-meteo:era5_seamless:-23.4:-46.7": 18,
+  "open-meteo:era5_seamless:-23.4:-46.8": 16,
+  "open-meteo:era5_seamless:-23.5:-46.8": 50,
+  "open-meteo:era5_seamless:-23.6:-46.8": 34
+ },
+ "gdd_base_temp_c_ref": 15.0,
+ "gdd_base_temp_c_note": "reference only (Villa Nova et al. 2007); sweep 10-17; NOT the SP-021 base temperature",
+ "spatial_representation_provenance": "hypothesis (GreenV apps/web ROAD_ANCHORS; not official)",
+ "outputs": [
+  "data/real/weather/processed/weather_observation.csv",
+  "data/real/weather/processed/weather_weekly_features.csv",
+  "data/real/weather/processed/trecho_weather_cell.csv",
+  "data/real/weather/qc/qc_report.json"
+ ],
+ "raw_inputs": [
+  "data/real/weather/raw/openmeteo_era5_seamless_-23.4_-46.7_2023-01-01_2026-09-01.json",
+  "data/real/weather/raw/openmeteo_era5_seamless_-23.4_-46.8_2023-01-01_2026-09-01.json",
+  "data/real/weather/raw/openmeteo_era5_seamless_-23.5_-46.8_2023-01-01_2026-09-01.json",
+  "data/real/weather/raw/openmeteo_era5_seamless_-23.6_-46.8_2023-01-01_2026-09-01.json"
+ ]
+}
