@@ -59,6 +59,11 @@ output "measurement_result_queue_name" {
   value       = azurerm_storage_queue.measurement_result.name
 }
 
+output "measurement_result_poison_queue_name" {
+  description = "Measurement announcements the control plane could not record. These cost no GPU time; they are a database or contract problem."
+  value       = azurerm_storage_queue.measurement_result_poison.name
+}
+
 output "measurement_poison_queue_name" {
   description = "Measurement messages that exhausted delivery attempts. Each one cost GPU time."
   value       = azurerm_storage_queue.measurement_poison.name

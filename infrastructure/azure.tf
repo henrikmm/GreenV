@@ -106,6 +106,23 @@ resource "azurerm_storage_queue" "measurement_poison" {
   }
 }
 
+# Where the API puts a measurement announcement it can never read.
+#
+# Worker 2 has a poison queue for the segments it cannot measure; this is the other end of the
+# loop, for results the control plane cannot record. The API defaulted its name to
+# `greenv-segment-measured-poison` and nothing created it, so a message that failed five times
+# could not be moved anywhere: the send failed, the failure was caught and logged as a warning,
+# and the message reappeared for ever. Nothing was lost and nothing cost GPU time, but that queue
+# would never have drained.
+resource "azurerm_storage_queue" "measurement_result_poison" {
+  name               = local.measurement_result_poison_queue_name
+  storage_account_id = azurerm_storage_account.queue.id
+
+  metadata = {
+    purpose = "unrecordable-measurement-inspection"
+  }
+}
+
 resource "azurerm_user_assigned_identity" "api" {
   name                = "id-${local.name_prefix}-api"
   location            = azurerm_resource_group.this.location
@@ -188,6 +205,16 @@ resource "azurerm_role_assignment" "measurement_result_sender" {
 resource "azurerm_role_assignment" "api_measurement_result_processor" {
   scope                            = local.measurement_result_queue_scope
   role_definition_name             = "Storage Queue Data Message Processor"
+  principal_id                     = azurerm_user_assigned_identity.api.principal_id
+  principal_type                   = "ServicePrincipal"
+  skip_service_principal_aad_check = true
+}
+
+# Message Processor on the measured queue lets the API receive and delete, never add, so moving an
+# exhausted announcement needs this second, narrower grant on the destination alone.
+resource "azurerm_role_assignment" "api_measurement_result_poison_sender" {
+  scope                            = local.measurement_result_poison_queue_scope
+  role_definition_name             = "Storage Queue Data Message Sender"
   principal_id                     = azurerm_user_assigned_identity.api.principal_id
   principal_type                   = "ServicePrincipal"
   skip_service_principal_aad_check = true

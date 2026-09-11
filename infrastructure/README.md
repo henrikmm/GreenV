@@ -100,9 +100,9 @@ schemes.
   workspace;
 - three Container Apps: the API with public ingress, the frame extractor and the measurement
   worker with none, all at minimum replicas 0;
-- one LRS StorageV2 account holding **five queues**: `greenv-segment-extract-v2` and its poison
-  queue, `greenv-segment-measure-v1`, `greenv-segment-measured-v1` and
-  `greenv-segment-measure-poison`;
+- one LRS StorageV2 account holding **six queues**: `greenv-segment-extract-v2` and its poison
+  queue, `greenv-segment-measure-v1`, `greenv-segment-measured-v1`, and a poison queue for each
+  of those last two;
 - three user-assigned managed identities with least-purpose queue roles. The API may send on the
   account and *process* the measured queue; the extractor is Queue Data Contributor on the
   account; the measurement identity gets three roles scoped to **one queue each**, so a worker
@@ -249,6 +249,7 @@ that name; do not rename the other side.
 | `SPRING_FLYWAY_URL`, `SPRING_FLYWAY_USER`, `SPRING_FLYWAY_PASSWORD` | Neon **direct** host | migrations do not go through the pooler |
 | `SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE` | `5` | — |
 | `GREENV_AZURE_MEASURED_QUEUE_NAME` | `greenv-segment-measured-v1` | set unconditionally. Empty here leaves the API deaf to measurements: no listener is created, the queue fills and nothing reads it |
+| `GREENV_AZURE_MEASURED_POISON_QUEUE_NAME` | `greenv-segment-measured-poison` | named explicitly, because the API's own default pointed at a queue this stack never created |
 | `GREENV_RABBITMQ_DYNAMIC` | `false` | — |
 
 `GREENV_JWT_EPHEMERAL_KEY` is deliberately absent, and `tests/mvp.tftest.hcl` asserts its
@@ -288,9 +289,14 @@ absence. A deployment must never fall back to a signing key that dies with the p
 | `GREENV_INFER_RUNPOD_ENDPOINT_ID` | set only for `runpod` | the endpoint id, not a URL |
 | `GREENV_INFER_TOKEN` | secret, either adapter | a Bearer header for FastAPI, an API key for RunPod. One credential, one thing to rotate |
 | `GREENV_INFER_MAX_FRAMES` | `depth_max_frames`, default 112 | a second fence behind the extractor's own cap |
+| `GREENV_MEASUREMENT_MAX_ATTEMPTS` | `2` | deliveries before a segment is poisoned. Two, where extraction gets five, because a retry here wakes the GPU again for the same segment |
+| `GREENV_MEASUREMENT_VISIBILITY_SECONDS` | `measurement_queue_visibility_timeout_seconds`, default 1800 | the lease, matching the worker's own assessment timeout |
 
-Four settings on this container are set by Terraform and never read. See *Known gaps* before
-relying on any of them.
+The last two carried the Java spellings until 11 September 2026 —
+`GREENV_AZURE_QUEUE_MAX_DEQUEUE_COUNT` and `GREENV_QUEUE_VISIBILITY_SECONDS` — which this
+container has no reader for. The attempt limit therefore fell back to its own default of three,
+and four segments became twelve RunPod jobs on 10 September while the depth endpoint could not
+start a worker.
 
 ### The depth endpoint's own environment
 
@@ -752,35 +758,32 @@ deleting one is an operational decision, not something Terraform does.
 
 ## Known gaps
 
-Recorded here because each one is silent, and because a reader who does not know about them will
-change a setting and see nothing happen.
-
-- **Four settings on the measurement worker are set by Terraform and never read.** The Node
-  worker reads `GREENV_MEASUREMENT_VISIBILITY_SECONDS` (default 1,800 s) and
-  `GREENV_MEASUREMENT_MAX_ATTEMPTS` (default 3). Terraform sets
-  `GREENV_QUEUE_VISIBILITY_SECONDS` and `GREENV_AZURE_QUEUE_MAX_DEQUEUE_COUNT` instead, plus
-  `GREENV_AZURE_QUEUE_MAX_MESSAGES` and `GREENV_MEASUREMENT_QUEUE`, which the worker hardcodes or
-  does not need. Two consequences today: changing
-  `measurement_queue_visibility_timeout_seconds` has no effect on the worker, and a retryable
-  failure gets **three** deliveries rather than the two `locals.tf` intends, which is three
-  billed GPU attempts at a segment that may never succeed. The lease is correct only because both
-  defaults happen to be 1,800 seconds.
 - **Every endpoint setting in `runpod.tf` is inert while `depth_service_endpoint_id` is set.**
   `depth_gpu_type_ids`, `depth_idle_timeout_seconds`, the worker counts, the execution timeout and
   Flashboot are attributes of `runpod_endpoint.depth`, whose `count` is 0. The endpoint that
   actually answers was created by hand, so its GPU, its idle timeout and its container disk are
   whatever the console form said, and they can differ from what this configuration declares.
-  Check them in the console, not here. This matters most for the card: the handler's frame
-  ceilings were measured on an L4, and it refuses any device reporting less VRAM than that rather
-  than being killed mid-run.
-- **The API's measured poison queue does not exist.** The API defaults
-  `GREENV_AZURE_MEASURED_POISON_QUEUE_NAME` to `greenv-segment-measured-poison`, Terraform
-  creates no queue by that name, `GREENV_AZURE_QUEUE_CREATE` is `false`, and the API's identity
-  holds Message Processor on the measured queue, which cannot send. So a measured announcement
-  that fails five times cannot be moved anywhere: the send fails, the failure is caught and
-  logged as a warning, and the message keeps reappearing. Nothing is lost and nothing costs GPU
-  time, but that queue never drains. Fixing it is one queue, one role assignment and one
-  variable.
+  Read them from the RunPod API rather than from here:
+
+  ```bash
+  curl -s -H "Authorization: Bearer $TF_VAR_depth_service_token" \
+    https://rest.runpod.io/v1/endpoints/<endpoint id>
+  ```
+
+  On 10 September 2026 that endpoint declared `gpuTypeIds: ["NVIDIA L4"]` and the worker RunPod
+  supplied showed in the console as a `PRO 6000 MIG 24GB`. The handler's frame ceilings were
+  measured on an L4 and it refuses a device reporting less, so every job it received was refused
+  before inference.
+
+- **`GREENV_INFER_TIMEOUT_MS` is not a variable.** The worker gives a depth job fifteen minutes
+  end to end, and a job that spends them queued is retried with a *new* job. An endpoint that
+  cannot get capacity therefore accumulates work rather than failing fast: four segments became
+  twelve queued jobs that way. The attempt limit above now caps it at eight, but the deadline
+  itself is still the worker's built-in default.
+
+Two gaps recorded here on 10 September were fixed on the 11th: the measurement worker's attempt
+limit and lease are now set under the names it reads, and the queue the API moves an unrecordable
+announcement to now exists, with the grant that lets it write there.
 
 ## Authentication inputs
 
