@@ -255,12 +255,17 @@ run "plans_cost_conscious_mvp_defaults" {
   }
 
   # A lease that expires mid-run redelivers the message and pays for the same segment's GPU twice.
+  #
+  # Under the names the Node worker actually reads. The Java spellings were set here until
+  # 11 September 2026 and had no reader on this container at all, so the attempt limit fell back
+  # to its own default of three: four segments became twelve RunPod jobs the day before, while
+  # the endpoint could not start a worker.
   assert {
     condition = (
-      local.measurement_environment.GREENV_QUEUE_VISIBILITY_SECONDS == "1800" &&
-      local.measurement_environment.GREENV_AZURE_QUEUE_MAX_DEQUEUE_COUNT == "2"
+      local.measurement_environment.GREENV_MEASUREMENT_VISIBILITY_SECONDS == "1800" &&
+      local.measurement_environment.GREENV_MEASUREMENT_MAX_ATTEMPTS == "2"
     )
-    error_message = "A measurement lease must outlive the slowest run, and a doomed message must not be retried five times at GPU prices."
+    error_message = "A measurement lease must outlive the slowest run, and a doomed message must not be retried at GPU prices under a name the worker never reads."
   }
 
   # The shared map names the extraction queue, so the override is the thing that keeps this worker
@@ -274,6 +279,24 @@ run "plans_cost_conscious_mvp_defaults" {
       local.measurement_environment.GREENV_S3_BUCKET == local.common_environment.GREENV_S3_BUCKET
     )
     error_message = "The measurement worker must address its own three queues and the same bucket the extractor wrote the frames to."
+  }
+
+  # The API defaults this name to greenv-segment-measured-poison and nothing created it, so an
+  # announcement it could never read had nowhere to go: the send failed, was caught and logged,
+  # and the message reappeared for ever. Message Processor cannot add, hence the second grant.
+  assert {
+    condition = (
+      local.api_environment.GREENV_AZURE_MEASURED_POISON_QUEUE_NAME == azurerm_storage_queue.measurement_result_poison.name &&
+      azurerm_role_assignment.api_measurement_result_poison_sender.role_definition_name == "Storage Queue Data Message Sender"
+    )
+    error_message = "The API must be able to move an unrecordable measurement announcement to a queue that exists."
+  }
+
+  # The zone's firewall is left alone unless its ruleset id is named, because adopting it means
+  # owning rules that belong to other subdomains.
+  assert {
+    condition     = length(cloudflare_ruleset.zone_firewall) == 0
+    error_message = "A deployment that has not named a ruleset id must not manage the zone's firewall."
   }
 
   # False by default. Turning it on makes every capture wake a paid GPU, which AGENTS.md wants
@@ -302,7 +325,8 @@ run "plans_cost_conscious_mvp_defaults" {
       azurerm_storage_queue.measurement.name,
       azurerm_storage_queue.measurement_result.name,
       azurerm_storage_queue.measurement_poison.name,
-    ])) == 5
+      azurerm_storage_queue.measurement_result_poison.name,
+    ])) == 6
     error_message = "Every queue in the account must be distinct; sharing one would run the wrong stage on a redelivery."
   }
 

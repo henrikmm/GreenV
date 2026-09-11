@@ -22,11 +22,11 @@ got to.
 | `services/greenv-video-api/` | Capture sessions, jobs, storage keys — the control plane | Spring Boot, Java 21, Gradle |
 | `services/greenv-frame-extractor/` | Worker 1: samples frames, attaches GNSS, cuts road stretches | Spring Boot, Java 21, ffmpeg |
 | `services/greenv-measurement-worker/` | Worker 2: reconstructs, segments and measures a segment. Calls `measurement/` as a process — see [docs/AUTOMATIC-HEIGHT.md](docs/AUTOMATIC-HEIGHT.md) | Node 22 |
-| `services/greenv-depth-runpod/` | The depth stage as a RunPod serverless job, wrapping `measurement/server/`. **Never deployed** — the depth service that has actually run is on Google Cloud Run | Python 3.12, Docker |
+| `services/greenv-depth-runpod/` | The depth stage as a RunPod serverless job, wrapping `measurement/server/`. Deployed 11 Sep 2026 as the endpoint `greenv-mvp-depth` and has measured four segments; the earlier runs on record are Google Cloud Run. **It bills — read the spend rule below** | Python 3.12, Docker |
 | `services/capture-smoke/` | One end-to-end check of the compose stack | Shell, Docker |
 | `infrastructure/` | Scale-to-zero MVP cloud resources and R2 state bootstrap | Terraform |
 | `measurement/` | Verge Studio: metric height from video. **A git subtree — read the rule below** | TypeScript, Python, its own agreement |
-| `compose.yaml` | The local stack: PostgreSQL, RabbitMQ, the API, worker 1 | Docker Compose |
+| `compose.yaml` | The local stack: PostgreSQL, RabbitMQ, the API, worker 1, worker 2 | Docker Compose |
 
 ## Commands
 
@@ -115,6 +115,22 @@ several minutes of startup and an idle period afterwards included.
   one startup; four sessions cost four.
 
 Checking costs nothing and wakes nothing.
+
+## Deploying
+
+The cloud stack is Terraform in `infrastructure/`, and
+[`infrastructure/README.md`](infrastructure/README.md) is the whole record: what it creates, what
+it deliberately does not, every environment variable each service reads, and which hop carries
+what. Two rules from it are worth carrying here, because both have already cost days:
+
+- **A service reads its settings under names of its own. Add a name; never rename the other
+  side.** The frame extractor and the measurement worker each failed to activate, a revision
+  apart, because Terraform set one spelling of a queue name and the code read another. Container
+  Apps keeps serving the previous revision when a new one fails, so the deployment looks healthy
+  and runs yesterday's image.
+- **`deployment_revision` changes on every deploy.** A revision suffix is immutable, and Container
+  Apps never re-attempts a revision it has marked `ActivationFailed`. Applying the same suffix
+  after a fix deploys nothing and reports no changes.
 
 ## Git
 

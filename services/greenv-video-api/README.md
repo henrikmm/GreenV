@@ -502,8 +502,9 @@ Azure Queue Storage and Azure Service Bus queues. They are selected with the thr
 opaque object keys and never a `file:`, `s3:` or provider URL. Do not put signed URLs in the queue
 because they can expire while a message is waiting or retrying.
 
-Before a broader internet pilot, replace the shared Bearer token with authenticated device/user
-identity, authorization per session and short-lived credentials; add rate limits, observability
+The identity provider above now issues short-lived RS256 tokens, but the capture pipeline still
+runs on the shared Bearer token. Before a broader internet pilot, move the capture routes onto
+authenticated device identity with authorization per session, and add rate limits, observability
 and retention cleanup. TLS is already mandatory in the Terraform deployment. A production object adapter should issue
 presigned upload URLs where appropriate while retaining opaque keys in persisted state. Ephemeral
 worker disk is an FFmpeg workspace, not durable storage.

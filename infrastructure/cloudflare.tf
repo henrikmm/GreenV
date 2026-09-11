@@ -127,8 +127,98 @@ resource "cloudflare_ruleset" "api_cache_bypass" {
   }]
 }
 
+# The zone's own firewall, adopted rather than replaced.
+#
+# matomomitsu.com already had an entry-point ruleset in this phase, and Cloudflare allows exactly
+# one per zone phase, so `api_waf` below can never be created while it exists. Its last rule
+# blocks every path, with earlier rules skipping `/api` and `/demo`. That was invisible while the
+# API record was DNS-only, because no request reached Cloudflare at all; the moment the record
+# was proxied on 11 September 2026 the API answered 403 on every route.
+#
+# So this resource owns that ruleset, including the two rules that belong to other subdomains,
+# and inserts one skip for the API's own routes ahead of the blanket block. Order is the whole
+# behaviour here: a skip after the block would never be reached.
+#
+# Import it before the first apply, or Cloudflare refuses the create:
+#   terraform import 'cloudflare_ruleset.zone_firewall[0]' zones/<zone id>/<ruleset id>
+resource "cloudflare_ruleset" "zone_firewall" {
+  count = var.cloudflare_zone_firewall_ruleset_id == null ? 0 : 1
+
+  zone_id = var.cloudflare_zone_id
+  name    = "default"
+  kind    = "zone"
+  phase   = "http_request_firewall_custom"
+
+  # Deleting this would leave the zone with no custom firewall at all, and the rules that go with
+  # it belong to subdomains this stack does not own. Setting the variable back to null has to be
+  # a deliberate `terraform state rm`, not a side effect of an apply or a destroy.
+  lifecycle {
+    prevent_destroy = true
+  }
+
+  rules = [
+    {
+      # Pre-existing, reproduced exactly. `ruleset = "current"` means "stop evaluating this
+      # ruleset", which is what makes the blanket block at the end skippable at all.
+      action      = "skip"
+      expression  = "(http.request.uri.path wildcard r\"/api\") or (http.request.uri.path wildcard r\"/api/*\")"
+      description = "Api Rule"
+      enabled     = true
+
+      action_parameters = {
+        ruleset = "current"
+      }
+
+      logging = {
+        enabled = true
+      }
+    },
+    {
+      # Pre-existing, reproduced exactly.
+      action      = "skip"
+      expression  = "(http.request.uri.path wildcard r\"/demo\") or (http.request.uri.path wildcard r\"/demo/*\")"
+      description = "Demo Rule"
+      enabled     = true
+
+      action_parameters = {
+        ruleset = "current"
+      }
+
+      logging = {
+        enabled = true
+      }
+    },
+    {
+      # Ours, and it must sit here: after the two skips that predate it, before the block that
+      # would otherwise swallow every GreenV route. Scoped to the API hostname, so nothing about
+      # the other subdomains changes.
+      action      = "skip"
+      expression  = "(${local.api_host_expression}) and (${local.api_public_path_expression})"
+      description = "GreenV API routes"
+      enabled     = true
+
+      action_parameters = {
+        ruleset = "current"
+      }
+
+      logging = {
+        enabled = true
+      }
+    },
+    {
+      # Pre-existing, reproduced exactly, and deliberately last.
+      action      = "block"
+      expression  = "(http.request.uri.path wildcard r\"/*\")"
+      description = "General Rule"
+      enabled     = true
+    },
+  ]
+}
+
+# Only reachable on a zone whose firewall phase is still empty. Where `zone_firewall` above is in
+# use, this one would be the second entry point in the same phase and Cloudflare rejects it.
 resource "cloudflare_ruleset" "api_waf" {
-  count = var.cloudflare_proxy_enabled && var.cloudflare_api_waf_enabled ? 1 : 0
+  count = var.cloudflare_proxy_enabled && var.cloudflare_api_waf_enabled && var.cloudflare_zone_firewall_ruleset_id == null ? 1 : 0
 
   zone_id     = var.cloudflare_zone_id
   name        = "greenv-api-firewall"

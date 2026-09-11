@@ -52,7 +52,7 @@ export async function start(config = loadConfig()) {
     queue: config.queue.enabled
       ? (config.queue.adapter === "azure-queue" ? config.queue.azure.queue : config.queue.queue)
       : "disabled",
-    depth: config.infer.baseUrl,
+    depth: config.infer.target,
     classes: config.measurement.classes,
   });
 

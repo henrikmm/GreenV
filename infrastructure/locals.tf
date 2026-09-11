@@ -41,18 +41,37 @@ locals {
   measurement_result_queue_name = "greenv-segment-measured-v1"
   measurement_poison_queue_name = "greenv-segment-measure-poison"
 
+  # The API's own default for GREENV_AZURE_MEASURED_POISON_QUEUE_NAME, spelled here so the queue
+  # exists rather than being named at a queue nobody created.
+  measurement_result_poison_queue_name = "greenv-segment-measured-poison"
+
   # RBAC scopes for the measurement identity's three queue roles, one queue each. See the comment
   # above those assignments in azure.tf for why they are narrower than the account-scoped pair
   # beside them, and why the scope is composed here rather than read off the queue resource.
-  measurement_queue_scope        = "${azurerm_storage_account.queue.id}/queueServices/default/queues/${azurerm_storage_queue.measurement.name}"
-  measurement_result_queue_scope = "${azurerm_storage_account.queue.id}/queueServices/default/queues/${azurerm_storage_queue.measurement_result.name}"
-  measurement_poison_queue_scope = "${azurerm_storage_account.queue.id}/queueServices/default/queues/${azurerm_storage_queue.measurement_poison.name}"
+  measurement_queue_scope               = "${azurerm_storage_account.queue.id}/queueServices/default/queues/${azurerm_storage_queue.measurement.name}"
+  measurement_result_queue_scope        = "${azurerm_storage_account.queue.id}/queueServices/default/queues/${azurerm_storage_queue.measurement_result.name}"
+  measurement_poison_queue_scope        = "${azurerm_storage_account.queue.id}/queueServices/default/queues/${azurerm_storage_queue.measurement_poison.name}"
+  measurement_result_poison_queue_scope = "${azurerm_storage_account.queue.id}/queueServices/default/queues/${azurerm_storage_queue.measurement_result_poison.name}"
 
   # Every edge rule is scoped to this one hostname. The zone holds unrelated subdomains and a
   # zone-wide rule would reach all of them.
   api_host_expression = var.api_hostname == null ? "" : "http.host eq \"${var.api_hostname}\""
 
   api_certificate_name = var.api_hostname == null ? "" : "mc-${replace(var.api_hostname, ".", "-")}"
+
+  # The routes that must survive the zone's blanket block. `/v1` and `/v2` are the capture and
+  # control-plane APIs; the other two are here because leaving them out breaks things that are
+  # easy to forget. Without `/.well-known/*` no client can fetch the JWKS and therefore no access
+  # token can be verified, and without `/actuator/health` the one route that is deliberately
+  # public stops answering, which is also the route every runbook checks first.
+  api_public_path_expression = join(" or ", [
+    "http.request.uri.path wildcard r\"/v1\"",
+    "http.request.uri.path wildcard r\"/v1/*\"",
+    "http.request.uri.path wildcard r\"/v2\"",
+    "http.request.uri.path wildcard r\"/v2/*\"",
+    "http.request.uri.path wildcard r\"/actuator/health\"",
+    "http.request.uri.path wildcard r\"/.well-known/*\"",
+  ])
 
   # The one step Azure requires that the provider cannot express. Kept here rather than inline in
   # the provisioner so it is readable and can be asserted on.
@@ -136,6 +155,10 @@ locals {
     # empty queue costs a poll and a disabled one would need a second apply to switch on.
     GREENV_AZURE_MEASURED_QUEUE_NAME = local.measurement_result_queue_name
 
+    # Named explicitly rather than left to the API's default, because the default pointed at a
+    # queue this stack never created and GREENV_AZURE_QUEUE_CREATE is false.
+    GREENV_AZURE_MEASURED_POISON_QUEUE_NAME = azurerm_storage_queue.measurement_result_poison.name
+
     GREENV_ALLOWED_ORIGINS = join(",", var.api_allowed_origins)
 
     # Every token is signed for and validated against this issuer, so it is what answers "did our
@@ -203,6 +226,16 @@ locals {
     GREENV_AZURE_QUEUE_NAME        = azurerm_storage_queue.measurement.name
     GREENV_AZURE_POISON_QUEUE_NAME = azurerm_storage_queue.measurement_poison.name
 
+    # The three names this worker actually reads. The two above are the Java spelling, which the
+    # Node worker does not look at: it refuses to start without these and did, from the moment the
+    # revision was created until 10 September 2026, while four announcements sat unread in the
+    # queue with dequeueCount 0. Two spellings for one queue is how two services end up talking
+    # past each other, and this is the second time it cost a day - the extractor lost one to the
+    # same divergence a revision earlier.
+    GREENV_AZURE_MEASUREMENT_QUEUE_NAME        = azurerm_storage_queue.measurement.name
+    GREENV_AZURE_MEASURED_QUEUE_NAME           = azurerm_storage_queue.measurement_result.name
+    GREENV_AZURE_MEASUREMENT_POISON_QUEUE_NAME = azurerm_storage_queue.measurement_poison.name
+
     GREENV_MEASUREMENT_QUEUE_ENABLED = "true"
     GREENV_MEASUREMENT_QUEUE         = azurerm_storage_queue.measurement.name
 
@@ -212,15 +245,21 @@ locals {
     # two services end up talking past each other.
     GREENV_MEASUREMENT_RESULT_ROUTING_KEY = azurerm_storage_queue.measurement_result.name
 
-    GREENV_AZURE_QUEUE_MAX_MESSAGES = "1"
-
     # Two attempts, where extraction gets five. A retry there costs CPU; a retry here wakes the
     # GPU again for the same segment, so five attempts at a message that can never succeed is
     # five machine lifetimes billed. One retry covers a transient depth-service failure; the
     # second failure belongs in the poison queue where a person can look at it.
-    GREENV_AZURE_QUEUE_MAX_DEQUEUE_COUNT = "2"
+    #
+    # GREENV_MEASUREMENT_MAX_ATTEMPTS, not GREENV_AZURE_QUEUE_MAX_DEQUEUE_COUNT: this container
+    # runs the Node worker and nothing else, and the Java spelling set here before had no reader
+    # at all. It defaulted to three instead, which is why four segments became twelve RunPod jobs
+    # on 10 September 2026 while the endpoint could not start a worker.
+    GREENV_MEASUREMENT_MAX_ATTEMPTS = "2"
 
-    GREENV_QUEUE_VISIBILITY_SECONDS = tostring(var.measurement_queue_visibility_timeout_seconds)
+    # Same correction, same reason: the worker reads this name and never read
+    # GREENV_QUEUE_VISIBILITY_SECONDS, so the variable below did nothing to the deployed lease.
+    # It matched only because both defaults happen to be 1800 seconds.
+    GREENV_MEASUREMENT_VISIBILITY_SECONDS = tostring(var.measurement_queue_visibility_timeout_seconds)
 
     # Queues are infrastructure; this file declares them and the worker must not.
     GREENV_RABBITMQ_DYNAMIC = "false"

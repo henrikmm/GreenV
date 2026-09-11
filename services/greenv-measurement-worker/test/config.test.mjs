@@ -17,6 +17,22 @@ test("the class policy is explicit and overridable", () => {
   assert.equal(loadConfig({ GREENV_MEASUREMENT_CLASSES: "terrain" }).measurement.classes, "terrain");
 });
 
+// Written into every stored packet as `depth.service`, so a wrong value is not a cosmetic slip:
+// it is a provenance record naming a service that never ran the job.
+test("the depth target names the service the run actually reached", () => {
+  assert.equal(loadConfig({}).infer.target, "http://127.0.0.1:5173/api");
+
+  const runpod = loadConfig({
+    GREENV_INFER_ADAPTER: "runpod",
+    GREENV_INFER_RUNPOD_ENDPOINT_ID: "2q5q0j3e9ug08q",
+    GREENV_INFER_TOKEN: "token",
+    GREENV_OBJECT_STORAGE_ADAPTER: "s3",
+    GREENV_S3_BUCKET: "greenv-mvp-captures",
+  });
+  assert.equal(runpod.infer.target, "runpod:2q5q0j3e9ug08q");
+  assert.notEqual(runpod.infer.target, runpod.infer.baseUrl, "the fixture mock is never the answer here");
+});
+
 test("a misconfigured deployment fails at startup rather than at the first message", () => {
   assert.throws(() => loadConfig({ GREENV_OBJECT_STORAGE_ADAPTER: "gcs" }), /must be "local" or "s3"/);
   assert.throws(() => loadConfig({ GREENV_OBJECT_STORAGE_ADAPTER: "s3" }), /GREENV_S3_BUCKET is required/);

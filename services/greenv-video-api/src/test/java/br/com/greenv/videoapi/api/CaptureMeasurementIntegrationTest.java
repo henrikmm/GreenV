@@ -102,6 +102,44 @@ class CaptureMeasurementIntegrationTest {
                 .isEqualTo(CaptureObjectKeys.measurement(sessionId, 0));
     }
 
+    /**
+     * How a client learns a measurement exists without asking for it.
+     *
+     * <p>The segment document used to end at {@code state: "ready"}, which is the same value
+     * before and after worker 2 runs. A reader had to call the measurement route and read a 409
+     * to find out, which is a probe rather than an answer, and no dashboard could list what had
+     * been measured without one request per segment.
+     */
+    @Test
+    void theSegmentItselfSaysWhetherItHasBeenMeasured() throws Exception {
+        UUID sessionId = givenASegment();
+
+        assertThat(getSegment(sessionId).body())
+                .as("before a measurement every measurement field is null, and the link is absent")
+                .contains("\"measurementState\":null")
+                .contains("\"measurementUrl\":null")
+                .contains("\"measurementIsMock\":null");
+
+        objectStorage.put(
+                CaptureObjectKeys.measurement(sessionId, 0),
+                new ByteArrayInputStream(PACKET.getBytes(StandardCharsets.UTF_8)),
+                sha256(PACKET),
+                1024);
+        captureSessionUseCase.recordMeasurement(new SegmentMeasurementAnnouncement(
+                sessionId, 0, "20260908-000000-abcdef", true, Instant.parse("2026-09-08T03:00:00Z")));
+
+        String body = getSegment(sessionId).body();
+        assertThat(body)
+                .contains("\"measurementState\":\"measured\"")
+                .contains("\"measurementRunId\":\"20260908-000000-abcdef\"")
+                .contains("\"measuredAt\":\"2026-09-08T03:00:00Z\"")
+                .as("a packet built on the fixture mock must say so here, not only inside itself")
+                .contains("\"measurementIsMock\":true");
+        assertThat(body)
+                .as("the link is built the way manifestUrl is, so a client never composes a key")
+                .contains("/v2/capture-sessions/" + sessionId + "/segments/0/measurement");
+    }
+
     @Test
     void ignoresAnAnnouncementForASegmentThisDeploymentNeverSaw() {
         // A replayed queue, or a database that was reset under a running worker. Inventing a row
@@ -126,6 +164,16 @@ class CaptureMeasurementIntegrationTest {
         return HttpClient.newHttpClient().send(
                 HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port
                                 + "/v2/capture-sessions/" + sessionId + "/segments/0/measurement"))
+                        .header("authorization", "Bearer " + TEST_API_TOKEN)
+                        .GET()
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+    }
+
+    private HttpResponse<String> getSegment(UUID sessionId) throws Exception {
+        return HttpClient.newHttpClient().send(
+                HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port
+                                + "/v2/capture-sessions/" + sessionId + "/segments/0"))
                         .header("authorization", "Bearer " + TEST_API_TOKEN)
                         .GET()
                         .build(),

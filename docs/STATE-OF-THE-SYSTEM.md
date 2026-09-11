@@ -5,8 +5,14 @@ have never executed, and where the documentation has drifted away from the code.
 document in this repository describes one part correctly and is silent about the others; this one
 is deliberately about the seams between them.
 
-Written 10 September 2026 against commit `321ca57`. Anything below that names a file, a default
-or a number was checked against the code on that day, not recalled.
+Written 10 September 2026 against commit `321ca57` and revised 11 September against `da7cc02`.
+Anything below that names a file, a default or a number was checked against the code or against
+the running deployment, not recalled.
+
+**What changed on 11 September**, because it falsified the largest claims this file made a day
+earlier: the Terraform was applied, the Azure stack is running, the RunPod depth image was built
+and deployed, and four segments were measured end to end on a real GPU. The rows and the gap list
+below carry the corrected status.
 
 ## The one-paragraph version
 
@@ -22,42 +28,46 @@ evidence to look at, not instructions to send a crew.
 | Stage | Built | Tested | Ever run in the cloud |
 |---|---|---|---|
 | `apps/mobile` capture client | yes | `flutter test`, `flutter analyze` | n/a — it is the client. Android and web run; an iOS build needs Xcode on macOS |
-| `greenv-video-api` | yes | `./gradlew check` | no |
-| `greenv-frame-extractor` (worker 1) | yes | `./gradlew check`, incl. real ffmpeg | no |
-| `greenv-measurement-worker` (worker 2) | yes | `npm test` | no |
-| depth on **Google Cloud Run GPU** | yes | — | **yes — the only thing ever deployed** |
-| depth on **RunPod** | yes | `python test_handler.py`, no GPU | **never. Image never built, endpoint never woken** |
-| `apps/web` dashboard | yes | `npm run build` | n/a — mock data only |
-| `infrastructure/` Terraform (Azure + Neon + R2) | yes | `terraform test`, mocked | **never applied. No state file exists** |
+| `greenv-video-api` | yes | `./gradlew check`, 76 tests | yes — `ca-greenv-mvp-api`, behind Cloudflare |
+| `greenv-frame-extractor` (worker 1) | yes | `./gradlew check`, incl. real ffmpeg | yes — `ca-greenv-mvp-worker` |
+| `greenv-measurement-worker` (worker 2) | yes | `npm test`, 52 tests | yes — `ca-greenv-mvp-measure` |
+| depth on **Google Cloud Run GPU** | yes | — | yes, historically: the eight earliest runs and every VRAM ceiling |
+| depth on **RunPod** | yes | `python test_handler.py`, no GPU | **yes, since 11 Sep 2026** — endpoint `greenv-mvp-depth`, four segments measured |
+| `apps/web` dashboard | yes | `npm run build` | n/a — mock data only, no API client |
+| `infrastructure/` Terraform (Azure + Neon + R2) | yes | `terraform test`, 16 mocked | yes — applied; state in the R2 backend |
 
-Two entries in that table are the ones people get wrong:
+Two entries in that table changed on 11 September and are the ones people still get wrong:
 
-- **Cloud Run is what has actually run.** Every VRAM ceiling and all eight recorded depth runs went
-  through the `verge-lab` Cloud Run GPU service. `measurement/scripts/deploy.sh` is what stands it
-  up (`gcloud run deploy verge-da3`), and it is the only deployment script in the repository that
-  has ever been executed against a cloud.
-- **RunPod is the intended replacement and has never executed.** `services/greenv-depth-runpod/`
-  is complete — handler, Dockerfile, Terraform, a shared contract example both sides test against
-  — and its own README says plainly that the image has never been built. Both paths are live in
-  the configuration today: `GREENV_INFER_ADAPTER` selects `http` (Cloud Run) or `runpod`.
+- **Cloud Run is where the evidence came from.** Every VRAM ceiling and all eight of the earliest
+  recorded depth runs went through the `verge-lab` Cloud Run GPU service, stood up by
+  `measurement/scripts/deploy.sh`. Those numbers have never been re-measured anywhere else, so a
+  ceiling quoted today is still a Cloud Run measurement.
+- **RunPod is what the deployed stack actually calls.** `GREENV_INFER_ADAPTER=runpod` points at
+  endpoint `greenv-mvp-depth`, which measured four segments on 11 September at 3.4 to 24.8
+  GPU-seconds each. Its first day cost about five hours of a stalled image pull and twelve jobs
+  that expired queued; `services/greenv-depth-runpod/README.md` records what happened and how to
+  tell a slow pull from a dead one.
 
-Nothing in this repository has yet said which of those two is the one to keep. That decision is
-the first item in the gap list below.
+Both paths are still live in the configuration, and nothing has retired Cloud Run. That is the
+first item in the gap list below.
 
 ## The gaps, worst first
 
 Ranked by how much each one costs the project, not by how hard it is to fix.
 
-### 1. Two depth deployments, no decision between them
+### 1. Two depth deployments, and the numbers belong to the one not in use
 
-Cloud Run has the runs and the measurements; RunPod has the newer code, the Terraform and nobody's
-observation. Keeping both means every cost figure, every VRAM ceiling and every timeout in the
-documentation has to say which platform it came from — and today most of them do not say. The
-ceiling table in `services/greenv-depth-runpod/README.md` is honest about this: it was measured on
-Cloud Run's L4 and has never been checked on RunPod's.
+RunPod is what the stack calls today. Cloud Run is where every VRAM ceiling, cost figure and
+timeout in this repository was measured, and none of them has been re-measured on RunPod. So the
+handler enforces a frame ceiling derived from an L4 while running on whatever card RunPod
+allocates — on 11 September that was a `PRO 6000 MIG 24GB` partition, not the L4 the endpoint
+asks for.
 
-Cost of leaving it: the first RunPod job pays a cold start and a GPU minute to discover whether an
-untested image even boots, and there is no baseline to compare it against.
+Keeping both also means every performance claim has to name its platform, and most still do not.
+
+Cost of leaving it: a ceiling that is wrong in the unsafe direction kills a job mid-run after
+paying for it, and a ceiling wrong in the safe direction silently caps quality. Neither shows up
+as an error.
 
 ### 2. `km` — the last hop to the map, and it is closer than the docs admit
 
@@ -106,8 +116,10 @@ it is the gap that decides whether the product works, and no amount of plumbing 
 As of 10 September 2026, `GroupPlanner.DEFAULT_GROUP_METERS` is **10.0 m**, lowered from 20 m so
 that a person walking can exercise the pipeline without a car. Verge Studio's graded evidence
 covers camera paths of roughly 14–25 m, so **at the default setting no group is graded at any
-speed**. The code says this and the envelope flag reports it; `services/greenv-frame-extractor/README.md`
-still describes the old 20 m default in prose.
+speed**. The code says this and the envelope flag reports it, and
+`services/greenv-frame-extractor/README.md` was corrected on 11 September to describe the 10 m
+default and what it costs. The four segments measured that day confirm it: every packet reports
+`operationalStatus: "not-ready"` with the graded-envelope blocker among its seven.
 
 ### 6. Five cloud vendors, one MVP, and no record of which combination is real
 
@@ -118,13 +130,15 @@ the one that has not, and the repository describes work across **AWS, Azure, Clo
 Cloud, Neon and RunPod**.
 
 The adapter design is sound — application services depend on ports, and queue payloads carry the
-same versioned JSON whichever transport carries them. The gap is that no document says which
-combination is deployed, and the answer today is *none of them*: the Terraform has never been
-applied and there is no state file. `docs/INFRASTRUCTURE_MVP.md` recommends a topology; it does not
-record one.
+same versioned JSON whichever transport carries them. The gap was that no document said which
+combination is deployed. Since 11 September one does: `infrastructure/README.md` describes the
+running stack hop by hop, and the answer is Azure Container Apps with `azure-queue`, Cloudflare R2
+through `s3`, Neon for PostgreSQL and RunPod for the GPU.
 
-For an agent, this is the single most expensive ambiguity in the repository. Reading it, there is
-no way to tell a supported path from a hypothetical one without checking each adapter's tests.
+What remains is that the other adapters — `azure-blob`, `sqs`, `azure-service-bus`, `local`,
+`rabbitmq` outside compose — are supported in code and exercised only by their own tests. Reading
+the repository there is still no way to tell a path someone operates from a path someone wrote,
+except by that one document.
 
 ### 7. The API does not authenticate a capture device
 
@@ -150,6 +164,15 @@ Fixed in the same change that added this file:
 | `docs/INFRASTRUCTURE_MVP.md` | Topology stopped at the API and worker 1 | The measurement worker and the depth stage are in the diagram, and the doc's scope is dated |
 | `services/greenv-frame-extractor/README.md` | "groups of about 20 m" | 10 m default, and what that costs |
 | `apps/web/README.md` | `cd frontend` — a directory that has not existed since the repository was restructured | `cd apps/web`, and the mock-data boundary stated at the top |
+
+Corrected on 11 September 2026, after the stack was applied and the first measurements ran:
+
+| File | Was | Now |
+|---|---|---|
+| This file | RunPod never deployed; Terraform never applied; no service had run in a cloud | All three container apps running, RunPod measuring, Terraform applied |
+| `infrastructure/README.md` | 516 lines that predated worker 2 and the measurement queues | Every hop with the name it travels under, per-service environment tables, and the names that must agree across services |
+| `infrastructure/locals.tf` | The measurement worker's attempt limit and lease under the Java spellings, which that container has no reader for | `GREENV_MEASUREMENT_MAX_ATTEMPTS` and `GREENV_MEASUREMENT_VISIBILITY_SECONDS`, the names the Node worker reads |
+| `services/greenv-depth-runpod/handler.py` | Printed nothing, so a refused job left only the SDK's `Started.` and `Finished.` | Logs the device it judged the job against, and every refusal |
 
 ## For an agent starting here
 

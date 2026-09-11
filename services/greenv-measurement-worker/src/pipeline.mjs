@@ -81,7 +81,7 @@ export function measurementPipeline({ config, storage, infer, runner, log = () =
       frames.push({ name: record.fileName, key, bytes });
     }
 
-    log({ event: "inferring", prefix, frames: frames.length, service: config.infer.baseUrl });
+    log({ event: "inferring", prefix, frames: frames.length, service: config.infer.target });
     let depth;
     try {
       depth = await infer.infer(frames, { sourceDurationSeconds: manifest.durationMillis / 1000 });
@@ -136,7 +136,7 @@ export function measurementPipeline({ config, storage, infer, runner, log = () =
         // is what keeps it out of an operations decision.
         mock: run.isMock,
         depth: {
-          service: config.infer.baseUrl,
+          service: config.infer.target,
           modelRepositoryId: depth.model_repository_id ?? null,
           modelRevision: depth.model_revision ?? null,
           framesDescribed: run.frameCount,

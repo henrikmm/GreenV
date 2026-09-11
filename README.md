@@ -15,10 +15,14 @@ Built for the Motiva challenge by group 27, 2CCPW.
 ```
 apps/web/         the map dashboard          React, Vite, Leaflet
 apps/mobile/      the capture client         Flutter
-services/         the API and the workers    Spring Boot, Java 21
+services/
+  greenv-video-api/          the control plane        Spring Boot, Java 21
+  greenv-frame-extractor/    worker 1: frames, GNSS   Spring Boot, Java 21, ffmpeg
+  greenv-measurement-worker/ worker 2: grass height   Node 22
+  greenv-depth-runpod/       the depth stage on a GPU Python 3.12, Docker
 measurement/      Verge Studio               a git subtree; metric height from video
-infrastructure/   the cloud MVP               Terraform, Azure, R2, Neon
-compose.yaml      the local stack            PostgreSQL, RabbitMQ, API, worker 1
+infrastructure/   the cloud MVP              Terraform, Azure, R2, Neon
+compose.yaml      the local stack            PostgreSQL, RabbitMQ, API, worker 1, worker 2
 ```
 
 ## Running it
@@ -61,10 +65,13 @@ ordering limits and compatibility behavior.
 
 ## Status
 
-The capture chain is built and wired end to end, and it has run: a segment becomes a grass
-measurement without anyone touching it, and two segments went through the whole pipeline against a
-live GPU on 8 September 2026. [`docs/AUTOMATIC-HEIGHT.md`](docs/AUTOMATIC-HEIGHT.md) describes that
-chain and what it does not establish.
+The capture chain is built, wired end to end, and deployed: a phone uploads a segment, worker 1
+samples and georeferences its frames, worker 2 sends them to a GPU depth service and measures the
+vegetation, and the API records the result against the segment. On 11 September 2026 four segments
+went through that chain in the deployed Azure stack against a live RunPod GPU, with no one
+touching it. [`docs/AUTOMATIC-HEIGHT.md`](docs/AUTOMATIC-HEIGHT.md) describes the chain and what it
+does not establish; [`infrastructure/README.md`](infrastructure/README.md) documents every hop and
+every setting.
 
 **Two gaps sit between that and an operations decision.** The dashboard has never displayed a
 measurement — `apps/web` has no API client and renders Motiva's KMZ polygons with mock levels. And
@@ -76,4 +83,10 @@ compared with a tape, so every packet reports `operationalStatus: "not-ready"`.
 runs, what is written but has never executed, and the gaps ranked by what they cost. Read it before
 trusting any other document in this repository about a part it does not own.
 
-The depth model used by `measurement/` is licensed for personal and research use only.
+**No automatic measurement has been graded against a tape.** Every packet carries
+`operationalStatus: "not-ready"`, and that is accurate — see
+[`docs/AUTOMATIC-HEIGHT.md`](docs/AUTOMATIC-HEIGHT.md) before using a number this system produces.
+The dashboard still renders fixtures rather than live measurements.
+
+The depth model used by `measurement/` is licensed for personal and research use only, and the GPU
+service it runs on bills for the machine's whole lifetime rather than for the seconds it computes.

@@ -3,18 +3,18 @@
 Decision date: 30 August 2026. No cloud resource was created by this change, so it incurred no
 cloud spend. Provisioning is a separate, billable action that requires explicit approval.
 
-**This document is a recommendation, not a record.** As of 10 September 2026 the Terraform has
-never been applied and no state file exists, so none of the topology below is running anywhere.
-The only GreenV workload that has ever run in a cloud is the depth service, on Google Cloud Run
-GPU, which this document does not cover — see *The depth stage* below. For what is actually
-deployed and what is only written, read
-[`STATE-OF-THE-SYSTEM.md`](STATE-OF-THE-SYSTEM.md).
+**This document is a recommendation and a record of reasoning, not an inventory.** The topology
+below was chosen on 30 August 2026; it was applied for the first time in September and, as of
+11 September 2026, the Azure stack is running: three container apps, six queues, Neon and R2, with
+the depth stage on a RunPod GPU outside the Terraform. For what is actually deployed, every
+environment variable and how the services reach each other, read
+[`infrastructure/README.md`](../infrastructure/README.md). For what is built versus what has only
+been written, read [`STATE-OF-THE-SYSTEM.md`](STATE-OF-THE-SYSTEM.md).
 
 **Scope.** This document covers the two Java services that existed when it was written: the video
 API and the frame extractor. The measurement worker and the depth stage arrived afterwards. Both
-are in the executable Terraform and in [`infrastructure/README.md`](../infrastructure/README.md),
-which is the current description of the stack; the sections here are the reasoning behind the
-provider choices, not the current inventory.
+are in the executable Terraform and in `infrastructure/README.md`; the sections here are the
+reasoning behind the provider choices, not the current inventory.
 
 ## Recommended topology
 
@@ -52,22 +52,23 @@ Two depth deployments exist in this repository and they are not interchangeable 
 
 | Platform | Selected by | Status |
 |---|---|---|
-| Google Cloud Run GPU (`verge-lab`) | `GREENV_INFER_ADAPTER=http` | The only GreenV workload ever deployed to any cloud. All recorded runs, VRAM ceilings and cost figures are from it |
-| RunPod serverless | `GREENV_INFER_ADAPTER=runpod` | Written, Terraformed and unit-tested; the image has never been built and no job has ever run |
+| Google Cloud Run GPU (`verge-lab`) | `GREENV_INFER_ADAPTER=http` | Where the eight earliest runs happened; every VRAM ceiling and cost figure in this repository was measured on its L4. Not what the deployed stack points at today |
+| RunPod serverless | `GREENV_INFER_ADAPTER=runpod` | Deployed 11 September 2026 as endpoint `greenv-mvp-depth`, and what the stack uses today: four segments measured on it, 3.4 to 24.8 GPU-seconds each. Its VRAM ceilings are still the ones measured on Cloud Run's L4 |
 
 That makes the deployed picture **cross-cloud by construction**: Azure for compute, Cloudflare for
 objects and DNS, Neon for PostgreSQL, and Google Cloud for the GPU — with RunPod as the intended
-replacement for the last one. The application services stay provider-neutral through the adapter
+replacement for it, now in use. The application services stay provider-neutral through the adapter
 ports, but the operational cost of that spread is real: four vendor consoles, four credential
 lifetimes and four places a bill can appear. Choosing between Cloud Run and RunPod is the one
-decision that would reduce it, and it has not been made.
+decision that would reduce it. RunPod is what runs today; retiring the Cloud Run path is the
+step that would make that a decision rather than a default.
 
 This option is the first choice for the MVP because the existing containers run unchanged, both
 compute workloads scale to zero, R2 avoids direct object egress charges, and Container Apps can
 scale the worker from Azure Queue with managed identity. The Azure Storage account contains only
 queues. The API has HTTP ingress; the worker has no public ingress.
 
-Set both services to:
+Set all three services to:
 
 ```text
 GREENV_DATABASE_ADAPTER=jdbc
@@ -133,8 +134,9 @@ be a later optimization, not a same-day MVP deployment.
 
 ## Same-day deployment sequence
 
-1. Choose the Azure, Neon and R2 regions together, estimate pilot volume, publish both OCI images
-   and pin their immutable digests. Do not deploy `latest`.
+1. Choose the Azure, Neon and R2 regions together, estimate pilot volume, publish the three
+   Container Apps images plus the depth handler image, and pin their immutable digests. Do not
+   deploy `latest`.
 2. Run the Terraform bootstrap. It creates one private R2 state bucket and a separate private R2
    application bucket. Issue one bucket-scoped S3 credential for each use, then migrate the
    bootstrap state into R2.
@@ -143,8 +145,10 @@ be a later optimization, not a same-day MVP deployment.
    Neon project, R2 lookup, optional DNS and monthly budget. Review that plan before the billable
    apply.
 4. Apply the reviewed plan. The API starts with external ingress on port 8080, `minReplicas=0`,
-   `maxReplicas=3`, 1 vCPU and 2 GiB. The worker has no ingress, `minReplicas=0`, `maxReplicas=4`,
-   2 vCPU and 4 GiB. No custom VNet is attached for this MVP.
+   `maxReplicas=3`, 1 vCPU and 2 GiB. Worker 1 has no ingress, `minReplicas=0`, `maxReplicas=4`,
+   2 vCPU and 4 GiB. Worker 2 has no ingress, `minReplicas=0`, `maxReplicas=1`, 2 vCPU and 4 GiB,
+   and does nothing at all until `measurement_enabled` is true. No custom VNet is attached for
+   this MVP.
 5. Wait for API health and verify that Flyway used Neon's direct TLS hostname while normal JDBC uses
    the pooled hostname. Do not enqueue pilot work until the migration rows exist.
 6. Verify the `azure-queue` KEDA rule has queue length 1 and the worker identity. Set the visibility
@@ -161,7 +165,11 @@ be a later optimization, not a same-day MVP deployment.
 ## Required production controls
 
 - Authenticate each mobile device and authorize access to its capture session before exposing the
-  API. Cloudflare DNS alone is not application authentication.
+  API. The service now has an identity provider issuing RS256 tokens, but the capture routes still
+  run on the shared Bearer token. Cloudflare DNS alone is not application authentication.
+- Treat the GPU depth endpoint as the one workload that is not free at rest: it bills for a
+  worker's whole lifetime. Keep `measurement_enabled` off until a drive's worth of segments is
+  ready to arrive together.
 - Keep PostgreSQL transaction state, object keys and queue messages provider-neutral. Never persist
   signed URLs or provider resource URLs.
 - Configure SQS redrive and Service Bus DLQ settings when those adapters are selected. The Azure

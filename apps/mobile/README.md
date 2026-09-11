@@ -140,6 +140,21 @@ or development-network endpoint:
 flutter run --dart-define=GREENV_API_URL=http://127.0.0.1:8080
 ```
 
+Against the deployed API, which is the only way to exercise the cloud pipeline from a phone:
+
+```bash
+flutter run -d <device-id> --dart-define=GREENV_API_URL=https://greenvapi.matomomitsu.com
+```
+
+Two things a free Apple ID adds, and neither is a build error:
+
+- **The phone refuses to launch the app until the developer is trusted.** Settings → General →
+  VPN & Device Management → the Apple ID → Trust. The check reaches `ppq.apple.com`, so it needs
+  the phone online, and it fails on a phone that has just been unlocked from a locked state until
+  it is restarted.
+- **A Personal Team profile expires after seven days.** The app stops launching and must be run
+  from Xcode again. That is the signing tier, not the app.
+
 ### Browser presentation preview
 
 With `GREENV_WEB_CAPTURE=false`, web uses deterministic fake camera/sensor/backend adapters and a

@@ -770,6 +770,29 @@ components:
           type: [string, 'null']
         errorMessage:
           type: [string, 'null']
+        measurementState:
+          description: >-
+            "measured" once worker 2's packet has been recorded, null before that. Null does not
+            mean the segment failed: a segment that published no frames is never announced for
+            measurement at all.
+          type: [string, 'null']
+          enum: [measured, null]
+        measuredAt:
+          type: [string, 'null']
+          format: date-time
+        measurementRunId:
+          description: Verge Studio's run id, which ties this packet to the depth run that produced it.
+          type: [string, 'null']
+        measurementIsMock:
+          description: >-
+            True when the packet was built on the fixture-backed depth mock, which describes an
+            unrelated scene. Always present alongside a measurement, because an absent field
+            reads as "no".
+          type: [boolean, 'null']
+        measurementUrl:
+          description: Where to GET the packet. Null until one exists.
+          type: [string, 'null']
+          format: uri
     CreateJobRequest:
       type: object
       required: [fileName, contentType, sizeBytes]
