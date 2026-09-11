@@ -59,6 +59,13 @@ locals {
 
   api_certificate_name = var.api_hostname == null ? "" : "mc-${replace(var.api_hostname, ".", "-")}"
 
+  # Everything under the dashboard host. Unlike the API, which exposes a known set of route
+  # prefixes, a single-page app serves whatever path the router invented plus hashed asset names,
+  # so the host is the whole rule.
+  dashboard_host_expression = (
+    var.dashboard_hostname == null ? "" : "http.host eq \"${var.dashboard_hostname}\""
+  )
+
   # The routes that must survive the zone's blanket block. `/v1` and `/v2` are the capture and
   # control-plane APIs; the other two are here because leaving them out breaks things that are
   # easy to forget. Without `/.well-known/*` no client can fetch the JWKS and therefore no access
@@ -159,7 +166,13 @@ locals {
     # queue this stack never created and GREENV_AZURE_QUEUE_CREATE is false.
     GREENV_AZURE_MEASURED_POISON_QUEUE_NAME = azurerm_storage_queue.measurement_result_poison.name
 
-    GREENV_ALLOWED_ORIGINS = join(",", var.api_allowed_origins)
+    # The dashboard's own origin is derived rather than listed, because forgetting it does not
+    # fail anything visibly: CORS is disabled entirely when the list is empty, and a browser that
+    # is refused a preflight reports a network error with no server-side trace at all.
+    GREENV_ALLOWED_ORIGINS = join(",", distinct(concat(
+      var.api_allowed_origins,
+      var.dashboard_hostname == null ? [] : ["https://${var.dashboard_hostname}"],
+    )))
 
     # Every token is signed for and validated against this issuer, so it is what answers "did our
     # application mint this?". It must match the host clients actually reach.

@@ -156,7 +156,7 @@ resource "cloudflare_ruleset" "zone_firewall" {
     prevent_destroy = true
   }
 
-  rules = [
+  rules = concat([
     {
       # Pre-existing, reproduced exactly. `ruleset = "current"` means "stop evaluating this
       # ruleset", which is what makes the blanket block at the end skippable at all.
@@ -205,6 +205,25 @@ resource "cloudflare_ruleset" "zone_firewall" {
         enabled = true
       }
     },
+    ], var.dashboard_hostname == null ? [] : [
+    {
+      # The dashboard, for the same reason as the rule above it. A single-page app cannot be
+      # described by path: the router serves /sessoes/<uuid> from the same index.html as /, and
+      # the asset names carry a content hash that changes on every build.
+      action      = "skip"
+      expression  = local.dashboard_host_expression
+      description = "GreenV dashboard"
+      enabled     = true
+
+      action_parameters = {
+        ruleset = "current"
+      }
+
+      logging = {
+        enabled = true
+      }
+    },
+    ], [
     {
       # Pre-existing, reproduced exactly, and deliberately last.
       action      = "block"
@@ -212,7 +231,7 @@ resource "cloudflare_ruleset" "zone_firewall" {
       description = "General Rule"
       enabled     = true
     },
-  ]
+  ])
 }
 
 # Only reachable on a zone whose firewall phase is still empty. Where `zone_firewall` above is in

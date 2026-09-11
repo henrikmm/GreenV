@@ -1,0 +1,3 @@
+# O roteamento é do cliente: /sessoes/<uuid> é uma rota do React, não um arquivo. Sem isto o
+# Pages devolve 404 para qualquer link aberto direto ou recarregado, e só a raiz funciona.
+/*    /index.html   200
