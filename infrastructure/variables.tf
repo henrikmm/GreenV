@@ -445,6 +445,24 @@ variable "cloudflare_api_cache_bypass_enabled" {
   default     = true
 }
 
+variable "cloudflare_zone_firewall_ruleset_id" {
+  description = <<-EOT
+    The zone's existing entry-point ruleset in `http_request_firewall_custom`, when this stack
+    should manage it. Cloudflare allows exactly one per zone phase, so a second one cannot be
+    created: to add a rule for the API, this configuration has to own the ruleset that is already
+    there, including the rules that belong to other subdomains.
+
+    Naming it here opts in, and the ruleset must be imported before the first apply:
+
+      terraform import 'cloudflare_ruleset.zone_firewall[0]' zones/<zone id>/<ruleset id>
+
+    Leave null and the zone's firewall stays entirely outside Terraform. List what a zone has with
+    GET /zones/<zone id>/rulesets.
+  EOT
+  type        = string
+  default     = null
+}
+
 variable "cloudflare_api_waf_enabled" {
   description = "Whether hostname-specific Cloudflare WAF rules are enabled."
   type        = bool

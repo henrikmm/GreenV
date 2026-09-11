@@ -292,6 +292,13 @@ run "plans_cost_conscious_mvp_defaults" {
     error_message = "The API must be able to move an unrecordable measurement announcement to a queue that exists."
   }
 
+  # The zone's firewall is left alone unless its ruleset id is named, because adopting it means
+  # owning rules that belong to other subdomains.
+  assert {
+    condition     = length(cloudflare_ruleset.zone_firewall) == 0
+    error_message = "A deployment that has not named a ruleset id must not manage the zone's firewall."
+  }
+
   # False by default. Turning it on makes every capture wake a paid GPU, which AGENTS.md wants
   # agreed in conversation rather than inherited from a default.
   assert {

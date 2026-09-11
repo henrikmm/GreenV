@@ -59,6 +59,20 @@ locals {
 
   api_certificate_name = var.api_hostname == null ? "" : "mc-${replace(var.api_hostname, ".", "-")}"
 
+  # The routes that must survive the zone's blanket block. `/v1` and `/v2` are the capture and
+  # control-plane APIs; the other two are here because leaving them out breaks things that are
+  # easy to forget. Without `/.well-known/*` no client can fetch the JWKS and therefore no access
+  # token can be verified, and without `/actuator/health` the one route that is deliberately
+  # public stops answering, which is also the route every runbook checks first.
+  api_public_path_expression = join(" or ", [
+    "http.request.uri.path wildcard r\"/v1\"",
+    "http.request.uri.path wildcard r\"/v1/*\"",
+    "http.request.uri.path wildcard r\"/v2\"",
+    "http.request.uri.path wildcard r\"/v2/*\"",
+    "http.request.uri.path wildcard r\"/actuator/health\"",
+    "http.request.uri.path wildcard r\"/.well-known/*\"",
+  ])
+
   # The one step Azure requires that the provider cannot express. Kept here rather than inline in
   # the provisioner so it is readable and can be asserted on.
   api_certificate_bind_command = join(" ", [
