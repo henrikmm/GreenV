@@ -1,0 +1,13 @@
+{
+  "name": "greenv-apps",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/web-core",
+    "apps/web-mock",
+    "apps/web-prod"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace @greenv/web-mock && npm run build --workspace @greenv/web-prod"
+  }
+}
