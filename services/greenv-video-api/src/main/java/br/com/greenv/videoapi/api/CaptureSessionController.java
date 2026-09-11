@@ -1,5 +1,7 @@
 package br.com.greenv.videoapi.api;
 
+import br.com.greenv.videoapi.domain.CaptureSessionQuery;
+import br.com.greenv.videoapi.domain.Sentido;
 import br.com.greenv.videoapi.port.CaptureSessionUseCase;
 import br.com.greenv.videoapi.service.ApplicationException;
 import br.com.greenv.videoapi.service.FailureKind;
@@ -8,6 +10,7 @@ import jakarta.validation.Valid;
 import java.io.IOException;
 import java.net.URI;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
@@ -20,6 +23,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
@@ -129,6 +133,59 @@ public class CaptureSessionController {
         Instant endedAt = body.get("endedAt") == null ? null : Instant.parse(body.get("endedAt").toString());
         captureSessionUseCase.completeSession(sessionId, number.intValue(), endedAt);
         return ResponseEntity.accepted().body(CaptureSessionResponse.from(captureSessionUseCase.getSession(sessionId)));
+    }
+
+    /**
+     * The sessions, newest first.
+     *
+     * <p>Until this existed nothing could open on a list: every read path needed an id the caller
+     * already had, so a dashboard had no way to discover what had been captured.
+     */
+    @GetMapping
+    PageResponse<CaptureSessionResponse> listSessions(
+            @RequestParam(required = false) String state,
+            @RequestParam(required = false) String rodovia,
+            @RequestParam(required = false) String sentido,
+            @RequestParam(defaultValue = "false") boolean measuredOnly,
+            @RequestParam(defaultValue = "0") int limit,
+            @RequestParam(defaultValue = "0") int offset) {
+        var query = new CaptureSessionQuery(
+                state, rodovia, sentido == null ? null : Sentido.of(sentido), measuredOnly, limit, offset);
+        return PageResponse.from(
+                captureSessionUseCase.listSessions(query),
+                CaptureSessionResponse::from);
+    }
+
+    @GetMapping("/{sessionId}/segments")
+    List<CaptureSegmentResponse> listSegments(@PathVariable UUID sessionId) {
+        return captureSessionUseCase.listSegments(sessionId).stream()
+                .map(segment -> CaptureSegmentResponse.from(segment, baseUrl()))
+                .toList();
+    }
+
+    /**
+     * The session drawn: the camera path and the strip the measurement covered, as GeoJSON.
+     *
+     * <p>Served as bytes rather than as a record because every map library reads GeoJSON as it
+     * stands, and a Java shape in the middle would only be translated back.
+     */
+    @GetMapping(path = "/{sessionId}/track", produces = MediaType.APPLICATION_JSON_VALUE)
+    byte[] track(@PathVariable UUID sessionId) {
+        return captureSessionUseCase.track(sessionId);
+    }
+
+    @GetMapping("/{sessionId}/segments/{segmentIndex}/frames")
+    List<SampledFrameResponse> frames(@PathVariable UUID sessionId, @PathVariable int segmentIndex) {
+        return captureSessionUseCase.frames(sessionId, segmentIndex).stream()
+                .map(frame -> SampledFrameResponse.from(frame, sessionId, segmentIndex, baseUrl()))
+                .toList();
+    }
+
+    /** One published JPEG. The name is checked against the manifest before a key is built. */
+    @GetMapping(path = "/{sessionId}/segments/{segmentIndex}/frames/{fileName}", produces = MediaType.IMAGE_JPEG_VALUE)
+    byte[] frame(
+            @PathVariable UUID sessionId, @PathVariable int segmentIndex, @PathVariable String fileName) {
+        return captureSessionUseCase.frame(sessionId, segmentIndex, fileName);
     }
 
     @GetMapping(

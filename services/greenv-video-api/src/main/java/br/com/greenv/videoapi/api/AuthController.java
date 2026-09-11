@@ -2,6 +2,8 @@ package br.com.greenv.videoapi.api;
 
 import br.com.greenv.videoapi.domain.AuthSessionTokens;
 import br.com.greenv.videoapi.port.AuthenticationUseCase;
+import br.com.greenv.videoapi.service.ApplicationException;
+import br.com.greenv.videoapi.service.FailureKind;
 import br.com.greenv.videoapi.port.SessionCookieWriter;
 import br.com.greenv.videoapi.security.AuthCookies;
 import br.com.greenv.videoapi.security.AuthenticatedPrincipal;
@@ -67,6 +69,15 @@ public class AuthController {
      */
     @GetMapping("/me")
     AuthenticatedUserResponse me(@AuthenticationPrincipal AuthenticatedPrincipal principal) {
+        // The static capture token authenticates a String principal, not a person, so this
+        // argument resolves to null for it. Dereferencing gave a 500 where the honest answer is
+        // that the caller holds a credential which identifies no user.
+        if (principal == null) {
+            throw new ApplicationException(
+                    FailureKind.UNAUTHORIZED,
+                    "no_authenticated_user",
+                    "this credential identifies no user; sign in to read an identity");
+        }
         return AuthenticatedUserResponse.from(authentication.requireUser(principal.userId()), null);
     }
 

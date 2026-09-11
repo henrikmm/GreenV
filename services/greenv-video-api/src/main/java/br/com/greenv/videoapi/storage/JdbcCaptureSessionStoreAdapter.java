@@ -2,6 +2,10 @@ package br.com.greenv.videoapi.storage;
 
 import br.com.greenv.videoapi.domain.CaptureSegmentDocument;
 import br.com.greenv.videoapi.domain.CaptureSessionDocument;
+import br.com.greenv.videoapi.domain.CaptureSessionQuery;
+import br.com.greenv.videoapi.domain.CaptureSessionSummary;
+import br.com.greenv.videoapi.domain.MeasurementProjection;
+import br.com.greenv.videoapi.domain.Page;
 import br.com.greenv.videoapi.domain.Sentido;
 import br.com.greenv.videoapi.port.CaptureSessionStore;
 import br.com.greenv.videoapi.service.ApplicationException;
@@ -10,6 +14,8 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.dao.DuplicateKeyException;
@@ -188,11 +194,17 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
             String runId,
             boolean mock,
             Instant measuredAt,
+            MeasurementProjection projection,
             Instant now) {
         jdbcTemplate.update("""
                 UPDATE capture_segments
                 SET measurement_state = 'measured', measurement_object_key = ?, measurement_run_id = ?,
-                    measurement_is_mock = ?, measured_at = ?, updated_at = ?
+                    measurement_is_mock = ?, measured_at = ?, updated_at = ?,
+                    measurement_extent95_p95_m = ?, measurement_extent95_max_m = ?,
+                    measurement_level = ?, measurement_cells_measured = ?,
+                    measurement_cells_abstained = ?, measurement_coverage = ?,
+                    track_center_lat = ?, track_center_lon = ?, track_geojson = ?,
+                    track_location_quality = ?
                 WHERE session_id = ? AND segment_index = ?
                 """,
                 objectKey,
@@ -200,6 +212,16 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                 mock,
                 timestamp(measuredAt),
                 timestamp(now),
+                projection.extent95P95M(),
+                projection.extent95MaxM(),
+                projection.level(),
+                projection.cellsMeasured(),
+                projection.cellsAbstained(),
+                projection.coverage(),
+                projection.trackCenterLat(),
+                projection.trackCenterLon(),
+                projection.trackGeoJson(),
+                projection.trackLocationQuality(),
                 sessionId,
                 segmentIndex);
         return getSegment(sessionId, segmentIndex);
@@ -225,10 +247,108 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
         return getSession(sessionId);
     }
 
+    /**
+     * One page of sessions, newest first.
+     *
+     * <p>The clauses are assembled rather than written out because five optional filters are
+     * thirty-two queries. {@code session_id} joins the ordering so a page boundary cannot fall
+     * between two sessions started in the same millisecond and show one of them twice.
+     */
+    @Override
+    public Page<CaptureSessionSummary> findSessions(CaptureSessionQuery query) {
+        List<String> clauses = new ArrayList<>();
+        List<Object> arguments = new ArrayList<>();
+        if (query.state() != null) {
+            clauses.add("s.state = ?");
+            arguments.add(query.state());
+        }
+        if (query.rodovia() != null) {
+            clauses.add("s.rodovia = ?");
+            arguments.add(query.rodovia());
+        }
+        if (query.sentido() != null) {
+            clauses.add("s.sentido = ?");
+            arguments.add(query.sentido().name());
+        }
+        if (query.measuredOnly()) {
+            clauses.add("""
+                    EXISTS (SELECT 1 FROM capture_segments g
+                             WHERE g.session_id = s.session_id AND g.measurement_state IS NOT NULL)
+                    """);
+        }
+        String where = clauses.isEmpty() ? "" : " WHERE " + String.join(" AND ", clauses);
+
+        Long total = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM capture_sessions s" + where, Long.class, arguments.toArray());
+
+        List<Object> paged = new ArrayList<>(arguments);
+        paged.add(query.limit());
+        paged.add(query.offset());
+        // The three counters come back with the row. One query per session would be a round trip
+        // per line of the list, and the list is the first thing a dashboard draws.
+        List<CaptureSessionSummary> items = jdbcTemplate.query(
+                """
+                SELECT s.*,
+                       (SELECT COUNT(*) FROM capture_segments g
+                         WHERE g.session_id = s.session_id) AS segment_total,
+                       (SELECT COUNT(*) FROM capture_segments g
+                         WHERE g.session_id = s.session_id AND g.state = 'ready') AS segment_ready,
+                       (SELECT COUNT(*) FROM capture_segments g
+                         WHERE g.session_id = s.session_id
+                           AND g.measurement_state IS NOT NULL) AS segment_measured
+                  FROM capture_sessions s
+                """
+                        + where
+                        + " ORDER BY s.started_at DESC, s.session_id DESC LIMIT ? OFFSET ?",
+                (result, row) -> new CaptureSessionSummary(
+                        mapSession(result, row),
+                        result.getLong("segment_total"),
+                        result.getLong("segment_ready"),
+                        result.getLong("segment_measured")),
+                paged.toArray());
+        return new Page<>(items, total == null ? 0 : total, query.limit(), query.offset());
+    }
+
+    /** Every segment of one session, in capture order. Unbounded on purpose: a session is finite. */
+    @Override
+    public List<CaptureSegmentDocument> findSegments(UUID sessionId) {
+        return jdbcTemplate.query(
+                "SELECT * FROM capture_segments WHERE session_id = ? ORDER BY segment_index",
+                JdbcCaptureSessionStoreAdapter::mapSegment,
+                sessionId);
+    }
+
+    /** Measured segments across every session, newest measurement first. The map's feed. */
+    @Override
+    public Page<CaptureSegmentDocument> findMeasuredSegments(CaptureSessionQuery query) {
+        Long total = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM capture_segments WHERE measurement_state IS NOT NULL", Long.class);
+        List<CaptureSegmentDocument> items = jdbcTemplate.query(
+                """
+                SELECT * FROM capture_segments
+                 WHERE measurement_state IS NOT NULL
+                 ORDER BY measured_at DESC, session_id DESC, segment_index
+                 LIMIT ? OFFSET ?
+                """,
+                JdbcCaptureSessionStoreAdapter::mapSegment,
+                query.limit(),
+                query.offset());
+        return new Page<>(items, total == null ? 0 : total, query.limit(), query.offset());
+    }
+
     @Override
     public long segmentCount(UUID sessionId) {
         Long value = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM capture_segments WHERE session_id = ?", Long.class, sessionId);
+        return value == null ? 0 : value;
+    }
+
+    @Override
+    public long measuredSegmentCount(UUID sessionId) {
+        Long value = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM capture_segments WHERE session_id = ? AND measurement_state IS NOT NULL",
+                Long.class,
+                sessionId);
         return value == null ? 0 : value;
     }
 
@@ -279,8 +399,23 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                 result.getString("measurement_run_id"),
                 result.getObject("measurement_is_mock", Boolean.class),
                 instant(result, "measured_at"),
+                mapProjection(result),
                 instant(result, "created_at"),
                 instant(result, "updated_at"));
+    }
+
+    private static MeasurementProjection mapProjection(ResultSet result) throws SQLException {
+        return new MeasurementProjection(
+                result.getObject("measurement_extent95_p95_m", Double.class),
+                result.getObject("measurement_extent95_max_m", Double.class),
+                result.getObject("measurement_level", Integer.class),
+                result.getObject("measurement_cells_measured", Integer.class),
+                result.getObject("measurement_cells_abstained", Integer.class),
+                result.getObject("measurement_coverage", Double.class),
+                result.getObject("track_center_lat", Double.class),
+                result.getObject("track_center_lon", Double.class),
+                result.getString("track_geojson"),
+                result.getString("track_location_quality"));
     }
 
     private static void requireSameIdentity(

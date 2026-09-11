@@ -16,7 +16,13 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 @Configuration
 class ApiSecurityConfiguration {
 
-    private static final List<String> ALLOWED_METHODS = List.of("GET", "POST", "PUT", "OPTIONS");
+    /**
+     * DELETE and PATCH are here for the dashboard, which edits and retires service orders. They
+     * were absent, so those two verbs failed their preflight while the same routes worked from
+     * curl - a difference only a browser ever sees.
+     */
+    private static final List<String> ALLOWED_METHODS =
+            List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS");
 
     /**
      * The capture client carries its segment metadata in headers, so a browser preflight fails

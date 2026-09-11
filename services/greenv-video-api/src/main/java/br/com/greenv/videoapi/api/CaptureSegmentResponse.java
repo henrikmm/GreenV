@@ -30,7 +30,19 @@ public record CaptureSegmentResponse(
         // Never omitted when a measurement exists. A packet built on the fixture mock describes
         // another scene entirely, and a field that is absent reads as "no" to every client.
         Boolean measurementIsMock,
-        String measurementUrl) {
+        String measurementUrl,
+        // The summary a list can sort and colour by, so a map does not have to fetch one packet
+        // per segment to draw a screen. Null throughout until a measurement is recorded.
+        Integer measurementLevel,
+        Double measurementExtent95P95M,
+        Double measurementExtent95MaxM,
+        Integer measurementCellsMeasured,
+        Integer measurementCellsAbstained,
+        Double measurementCoverage,
+        Double trackCenterLat,
+        Double trackCenterLon,
+        String trackLocationQuality,
+        String framesUrl) {
 
     public static CaptureSegmentResponse from(CaptureSegmentDocument segment, String baseUrl) {
         String segmentPath = "/v2/capture-sessions/" + segment.sessionId()
@@ -42,6 +54,8 @@ public record CaptureSegmentResponse(
         String measurementUrl = segment.measurementObjectKey() == null
                 ? null
                 : baseUrl + segmentPath + "/measurement";
+        String framesUrl = segment.manifestObjectKey() == null ? null : baseUrl + segmentPath + "/frames";
+        var measurement = segment.measurement();
         return new CaptureSegmentResponse(
                 1,
                 segment.sessionId(),
@@ -62,6 +76,16 @@ public record CaptureSegmentResponse(
                 segment.measuredAt(),
                 segment.measurementRunId(),
                 segment.measurementIsMock(),
-                measurementUrl);
+                measurementUrl,
+                measurement.level(),
+                measurement.extent95P95M(),
+                measurement.extent95MaxM(),
+                measurement.cellsMeasured(),
+                measurement.cellsAbstained(),
+                measurement.coverage(),
+                measurement.trackCenterLat(),
+                measurement.trackCenterLon(),
+                measurement.trackLocationQuality(),
+                framesUrl);
     }
 }

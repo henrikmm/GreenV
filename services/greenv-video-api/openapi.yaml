@@ -411,6 +411,42 @@ paths:
               schema:
                 $ref: '#/components/schemas/Job'
   /v2/capture-sessions:
+    get:
+      operationId: listCaptureSessions
+      summary: List capture sessions, newest first
+      parameters:
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [recording, processing, ready]
+        - name: rodovia
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: sentido
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [norte, sul, leste, oeste]
+        - name: measuredOnly
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: One page of capture sessions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaptureSessionPage'
     post:
       operationId: createCaptureSession
       summary: Create or recover a client-assigned mobile capture session
@@ -440,6 +476,43 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CaptureSession'
+  /v2/capture-sessions/{sessionId}/segments:
+    get:
+      operationId: listCaptureSegments
+      summary: Every segment of one session, in capture order
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: The session's segments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CaptureSegment'
+        '404':
+          description: Session not found
+  /v2/capture-sessions/{sessionId}/track:
+    get:
+      operationId: getCaptureSessionTrack
+      summary: The session drawn as GeoJSON
+      description: >-
+        A FeatureCollection with up to two features per measured segment: the
+        camera path as a LineString, and the five-metre band the measurement
+        covered as a Polygon. The band is drawn on both sides because the packet
+        folds them together and never records which side a cell sat on.
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: GeoJSON FeatureCollection
+          content:
+            application/json:
+              schema:
+                type: object
+        '404':
+          description: Session not found
   /v2/capture-sessions/{sessionId}/segments/{segmentIndex}:
     get:
       operationId: getCaptureSegment
@@ -540,6 +613,51 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CaptureSession'
+  /v2/capture-sessions/{sessionId}/segments/{segmentIndex}/frames:
+    get:
+      operationId: listSampledFrames
+      summary: The frames this segment published, with a position for each
+      description: >-
+        Names come from the segment manifest, which is the publication record.
+        Coordinates come from the measurement packet and are null for a segment
+        that was never measured.
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - $ref: '#/components/parameters/SegmentIndex'
+      responses:
+        '200':
+          description: The published frames
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SampledFrame'
+        '409':
+          description: The segment has published no manifest
+  /v2/capture-sessions/{sessionId}/segments/{segmentIndex}/frames/{fileName}:
+    get:
+      operationId: getSampledFrame
+      summary: One published JPEG
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - $ref: '#/components/parameters/SegmentIndex'
+        - name: fileName
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^frame-[0-9]{4}\.jpg$'
+      responses:
+        '200':
+          description: The image
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: This segment published no such frame
   /v2/capture-sessions/{sessionId}/segments/{segmentIndex}/manifest:
     get:
       operationId: getCaptureSegmentManifest
@@ -556,6 +674,24 @@ paths:
                 type: object
         '409':
           description: Worker manifest is not ready
+  /v2/measurements:
+    get:
+      operationId: listMeasurements
+      summary: Measured segments across every session, newest first
+      description: >-
+        The map's feed. Carries the projected summary only; the packet itself is
+        at the segment's measurement route. Every reading reports
+        operationalStatus "not-ready".
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: One page of measured segments
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaptureSegmentPage'
   /v2/capture-sessions/{sessionId}/segments/{segmentIndex}/measurement:
     get:
       operationId: getCaptureSegmentMeasurement
@@ -605,6 +741,22 @@ components:
         token lifted from a log is useless without it. State-changing requests must also carry
         `X-CSRF-Token` matching the readable `greenv_csrf` cookie.
   parameters:
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Page size. Defaults to 50 and is capped at 200.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+    Offset:
+      name: offset
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 0
     JobId:
       name: jobId
       in: path
@@ -724,6 +876,9 @@ components:
           type: [integer, 'null']
         segmentCount:
           type: integer
+        measuredSegmentCount:
+          description: Segments of this session that carry a measurement.
+          type: integer
         readySegmentCount:
           type: integer
         rodovia:
@@ -792,6 +947,100 @@ components:
         measurementUrl:
           description: Where to GET the packet. Null until one exists.
           type: [string, 'null']
+          format: uri
+        measurementLevel:
+          description: >-
+            1, 2 or 3 on the mowing thresholds, from the 95th percentile of the
+            measured cells. Null means unmeasured and must never render as 1:
+            a height nobody established is not a short one.
+          type: [integer, 'null']
+          enum: [1, 2, 3, null]
+        measurementExtent95P95M:
+          description: >-
+            Metres above each cell's own local ground. This is the estimator
+            graded against a tape, not the one measured from the fitted plane.
+          type: [number, 'null']
+        measurementExtent95MaxM:
+          type: [number, 'null']
+        measurementCellsMeasured:
+          type: [integer, 'null']
+        measurementCellsAbstained:
+          type: [integer, 'null']
+        measurementCoverage:
+          description: Measured over observed, never over the verge; nothing knows the verge's area.
+          type: [number, 'null']
+        trackCenterLat:
+          type: [number, 'null']
+        trackCenterLon:
+          type: [number, 'null']
+        trackLocationQuality:
+          type: [string, 'null']
+          enum: [good, degraded, unavailable, null]
+        framesUrl:
+          type: [string, 'null']
+          format: uri
+    CaptureSessionPage:
+      type: object
+      required: [schemaVersion, items, total, limit, offset, hasMore]
+      properties:
+        schemaVersion:
+          const: 1
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CaptureSession'
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+        hasMore:
+          type: boolean
+    CaptureSegmentPage:
+      type: object
+      required: [schemaVersion, items, total, limit, offset, hasMore]
+      properties:
+        schemaVersion:
+          const: 1
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CaptureSegment'
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+        hasMore:
+          type: boolean
+    SampledFrame:
+      type: object
+      required: [fileName, canonicalFrame, imageUrl]
+      properties:
+        fileName:
+          type: string
+          pattern: '^frame-[0-9]{4}\.jpg$'
+        canonicalFrame:
+          type: integer
+        sizeBytes:
+          type: [integer, 'null']
+        capturedAtUtc:
+          type: [string, 'null']
+          format: date-time
+        latitude:
+          description: Null when the segment was never measured, so nothing joined this frame to a fix.
+          type: [number, 'null']
+        longitude:
+          type: [number, 'null']
+        horizontalAccuracyMeters:
+          type: [number, 'null']
+        locationQuality:
+          type: [string, 'null']
+          enum: [good, degraded, unavailable, null]
+        imageUrl:
+          type: string
           format: uri
     CreateJobRequest:
       type: object

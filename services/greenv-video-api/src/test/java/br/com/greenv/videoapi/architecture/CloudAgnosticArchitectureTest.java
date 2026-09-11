@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import br.com.greenv.videoapi.api.AuthController;
 import br.com.greenv.videoapi.api.CaptureSessionController;
+import br.com.greenv.videoapi.api.MeasurementController;
 import br.com.greenv.videoapi.api.IdentityAdminController;
 import br.com.greenv.videoapi.api.JwkSetController;
 import br.com.greenv.videoapi.api.OAuthTokenController;
@@ -65,6 +66,7 @@ class CloudAgnosticArchitectureTest {
     @Test
     void inboundAdaptersDependOnUseCaseInterfaces() {
         assertInboundDependencies(CaptureSessionController.class);
+        assertInboundDependencies(MeasurementController.class);
         assertInboundDependencies(JobController.class);
         assertInboundDependencies(AuthController.class);
         assertInboundDependencies(OAuthTokenController.class);
