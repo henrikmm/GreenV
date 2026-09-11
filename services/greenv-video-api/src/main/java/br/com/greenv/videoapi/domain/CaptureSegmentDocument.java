@@ -25,10 +25,20 @@ public record CaptureSegmentDocument(
         String measurementRunId,
         Boolean measurementIsMock,
         Instant measuredAt,
+        /**
+         * What a map can draw, derived from the packet rather than reported by the worker. Never
+         * null: an unmeasured segment carries {@link MeasurementProjection#EMPTY} so a caller
+         * reads a field rather than checking for a null object first.
+         */
+        MeasurementProjection measurement,
         Instant createdAt,
         Instant updatedAt) {
 
     public boolean hasBothUploads() {
         return videoObjectKey != null && telemetryObjectKey != null;
+    }
+
+    public boolean isMeasured() {
+        return "measured".equals(measurementState);
     }
 }

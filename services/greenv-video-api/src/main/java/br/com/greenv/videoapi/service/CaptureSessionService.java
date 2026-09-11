@@ -4,19 +4,27 @@ import br.com.greenv.videoapi.config.CaptureProperties;
 import br.com.greenv.videoapi.domain.CaptureSegmentDocument;
 import br.com.greenv.videoapi.domain.CaptureObjectKeys;
 import br.com.greenv.videoapi.domain.CaptureSessionDocument;
+import br.com.greenv.videoapi.domain.CaptureSessionQuery;
 import br.com.greenv.videoapi.domain.CaptureSessionSummary;
+import br.com.greenv.videoapi.domain.MeasurementProjection;
+import br.com.greenv.videoapi.domain.Page;
 import br.com.greenv.videoapi.domain.SegmentExtractionRequest;
+import br.com.greenv.videoapi.domain.SampledFrame;
 import br.com.greenv.videoapi.domain.SegmentMeasurementAnnouncement;
 import br.com.greenv.videoapi.domain.Sentido;
 import br.com.greenv.videoapi.port.CaptureObjectStorage;
 import br.com.greenv.videoapi.port.CaptureSessionStore;
 import br.com.greenv.videoapi.port.CaptureSessionUseCase;
 import br.com.greenv.videoapi.port.IdentifierGenerator;
+import br.com.greenv.videoapi.port.MeasurementProjectionReader;
+import br.com.greenv.videoapi.port.SampledFrameReader;
+import br.com.greenv.videoapi.port.SegmentTrackWriter;
 import br.com.greenv.videoapi.port.SegmentWorkQueue;
 import java.io.InputStream;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -33,11 +41,23 @@ public class CaptureSessionService implements CaptureSessionUseCase {
      */
     private static final long MAXIMUM_MEASUREMENT_BYTES = 4 * 1024 * 1024;
 
+    /**
+     * The cell grid is the largest document a segment produces - half a megabyte for a hundred
+     * frames - and it is read only to derive a summary, never served.
+     */
+    private static final long MAXIMUM_ASSESSMENT_BYTES = 16 * 1024 * 1024;
+
+    /** A published frame is a 1024 px JPEG, about 65 KB. This bounds a read, nothing more. */
+    private static final long MAXIMUM_FRAME_BYTES = 8 * 1024 * 1024;
+
     private final CaptureSessionStore captureSessionStore;
     private final CaptureObjectStorage objectStorage;
     private final SegmentWorkQueue workQueue;
     private final CaptureProperties captureProperties;
     private final IdentifierGenerator identifierGenerator;
+    private final MeasurementProjectionReader projectionReader;
+    private final SampledFrameReader frameReader;
+    private final SegmentTrackWriter trackWriter;
     private final Clock clock;
 
     public CaptureSessionService(
@@ -46,12 +66,18 @@ public class CaptureSessionService implements CaptureSessionUseCase {
             SegmentWorkQueue workQueue,
             CaptureProperties captureProperties,
             IdentifierGenerator identifierGenerator,
+            MeasurementProjectionReader projectionReader,
+            SampledFrameReader frameReader,
+            SegmentTrackWriter trackWriter,
             Clock clock) {
         this.captureSessionStore = captureSessionStore;
         this.objectStorage = objectStorage;
         this.workQueue = workQueue;
         this.captureProperties = captureProperties;
         this.identifierGenerator = identifierGenerator;
+        this.projectionReader = projectionReader;
+        this.frameReader = frameReader;
+        this.trackWriter = trackWriter;
         this.clock = clock;
     }
 
@@ -109,7 +135,8 @@ public class CaptureSessionService implements CaptureSessionUseCase {
         return new CaptureSessionSummary(
                 session,
                 captureSessionStore.segmentCount(sessionId),
-                captureSessionStore.readySegmentCount(sessionId));
+                captureSessionStore.readySegmentCount(sessionId),
+                captureSessionStore.measuredSegmentCount(sessionId));
     }
 
     @Override
@@ -275,15 +302,103 @@ public class CaptureSessionService implements CaptureSessionUseCase {
         if (captureSessionStore.findSegment(announcement.sessionId(), announcement.segmentIndex()).isEmpty()) {
             return;
         }
+        String packetKey =
+                // Built here, never taken from the message: see CaptureObjectKeys.measurement.
+                CaptureObjectKeys.measurement(announcement.sessionId(), announcement.segmentIndex());
         captureSessionStore.recordMeasurement(
                 announcement.sessionId(),
                 announcement.segmentIndex(),
-                // Built here, never taken from the message: see CaptureObjectKeys.measurement.
-                CaptureObjectKeys.measurement(announcement.sessionId(), announcement.segmentIndex()),
+                packetKey,
                 announcement.runId(),
                 announcement.mock(),
                 announcement.measuredAt(),
+                projectionOf(announcement.sessionId(), announcement.segmentIndex(), packetKey),
                 clock.instant());
+    }
+
+    /**
+     * Reads what the worker wrote and keeps the part a map can draw.
+     *
+     * <p>Done here rather than taken off the announcement so the summary and the packet cannot
+     * disagree, and so re-reading storage is enough to repair it. A read that fails costs the
+     * summary and not the measurement: the segment is still recorded as measured, and the packet
+     * is still served by {@code measurement(...)}.
+     */
+    private MeasurementProjection projectionOf(UUID sessionId, int segmentIndex, String packetKey) {
+        byte[] packet = readIfPresent(packetKey);
+        byte[] assessment =
+                readIfPresent(CaptureObjectKeys.measurementArtifact(sessionId, segmentIndex, "assessment.json"));
+        return projectionReader.project(packet, assessment);
+    }
+
+    private byte[] readIfPresent(String objectKey) {
+        try {
+            return objectStorage.exists(objectKey) ? objectStorage.read(objectKey, MAXIMUM_ASSESSMENT_BYTES) : null;
+        } catch (RuntimeException unreadable) {
+            return null;
+        }
+    }
+
+    /**
+     * The frames a segment published, with the camera position for each where it is known.
+     *
+     * <p>Reads the manifest rather than listing the bucket: the manifest is the publication
+     * record, and a bucket listing would also return frames from a run that failed after writing
+     * some of them.
+     */
+    @Override
+    public byte[] track(UUID sessionId) {
+        return trackWriter.featureCollection(listSegments(sessionId));
+    }
+
+    @Override
+    public List<SampledFrame> frames(UUID sessionId, int segmentIndex) {
+        CaptureSegmentDocument segment = captureSessionStore.getSegment(sessionId, segmentIndex);
+        if (segment.manifestObjectKey() == null || !objectStorage.exists(segment.manifestObjectKey())) {
+            throw new ApplicationException(
+                    FailureKind.CONFLICT, "segment_manifest_not_ready", "segment manifest is not ready");
+        }
+        byte[] manifest = objectStorage.read(segment.manifestObjectKey(), MAXIMUM_MANIFEST_BYTES);
+        byte[] packet =
+                segment.measurementObjectKey() == null ? null : readIfPresent(segment.measurementObjectKey());
+        return frameReader.read(manifest, packet);
+    }
+
+    /**
+     * One JPEG, by name.
+     *
+     * <p>The name is checked against the manifest before a key is built from it. A caller that
+     * can name any object can read any object, and the manifest is the only list of names this
+     * segment actually published.
+     */
+    @Override
+    public byte[] frame(UUID sessionId, int segmentIndex, String fileName) {
+        boolean published = frames(sessionId, segmentIndex).stream()
+                .anyMatch(frame -> frame.fileName().equals(fileName));
+        if (!published) {
+            throw new ApplicationException(
+                    FailureKind.NOT_FOUND, "sampled_frame_absent", "this segment published no such frame");
+        }
+        return objectStorage.read(
+                CaptureObjectKeys.sampledFrame(sessionId, segmentIndex, fileName), MAXIMUM_FRAME_BYTES);
+    }
+
+    @Override
+    public Page<CaptureSessionSummary> listSessions(CaptureSessionQuery query) {
+        return captureSessionStore.findSessions(query);
+    }
+
+    @Override
+    public List<CaptureSegmentDocument> listSegments(UUID sessionId) {
+        // Rejects an unknown session rather than answering an empty list, so a mistyped id reads
+        // as 404 and not as a session that exists and recorded nothing.
+        captureSessionStore.getSession(sessionId);
+        return captureSessionStore.findSegments(sessionId);
+    }
+
+    @Override
+    public Page<CaptureSegmentDocument> listMeasurements(CaptureSessionQuery query) {
+        return captureSessionStore.findMeasuredSegments(query);
     }
 
     @Override

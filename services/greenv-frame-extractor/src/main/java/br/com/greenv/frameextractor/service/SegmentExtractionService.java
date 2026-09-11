@@ -9,6 +9,7 @@ import br.com.greenv.frameextractor.domain.FrameTelemetry;
 import br.com.greenv.frameextractor.domain.MeasurementRequest;
 import br.com.greenv.frameextractor.domain.SamplingPlan;
 import br.com.greenv.frameextractor.domain.SegmentExtractionRequest;
+import br.com.greenv.frameextractor.domain.RouteIdentity;
 import br.com.greenv.frameextractor.domain.SegmentManifest;
 import br.com.greenv.frameextractor.domain.SegmentTelemetry;
 import br.com.greenv.frameextractor.domain.Sentido;
@@ -87,6 +88,7 @@ public class SegmentExtractionService implements SegmentProcessor {
     private final SamplingPlanner samplingPlanner;
     private final GroupPlanner groupPlanner;
     private final FrameSampler frameSampler;
+    private final RouteIdentifier routeIdentifier;
     private final MeasurementWorkQueue measurementQueue;
     private final Clock clock;
 
@@ -102,6 +104,7 @@ public class SegmentExtractionService implements SegmentProcessor {
             GroupPlanner groupPlanner,
             FrameSampler frameSampler,
             MeasurementWorkQueue measurementQueue,
+            RouteIdentifier routeIdentifier,
             Clock clock) {
         this.extractorProperties = extractorProperties;
         this.objectStorage = objectStorage;
@@ -113,6 +116,7 @@ public class SegmentExtractionService implements SegmentProcessor {
         this.samplingPlanner = samplingPlanner;
         this.groupPlanner = groupPlanner;
         this.frameSampler = frameSampler;
+        this.routeIdentifier = routeIdentifier;
         this.measurementQueue = measurementQueue;
         this.clock = clock;
     }
@@ -217,6 +221,9 @@ public class SegmentExtractionService implements SegmentProcessor {
             publishedGroups = List.of();
         }
 
+        RouteIdentity route = routeIdentifier
+                .identify(telemetry.locations(), profile.motion())
+                .orElse(request.rodovia(), request.sentido());
         SegmentManifest manifest = new SegmentManifest(
                 2,
                 request.sessionId(),
@@ -251,8 +258,12 @@ public class SegmentExtractionService implements SegmentProcessor {
                 // covered. Without it, a reader cannot tell a refusal from an abstention.
                 profile.fixSpanSeconds(),
                 publishedGroups,
-                request.rodovia(),
-                request.sentido());
+                // Derived from the fixes, not from the request. The capture screen used to ask
+                // for these and they came back empty, because they were optional and because a
+                // person naming a road once cannot describe a drive that crosses two. What the
+                // caller sent is kept only where nothing could be worked out.
+                route.rodovia(),
+                route.sentido());
         objectStorage.putJson(manifestKey, manifest);
         SegmentManifest published = objectStorage.readJson(manifestKey, SegmentManifest.class);
         verifyPublished(request.outputPrefix(), published);

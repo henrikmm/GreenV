@@ -94,6 +94,7 @@ class SegmentExtractionServiceTest {
                 new GroupPlanner(),
                 ffmpeg,
                 announced::add,
+                new RouteIdentifier(new tools.jackson.databind.ObjectMapper()),
                 Clock.fixed(Instant.parse("2026-08-25T12:00:02Z"), ZoneOffset.UTC));
 
         var first = service.extract(request);
@@ -219,6 +220,7 @@ class SegmentExtractionServiceTest {
                 new GroupPlanner(),
                 ffmpeg,
                 announced::add,
+                new RouteIdentifier(new tools.jackson.databind.ObjectMapper()),
                 Clock.fixed(Instant.parse("2026-08-25T12:00:02Z"), ZoneOffset.UTC));
     }
 

@@ -33,7 +33,8 @@ evidence to look at, not instructions to send a crew.
 | `greenv-measurement-worker` (worker 2) | yes | `npm test`, 52 tests | yes — `ca-greenv-mvp-measure` |
 | depth on **Google Cloud Run GPU** | yes | — | yes, historically: the eight earliest runs and every VRAM ceiling |
 | depth on **RunPod** | yes | `python test_handler.py`, no GPU | **yes, since 11 Sep 2026** — endpoint `greenv-mvp-depth`, four segments measured |
-| `apps/web` dashboard | yes | `npm run build` | n/a — mock data only, no API client |
+| `apps/web-mock` demo | yes | `npm run build` | n/a — mock data only, by design |
+| `apps/web-prod` dashboard | yes | `npm run build` | **yes, since 11 Sep 2026** — Cloudflare Pages, reading the API |
 | `infrastructure/` Terraform (Azure + Neon + R2) | yes | `terraform test`, 16 mocked | yes — applied; state in the R2 backend |
 
 Two entries in that table changed on 11 September and are the ones people still get wrong:
@@ -75,9 +76,12 @@ as an error.
 this repository yet". That is no longer accurate, and the correction matters because it changes
 the size of the remaining work:
 
-- `apps/web/public/marco_km.geojson` holds **30 km-marker points, KM 0 to KM 29, all for SP-021**.
-- `apps/web/src/utils/routePlanner.js` already assigns a km with `nearestKm()` — nearest marker to
-  a polygon centroid.
+- `apps/web-mock/public/marco_km.geojson` holds **30 km-marker points, KM 0 to KM 29, all for
+  SP-021**, and the same points now also live at
+  `services/greenv-frame-extractor/src/main/resources/reference/highways.geojson`, ordered into a
+  line a service can read.
+- `apps/web-core/src/utils/routePlanner.js` assigns a km with `nearestKm()` — nearest marker to a
+  polygon centroid.
 
 So a linear reference exists. What does not exist is a reference any *service* can read: the file
 is a frontend display asset, it covers one highway, and the measured spacing between consecutive
@@ -91,11 +95,14 @@ needs is a shared reference — every highway in scope, ordered along the road r
 points, readable by a service — plus a decision about how much error an operations team will accept
 in a km label.
 
-### 3. The dashboard has never seen a measurement
+### 3. The dashboard had never seen a measurement, until the one that does
 
-`apps/web` contains no API client. The only two network calls in the whole application are
+**Corrected 11 September 2026: `apps/web-prod` does, and is deployed.** What follows describes
+`apps/web-mock`, which is now the demo and keeps every word of it true.
+
+It contains no API client. The only two network calls in the whole application are
 `fetch('/rocada_polygons.geojson')` and `fetch('/marco_km.geojson')` in `src/App.jsx`. Login,
-teams, trends and service orders are `apps/web/src/data/mock*.js` and `localStorage`. The 642 polygons come
+teams, trends and service orders are `apps/web-mock/src/data/mock*.js` and `localStorage`. The 642 polygons come
 from Motiva's KMZ and their vegetation levels from a spreadsheet, not from anything this system
 measured.
 
@@ -173,6 +180,9 @@ Corrected on 11 September 2026, after the stack was applied and the first measur
 | `infrastructure/README.md` | 516 lines that predated worker 2 and the measurement queues | Every hop with the name it travels under, per-service environment tables, and the names that must agree across services |
 | `infrastructure/locals.tf` | The measurement worker's attempt limit and lease under the Java spellings, which that container has no reader for | `GREENV_MEASUREMENT_MAX_ATTEMPTS` and `GREENV_MEASUREMENT_VISIBILITY_SECONDS`, the names the Node worker reads |
 | `services/greenv-depth-runpod/handler.py` | Printed nothing, so a refused job left only the SDK's `Started.` and `Finished.` | Logs the device it judged the job against, and every refusal |
+| The API | No route returned a collection; nothing could be listed or discovered | Sessions, segments, measurements and frames all list, and each measurement is projected into its row |
+| `apps/web` | One app on mock data | `web-core` shared, `web-mock` the demo, `web-prod` reading the API |
+| The capture screen | Asked the operator for rodovia and sentido, optional, so both sessions came back null | Gone; the frame extractor derives both from the fixes and abstains where they do not support an answer |
 
 ## For an agent starting here
 

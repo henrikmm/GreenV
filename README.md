@@ -13,7 +13,9 @@ Built for the Motiva challenge by group 27, 2CCPW.
 ## Layout
 
 ```
-apps/web/         the map dashboard          React, Vite, Leaflet
+apps/web-core/    o que os dois painéis dividem
+apps/web-mock/    o painel de demonstração   React, Vite, Leaflet
+apps/web-prod/    o painel que lê a API      React, Vite, Leaflet
 apps/mobile/      the capture client         Flutter
 services/
   greenv-video-api/          the control plane        Spring Boot, Java 21
@@ -43,7 +45,9 @@ docker compose --profile test up --build capture-smoke
 The dashboard, against the fixtures it currently ships with:
 
 ```
-cd apps/web && npm ci && npm run dev
+npm install                                   # na raiz: são workspaces
+npm run dev --workspace @greenv/web-mock      # a demo
+npm run dev --workspace @greenv/web-prod      # contra a API
 ```
 
 Each part has its own README with the detail. `AGENTS.md` is the working agreement — read it before
@@ -74,7 +78,8 @@ does not establish; [`infrastructure/README.md`](infrastructure/README.md) docum
 every setting.
 
 **Two gaps sit between that and an operations decision.** The dashboard has never displayed a
-measurement — `apps/web` has no API client and renders Motiva's KMZ polygons with mock levels. And
+measurement — `apps/web-prod` now reads the API and draws each session where it was captured,
+while `apps/web-mock` keeps the KMZ polygons and the invented levels. And
 a measurement carries no `km`, so it cannot be placed on the highway; the packet raises
 `road-metadata-missing` rather than guessing. Separately, no automatic reading has ever been
 compared with a tape, so every packet reports `operationalStatus: "not-ready"`.

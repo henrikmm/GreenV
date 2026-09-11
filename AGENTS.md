@@ -17,7 +17,9 @@ got to.
 
 | Directory | What it holds | Stack |
 |---|---|---|
-| `apps/web/` | The map dashboard: stretches, levels, service orders | React 18, Vite, Leaflet, plain JSX |
+| `apps/web-core/` | What both dashboards share: components, the level thresholds, the order shape. Knows no data source | React 18, plain JSX |
+| `apps/web-mock/` | The demo: 642 KMZ polygons, invented orders, two users in memory | React 18, Vite, Leaflet |
+| `apps/web-prod/` | The real client: sessions, measured tracks, the frames behind each point | React 18, Vite, Leaflet |
 | `apps/mobile/` | The capture client: records a route with telemetry, uploads offline-first | Flutter, Dart |
 | `services/greenv-video-api/` | Capture sessions, jobs, storage keys — the control plane | Spring Boot, Java 21, Gradle |
 | `services/greenv-frame-extractor/` | Worker 1: samples frames, attaches GNSS, cuts road stretches | Spring Boot, Java 21, ffmpeg |
@@ -33,7 +35,9 @@ got to.
 Run each from its own directory, not from the repository root.
 
 ```
-apps/web            npm ci && npm run build
+apps/web-*          npm install (at the root: they are npm workspaces)
+                    npm run build --workspace @greenv/web-mock
+                    npm run build --workspace @greenv/web-prod
 apps/mobile         flutter test && flutter analyze
 services/*          ./gradlew check
 measurement worker  npm ci && npm test
@@ -152,7 +156,7 @@ what. Two rules from it are worth carrying here, because both have already cost 
 
 | What changed | How you check it |
 |---|---|
-| `apps/web` | `npm run build`, then load the page and look at it |
+| `apps/web-*` | `npm run build --workspace @greenv/web-<name>`, then load the page and look at it |
 | `apps/mobile` | `flutter test && flutter analyze` |
 | `services/*` | `./gradlew check` |
 | `services/greenv-measurement-worker` | `npm test` |

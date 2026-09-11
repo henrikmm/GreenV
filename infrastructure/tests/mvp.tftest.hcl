@@ -299,6 +299,13 @@ run "plans_cost_conscious_mvp_defaults" {
     error_message = "A deployment that has not named a ruleset id must not manage the zone's firewall."
   }
 
+  # Without a dashboard there is no origin to allow, and an allowed origin nobody serves is a
+  # standing permission for a host that does not exist.
+  assert {
+    condition     = local.api_environment.GREENV_ALLOWED_ORIGINS == ""
+    error_message = "A deployment with no dashboard and no configured origins must leave CORS off."
+  }
+
   # False by default. Turning it on makes every capture wake a paid GPU, which AGENTS.md wants
   # agreed in conversation rather than inherited from a default.
   assert {

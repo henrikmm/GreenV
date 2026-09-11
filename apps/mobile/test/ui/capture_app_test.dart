@@ -11,7 +11,6 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 import '../support/capture_fakes.dart';
-import 'package:greenv_capture/src/domain/capture_models.dart';
 
 void main() {
   testWidgets('follows login and password recovery screens', (tester) async {
@@ -152,7 +151,14 @@ void main() {
     expect(find.text('Entrar'), findsNothing);
   });
 
-  testWidgets('names the road once, before the route starts', (tester) async {
+  // The test that typed a rodovia and tapped a sentido is gone with the fields it drove. Both
+  // were optional, so both sessions on record came back null, and a session is declared once
+  // while a drive changes road and direction. The frame extractor derives them per segment now,
+  // and RouteIdentifierTest covers the cases: a drive at road speed, a walk that yields nothing,
+  // and a capture thirteen kilometres from any known road.
+  testWidgets('a route names no road, because the phone no longer asks', (
+    tester,
+  ) async {
     final queue = MemoryCaptureQueue();
     final coordinator = _coordinator(queue: queue);
     addTearDown(coordinator.dispose);
@@ -167,24 +173,17 @@ void main() {
       ),
     );
 
-    await tester.ensureVisible(find.byKey(const Key('rodovia-field')));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byKey(const Key('rodovia-field')), 'br-101');
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(find.byKey(const Key('sentido-norte')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('sentido-norte')));
-    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('rodovia-field')), findsNothing);
+    expect(find.byKey(const Key('sentido-norte')), findsNothing);
+
     await tester.ensureVisible(find.byKey(const Key('record-button')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('record-button')));
     await tester.pump();
 
-    // Uppercased on the way in, and recorded on the session rather than on a segment: the whole
-    // route belongs to one rodovia in one sentido.
     final session = (await queue.sessions()).single;
-    expect(session.rodovia, 'BR-101');
-    expect(session.sentido, Sentido.norte);
+    expect(session.rodovia, isNull);
+    expect(session.sentido, isNull);
 
     await tester.pumpWidget(const SizedBox.shrink());
   });

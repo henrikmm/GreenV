@@ -180,6 +180,98 @@ class CaptureMeasurementIntegrationTest {
                 HttpResponse.BodyHandlers.ofString());
     }
 
+
+    /**
+     * The routes that let a dashboard open on something.
+     *
+     * <p>Before these, every read needed an id the caller already had, so there was no way to
+     * discover what had been captured at all.
+     */
+    @Test
+    void listsSessionsWithTheirCountersAndTheirSegments() throws Exception {
+        UUID sessionId = givenASegment();
+
+        String sessions = get("/v2/capture-sessions?limit=5").body();
+        assertThat(sessions)
+                .contains(sessionId.toString())
+                .contains("\"total\"")
+                .as("a list opens on how much of a session is done")
+                .contains("\"segmentCount\":1")
+                .contains("\"measuredSegmentCount\":0");
+
+        givenAMeasurement(sessionId);
+
+        assertThat(get("/v2/capture-sessions?measuredOnly=true").body())
+                .contains("\"measuredSegmentCount\":1");
+        assertThat(get("/v2/capture-sessions/" + sessionId + "/segments").body())
+                .contains("\"measurementState\":\"measured\"");
+        assertThat(get("/v2/measurements").body()).contains(sessionId.toString());
+    }
+
+    @Test
+    void anUnknownSessionIsNotAnEmptyList() throws Exception {
+        assertThat(get("/v2/capture-sessions/" + UUID.randomUUID() + "/segments").statusCode())
+                .as("a mistyped id must read as absent, not as a session that recorded nothing")
+                .isEqualTo(404);
+    }
+
+    /**
+     * The manifest is the publication record, so it is also the guest list. A caller that could
+     * name any object could read any object, including another session's.
+     */
+    @Test
+    void servesOnlyTheFramesTheManifestLists() throws Exception {
+        UUID sessionId = givenASegment();
+        String manifest = "{\"sampledFrames\":[{\"fileName\":\"frame-0001.jpg\",\"sizeBytes\":64}]}";
+        objectStorage.put(
+                CaptureObjectKeys.manifest(sessionId, 0),
+                new ByteArrayInputStream(manifest.getBytes(StandardCharsets.UTF_8)),
+                sha256(manifest),
+                1024);
+        store.recordVideo(sessionId, 0, CaptureObjectKeys.manifest(sessionId, 0), sha256(manifest), 1, NOW);
+        jdbcManifest(sessionId);
+
+        assertThat(get("/v2/capture-sessions/" + sessionId + "/segments/0/frames").body())
+                .contains("frame-0001.jpg")
+                .as("unmeasured, so nothing joined this image to a fix")
+                .contains("\"latitude\":null");
+
+        assertThat(get("/v2/capture-sessions/" + sessionId + "/segments/0/frames/frame-9999.jpg").statusCode())
+                .isEqualTo(404);
+    }
+
+    private void givenAMeasurement(UUID sessionId) throws Exception {
+        objectStorage.put(
+                CaptureObjectKeys.measurement(sessionId, 0),
+                new ByteArrayInputStream(PACKET.getBytes(StandardCharsets.UTF_8)),
+                sha256(PACKET),
+                1024);
+        captureSessionUseCase.recordMeasurement(new SegmentMeasurementAnnouncement(
+                sessionId, 0, "20260908-000000-abcdef", true, Instant.parse("2026-09-08T03:00:00Z")));
+    }
+
+    private HttpResponse<String> get(String path) throws Exception {
+        return HttpClient.newHttpClient().send(
+                HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + path))
+                        .header("authorization", "Bearer " + TEST_API_TOKEN)
+                        .GET()
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+    }
+
+    private static final Instant NOW = Instant.parse("2026-09-08T02:00:00Z");
+
+    /** The manifest key is what {@code frames} reads; recordVideo does not set it. */
+    private void jdbcManifest(UUID sessionId) {
+        jdbcTemplate.update(
+                "UPDATE capture_segments SET manifest_object_key = ? WHERE session_id = ? AND segment_index = 0",
+                CaptureObjectKeys.manifest(sessionId, 0),
+                sessionId);
+    }
+
+    @Autowired
+    org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+
     private static String sha256(String value) throws Exception {
         return HexFormat.of().formatHex(
                 MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));

@@ -16,6 +16,9 @@ public record CaptureSessionResponse(
         Integer lastSegmentIndex,
         long segmentCount,
         long readySegmentCount,
+        // How much of this session has a measurement. A list that shows only "ready" cannot tell
+        // a session still being measured from one that is finished.
+        long measuredSegmentCount,
         String rodovia,
         Sentido sentido) {
 
@@ -32,6 +35,7 @@ public record CaptureSessionResponse(
                 session.lastSegmentIndex(),
                 summary.segmentCount(),
                 summary.readySegmentCount(),
+                summary.measuredSegmentCount(),
                 session.rodovia(),
                 session.sentido());
     }

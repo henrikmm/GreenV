@@ -49,6 +49,34 @@ variable "cloudflare_zone_id" {
   nullable    = true
 }
 
+variable "dashboard_hostname" {
+  description = <<-EOT
+    Where the production dashboard is served, for example greenv.example.com. Naming it does two
+    things and creates nothing: the zone's firewall gets a rule letting this host through, and
+    the API's allowed origins get it so a browser may read a response.
+
+    The site itself is not created here. It is a static build on Cloudflare Pages, which this
+    provider version cannot express, and Pages creates the DNS record when the custom domain is
+    attached — so a record here would fight it. See infrastructure/README.md.
+
+    It must sit under the same registrable domain as the API. The session cookies are `__Host-`
+    with SameSite=Lax, and a dashboard on another domain would be refused a cookie it never sees.
+  EOT
+  type        = string
+  default     = null
+  nullable    = true
+
+  validation {
+    condition     = var.dashboard_hostname == null || can(regex("^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$", var.dashboard_hostname))
+    error_message = "dashboard_hostname must be a lowercase fully-qualified domain name."
+  }
+
+  validation {
+    condition     = var.dashboard_hostname == null || var.cloudflare_zone_firewall_ruleset_id != null
+    error_message = "cloudflare_zone_firewall_ruleset_id is required when dashboard_hostname is set, or the zone's blanket block would hide the dashboard."
+  }
+}
+
 variable "api_hostname" {
   description = "Optional API hostname, for example api.example.com."
   type        = string

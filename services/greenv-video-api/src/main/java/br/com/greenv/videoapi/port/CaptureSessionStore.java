@@ -2,7 +2,12 @@ package br.com.greenv.videoapi.port;
 
 import br.com.greenv.videoapi.domain.CaptureSegmentDocument;
 import br.com.greenv.videoapi.domain.CaptureSessionDocument;
+import br.com.greenv.videoapi.domain.CaptureSessionQuery;
+import br.com.greenv.videoapi.domain.CaptureSessionSummary;
+import br.com.greenv.videoapi.domain.MeasurementProjection;
+import br.com.greenv.videoapi.domain.Page;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -41,6 +46,10 @@ public interface CaptureSessionStore {
     /**
      * Records that worker 2 measured this segment. Idempotent by construction: the worker republishes
      * the same result when it redelivers, and the row simply reads the same afterwards.
+     *
+     * @param projection what a map can draw, derived from the packet; {@link
+     *     MeasurementProjection#EMPTY} when it could not be read, so a measurement is still
+     *     recorded when only its summary is missing
      */
     CaptureSegmentDocument recordMeasurement(
             UUID sessionId,
@@ -49,11 +58,23 @@ public interface CaptureSessionStore {
             String runId,
             boolean mock,
             Instant measuredAt,
+            MeasurementProjection projection,
             Instant now);
 
     CaptureSessionDocument completeSession(UUID sessionId, int lastSegmentIndex, Instant endedAt, Instant now);
 
+    /** One page of sessions, newest first, filtered by {@code query}. */
+    Page<CaptureSessionSummary> findSessions(CaptureSessionQuery query);
+
+    /** Every segment of one session, in capture order. */
+    List<CaptureSegmentDocument> findSegments(UUID sessionId);
+
+    /** Measured segments across every session, newest measurement first. */
+    Page<CaptureSegmentDocument> findMeasuredSegments(CaptureSessionQuery query);
+
     long segmentCount(UUID sessionId);
 
     long readySegmentCount(UUID sessionId);
+
+    long measuredSegmentCount(UUID sessionId);
 }
