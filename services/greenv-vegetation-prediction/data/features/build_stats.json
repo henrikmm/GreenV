@@ -29,7 +29,7 @@
   "validation": 6864,
   "test": 4308
  },
- "built_at": "2026-09-10T15:42:52Z",
+ "built_at": "2026-09-10T23:53:19Z",
  "feature_spec_version": "weather-v1+features-v1",
  "keep_columns": [
   "height_cm",
@@ -87,6 +87,9 @@
   "target_height_plus_7d_actual_offset_days",
   "target_height_plus_14d_actual_offset_days",
   "target_height_plus_30d_actual_offset_days",
+  "target_days_until_30cm_outcome",
+  "target_days_until_30cm_censoring_time_days",
+  "target_days_until_30cm_followup_end_cause",
   "built_at"
  ],
  "exclude_leakage_columns": [

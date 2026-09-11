@@ -1,14 +1,19 @@
 """Phase 11 — feature-spec leakage guarantees (item 7) and roçada-cycle causality in the actual
 feature builder (item 8), on tiny, deterministic, hand-built fixtures — never the real generator
 or the real weather pull.
+
+Pre-push remediation (Codex independent review, R01/R02/R04) adds `TestDaysUntil30cmIntervention`
+and `TestDaysUntil30cmTemporalIsolation` below, on the same kind of tiny hand-built fixture.
 """
 from __future__ import annotations
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 
 from greenv_vegpred.features import feature_spec
-from greenv_vegpred.features.build import build_trecho_rows
+from greenv_vegpred.features.build import (
+    TEST_START, TRAIN_END, VALID_END, VALID_START, build_trecho_rows,
+)
 
 FORBIDDEN = {
     "true_height_cm", "nivel_true", "generator_seed", "generator_params_hash",
@@ -165,3 +170,253 @@ class TestRocadaCycleCausality:
         for r in rows:
             assert "true_height_cm" not in r
             assert "true_height_cm_DIAGNOSTIC_ONLY" in r
+
+
+# ------------------------------------------------- days_until_30cm: R01/R02/R04 remediation
+
+def make_weekly_series(start_date, heights):
+    """One observation per week, starting at `start_date`, heights given in order. No roçada by
+    default (callers pass their own `roc_dates`)."""
+    obs = []
+    for w, h in enumerate(heights):
+        d = start_date + timedelta(weeks=w)
+        obs.append(make_obs_row(d.isoformat(), h, iso_week=(w % 52) + 1, days_since_rocada=w * 7))
+    return obs
+
+
+def build_and_get(obs, roc_dates, as_of_date):
+    rows = build_trecho_rows("main", "SP-021:norte:000000", obs, roc_dates,
+                             NO_OP_DEFICIT_90D, {}, is_dev=True)
+    return {r["as_of_date"]: r for r in rows}[as_of_date]
+
+
+class TestDaysUntil30cmIntervention:
+    """R02 fixtures, exactly as specified: a future roçada must stop the search, never be crossed
+    to find a later, causally unrelated post-cut crossing."""
+
+    def test_intervention_before_crossing_is_censored_not_event(self):
+        # 20 -> 25 -> [roçada] -> 8 -> 15 -> 31, anchored well inside TRAIN, far from any boundary.
+        start = date(2024, 6, 3)
+        obs = make_weekly_series(start, [20.0, 25.0, 8.0, 15.0, 31.0])
+        roc_dates = [start + timedelta(days=10)]  # between week 1 (day 7) and week 2 (day 14)
+        row = build_and_get(obs, roc_dates, start.isoformat())
+
+        assert row["target_days_until_30cm_outcome"] == "censored_intervention"
+        assert row["target_days_until_30cm"] is None       # never the post-cut day-28 crossing
+        assert row["target_days_until_30cm_censored"] == 1  # legacy field: censored, not event
+        assert row["target_days_until_30cm_censoring_time_days"] == 10
+        assert row["target_days_until_30cm_followup_end_cause"] is None
+
+    def test_crossing_before_any_rocada_is_a_clean_event(self):
+        start = date(2024, 6, 3)
+        obs = make_weekly_series(start, [20.0, 25.0, 31.0])  # no roçada at all
+        row = build_and_get(obs, [], start.isoformat())
+
+        assert row["target_days_until_30cm_outcome"] == "event"
+        assert row["target_days_until_30cm"] == 14.0  # week index 2 = day 14
+        assert row["target_days_until_30cm_censored"] == 0
+        assert row["target_days_until_30cm_censoring_time_days"] is None
+        assert row["target_days_until_30cm_followup_end_cause"] is None
+
+    def test_full_120_days_cleared_without_crossing_or_rocada_is_censored_horizon(self):
+        start = date(2024, 6, 3)
+        # 19 weekly observations (0, 7, ..., 126 days): the full 120-day horizon is genuinely
+        # observed (data continues to day 126), height never crosses, no roçada.
+        obs = make_weekly_series(start, [20.0] * 19)
+        row = build_and_get(obs, [], start.isoformat())
+
+        assert row["target_days_until_30cm_outcome"] == "censored_horizon"
+        assert row["target_days_until_30cm"] is None
+        assert row["target_days_until_30cm_censored"] == 1
+        assert row["target_days_until_30cm_censoring_time_days"] == 120.0
+        assert row["target_days_until_30cm_followup_end_cause"] is None
+
+    def test_series_ending_at_40_days_is_censored_end_of_followup_not_horizon(self):
+        start = date(2025, 10, 6)  # inside TEST -- no split-boundary cutoff applies
+        # 6 weekly observations (0, 8, 16, 24, 32, 40 days): the series just stops at day 40.
+        obs = [make_obs_row((start + timedelta(days=8 * w)).isoformat(), 20.0,
+                            iso_week=(w % 52) + 1, days_since_rocada=8 * w) for w in range(6)]
+        row = build_and_get(obs, [], start.isoformat())
+
+        assert row["target_days_until_30cm_outcome"] == "censored_end_of_followup"
+        assert row["target_days_until_30cm"] is None
+        assert row["target_days_until_30cm_censored"] == 1
+        assert row["target_days_until_30cm_censoring_time_days"] == 40.0
+        assert row["target_days_until_30cm_followup_end_cause"] == "dataset_end"
+        # never misreported as "the full 120-day horizon was observed"
+        assert row["target_days_until_30cm_censoring_time_days"] != 120.0
+
+
+class TestDaysUntil30cmInterventionWithoutAFollowingObservation:
+    """B1.1 microfix: a known roçada must censor the search even when no observation exists
+    between it and `observable_end_ord` -- the roçada is a fact on its own recorded date, it does
+    not need a later observation to "confirm" it happened."""
+
+    def test_caso_a_rocada_before_split_cutoff_with_no_observation_in_between(self):
+        # anchor = VALID_END; roçada +28d; VALIDATION's own cutoff is +30d (day before
+        # TEST_START); the only later observation is +35d, past the cutoff -- so nothing is ever
+        # visited on/after the roçada, yet the roçada is still a known fact at +28d.
+        start = VALID_END  # 2025-08-31
+        rocada_date = start + timedelta(days=28)
+        obs = [
+            make_obs_row(start.isoformat(), 20.0, iso_week=35, days_since_rocada=0),
+            make_obs_row((start + timedelta(days=35)).isoformat(), 8.0, iso_week=40, days_since_rocada=0),
+        ]
+        row = build_and_get(obs, [rocada_date], start.isoformat())
+
+        assert row["target_days_until_30cm_outcome"] == "censored_intervention"
+        assert row["target_days_until_30cm"] is None
+        assert row["target_days_until_30cm_censoring_time_days"] == 28.0
+        assert row["target_days_until_30cm_followup_end_cause"] is None
+
+    def test_caso_b_rocada_near_the_120_day_horizon_with_no_observation_in_between(self):
+        # TEST split (no cutoff); the full 120 days are observable (data continues to +126d);
+        # roçada at +118d, no observation between +118d and the next one at +126d (past horizon).
+        start = date(2025, 10, 6)
+        rocada_date = start + timedelta(days=118)
+        obs = [
+            make_obs_row(start.isoformat(), 20.0, iso_week=41, days_since_rocada=0),
+            make_obs_row((start + timedelta(days=126)).isoformat(), 8.0, iso_week=59, days_since_rocada=0),
+        ]
+        row = build_and_get(obs, [rocada_date], start.isoformat())
+
+        assert row["split"] == "test"
+        assert row["target_days_until_30cm_outcome"] == "censored_intervention"
+        assert row["target_days_until_30cm_censoring_time_days"] == 118.0
+
+    def test_caso_c_crossing_strictly_before_a_later_rocada_is_still_a_clean_event(self):
+        start = date(2024, 6, 3)
+        crossing_date = start + timedelta(days=21)
+        rocada_date = start + timedelta(days=28)
+        obs = [
+            make_obs_row(start.isoformat(), 20.0, iso_week=23, days_since_rocada=0),
+            make_obs_row(crossing_date.isoformat(), 31.0, iso_week=26, days_since_rocada=21),
+        ]
+        row = build_and_get(obs, [rocada_date], start.isoformat())
+
+        assert row["target_days_until_30cm_outcome"] == "event"
+        assert row["target_days_until_30cm"] == 21.0
+
+    def test_caso_d_rocada_and_crossing_on_the_same_date_is_censored_intervention(self):
+        # Convention preserved: a tie goes to intervention, not event -- the observation dated
+        # on/after the roçada is itself already post-cut, so an apparent same-day crossing can
+        # never be trusted as a continuation of the pre-cut trajectory.
+        start = date(2024, 6, 3)
+        tie_date = start + timedelta(days=21)
+        obs = [
+            make_obs_row(start.isoformat(), 20.0, iso_week=23, days_since_rocada=0),
+            make_obs_row(tie_date.isoformat(), 31.0, iso_week=26, days_since_rocada=0),
+        ]
+        row = build_and_get(obs, [tie_date], start.isoformat())
+
+        assert row["target_days_until_30cm_outcome"] == "censored_intervention"
+        assert row["target_days_until_30cm"] is None
+        assert row["target_days_until_30cm_censoring_time_days"] == 21.0
+
+
+class TestDaysUntil30cmTemporalIsolation:
+    """R01 fixtures: a TRAIN/VALIDATION label may consume its own embargo, never the next split's
+    own dates."""
+
+    def test_train_label_may_land_inside_embargo_1(self):
+        # anchor is TRAIN's very last possible date; crossing 20 days later lands inside
+        # EMBARGO_1 (2025-01-01 .. 2025-01-30) -- this must still be a clean EVENT.
+        start = TRAIN_END  # 2024-12-31
+        crossing_date = start + timedelta(days=20)  # 2025-01-20
+        # This IS the assertion the fixture depends on: the crossing must genuinely land inside
+        # EMBARGO_1, or the test would be proving nothing about the embargo at all.
+        assert date(2025, 1, 1) <= crossing_date <= date(2025, 1, 30)
+        obs = [
+            make_obs_row(start.isoformat(), 20.0, iso_week=1, days_since_rocada=0),
+            make_obs_row(crossing_date.isoformat(), 31.0, iso_week=4, days_since_rocada=20),
+        ]
+        row = build_and_get(obs, [], start.isoformat())
+
+        assert row["split"] == "train"
+        assert row["target_days_until_30cm_outcome"] == "event"
+        assert row["target_days_until_30cm"] == 20.0
+
+    def test_train_label_must_not_reach_into_validation(self):
+        # Same anchor (TRAIN_END); the ONLY crossing is 46 days later, inside VALIDATION
+        # (2025-01-31 .. 2025-08-31) -- must NOT be reported as an event.
+        start = TRAIN_END  # 2024-12-31
+        crossing_date = start + timedelta(days=46)  # 2025-02-15, inside VALIDATION
+        assert VALID_START <= crossing_date <= VALID_END
+        obs = [
+            make_obs_row(start.isoformat(), 20.0, iso_week=1, days_since_rocada=0),
+            make_obs_row(crossing_date.isoformat(), 31.0, iso_week=7, days_since_rocada=46),
+        ]
+        row = build_and_get(obs, [], start.isoformat())
+
+        assert row["split"] == "train"
+        assert row["target_days_until_30cm_outcome"] == "censored_end_of_followup"
+        assert row["target_days_until_30cm"] is None
+        assert row["target_days_until_30cm_followup_end_cause"] == "split_boundary"
+        # cutoff is the day before VALID_START -> 30 days after TRAIN_END
+        assert row["target_days_until_30cm_censoring_time_days"] == 30.0
+
+    def test_validation_label_may_land_inside_embargo_2(self):
+        start = VALID_END  # 2025-08-31
+        obs = [
+            make_obs_row(start.isoformat(), 20.0, iso_week=35, days_since_rocada=0),
+            make_obs_row((start + timedelta(days=15)).isoformat(), 31.0, iso_week=37, days_since_rocada=15),
+        ]
+        row = build_and_get(obs, [], start.isoformat())
+
+        assert row["split"] == "validation"
+        assert row["target_days_until_30cm_outcome"] == "event"
+        assert row["target_days_until_30cm"] == 15.0
+
+    def test_validation_label_must_not_reach_into_test(self):
+        start = VALID_END  # 2025-08-31
+        crossing_date = start + timedelta(days=50)  # 2025-10-20, inside TEST
+        assert crossing_date >= TEST_START
+        obs = [
+            make_obs_row(start.isoformat(), 20.0, iso_week=35, days_since_rocada=0),
+            make_obs_row(crossing_date.isoformat(), 31.0, iso_week=42, days_since_rocada=50),
+        ]
+        row = build_and_get(obs, [], start.isoformat())
+
+        assert row["split"] == "validation"
+        assert row["target_days_until_30cm_outcome"] == "censored_end_of_followup"
+        assert row["target_days_until_30cm"] is None
+        assert row["target_days_until_30cm_followup_end_cause"] == "split_boundary"
+        # cutoff is the day before TEST_START -> 30 days after VALID_END
+        assert row["target_days_until_30cm_censoring_time_days"] == 30.0
+
+    def test_test_split_gets_the_full_120_day_horizon_when_real_data_supports_it(self):
+        start = date(2025, 10, 6)  # inside TEST -- no next split to protect against
+        obs = make_weekly_series(start, [20.0] * 19)  # 126 days of real, flat data
+        row = build_and_get(obs, [], start.isoformat())
+
+        assert row["split"] == "test"
+        assert row["target_days_until_30cm_outcome"] == "censored_horizon"
+        assert row["target_days_until_30cm_censoring_time_days"] == 120.0
+
+    def test_test_split_does_not_invent_followup_past_the_real_dataset_end(self):
+        start = date(2025, 10, 6)
+        obs = [make_obs_row((start + timedelta(days=8 * w)).isoformat(), 20.0,
+                            iso_week=(w % 52) + 1, days_since_rocada=8 * w) for w in range(6)]  # 40 days
+        row = build_and_get(obs, [], start.isoformat())
+
+        assert row["split"] == "test"
+        assert row["target_days_until_30cm_outcome"] == "censored_end_of_followup"
+        assert row["target_days_until_30cm_followup_end_cause"] == "dataset_end"
+        assert row["target_days_until_30cm_censoring_time_days"] == 40.0
+
+
+class TestHeightTargetsUnaffectedByTheDaysUntilFix:
+    """Section 13's regression check: +7/+14/+30 height targets keep resolving normally across the
+    embargo, exactly as before -- this phase's fix touches only target_days_until_30cm."""
+
+    def test_height_targets_resolve_inside_embargo_1_for_a_train_anchor(self):
+        start = date(2024, 12, 24)  # TRAIN; +7d -> Dec31 (train), +14d -> Jan7 (embargo),
+                                    # +30d -> ~Jan21 (embargo)
+        heights = [10.0, 12.0, 14.0, 16.0, 18.0]  # weekly, Dec24, Dec31, Jan7, Jan14, Jan21
+        obs = make_weekly_series(start, heights)
+        row = build_and_get(obs, [], start.isoformat())
+
+        assert row["split"] == "train"
+        assert row["target_height_plus_7d_cm"] == 12.0
+        assert row["target_height_plus_14d_cm"] == 14.0
+        assert row["target_height_plus_30d_cm"] == 18.0  # nearest grid date within +-3d of +30d

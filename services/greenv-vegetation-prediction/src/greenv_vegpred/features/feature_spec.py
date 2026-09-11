@@ -71,6 +71,15 @@ METADATA = [
     "target_height_plus_30d_actual_offset_days",  # the weekly grid means "+30d" is really the
                                                     # nearest observation within +-3 days; this
                                                     # records the true offset actually used
+    "target_days_until_30cm_outcome",              # R01/R02/R04 fix: "event"/"censored_intervention"/
+                                                    # "censored_horizon"/"censored_end_of_followup" --
+                                                    # validity/type metadata of the target, not the
+                                                    # target itself (same reasoning as horizon_days)
+    "target_days_until_30cm_censoring_time_days",  # days actually cleared before the outcome above
+                                                    # was decided; never a feature (it is derived
+                                                    # from the same future information the target is)
+    "target_days_until_30cm_followup_end_cause",   # "split_boundary"/"dataset_end", only set when
+                                                    # outcome == "censored_end_of_followup"
     "built_at",
 ]
 
