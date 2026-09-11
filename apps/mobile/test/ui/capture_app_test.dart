@@ -11,7 +11,6 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 import '../support/capture_fakes.dart';
-import 'package:greenv_capture/src/domain/capture_models.dart';
 
 void main() {
   testWidgets('follows login and password recovery screens', (tester) async {
