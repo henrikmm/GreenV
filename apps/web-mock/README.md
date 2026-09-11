@@ -1,5 +1,8 @@
 # apps/web — Dashboard de Gestão de Vegetação
 
+**Esta é a demonstração, e todo dado nela é inventado.** O painel que lê a API de verdade é
+[`apps/web-prod`](../web-prod). Os dois dividem [`apps/web-core`](../web-core).
+
 Interface web interativa para visualização e gestão da vegetação ao longo do Rodoanel Oeste (SP-021).
 
 > **Nada nesta interface vem do pipeline de captura.** O app não tem cliente de API: as duas únicas
@@ -32,7 +35,8 @@ Interface web interativa para visualização e gestão da vegetação ao longo d
 ## Setup
 
 ```bash
-cd apps/web
+npm install                                # na raiz: são workspaces
+npm run dev --workspace @greenv/web-mock
 npm ci
 npm run dev
 ```
@@ -64,7 +68,7 @@ Acesse `http://localhost:5173`
 ## Estrutura
 
 ```
-apps/web/
+apps/web-mock/
 ├── public/
 │   ├── rocada_polygons.geojson   # polígonos do KMZ
 │   ├── marco_km.geojson          # marcos quilométricos
