@@ -603,7 +603,16 @@ restriction did not apply and the API is still reachable around Cloudflare.
 - **Cloudflare allows one entry-point ruleset per zone phase.** If the zone already has one in
   `http_request_cache_settings`, `http_request_firewall_custom` or `http_ratelimit`, import it
   (`terraform import cloudflare_ruleset.api_cache_bypass zones/<zone id>/<ruleset id>`) and add
-  the rule inside it rather than creating a second, conflicting entry point.
+  the rule inside it rather than creating a second, conflicting entry point. `matomomitsu.com`
+  already has one in `http_request_firewall_custom`, id `f020eb3f1cbd4b02b5fe9b8dc5e8f5f0`, which
+  is why `cloudflare_api_waf_enabled` stays false there: creating a second would fail the apply.
+  List them before turning any of the three on:
+
+  ```bash
+  curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+    "https://api.cloudflare.com/client/v4/zones/<zone id>/rulesets" |
+    python3 -c "import json,sys; [print(r['phase'], r['kind'], r['id']) for r in json.load(sys.stdin)['result']]"
+  ```
 - **WAF and rate limiting depend on the Cloudflare plan.** Both are off by default; the custom
   rules here avoid Managed Rules, which need a paid entitlement.
 - **`manage_cloudflare_zone_security_settings` is zone-wide.** Strict SSL, a TLS 1.2 minimum and
