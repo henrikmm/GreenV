@@ -36,35 +36,55 @@ about 3.4 MB for the MP4 they came from, so the frames now cost more storage tha
 
 A ten-second segment is an **upload** bound, not an analysis unit. At 100 km/h it covers 278 m,
 which is many stretches of verge rather than one scene, so the worker cuts the distance travelled
-into groups of about 20 m and treats each as its own reconstruction.
+into groups and treats each as its own reconstruction.
 
-Twenty metres is not arbitrary: Verge Studio's graded evidence covers camera paths of roughly
-14-25 m, so a group of that length keeps the frames inside one looking at the same place. A group is
-never planned longer than 25 m.
+**The target is 10 m, and that is a test setting.** Verge Studio's graded evidence covers camera
+paths of roughly 14–25 m, so the planner never plans a group longer than 25 m and marks one
+`withinGradedEnvelope` only when it is at least 14 m long and holds at least 64 frames. A 10 m
+target sits below that on purpose: ten seconds on foot covers 8 to 14 m, and at a 20 m target a
+walk could not exercise the pipeline at all. Ten metres makes a walk testable and gives up the
+graded label to do it. Put it back to 20 m before any measurement is meant to be trusted.
 
 Frames inside a group are spaced by distance, which is what the depth model actually depends on.
-Sampling by time crowds frames together wherever the vehicle is slow — pulling away from a light puts
-half of them in the first twenty metres — and spreads them thin where it is fast.
+Sampling by time crowds frames together wherever the vehicle is slow — pulling away from a light
+puts half of them in the first twenty metres — and spreads them thin where it is fast.
 
-| km/h | distance / 10 s | groups | frames / group | spacing | inside the graded range |
-|---:|---:|---:|---:|---:|---|
-| 20 | 56 m | 3 | 101 | 0.19 m | yes |
-| 30 | 83 m | 4 | 76 | 0.28 m | yes |
-| 40 | 111 m | 6 | 51 | 0.37 m | no |
-| 60 | 167 m | 8 | 38 | 0.56 m | no |
-| 100 | 278 m | 14 | 22 | 0.94 m | no |
+At a 10 m target, from a 30 fps camera and its ~300 encoded frames per segment:
 
-**Above roughly 34 km/h a group no longer holds 64 frames**, the smallest count Verge Studio has
-graded, because a 30 fps camera cannot record them any closer together. Each group records
-`withinGradedEnvelope` so a consumer can tell which side of that line it is on. This is a property of
-the camera and the vehicle, not of the code: more frames per second would not help until the
-segment is re-cut, and at road speed the frame budget binds long before the camera does.
+| km/h | distance / 10 s | groups | group length | frames / group | spacing | inside the graded range |
+|---:|---:|---:|---:|---:|---:|---|
+| 5, walking | 14 m | 1 | 13.9 m | 112 | 0.13 m | no, by 10 cm of path |
+| 20 | 56 m | 6 | 9.3 m | 50 | 0.19 m | no |
+| 30 | 83 m | 8 | 10.4 m | 37 | 0.29 m | no |
+| 40 | 111 m | 11 | 10.1 m | 27 | 0.39 m | no |
+| 60 | 167 m | 17 | 9.8 m | 17 | 0.61 m | no |
+| 100 | 278 m | 28 | 9.9 m | 10 | 1.10 m | no |
 
-A vehicle that never moved produces no groups and publishes no frames. The floor is checked against
-**net displacement**, never the accumulated path: the phone's `distanceFromSessionStartMeters` is a
-running sum of great-circle hops, so at a standstill it accumulates fix noise instead of cancelling
-it — at 5 m accuracy a parked phone sums tens of metres that never happened, while its displacement
-stays within a few.
+So at this setting essentially nothing is graded: the only band that reaches the envelope is a
+path of 14 to 15 m, where the planner still makes one group and 112 frames fit inside it. Every
+group records `withinGradedEnvelope` either way, so a consumer can always tell which side of the
+line it is on.
+
+Two of those limits belong to the camera and the vehicle rather than to the code. **Above roughly
+34 km/h a group cannot hold 64 frames**, because a 30 fps camera did not record them that close
+together; more frames per second would not help until the segment is re-cut. And the frame budget
+— 112 JPEGs for the whole segment, not per group — binds long before the camera does.
+
+A vehicle or a person that never moved produces no groups and publishes no frames. The floor is
+3 m, and **which distance it is compared against follows how that distance was measured**:
+
+- **The phone reported speed.** The path is the integral of Doppler-derived speed, which never
+  reads a position, so the fixes' horizontal accuracy says nothing about how well it was measured.
+  The floor stays at 3 m. Scaling it by accuracy instead demanded 25 m in ten seconds — 9 km/h —
+  and refused 8.8 m of walking the phone had measured perfectly well (segment `01a08885` #2,
+  9 September 2026).
+- **The phone reported no speed.** The path is then a sum of great-circle hops between positions,
+  which accumulates fix noise instead of cancelling it: at 5 m accuracy a parked phone sums tens
+  of metres that never happened. So the comparison uses **net displacement**, and the floor scales
+  with the fixes' own accuracy at twice the median horizontal accuracy. A browser's IP-derived
+  50 km fix therefore stands at a 100 km floor, which no ten-second segment reaches at any speed;
+  "did not move" is the only output the arithmetic permits there, and the manifest says that
+  rather than calling it a finding.
 
 The manifest records **every** group, but publishes JPEGs only for as many as the frame budget
 allows. Publishing all of them would triple storage and triple a GPU bill that already runs to about
@@ -246,8 +266,8 @@ location fields/quality/age and motion fields/age.
 - Horizontal accuracy up to 10 m is `good`; up to 25 m is `degraded`; worse is unavailable.
 - Motion older than 100 ms is unavailable.
 - Missing or stale evidence remains absent; it is never silently carried forward.
-- Sampled JPEGs are spaced by distance, at most 112 frames per group, with a 1024-pixel long
-  edge and no upscaling.
+- Sampled JPEGs are spaced by distance, at most 112 frames for the whole segment, with a
+  1024-pixel long edge and no upscaling.
 
 The phone camera provides a completed segment rather than a hardware timestamp for each frame.
 Per-frame UTC/monotonic time is therefore derived from the encoded presentation timestamp plus

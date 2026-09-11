@@ -3,6 +3,12 @@
 Decision date: 30 August 2026. No cloud resource was created by this change, so it incurred no
 cloud spend. Provisioning is a separate, billable action that requires explicit approval.
 
+**This is the decision and its evidence, not the current state of the deployment.** The stack was
+provisioned in September 2026 and gained a third workload - worker 2, the measurement stage - and
+a GPU depth endpoint outside Terraform. What is deployed, every environment variable, and how the
+services reach each other are in [`infrastructure/README.md`](../infrastructure/README.md); this
+file records why those choices were made.
+
 ## Recommended topology
 
 Use Azure Container Apps Consumption for both Java containers, Azure Queue Storage for segment
@@ -14,19 +20,30 @@ and the deployment runbook are in [`infrastructure/`](../infrastructure/README.m
 mobile -> Cloudflare DNS/TLS -> Video API Container App (HTTP, min replicas 0)
                                   |-> Neon PostgreSQL
                                   |-> Cloudflare R2 bucket
-                                  `-> Azure Queue
+                                  `-> Azure Queue (extraction)
 
-Azure Queue -> KEDA scale rule -> Frame Worker Container App (min replicas 0)
+Azure Queue (extraction) -> KEDA -> Frame Worker Container App (min replicas 0)
                                       |-> Neon PostgreSQL
-                                      `-> Cloudflare R2 bucket
+                                      |-> Cloudflare R2 bucket
+                                      `-> Azure Queue (measurement)
+
+Azure Queue (measurement) -> KEDA -> Measurement Worker Container App (min replicas 0)
+                                      |-> Cloudflare R2 bucket
+                                      |-> depth service on a GPU, NOT created by Terraform
+                                      `-> Azure Queue (result) -> the API
 ```
+
+Worker 2 and the three measurement queues were added after this decision was taken. They change
+none of the reasoning below: same compute platform, same queue service, same bucket, same
+database. What they add is a workload that can spend money, which is why announcing a segment for
+measurement is a separate switch.
 
 This option is the first choice for the MVP because the existing containers run unchanged, both
 compute workloads scale to zero, R2 avoids direct object egress charges, and Container Apps can
 scale the worker from Azure Queue with managed identity. The Azure Storage account contains only
 queues. The API has HTTP ingress; the worker has no public ingress.
 
-Set both services to:
+Set all three services to:
 
 ```text
 GREENV_DATABASE_ADAPTER=jdbc
@@ -92,8 +109,9 @@ be a later optimization, not a same-day MVP deployment.
 
 ## Same-day deployment sequence
 
-1. Choose the Azure, Neon and R2 regions together, estimate pilot volume, publish both OCI images
-   and pin their immutable digests. Do not deploy `latest`.
+1. Choose the Azure, Neon and R2 regions together, estimate pilot volume, publish the three
+   Container Apps images plus the depth handler image, and pin their immutable digests. Do not
+   deploy `latest`.
 2. Run the Terraform bootstrap. It creates one private R2 state bucket and a separate private R2
    application bucket. Issue one bucket-scoped S3 credential for each use, then migrate the
    bootstrap state into R2.
@@ -102,8 +120,10 @@ be a later optimization, not a same-day MVP deployment.
    Neon project, R2 lookup, optional DNS and monthly budget. Review that plan before the billable
    apply.
 4. Apply the reviewed plan. The API starts with external ingress on port 8080, `minReplicas=0`,
-   `maxReplicas=3`, 1 vCPU and 2 GiB. The worker has no ingress, `minReplicas=0`, `maxReplicas=4`,
-   2 vCPU and 4 GiB. No custom VNet is attached for this MVP.
+   `maxReplicas=3`, 1 vCPU and 2 GiB. Worker 1 has no ingress, `minReplicas=0`, `maxReplicas=4`,
+   2 vCPU and 4 GiB. Worker 2 has no ingress, `minReplicas=0`, `maxReplicas=1`, 2 vCPU and 4 GiB,
+   and does nothing at all until `measurement_enabled` is true. No custom VNet is attached for
+   this MVP.
 5. Wait for API health and verify that Flyway used Neon's direct TLS hostname while normal JDBC uses
    the pooled hostname. Do not enqueue pilot work until the migration rows exist.
 6. Verify the `azure-queue` KEDA rule has queue length 1 and the worker identity. Set the visibility
@@ -120,7 +140,11 @@ be a later optimization, not a same-day MVP deployment.
 ## Required production controls
 
 - Authenticate each mobile device and authorize access to its capture session before exposing the
-  API. Cloudflare DNS alone is not application authentication.
+  API. The service now has an identity provider issuing RS256 tokens, but the capture routes still
+  run on the shared Bearer token. Cloudflare DNS alone is not application authentication.
+- Treat the GPU depth endpoint as the one workload that is not free at rest: it bills for a
+  worker's whole lifetime. Keep `measurement_enabled` off until a drive's worth of segments is
+  ready to arrive together.
 - Keep PostgreSQL transaction state, object keys and queue messages provider-neutral. Never persist
   signed URLs or provider resource URLs.
 - Configure SQS redrive and Service Bus DLQ settings when those adapters are selected. The Azure

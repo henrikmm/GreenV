@@ -26,7 +26,7 @@ rather than from this directory.
 ## Commands
 
 ```
-npm ci && npm test        36 tests, including the whole chain on real recorded geometry
+npm ci && npm test        52 tests, including the whole chain on real recorded geometry
 npm start                 run it
 ```
 
@@ -104,6 +104,10 @@ RunPod's API host. Both sides of that envelope are pinned to one file,
 `test/runpod-contract.test.mjs` and the handler's own tests each read, so the client and the
 handler cannot drift apart without a test failing.
 
-**Nothing here has been run against RunPod.** The adapter is exercised by
-`test/infer-runpod.test.mjs` against a double that answers the way the API documents; no endpoint
-has been deployed, no image has been built and no GPU has been woken.
+**What has and has not run against RunPod.** The adapter is exercised by
+`test/infer-runpod.test.mjs` against a double that answers the way the API documents, and that is
+still the only evidence of a completed job. The rest is deployed: the handler image is published
+and pinned by digest in `infrastructure/terraform.tfvars`, the endpoint `greenv-mvp-depth` exists,
+and the measurement worker reached it with a real job for the first time on 10 September 2026. At
+the time of writing that job was queued behind the endpoint's first image pull; no measurement has
+come back from a GPU yet, and no packet in R2 has been produced by one.

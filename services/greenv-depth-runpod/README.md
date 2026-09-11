@@ -167,7 +167,7 @@ The endpoint settings Terraform applies, and why:
 | Max workers | 1 | One segment is one inference; a second worker is a second cold start, not more throughput. |
 | Idle timeout | see *Cost* | The whole bill lives here. |
 | Execution timeout | 900 s | Matches the Cloud Run deploy. A cold worker pays a model load before a 112-frame run's ~120 s. |
-| Container disk | ≥ 20 GB | ~12 GB image plus ~130 MB of artifacts and the frames per run. Not measured — check it on the first build. |
+| Container disk | 50 GB | The pull holds the compressed layers and the unpacked filesystem at once: ~12 GB plus 15.3 GB, before the ~130 MB of artifacts and the frames per run. `provision.mjs` sets 50 and template `2ah9zhdtb1` pulled the image successfully on it, 10 Sep 2026. An earlier version of this table said 20 GB, which does not fit. |
 | Flashboot | on | Cheaper warm starts, and it changes nothing about the contract. |
 
 Environment, set on the endpoint:
@@ -199,6 +199,72 @@ GREENV_S3_ENDPOINT=https://<account>.r2.cloudflarestorage.com
 GREENV_AWS_ACCESS_KEY=<r2 access key>
 GREENV_AWS_SECRET_KEY=<r2 secret>
 ```
+
+## What went wrong on 10 September 2026
+
+The first real jobs this endpoint ever received all failed, and the two causes were independent.
+Both are the endpoint's machine rather than anything GreenV sends it: the job payload was replayed
+locally against this handler's own parser and gates on 11 September and was accepted.
+
+**One: the endpoint could not get a worker for about five hours.** The worker sat at
+`Initializing`, its system log printing `Downloading` against the same three layer ids from 05:51
+to roughly 10:46 UTC. Those three are the image: the PyTorch CUDA base, the pip layer carrying
+xformers and Depth Anything 3, and the 6.7 GB checkpoint that `download-models.py` bakes in. The
+container disk was not the constraint; the template already had 50 GB. As of 11 September the
+endpoint reports `workers: {throttled: 1}`, which is RunPod saying it has no capacity for the
+single GPU type this endpoint allows.
+
+Meanwhile the measurement worker kept sending more work. Its per-job deadline is
+`GREENV_INFER_TIMEOUT_MS`, fifteen minutes, after which the segment is retried and a **new** job
+is submitted. Four segments became twelve queued jobs that way, between 05:44 and 08:47 UTC, every
+one of them ending:
+
+```
+{"event":"message-failed","code":"depth_inference_failed","attempt":3,"action":"poison",
+ "error":"RunPod job d1831e4d-dcd5-445a-9c41-c4d438fd949f-u2 still IN_QUEUE after 900000 ms"}
+```
+
+All four segments ended in `greenv-segment-measure-poison`, so by the time the endpoint woke up
+nothing was waiting for those answers any more. **Purge the endpoint's queue before fixing a
+stalled endpoint**, or it will work through a backlog whose results no one will read.
+
+**Two: every job was refused at the GPU gate.** When the worker finally started it ran all twelve
+in about two seconds each. The pattern in its log is the tell:
+
+```
+Started.
+INFO: 127.0.0.1:58046 - "GET /gpu HTTP/1.1" 200 OK
+Finished.
+```
+
+One call to `/gpu` and nothing else means `handler()` never reached `/infer`. A refusal returns
+`{"error": ...}`, which RunPod reports as a failed job, and the endpoint's health confirms it:
+`{"jobs":{"completed":0,"failed":12}}`. Only three gates sit between `/gpu` and inference: no CUDA
+device, a device smaller than the L4 the frame ceilings were measured on, and more frames than
+that ceiling allows. The third is ruled out, because the segments carried 100, 100, 62 and 16
+frames against a ceiling of 112 at 504 px.
+
+So the device is either reporting no CUDA at all or less than 22.03 GiB. The endpoint declares
+`gpu_type_ids = ["NVIDIA L4"]`, but the worker RunPod actually supplied showed in the console as a
+`PRO 6000 MIG 24GB`, which is a MIG partition rather than a whole card. Whether that partition
+clears the bar depends on what it reports:
+
+| What the device reports | Verdict at 100 frames, 504 px |
+|---|---|
+| 24.00 GiB | accepted |
+| 24.0 GB decimal (22.35 GiB) | accepted |
+| 23.0 GB decimal (21.42 GiB) | refused, naming `GREENV_DEPTH_MAX_FRAMES` |
+| no CUDA device | refused |
+
+Read the exact text in the console under Requests, on any failed job. It names which gate fired.
+The job result is gone from `GET /v2/<endpoint>/status/<id>` within the hour, so the console is
+the only place it survives.
+
+The fix follows from which one it is. A device below the bar needs either a bigger card or a
+deliberate `GREENV_DEPTH_MAX_FRAMES`, and that number is a claim the operator owns: nothing here
+has measured a MIG slice, and 112 frames already peaked at 21.28 GiB on an L4, which leaves no
+headroom on a 21.42 GiB device. Allowing more GPU types is what fixes the throttling, but every
+type allowed has to clear the same bar.
 
 ## Cost
 

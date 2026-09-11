@@ -15,10 +15,14 @@ Built for the Motiva challenge by group 27, 2CCPW.
 ```
 apps/web/         the map dashboard          React, Vite, Leaflet
 apps/mobile/      the capture client         Flutter
-services/         the API and the workers    Spring Boot, Java 21
+services/
+  greenv-video-api/          the control plane        Spring Boot, Java 21
+  greenv-frame-extractor/    worker 1: frames, GNSS   Spring Boot, Java 21, ffmpeg
+  greenv-measurement-worker/ worker 2: grass height   Node 22
+  greenv-depth-runpod/       the depth stage on a GPU Python 3.12, Docker
 measurement/      Verge Studio               a git subtree; metric height from video
-infrastructure/   the cloud MVP               Terraform, Azure, R2, Neon
-compose.yaml      the local stack            PostgreSQL, RabbitMQ, API, worker 1
+infrastructure/   the cloud MVP              Terraform, Azure, R2, Neon
+compose.yaml      the local stack            PostgreSQL, RabbitMQ, API, worker 1, worker 2
 ```
 
 ## Running it
@@ -61,9 +65,15 @@ ordering limits and compatibility behavior.
 
 ## Status
 
-The pieces above exist and are wired to each other locally. **The connection between the capture
-pipeline and `measurement/` is not built yet**: Verge Studio measures a scene interactively today,
-and the headless entry point a worker would call is still to come. Until then the dashboard renders
-fixtures, not live measurements.
+The pipeline is wired end to end and deployed: a phone uploads a segment, worker 1 samples and
+georeferences its frames, worker 2 sends them to a GPU depth service and measures the vegetation,
+and the API records the result against the segment. `infrastructure/README.md` documents every
+hop and every setting.
 
-The depth model used by `measurement/` is licensed for personal and research use only.
+**No automatic measurement has been graded against a tape.** Every packet carries
+`operationalStatus: "not-ready"`, and that is accurate — see
+[`docs/AUTOMATIC-HEIGHT.md`](docs/AUTOMATIC-HEIGHT.md) before using a number this system produces.
+The dashboard still renders fixtures rather than live measurements.
+
+The depth model used by `measurement/` is licensed for personal and research use only, and the GPU
+service it runs on bills for the machine's whole lifetime rather than for the seconds it computes.

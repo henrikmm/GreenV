@@ -239,7 +239,10 @@ chain carries operational traffic.
 
 | Setting | Variable | Default |
 |---|---|---|
-| Depth service | `GREENV_INFER_BASE_URL` | `http://127.0.0.1:5173/api` (the local mock) |
+| Depth dialect | `GREENV_INFER_ADAPTER` | `http` (or `runpod`) |
+| Depth service, `http` | `GREENV_INFER_BASE_URL` | `http://127.0.0.1:5173/api` (the local mock) |
+| Depth service, `runpod` | `GREENV_INFER_RUNPOD_ENDPOINT_ID` | none. An endpoint id, not a URL |
+| Depth credential | `GREENV_INFER_TOKEN` | none. A Bearer header for `http`, an API key for `runpod` |
 | Accept mock packets | `GREENV_MEASUREMENT_ALLOW_MOCK` | `false` |
 | Cityscapes classes | `GREENV_MEASUREMENT_CLASSES` | `terrain,vegetation` |
 | Corridor offset, metres | `GREENV_MEASUREMENT_OFFSET_M` | `2` |
@@ -249,6 +252,7 @@ chain carries operational traffic.
 | Queue transport | `GREENV_SEGMENT_QUEUE_ADAPTER` | `rabbitmq` (or `azure-queue`) |
 | Trigger queue, on Azure | `GREENV_AZURE_MEASUREMENT_QUEUE_NAME` | none |
 | Result queue, on Azure | `GREENV_AZURE_MEASURED_QUEUE_NAME` | none |
+| Poison queue, on Azure | `GREENV_AZURE_MEASUREMENT_POISON_QUEUE_NAME` | none. Without it a hopeless message is deleted |
 | Measurement visibility, seconds | `GREENV_MEASUREMENT_VISIBILITY_SECONDS` | `1800`, the measurement timeout |
 
 **About the mock.** With no depth service configured, the worker talks to Verge Studio's
@@ -269,7 +273,8 @@ Observed on 2026-09-08, on one machine:
   measured cells, 100% observed-cell coverage, 29.2 s**, and the packet passes
   `check-grass-quality.mjs` on checksums, mask digests and report/JSON agreement. The only
   simulated part is the HTTP call that would have produced the reconstruction.
-- **23 worker tests pass** (`npm test` in `services/greenv-measurement-worker`).
+- **The worker's tests pass**: 23 on 2026-09-08, and 52 on 2026-09-10 (51 pass, 1 skipped
+  without the saved run), run as `npm test` in `services/greenv-measurement-worker`.
 - **The extractor's trigger compiles and is asserted.** `./gradlew check` passes with the new
   publish, and both `SegmentExtractionServiceTest` and `SegmentExtractionServiceIntegrationTest`
   assert that a finished segment announces itself — the integration one against real ffmpeg.
@@ -292,6 +297,15 @@ Observed on 2026-09-08, on one machine:
   RMSE and 28.3% inliers, against the 23.489°, 17.1 mm and 27.8% on record. The lawn returned the
   same 14 measured cells and 0 abstentions as its recorded result. Nothing here grades height
   against a tape; it says the geometry stage is reproducible.
+
+Observed on 2026-09-10, in the cloud deployment:
+
+- **The queue path is wired end to end and the first RunPod job was dispatched.** Both workers
+  had failed to activate on missing queue-name variables; with those set, the measurement worker
+  starts, drains `greenv-segment-measure-v1` and reaches the endpoint `greenv-mvp-depth`. At the
+  time of writing the job was queued behind the endpoint's first image pull.
+- **No measurement has come back from that endpoint.** No packet in R2 was produced by a GPU, and
+  every `measurement_state` in the database is still NULL.
 
 Not verified:
 
