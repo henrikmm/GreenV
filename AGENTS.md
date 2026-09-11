@@ -8,6 +8,11 @@ where to send a crew first.
 This file is the working agreement for every stack in the repository. It is the whole agreement
 except where a directory carries its own — today only `measurement/` does.
 
+**For what is actually built, deployed and missing, read
+[`docs/STATE-OF-THE-SYSTEM.md`](docs/STATE-OF-THE-SYSTEM.md) before you trust any other document
+about a part it does not own.** This file says how to work here; that one says where the work has
+got to.
+
 ## Where things are
 
 | Directory | What it holds | Stack |
@@ -17,7 +22,7 @@ except where a directory carries its own — today only `measurement/` does.
 | `services/greenv-video-api/` | Capture sessions, jobs, storage keys — the control plane | Spring Boot, Java 21, Gradle |
 | `services/greenv-frame-extractor/` | Worker 1: samples frames, attaches GNSS, cuts road stretches | Spring Boot, Java 21, ffmpeg |
 | `services/greenv-measurement-worker/` | Worker 2: reconstructs, segments and measures a segment. Calls `measurement/` as a process — see [docs/AUTOMATIC-HEIGHT.md](docs/AUTOMATIC-HEIGHT.md) | Node 22 |
-| `services/greenv-depth-runpod/` | The depth stage as a RunPod serverless job, wrapping `measurement/server/`. Deployed 10 Sep 2026 as the endpoint `greenv-mvp-depth`; **it bills, so read the spend rule below** | Python 3.12, Docker |
+| `services/greenv-depth-runpod/` | The depth stage as a RunPod serverless job, wrapping `measurement/server/`. Deployed 11 Sep 2026 as the endpoint `greenv-mvp-depth` and has measured four segments; the earlier runs on record are Google Cloud Run. **It bills — read the spend rule below** | Python 3.12, Docker |
 | `services/capture-smoke/` | One end-to-end check of the compose stack | Shell, Docker |
 | `infrastructure/` | Scale-to-zero MVP cloud resources and R2 state bootstrap | Terraform |
 | `measurement/` | Verge Studio: metric height from video. **A git subtree — read the rule below** | TypeScript, Python, its own agreement |

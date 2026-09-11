@@ -3,11 +3,18 @@
 Decision date: 30 August 2026. No cloud resource was created by this change, so it incurred no
 cloud spend. Provisioning is a separate, billable action that requires explicit approval.
 
-**This is the decision and its evidence, not the current state of the deployment.** The stack was
-provisioned in September 2026 and gained a third workload - worker 2, the measurement stage - and
-a GPU depth endpoint outside Terraform. What is deployed, every environment variable, and how the
-services reach each other are in [`infrastructure/README.md`](../infrastructure/README.md); this
-file records why those choices were made.
+**This document is a recommendation and a record of reasoning, not an inventory.** The topology
+below was chosen on 30 August 2026; it was applied for the first time in September and, as of
+11 September 2026, the Azure stack is running: three container apps, six queues, Neon and R2, with
+the depth stage on a RunPod GPU outside the Terraform. For what is actually deployed, every
+environment variable and how the services reach each other, read
+[`infrastructure/README.md`](../infrastructure/README.md). For what is built versus what has only
+been written, read [`STATE-OF-THE-SYSTEM.md`](STATE-OF-THE-SYSTEM.md).
+
+**Scope.** This document covers the two Java services that existed when it was written: the video
+API and the frame extractor. The measurement worker and the depth stage arrived afterwards. Both
+are in the executable Terraform and in `infrastructure/README.md`; the sections here are the
+reasoning behind the provider choices, not the current inventory.
 
 ## Recommended topology
 
@@ -22,21 +29,39 @@ mobile -> Cloudflare DNS/TLS -> Video API Container App (HTTP, min replicas 0)
                                   |-> Cloudflare R2 bucket
                                   `-> Azure Queue (extraction)
 
-Azure Queue (extraction) -> KEDA -> Frame Worker Container App (min replicas 0)
+Azure Queue (extraction) -> KEDA scale rule -> Frame Worker Container App (min replicas 0)
                                       |-> Neon PostgreSQL
                                       |-> Cloudflare R2 bucket
                                       `-> Azure Queue (measurement)
 
-Azure Queue (measurement) -> KEDA -> Measurement Worker Container App (min replicas 0)
+Azure Queue (measurement) -> KEDA scale rule -> Measurement Worker Container App (0..1)
                                       |-> Cloudflare R2 bucket
-                                      |-> depth service on a GPU, NOT created by Terraform
-                                      `-> Azure Queue (result) -> the API
+                                      |-> depth service (GPU, NOT created by this Terraform)
+                                      `-> Azure Queue (measurement result)
 ```
 
-Worker 2 and the three measurement queues were added after this decision was taken. They change
-none of the reasoning below: same compute platform, same queue service, same bucket, same
-database. What they add is a workload that can spend money, which is why announcing a segment for
-measurement is a separate switch.
+## The depth stage
+
+**The GPU is deliberately outside this topology and outside the Terraform.** It bills for the
+machine's whole lifetime rather than for the seconds it computes, and [`AGENTS.md`](../AGENTS.md)
+requires the user's agreement in conversation before anything wakes it. The Terraform wires an
+address and a credential; a person decides the service exists. `measurement_enabled` is `false` by
+default for the same reason.
+
+Two depth deployments exist in this repository and they are not interchangeable in status:
+
+| Platform | Selected by | Status |
+|---|---|---|
+| Google Cloud Run GPU (`verge-lab`) | `GREENV_INFER_ADAPTER=http` | Where the eight earliest runs happened; every VRAM ceiling and cost figure in this repository was measured on its L4. Not what the deployed stack points at today |
+| RunPod serverless | `GREENV_INFER_ADAPTER=runpod` | Deployed 11 September 2026 as endpoint `greenv-mvp-depth`, and what the stack uses today: four segments measured on it, 3.4 to 24.8 GPU-seconds each. Its VRAM ceilings are still the ones measured on Cloud Run's L4 |
+
+That makes the deployed picture **cross-cloud by construction**: Azure for compute, Cloudflare for
+objects and DNS, Neon for PostgreSQL, and Google Cloud for the GPU — with RunPod as the intended
+replacement for it, now in use. The application services stay provider-neutral through the adapter
+ports, but the operational cost of that spread is real: four vendor consoles, four credential
+lifetimes and four places a bill can appear. Choosing between Cloud Run and RunPod is the one
+decision that would reduce it. RunPod is what runs today; retiring the Cloud Run path is the
+step that would make that a decision rather than a default.
 
 This option is the first choice for the MVP because the existing containers run unchanged, both
 compute workloads scale to zero, R2 avoids direct object egress charges, and Container Apps can

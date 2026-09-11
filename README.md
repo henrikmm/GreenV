@@ -65,10 +65,23 @@ ordering limits and compatibility behavior.
 
 ## Status
 
-The pipeline is wired end to end and deployed: a phone uploads a segment, worker 1 samples and
-georeferences its frames, worker 2 sends them to a GPU depth service and measures the vegetation,
-and the API records the result against the segment. `infrastructure/README.md` documents every
-hop and every setting.
+The capture chain is built, wired end to end, and deployed: a phone uploads a segment, worker 1
+samples and georeferences its frames, worker 2 sends them to a GPU depth service and measures the
+vegetation, and the API records the result against the segment. On 11 September 2026 four segments
+went through that chain in the deployed Azure stack against a live RunPod GPU, with no one
+touching it. [`docs/AUTOMATIC-HEIGHT.md`](docs/AUTOMATIC-HEIGHT.md) describes the chain and what it
+does not establish; [`infrastructure/README.md`](infrastructure/README.md) documents every hop and
+every setting.
+
+**Two gaps sit between that and an operations decision.** The dashboard has never displayed a
+measurement — `apps/web` has no API client and renders Motiva's KMZ polygons with mock levels. And
+a measurement carries no `km`, so it cannot be placed on the highway; the packet raises
+`road-metadata-missing` rather than guessing. Separately, no automatic reading has ever been
+compared with a tape, so every packet reports `operationalStatus: "not-ready"`.
+
+**[`docs/STATE-OF-THE-SYSTEM.md`](docs/STATE-OF-THE-SYSTEM.md) is the honest inventory** — what
+runs, what is written but has never executed, and the gaps ranked by what they cost. Read it before
+trusting any other document in this repository about a part it does not own.
 
 **No automatic measurement has been graded against a tape.** Every packet carries
 `operationalStatus: "not-ready"`, and that is accurate — see

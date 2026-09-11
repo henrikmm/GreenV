@@ -38,12 +38,19 @@ A ten-second segment is an **upload** bound, not an analysis unit. At 100 km/h i
 which is many stretches of verge rather than one scene, so the worker cuts the distance travelled
 into groups and treats each as its own reconstruction.
 
-**The target is 10 m, and that is a test setting.** Verge Studio's graded evidence covers camera
-paths of roughly 14–25 m, so the planner never plans a group longer than 25 m and marks one
-`withinGradedEnvelope` only when it is at least 14 m long and holds at least 64 frames. A 10 m
-target sits below that on purpose: ten seconds on foot covers 8 to 14 m, and at a 20 m target a
-walk could not exercise the pipeline at all. Ten metres makes a walk testable and gives up the
-graded label to do it. Put it back to 20 m before any measurement is meant to be trusted.
+**The default target is 10 m** (`GroupPlanner.DEFAULT_GROUP_METERS`), and that is below the band
+the length was originally chosen from. Verge Studio's graded evidence covers camera paths of
+roughly 14-25 m, so a group of that length keeps the frames inside one looking at the same place —
+which is why the target was 20 m until 10 September 2026. It was lowered because a ten-second
+segment on foot covers eight to ten metres, and against a 20 m target a walk rounds to a single
+group it never fills, so nothing in the pipeline could be exercised without a car.
+
+**The price is that at the default no group is graded, at any speed.** The envelope flag says so
+rather than inferring gradedness from frame count alone, which is what it did before it gained a
+minimum length. The 20 m behaviour is not lost, only no longer the default: the envelope table and
+the faster-camera lever below are still measured at 20 m, where they were written. Set the target
+back to 20 m for any run whose readings are meant to be compared with that evidence. A group is
+never planned longer than 25 m.
 
 Frames inside a group are spaced by distance, which is what the depth model actually depends on.
 Sampling by time crowds frames together wherever the vehicle is slow — pulling away from a light

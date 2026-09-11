@@ -1,0 +1,190 @@
+# What GreenV actually is today
+
+**Read this first.** It is the one file that says which parts run, which parts are written but
+have never executed, and where the documentation has drifted away from the code. Every other
+document in this repository describes one part correctly and is silent about the others; this one
+is deliberately about the seams between them.
+
+Written 10 September 2026 against commit `321ca57` and revised 11 September against `da7cc02`.
+Anything below that names a file, a default or a number was checked against the code or against
+the running deployment, not recalled.
+
+**What changed on 11 September**, because it falsified the largest claims this file made a day
+earlier: the Terraform was applied, the Azure stack is running, the RunPod depth image was built
+and deployed, and four segments were measured end to end on a real GPU. The rows and the gap list
+below carry the corrected status.
+
+## The one-paragraph version
+
+The capture chain is built and wired end to end: a phone records, the API stores, worker 1 cuts
+segments, worker 2 measures grass height, and a packet lands in object storage. The chain has run
+against a real GPU. **What is missing is the last hop and the first hop.** No measurement has ever
+reached the dashboard, because the dashboard has no API client and a measurement has no `km` to
+be placed at. And no automatic reading has ever been compared with a tape, so the numbers are
+evidence to look at, not instructions to send a crew.
+
+## What runs, and what has only been written
+
+| Stage | Built | Tested | Ever run in the cloud |
+|---|---|---|---|
+| `apps/mobile` capture client | yes | `flutter test`, `flutter analyze` | n/a — it is the client. Android and web run; an iOS build needs Xcode on macOS |
+| `greenv-video-api` | yes | `./gradlew check`, 76 tests | yes — `ca-greenv-mvp-api`, behind Cloudflare |
+| `greenv-frame-extractor` (worker 1) | yes | `./gradlew check`, incl. real ffmpeg | yes — `ca-greenv-mvp-worker` |
+| `greenv-measurement-worker` (worker 2) | yes | `npm test`, 52 tests | yes — `ca-greenv-mvp-measure` |
+| depth on **Google Cloud Run GPU** | yes | — | yes, historically: the eight earliest runs and every VRAM ceiling |
+| depth on **RunPod** | yes | `python test_handler.py`, no GPU | **yes, since 11 Sep 2026** — endpoint `greenv-mvp-depth`, four segments measured |
+| `apps/web` dashboard | yes | `npm run build` | n/a — mock data only, no API client |
+| `infrastructure/` Terraform (Azure + Neon + R2) | yes | `terraform test`, 16 mocked | yes — applied; state in the R2 backend |
+
+Two entries in that table changed on 11 September and are the ones people still get wrong:
+
+- **Cloud Run is where the evidence came from.** Every VRAM ceiling and all eight of the earliest
+  recorded depth runs went through the `verge-lab` Cloud Run GPU service, stood up by
+  `measurement/scripts/deploy.sh`. Those numbers have never been re-measured anywhere else, so a
+  ceiling quoted today is still a Cloud Run measurement.
+- **RunPod is what the deployed stack actually calls.** `GREENV_INFER_ADAPTER=runpod` points at
+  endpoint `greenv-mvp-depth`, which measured four segments on 11 September at 3.4 to 24.8
+  GPU-seconds each. Its first day cost about five hours of a stalled image pull and twelve jobs
+  that expired queued; `services/greenv-depth-runpod/README.md` records what happened and how to
+  tell a slow pull from a dead one.
+
+Both paths are still live in the configuration, and nothing has retired Cloud Run. That is the
+first item in the gap list below.
+
+## The gaps, worst first
+
+Ranked by how much each one costs the project, not by how hard it is to fix.
+
+### 1. Two depth deployments, and the numbers belong to the one not in use
+
+RunPod is what the stack calls today. Cloud Run is where every VRAM ceiling, cost figure and
+timeout in this repository was measured, and none of them has been re-measured on RunPod. So the
+handler enforces a frame ceiling derived from an L4 while running on whatever card RunPod
+allocates — on 11 September that was a `PRO 6000 MIG 24GB` partition, not the L4 the endpoint
+asks for.
+
+Keeping both also means every performance claim has to name its platform, and most still do not.
+
+Cost of leaving it: a ceiling that is wrong in the unsafe direction kills a job mid-run after
+paying for it, and a ceiling wrong in the safe direction silently caps quality. Neither shows up
+as an error.
+
+### 2. `km` — the last hop to the map, and it is closer than the docs admit
+
+`docs/AUTOMATIC-HEIGHT.md` says the highway linear reference is something "GreenV does not have in
+this repository yet". That is no longer accurate, and the correction matters because it changes
+the size of the remaining work:
+
+- `apps/web/public/marco_km.geojson` holds **30 km-marker points, KM 0 to KM 29, all for SP-021**.
+- `apps/web/src/utils/routePlanner.js` already assigns a km with `nearestKm()` — nearest marker to
+  a polygon centroid.
+
+So a linear reference exists. What does not exist is a reference any *service* can read: the file
+is a frontend display asset, it covers one highway, and the measured spacing between consecutive
+markers runs **626 m to 2042 m, averaging 1066 m**. Nearest-marker snapping at that spacing places
+a reading within about half a kilometre. The measurement it would be labelling resolves grass in
+**0.5 m cells**. Those two numbers are three orders of magnitude apart, and pretending otherwise is
+how a `trecho` gets mown at the wrong marker.
+
+The measurement worker is correct to leave `km` null and raise `road-metadata-missing`. What it
+needs is a shared reference — every highway in scope, ordered along the road rather than as loose
+points, readable by a service — plus a decision about how much error an operations team will accept
+in a km label.
+
+### 3. The dashboard has never seen a measurement
+
+`apps/web` contains no API client. The only two network calls in the whole application are
+`fetch('/rocada_polygons.geojson')` and `fetch('/marco_km.geojson')` in `src/App.jsx`. Login,
+teams, trends and service orders are `apps/web/src/data/mock*.js` and `localStorage`. The 642 polygons come
+from Motiva's KMZ and their vegetation levels from a spreadsheet, not from anything this system
+measured.
+
+That is a reasonable place for a demo to be. It is worth stating loudly because the dashboard is
+what everyone sees, so the system looks finished from the only angle most people look at it from.
+
+### 4. No accuracy has been established for anything automatic
+
+Every tape-graded measurement in the project used a hand-painted mask. **Zero automatic readings
+have been graded against a tape.** The packets say so themselves — `operationalStatus` is
+`"not-ready"` on every one, and Verge Studio's verifier fails if it ever says otherwise.
+
+This is not a documentation gap; the documentation is honest about it. It is on this list because
+it is the gap that decides whether the product works, and no amount of plumbing closes it.
+
+### 5. The default stretch is now shorter than the graded band
+
+As of 10 September 2026, `GroupPlanner.DEFAULT_GROUP_METERS` is **10.0 m**, lowered from 20 m so
+that a person walking can exercise the pipeline without a car. Verge Studio's graded evidence
+covers camera paths of roughly 14–25 m, so **at the default setting no group is graded at any
+speed**. The code says this and the envelope flag reports it, and
+`services/greenv-frame-extractor/README.md` was corrected on 11 September to describe the 10 m
+default and what it costs. The four segments measured that day confirm it: every packet reports
+`operationalStatus: "not-ready"` with the graded-envelope blocker among its seven.
+
+### 6. Five cloud vendors, one MVP, and no record of which combination is real
+
+The API and worker 1 between them ship three object-storage adapters (`local`, `s3`, `azure-blob`)
+and four queue adapters (`rabbitmq`, `sqs`, `azure-queue`, `azure-service-bus`). Add Neon for
+PostgreSQL, Cloudflare for R2 and DNS, Google Cloud for the depth service that ran and RunPod for
+the one that has not, and the repository describes work across **AWS, Azure, Cloudflare, Google
+Cloud, Neon and RunPod**.
+
+The adapter design is sound — application services depend on ports, and queue payloads carry the
+same versioned JSON whichever transport carries them. The gap was that no document said which
+combination is deployed. Since 11 September one does: `infrastructure/README.md` describes the
+running stack hop by hop, and the answer is Azure Container Apps with `azure-queue`, Cloudflare R2
+through `s3`, Neon for PostgreSQL and RunPod for the GPU.
+
+What remains is that the other adapters — `azure-blob`, `sqs`, `azure-service-bus`, `local`,
+`rabbitmq` outside compose — are supported in code and exercised only by their own tests. Reading
+the repository there is still no way to tell a path someone operates from a path someone wrote,
+except by that one document.
+
+### 7. The API does not authenticate a capture device
+
+`infrastructure/README.md` states it and it belongs on this list: Terraform provisions TLS and
+cloud identity between services, not application authentication. No external pilot user should be
+invited until the API authorizes each device and each capture session.
+
+### 8. The depth model's licence has no answer
+
+Personal and research use only. Fine for a pilot, not fine for a concessionaire, and it needs an
+answer before this chain carries operational traffic. Unchanged, and unresolved, since it was first
+written down.
+
+## Where the documentation was wrong, and what was corrected
+
+Fixed in the same change that added this file:
+
+| File | Was | Now |
+|---|---|---|
+| `README.md` | "The connection between the capture pipeline and `measurement/` is not built yet" | It is built and has run; the gaps are the dashboard and `km` |
+| `docs/AUTOMATIC-HEIGHT.md` | No mention of RunPod; cost and timeouts described Cloud Run as the only deployment | Both depth adapters named, with which one has actually run |
+| `docs/AUTOMATIC-HEIGHT.md` | "a highway linear reference that GreenV does not have in this repository yet" | It has 30 points for one road in the web app; what is missing is named precisely |
+| `docs/INFRASTRUCTURE_MVP.md` | Topology stopped at the API and worker 1 | The measurement worker and the depth stage are in the diagram, and the doc's scope is dated |
+| `services/greenv-frame-extractor/README.md` | "groups of about 20 m" | 10 m default, and what that costs |
+| `apps/web/README.md` | `cd frontend` — a directory that has not existed since the repository was restructured | `cd apps/web`, and the mock-data boundary stated at the top |
+
+Corrected on 11 September 2026, after the stack was applied and the first measurements ran:
+
+| File | Was | Now |
+|---|---|---|
+| This file | RunPod never deployed; Terraform never applied; no service had run in a cloud | All three container apps running, RunPod measuring, Terraform applied |
+| `infrastructure/README.md` | 516 lines that predated worker 2 and the measurement queues | Every hop with the name it travels under, per-service environment tables, and the names that must agree across services |
+| `infrastructure/locals.tf` | The measurement worker's attempt limit and lease under the Java spellings, which that container has no reader for | `GREENV_MEASUREMENT_MAX_ATTEMPTS` and `GREENV_MEASUREMENT_VISIBILITY_SECONDS`, the names the Node worker reads |
+| `services/greenv-depth-runpod/handler.py` | Printed nothing, so a refused job left only the SDK's `Started.` and `Finished.` | Logs the device it judged the job against, and every refusal |
+
+## For an agent starting here
+
+The repository is large and most of it is not your problem. In order:
+
+1. Read `AGENTS.md`. It is the working agreement and it is short.
+2. Read this file for what is real.
+3. Start your session **in the directory you are changing**. Starting at the root pulls
+   `measurement/`'s own 190-line agreement into context, which is most of it, and that agreement
+   does not apply outside that subtree.
+4. Do not cross the `measurement/` boundary in either direction. It is a git subtree of
+   `github.com/henrikmm/verge-studio` and imports are what would break the round trip. A worker
+   that needs a measurement spawns a process and reads JSON.
+5. Believe a claim only where it carries its evidence. This project has twice paid real money for
+   the difference between code that was written and code that was run.

@@ -29,6 +29,26 @@ capped at 112 frames, which is about 100 JPEGs for a ten-second segment, and an 
 memory above 144. Two segments cannot be merged into one inference, so there is no batching to
 design.
 
+### Where the middle row runs
+
+`GREENV_INFER_ADAPTER` chooses between two depth deployments, and only one of them has ever
+executed.
+
+| Adapter | What it talks to | Status |
+|---|---|---|
+| `http` (default) | A Verge Studio `server/` behind a URL — in practice the **Google Cloud Run GPU** service in the `verge-lab` project, or the local mock | **The only path that has ever run.** Every GPU-second, VRAM ceiling and cost figure in this document came from it |
+| `runpod` | A RunPod serverless endpoint running [`services/greenv-depth-runpod`](../services/greenv-depth-runpod/README.md) | **Never deployed.** The image has never been built and no job has ever run. Its tests pass without a GPU |
+
+The contract is the same on both sides and the worker's own tests cover each adapter, so this is a
+deployment choice rather than a code fork. What it is not yet is a *decision*: nothing in this
+repository says which one GreenV keeps, and until something does, every number about the depth
+stage has to name the platform it was measured on. See
+[`STATE-OF-THE-SYSTEM.md`](STATE-OF-THE-SYSTEM.md).
+
+The RunPod side has one operational difference worth knowing before it is first woken: frames
+travel to it **by object key**, not in the job body, because a RunPod job payload is far too small
+for a hundred JPEGs. That makes `GREENV_OBJECT_STORAGE_ADAPTER=s3` mandatory on that path.
+
 ## How to call it
 
 Three entry points, all the same code path.
@@ -129,9 +149,22 @@ The seam is `frameContext`, keyed by canonical frame number, and the worker fill
 
 What the worker keeps beside the packet, in `measurement-result-v1.json`, is `positions` — one
 row per sampled frame with its latitude, longitude, GNSS quality, speed, course and matched
-encoded-frame index. **Turning those into `km` needs a highway linear reference that GreenV does
-not have in this repository yet.** That reference is the remaining piece of work between a
-measurement and a `trecho` on the map.
+encoded-frame index. **Turning those into `km` needs a highway linear reference no service in this
+repository can read.** That reference is the remaining piece of work between a measurement and a
+`trecho` on the map, and it is worth being precise about how much of it is missing, because a
+partial one already exists:
+
+`apps/web/public/marco_km.geojson` holds 30 km-marker points, KM 0 to KM 29, all for SP-021, and
+`apps/web/src/utils/routePlanner.js` already snaps a polygon to the nearest one. Three things stop
+that from being the answer here. It is a frontend display asset, so nothing server-side reads it.
+It covers one highway. And the measured spacing between consecutive markers runs **626 m to 2042 m,
+averaging 1066 m** — so nearest-marker snapping places a reading within roughly half a kilometre,
+against cells this worker resolves at 0.5 m. Labelling a 0.5 m cell with a km good to 500 m is not
+a rounding difference; it is a different instrument.
+
+What is needed is a reference covering every highway in scope, ordered along the road rather than
+held as loose points, readable by a service — and a decision about how much error an operations
+team will accept in a km label.
 
 Two frame numberings meet here and confusing them attaches the wrong position to a reading:
 `frame-metadata-v2.json` has one row per *encoded* frame (~300 per segment), `sampledFrames` has
@@ -220,7 +253,9 @@ Ordered by how likely each is to mislead someone reading a dashboard.
 
 ## Cost, and the licence
 
-**The depth model bills for the machine's whole lifetime, not for the seconds it computes.** A
+**The depth model bills for the machine's whole lifetime, not for the seconds it computes.** The
+figures below were all measured on **Google Cloud Run GPU**, which is the only depth deployment
+that has ever run; the RunPod path costs the same shape and has no measurements of its own. A
 run wakes an instance (~64 s cold start) which then lingers about fifteen minutes idle before
 Cloud Run scales to zero. The compute itself is the small part: across the eight runs saved on
 this machine, 64 to 112 frames at 504 px took **21.9 to 38.9 GPU-seconds** (41 to 117 s wall).
@@ -239,9 +274,9 @@ chain carries operational traffic.
 
 | Setting | Variable | Default |
 |---|---|---|
-| Depth dialect | `GREENV_INFER_ADAPTER` | `http` (or `runpod`) |
-| Depth service, `http` | `GREENV_INFER_BASE_URL` | `http://127.0.0.1:5173/api` (the local mock) |
-| Depth service, `runpod` | `GREENV_INFER_RUNPOD_ENDPOINT_ID` | none. An endpoint id, not a URL |
+| Depth adapter | `GREENV_INFER_ADAPTER` | `http` (or `runpod`) |
+| Depth service, on `http` | `GREENV_INFER_BASE_URL` | `http://127.0.0.1:5173/api` (the local mock) |
+| Depth endpoint, on `runpod` | `GREENV_INFER_RUNPOD_ENDPOINT_ID` | none. An endpoint id, not a URL |
 | Depth credential | `GREENV_INFER_TOKEN` | none. A Bearer header for `http`, an API key for `runpod` |
 | Accept mock packets | `GREENV_MEASUREMENT_ALLOW_MOCK` | `false` |
 | Cityscapes classes | `GREENV_MEASUREMENT_CLASSES` | `terrain,vegetation` |
