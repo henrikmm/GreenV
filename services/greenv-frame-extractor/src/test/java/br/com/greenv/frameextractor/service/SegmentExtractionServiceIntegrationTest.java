@@ -101,6 +101,7 @@ class SegmentExtractionServiceIntegrationTest {
                 new GroupPlanner(),
                 new FfmpegExtractor(runner, properties),
                 announced::add,
+                new RouteIdentifier(new tools.jackson.databind.ObjectMapper()),
                 Clock.fixed(Instant.parse("2026-08-25T12:00:02Z"), ZoneOffset.UTC));
 
         var manifest = service.extract(request);
@@ -353,6 +354,7 @@ class SegmentExtractionServiceIntegrationTest {
                 new GroupPlanner(),
                 new FfmpegExtractor(runner, properties),
                 announced::add,
+                new RouteIdentifier(new tools.jackson.databind.ObjectMapper()),
                 Clock.fixed(Instant.parse("2026-08-25T12:00:02Z"), ZoneOffset.UTC));
 
         return new Extraction(service.extract(request), objects, prefix, announced);
