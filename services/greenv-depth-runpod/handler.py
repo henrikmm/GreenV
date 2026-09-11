@@ -233,6 +233,18 @@ def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def say(fields: dict) -> None:
+    """One JSON line on stdout, which is where RunPod's worker log reads from.
+
+    Nothing in this handler used to print. A refused job therefore answered `{"error": ...}`,
+    RunPod marked it FAILED, and its log held only the SDK's own `Started.` and `Finished.` -- so
+    the reason a job was refused existed nowhere a person could read it. Twelve jobs failed that
+    way on 10 September 2026 and the cause had to be inferred from which HTTP calls the worker
+    did and did not make. The device line below is the one that would have answered it outright.
+    """
+    print(json.dumps(fields), flush=True)
+
+
 def run_job(payload: object, *, depth, open_store) -> dict:
     """One job: keys in, a manifest of signed links out.
 
@@ -243,6 +255,17 @@ def run_job(payload: object, *, depth, open_store) -> dict:
     request = parse_job_input(payload)
 
     device = depth.device()
+    total_bytes = int(device.get("total_bytes") or 0)
+    say({
+        "event": "device",
+        "available": bool(device.get("available")),
+        "name": device.get("device_name"),
+        "total_bytes": total_bytes,
+        "total_gib": round(total_bytes / 2**30, 2),
+        "l4_reference_gib": round(L4_USABLE_BYTES / 2**30, 2),
+        "frames": len(request.frames),
+        "process_res": request.process_res,
+    })
     if not device.get("available"):
         raise JobRejected(
             "this endpoint reports no CUDA device; the depth model cannot run on it and a job "
@@ -489,6 +512,7 @@ def handler(job: dict) -> dict:
             ),
         )
     except JobRejected as rejected:
+        say({"event": "job-rejected", "reason": str(rejected)})
         return {"error": str(rejected)}
 
 

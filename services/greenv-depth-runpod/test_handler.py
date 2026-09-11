@@ -242,4 +242,36 @@ rejected = handler.handler({"id": "job-1", "input": {"frames": []}})
 assert set(rejected) == {"error"} and "at least 2 frames" in rejected["error"], rejected
 print("a rejected job answers with an error RunPod reports as FAILED OK:", rejected["error"][:60])
 
+# ---------------------------------------------------------------- the refusal is readable
+
+# Why this is a test and not a nicety: for one day this handler printed nothing at all, so a
+# refused job left RunPod's log holding only the SDK's `Started.` and `Finished.`, and the reason
+# twelve jobs failed on 10 September 2026 had to be inferred from which HTTP calls the worker made.
+# The device line is the one a person needs, and it must be printed before the refusal that
+# depends on it.
+import contextlib  # noqa: E402
+import io  # noqa: E402
+
+captured = io.StringIO()
+with contextlib.redirect_stdout(captured):
+    refused = handler.run_job
+    small = FakeDepth(device={**EXAMPLE["device"], "device_name": "NVIDIA T4", "total_bytes": 15_843_721_216})
+    try:
+        refused(EXAMPLE["input"], depth=small, open_store=lambda request: FakeBucket(request))
+    except JobRejected:
+        pass
+lines = [json.loads(line) for line in captured.getvalue().splitlines() if line.startswith("{")]
+device_line = next(line for line in lines if line.get("event") == "device")
+assert device_line["name"] == "NVIDIA T4", device_line
+assert device_line["total_gib"] == 14.76, device_line
+assert device_line["l4_reference_gib"] == 22.03, device_line
+print("the device a job was judged against is printed OK:", json.dumps(device_line))
+
+captured = io.StringIO()
+with contextlib.redirect_stdout(captured):
+    answer = handler.handler({"id": "job-1", "input": {"frames": []}})
+logged = [json.loads(line) for line in captured.getvalue().splitlines() if line.startswith("{")]
+assert any(line.get("event") == "job-rejected" and "at least 2 frames" in line["reason"] for line in logged), logged
+print("a refusal is written to the log, not only returned OK")
+
 print("test_handler: OK")
