@@ -28,7 +28,7 @@ from greenv_vegpred.evaluate.harness import rocada_bucket, season_bucket, nivel_
 from greenv_vegpred.forecast.interval import (  # noqa: E402
     conformal_quantile, build_days_forecast, build_height_forecast, CRITICAL_HEIGHT_CM,
 )
-from greenv_vegpred.models.ml_common import DAYS_HORIZON  # noqa: E402
+from greenv_vegpred.models.ml_common import DAYS_HORIZON, days_event_rows, days_outcome_counts  # noqa: E402
 
 from train_and_evaluate_ml import FEAT, HORIZONS  # noqa: E402
 
@@ -49,12 +49,14 @@ def load_rows(path):
 
 def days_calibration_population(rows):
     """The population an individual days-until-30cm interval is actually used for: height not
-    already at/above threshold (that case is deterministic, no interval needed), and a KNOWN,
-    non-censored true value to compare against. Calibrating on the full population (including the
-    trivially-easy already-critical rows, whose residual is ~0) would bias q_hat downward for the
-    population the interval actually serves."""
-    return [r for r in rows if fnum(r.get("height_cm")) is not None and fnum(r["height_cm"]) < CRITICAL_HEIGHT_CM
-           and r["target_days_until_30cm_censored"] == "0" and fnum(r["target_days_until_30cm"]) is not None]
+    already at/above threshold (that case is deterministic, no interval needed), and a KNOWN
+    `event` outcome to compare against (B2, Codex R01/R02/R04 remediation --
+    `greenv_vegpred.models.ml_common.days_event_rows`). Calibrating on the full population
+    (including the trivially-easy already-critical rows, whose residual is ~0, or a
+    censored_intervention/censored_horizon/censored_end_of_followup row whose true time-to-event
+    is unknown) would bias q_hat in an uncontrolled way for the population the interval actually
+    serves."""
+    return days_event_rows(rows)
 
 
 def main():
@@ -154,8 +156,8 @@ def main():
                 "median_width_days": round(float(np.median(widths)), 2),
                 "n_not_covered": int((~covered).sum()),
             }
-        n_true_censored = sum(1 for r in rows if r["target_days_until_30cm_censored"] == "1")
-        return out, {"n_population": len(pop), "n_true_censored_in_split": n_true_censored,
+        return out, {"n_population": len(pop),
+                    "outcome_counts_below_30cm": days_outcome_counts(rows),
                     "n_model_beyond_horizon_but_truth_known": n_model_beyond_horizon_but_truth_known}
 
     test_days_cov, test_days_meta = days_coverage(test, "test")

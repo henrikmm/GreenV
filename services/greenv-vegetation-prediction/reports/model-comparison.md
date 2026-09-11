@@ -19,6 +19,19 @@ results are appended as a new section at the end, not interleaved with it.
 > first pass (verified by diffing the before/after `baseline_validation_metrics.json`). Only the
 > mechanistic rows are new.
 
+> **Update (B2 — Codex independent review, R01/R02/R04 remediation).** Every `days_until_30cm`
+> number in this document was recomputed after fixing the target's construction (label-window
+> leakage across split boundaries; a future `roçada` silently crossed to find a later, unrelated
+> crossing; right-censoring conflated with simply running out of dataset — see
+> `reports/target-construction.md`). **All height numbers (`target_height_plus_{7,14,30}d_cm`) are
+> confirmed unchanged** — re-verified byte-for-byte identical counts/offsets, not re-derived from
+> scratch. `days_until_30cm` MAEs are generally higher than the pre-fix version reported (e.g. RF
+> TEST 10.24→11.17 d) because the scored population is now smaller and honestly labelled (event
+> rows only, height<30 only) — this is not evidence the model got worse; it is evidence the old
+> population included rows whose "known" answer was not actually known. Sections below are marked
+> "rewritten (B2)" wherever a number changed; unmarked days numbers were re-verified unchanged
+> (none were, in this document — every days table needed at least one value updated).
+
 **Methodology guardrail, checked, not just promised:** `scripts/evaluate_baselines.py` fits every
 baseline on `split == 'train'` rows only and scores on `split == 'validation'` rows only, via the
 shared harness (`greenv_vegpred.evaluate.harness`, reusable as-is by Phases 7 and 8: it exposes
@@ -160,38 +173,45 @@ at every horizon**.
 
 ## `days_until_30cm` metrics — validation split
 
+**Rewritten (B2 — Codex R01/R02/R04 remediation).** The numbers below replace an earlier version
+that scored a right-censored-and-capped-at-120 population; that construction had a real,
+quantified label-window leak across split boundaries (R01), silently crossed a future `roçada` to
+answer a question about the pre-cut trajectory (R02), and conflated three different kinds of
+"we don't know the true time-to-event" into one fabricated `120` label (R03/R04). See
+`reports/target-construction.md` for the corrected construction. **MAE/median/±3d/±7d are now
+computed ONLY on `height_cm < 30` anchors whose `target_days_until_30cm_outcome == "event"`** — a
+genuinely known, exact time-to-event — never on `censored_intervention`/`censored_horizon`/
+`censored_end_of_followup` rows, whose true time-to-event is unknown and is never coerced into a
+number (not even 120).
+
 | Metric | `naive_days_until_30cm` | `mechanistic_days_until_30cm` |
 |---|---:|---:|
-| n true not censored | 5 237 | 5 237 |
-| n scored (baseline also gave a number) | 4 213 | **4 755** |
-| MAE (days) | 17.40 | **14.39** |
-| median absolute error (days) | **6.47** | 6.54 |
-| within ±3 days | **42.9 %** | 41.3 % |
-| within ±7 days | **55.5 %** | 55.0 % |
-| predicted censored while truth had an answer | 1 024 (19.6 %) | **482 (9.2 %)** |
-| n true censored (never reaches 30 cm within 120 d) | 263 (4.78 % of validation) | 263 |
-| also predicted censored, when true was censored | 83 / 263 (31.6 %) | **105 / 263 (39.9 %)** |
+| n event rows (known truth, height<30) | 2 889 | 2 889 |
+| n scored (baseline also gave a number) | 2 012 | **2 550** |
+| MAE (days) | 25.10 | **19.36** |
+| median absolute error (days) | 16.17 | **13.16** |
+| within ±3 days | 11.0 % | **14.5 %** |
+| within ±7 days | 28.1 % | **31.9 %** |
+| model predicted censored while event was known | 877 (30.4 %) | **339 (11.7 %)** |
+| outcome counts below 30cm (n=3 524) | event 2 889 · intervention 218 · horizon 73 · end-of-followup 344 | (same population) |
+| model also predicted censored on the 635 non-event rows | 230 (36.2 %) | **248 (39.1 %)** |
 | fallback rate used | train median, 9.52 cm/wk, n=13 097 same-cycle rows | train global since-cut median, 0.68 cm/day (never triggered — 118/118 trechos had a local `rate_i`) |
-| rows using the fallback rate | 655 | 0 |
+| rows using the fallback rate | 553 | 0 |
 
-**Censoring is handled explicitly, not dropped, for both.** MAE/median/±3d/±7d are computed only
-on rows where *both* the true value and the baseline's prediction are real numbers; the other two
-groups are reported, not hidden, for each baseline separately.
+**Censoring is handled explicitly, not dropped, for either baseline's population restriction — but
+now the four-way taxonomy above replaces the old binary "censored".** MAE/median/±3d/±7d are
+computed only on rows where *both* the true value and the baseline's prediction are real numbers;
+every other row is counted in the outcome breakdown, not hidden.
 
-**`mechanistic_days_until_30cm` is the stronger of the two, on balance.** It scores 542 more rows
-(9.2 % vs 19.6 % "gave up too early" — the trecho-level historical rate is more often able to
-commit to an answer than one noisy week's own growth), a substantially lower MAE (14.39 vs 17.40
-days), and better censoring agreement (39.9 % vs 31.6 % when the truth genuinely never reaches
-30 cm). It is marginally worse on median error and the ±3d/±7d shares — its extra confidence comes
-with a few more moderately-wrong answers, not more very-wrong ones (MAE, sensitive to large
-errors, improves more than the median does). Both still share the same structural weakness: the
-**most informative failure mode is not seeing a future `roçada` coming** — `naive`'s 68.4 % and
-`mechanistic`'s 60.1 % rate of missing a true "never reaches 30 cm" case are both because the
-trecho gets cut before arriving, an event neither baseline can know about in advance.
-
-Median error (≈6.5 d) is noticeably better than MAE (14–17 d) for both — the error distribution is
-right-skewed: most predictions land close, a smaller set of badly-missed trechos (the
-"gave-up-too-early" and "missed-the-future-cut" groups above) pull the mean up.
+**`mechanistic_days_until_30cm` remains the stronger of the two, on balance** — a substantially
+lower MAE (19.36 vs 25.10 days), better median error (13.16 vs 16.17), more rows scored (2 550 vs
+2 012), and better agreement on the non-event population (39.1 % vs 36.2 %). Both MAEs are higher
+than the versions reported before this fix (17.40 / 14.39) — this is not evidence of a worse
+model; it reflects a smaller, honestly-labelled population (2 889 known events vs the earlier
+5 237, which included rows whose "known" answer had in fact crossed a future `roçada` or been
+capped at 120). Both baselines still share the same structural weakness: **the most informative
+failure mode is not seeing a future `roçada` coming** — a model-predicts-censored-when-event-known
+rate of 30.4 % (naive) / 11.7 % (mechanistic) is largely explained by the same mechanism as before.
 
 ---
 
@@ -240,32 +260,36 @@ phase where a week makes the largest absolute difference.
 
 ### `days_until_30cm` MAE (days), by current Nível
 
+**Rewritten (B2).** Nível 3 (`height_cm > 30`) no longer appears here at all — it is now excluded
+by construction (`height_cm < 30` is part of the scored population's own definition), not shown as
+a trivial `0.00` row.
+
 | Nível | n (naive) | `naive` MAE | n (mechanistic) | `mechanistic` MAE |
 |---|---:|---:|---:|---:|
-| 0 (not-ready) | 759 | 27.90 | 867 | **23.67** |
-| 1 | 539 | 32.63 | 644 | **21.41** |
-| 2 | 1 333 | 25.91 | 1 662 | **20.53** |
-| 3 | 1 582 | 0.00 | 1 582 | 0.00 |
+| 0 (not-ready) | 348 | 25.84 | 450 | **19.01** |
+| 1 | 447 | 29.85 | 567 | **20.61** |
+| 2 | 1 217 | 23.15 | 1 533 | **19.00** |
 
-Nível 3's `0.00` is **not skill** for either baseline — if the trecho is already above 30 cm and
-ready *today*, both the true and predicted "days until 30 cm" are trivially 0 by definition.
-`mechanistic` scores **more rows** in every non-trivial stratum (its trecho-level historical rate
-gives an answer more often than `naive`'s single-week snapshot) and has a **lower MAE in every
-stratum** — its largest relative improvement is at Nível 1 (32.6 → 21.4 days), furthest from the
-threshold and where a stable historical rate matters most.
+`mechanistic` still scores **more rows** in every stratum (its trecho-level historical rate gives
+an answer more often than `naive`'s single-week snapshot) and still has a **lower MAE in every
+stratum** — the same qualitative pattern as before this fix, at higher MAE values (a smaller,
+honestly-labelled population, not a worse model).
 
 ### `days_until_30cm` MAE (days), by season / by `roçada` proximity
 
-| Season | naive MAE | mechanistic MAE | | `days_since_rocada` | naive MAE | mechanistic MAE |
-|---|---:|---:|---|---|---:|---:|
-| wet | 11.09 | **10.37** | | recent (< 14 d) | 29.51 | **18.76** |
-| dry | 20.66 | **16.31** | | mid (14–60 d) | 15.81 | **12.72** |
-| | | | | long (> 60 d) | **11.53** | 15.04 |
+**Rewritten (B2).**
+
+| Season | n (naive) | naive MAE | n (mechanistic) | mechanistic MAE | | `days_since_rocada` | n (naive) | naive MAE | n (mechanistic) | mechanistic MAE |
+|---|---:|---:|---:|---:|---|---|---:|---:|---:|---:|
+| wet (Oct–Mar) | 677 | 12.81 | 768 | **11.64** | | recent (< 14 d) | 716 | 26.49 | 760 | **17.25** |
+| dry (Apr–Sep) | 1 335 | 31.34 | 1 782 | **22.68** | | mid (14–60 d) | 1 000 | 24.72 | 1 315 | **17.15** |
+| | | | | | | long (> 60 d) | 296 | **23.04** | 475 | 28.86 |
 
 `mechanistic` is better in every stratum except `long (> 60 d)`, where `naive` edges ahead
-(11.53 vs 15.04) — a trecho long past its last cut is close to its own plateau, where recent
-observed growth (what `naive` uses) is already a good proxy, while `mechanistic`'s historical
-average rate slightly overstates ongoing growth for a trecho that has already slowed down.
+(23.04 vs 28.86) — the same exception as before this fix: a trecho long past its last cut is close
+to its own plateau, where recent observed growth (what `naive` uses) is already a good proxy,
+while `mechanistic`'s historical average rate slightly overstates ongoing growth for a trecho that
+has already slowed down.
 
 ---
 
@@ -279,7 +303,7 @@ average rate slightly overstates ongoing growth for a trecho that has already sl
 | Missing `target_height_plus_7d_cm` | 15.96 % |
 | Missing `target_height_plus_14d_cm` | 21.71 % |
 | Missing `target_height_plus_30d_cm` | 24.15 % |
-| `target_days_until_30cm` right-censored (true) | 4.78 % |
+| `target_days_until_30cm` not a clean event, of rows below 30cm (B2: `censored_intervention` + `censored_horizon` + `censored_end_of_followup`, n=3 524 below-30cm rows) | 635 (18.0 % of below-30cm rows; 11.5 % of all 5 500 validation rows) |
 
 None of these rows were dropped from evaluation by choice — missing targets are excluded from a
 metric *because there is nothing to compare against*, not because they were filtered out for being
@@ -301,29 +325,33 @@ stratified tables above, which show they are measurably harder, not swept aside)
   month, the same failure mode as `last_growth`, just damped by using a historical rate instead
   of one week's noisy sample.
 - **`last_growth` is still the weakest height baseline at every horizon.**
-- **`days_until_30cm`: `mechanistic_days_until_30cm`** is the stronger of the two implemented —
-  lower MAE (14.39 vs 17.40 days), more rows scored (4 755 vs 4 213), better censoring agreement
-  (39.9 % vs 31.6 %) — though `naive` keeps a narrow edge on median error and the ±3d/±7d shares.
-  Both share the same structural ceiling: **neither can see a future `roçada` coming.**
+- **`days_until_30cm` (B2 — rewritten): `mechanistic_days_until_30cm`** is now the stronger of the
+  two on **every** metric — lower MAE (19.36 vs 25.10 days), lower median error (13.16 vs 16.17),
+  more rows scored (2 550 vs 2 012), better within-±3d/±7d shares (14.5%/31.9% vs 11.0%/28.1%), and
+  better agreement on the non-event rows (39.1 % vs 36.2 %). Before this fix, `naive` had kept a
+  narrow edge on median error and the ±3d/±7d shares — that edge is gone on the corrected,
+  event-only population. Both share the same structural ceiling: **neither can see a future
+  `roçada` coming.**
 
 **Did the mechanistic baseline add real value?** **Yes, partially, and it is the honest kind of
-partial.** It is not a strict improvement — it does not dominate `seasonal_climatology` at longer
-horizons, and it loses to `naive` on two of four `days_until_30cm` metrics — but it is the single
-best height predictor at the horizon that matters most for a weekly-capture operational cadence
-(+7 d), it is the more informative `days_until_30cm` baseline overall, and every one of its
-stratified wins (Nível, season, roçada-proximity, in §"Stratified metrics") lines up with what the
-formula was built to capture (thermal response, the regrowth lag), not a coincidence of tuning —
-because the formula was fixed before this evaluation ran once, not iterated against it.
+partial.** It is not a strict improvement for height — it does not dominate `seasonal_climatology`
+at longer horizons — but it is the single best height predictor at the horizon that matters most
+for a weekly-capture operational cadence (+7 d), it now wins **every** `days_until_30cm` metric
+against `naive` (B2 — see above, no exceptions remain), and every one of its stratified wins
+(Nível, season, roçada-proximity, in §"Stratified metrics") lines up with what the formula was
+built to capture (thermal response, the regrowth lag), not a coincidence of tuning — because the
+formula was fixed before this evaluation ran once, not iterated against it.
 
 **What Phase 7 must beat, concretely (best baseline per row):**
 
 | | +7 d height MAE | +14 d height MAE | +30 d height MAE | `days_until_30cm` MAE | median | ±3d | ±7d |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Best baseline | `mechanistic`: **11.17 cm** | `seasonal_climatology`: **16.26 cm** | `seasonal_climatology`: **15.96 cm** | `mechanistic`: **14.39 d** | `naive`: **6.47 d** | `naive`: **42.9 %** | `naive`: **55.5 %** |
+| Best baseline | `mechanistic`: **11.17 cm** | `seasonal_climatology`: **16.26 cm** | `seasonal_climatology`: **15.96 cm** | `mechanistic`: **19.36 d** | `mechanistic`: **13.16 d** | `mechanistic`: **14.5 %** | `mechanistic`: **31.9 %** |
 
-All on the **same** validation split, never on `test` or `ood`.
+All on the **same** validation split, never on `test` or `ood`. `days_until_30cm` columns rewritten
+(B2) — `mechanistic` now wins every one of them (see above), not split with `naive`.
 
-Reviewed: 2026-09-10.
+Reviewed: 2026-09-10 (originally); B2 remediation pass, same day.
 
 ---
 
@@ -349,33 +377,52 @@ held-out behaviour, and how much that degrades when the generator's own mechanis
 
 Random Forest, feature set `keep_plus_candidate` (14 features), `n_estimators=300`,
 `max_depth=None`, `min_samples_leaf=20`, `random_state=42` — for height +7d/+14d/+30d and for
-`days_until_30cm` framing (B) (direct regression, right-censoring capped at 120 days). Frozen
-comparators: `persistence`, `seasonal_climatology`, `mechanistic`, `mechanistic_days_until_30cm`,
-Ridge, HistGradientBoosting, and framing (A) (height-trajectory-derived `days_until_30cm`) as a
-secondary analysis only.
+`days_until_30cm` framing (B) (direct regression). **Current censoring policy (B2 — Codex
+R01/R02/R04 remediation, superseding an earlier "right-censoring capped at 120 days" description
+of this same frozen hyperparameter set):** fit and scored only on `height_cm < 30` anchors with a
+genuine `event` outcome; `censored_intervention`/`censored_horizon`/`censored_end_of_followup`
+rows are excluded, never coerced into 120 or any other number — see
+`reports/target-construction.md`. Frozen comparators: `persistence`, `seasonal_climatology`,
+`mechanistic`, `mechanistic_days_until_30cm`, Ridge, HistGradientBoosting, and framing (A)
+(height-trajectory-derived `days_until_30cm`) as a secondary analysis only.
 
 ### Height MAE — Baseline vs. Ridge vs. Random Forest vs. HistGB, VALIDATION → TEST → OOD
+
+**Correction (B2.1 — Codex independent review):** `scripts/evaluate_phase8.py`'s OOD section
+(`ood_height`) has never computed a Ridge entry — only `mechanistic`/`random_forest`/
+`gradient_boosting`. The Ridge OOD cells previously shown here (14.82 / 18.59 / 19.40) were not
+reproducible from this script's output and are removed rather than re-presented as a current
+result; VALIDATION/TEST Ridge cells are unaffected (both are computed by this script).
 
 | | +7d VALIDATION | +7d TEST | +7d OOD | +14d VALIDATION | +14d TEST | +14d OOD | +30d VALIDATION | +30d TEST | +30d OOD |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | Best baseline | mechanistic 11.17 | mechanistic 12.40 | mechanistic **10.72** | seasonal 16.26 | seasonal 17.70 | mechanistic 17.23 | seasonal 15.96 | seasonal 17.70 | mechanistic 28.38 |
-| Ridge | 12.78 | 13.68 | 14.82 | 15.38 | 16.66 | 18.59 | 15.97 | 17.42 | 19.40 |
+| Ridge | 12.78 | 13.68 | *(not computed by Phase 8)* | 15.38 | 16.66 | *(not computed by Phase 8)* | 15.97 | 17.42 | *(not computed by Phase 8)* |
 | **Random Forest (frozen)** | **9.47** | **10.82** | 13.34 | **11.14** | **12.91** | 16.57 | **13.50** | **15.14** | 19.03 |
 | HistGB | 9.63 | 10.89 | 13.31 | 11.54 | 13.25 | 16.48 | 13.70 | 15.33 | 19.10 |
 
 ### `days_until_30cm` MAE (days) — VALIDATION → TEST → OOD
 
+**Rewritten (B2).** Scored only on `height_cm < 30` anchors with a known `event` outcome (see
+above). Ridge's TEST/OOD numbers are not computed by `scripts/evaluate_phase8.py` (only VALIDATION,
+via the Phase 7 addendum) — reported as VALIDATION-only rather than left as an unverifiable
+carry-over number.
+
 | | VALIDATION | TEST | OOD |
 |---|---:|---:|---:|
-| `mechanistic_days_until_30cm` | 14.39 | 13.28 | 8.99 |
-| Ridge (framing B) | 18.48 | 14.25 | 12.09 |
-| **Random Forest (frozen, framing B)** | **11.80** | **10.24** | 7.32 |
-| HistGB (framing B) | 12.13 | 10.38 | 7.55 |
-| Framing (A), secondary analysis | — (not run in Phase 7) | 11.76 | — (not run) |
+| `mechanistic_days_until_30cm` | 19.36 | 18.45 | 19.42 |
+| Ridge (framing B) | 15.76 | *(not computed by Phase 8)* | *(not computed by Phase 8)* |
+| **Random Forest (frozen, framing B)** | **13.12** | **11.17** | 11.20 |
+| HistGB (framing B) | 13.19 | 11.48 | 11.12 |
+| Framing (A), secondary analysis | 16.71 | 13.95 | — (not run) |
 
-**Read the OOD `days_until_30cm` column with the caveat below before treating it as an
-improvement** — every model's OOD number here looks *better* than its TEST number, height's does
-not, and that gap is diagnosed just below, not glossed over.
+**The OOD `days_until_30cm` column no longer shows the large, artifact-driven "improvement" the
+pre-fix version reported.** Under the old (R01/R02/R04-affected) construction, TEST→OOD looked
+like a 27–32% *improvement* for every model — a composition artifact (below), not robustness.
+With `height_cm >= 30` anchors now excluded from scoring entirely (not just flagged), that
+artifact's main source is gone: TEST→OOD is now +0.3% for Random Forest and −3.1% for HistGB
+(essentially flat, within noise), and +5.3% for the mechanistic baseline — small numbers, in a
+mixed direction, not the dramatic one-sided "improvement" seen before.
 
 ### Rolling-origin backtest (frozen Random Forest, refit per origin — no hyperparameter changed)
 
@@ -384,23 +431,49 @@ window, walking from 2025-03-01 to 2026-03-01 (intentionally re-partitioning by 
 by the original train/validation/test labels — see the script's docstring for why that is the
 correct design for a walk-forward backtest and not a TEST-leakage violation).
 
+**`days_until_30cm` MAE column rewritten twice: B2, then corrected again in B2.1.** Height columns
+are unchanged throughout (same code, same rows, Codex-confirmed offsets never exceed 28 days,
+safely inside the existing 30-day embargo — no change was needed or made to the height rolling-
+origin methodology).
+
+**B2.1 correction (independent review):** the first rolling-origin implementation (used for B2's
+numbers, now superseded) partitioned each origin's TRAIN rows by the anchor's own date
+(`as_of_date <= origin`), but never limited how far a row's *label* could look forward — a
+`target_days_until_30cm` label can point up to 120 days past its anchor, which could land inside
+the very eval window that origin was about to be scored on, even for an anchor dated well before
+`origin`. The backtest was re-run with each origin's days-model training set additionally
+restricted to `event_date < eval_start` (`eval_start = origin + 30-day embargo`) — see
+`reports/target-construction.md` and `src/greenv_vegpred/models/ml_common.py::rolling_origin_days_train_rows`.
+This is the same category of fix as R01 (fixed-split), applied to the rolling-origin loop's own
+per-origin calendar partitioning; it does not affect the fixed TRAIN/VALIDATION/TEST split's own
+numbers (§ above), which are unchanged, as expected.
+
 | Origin | n_train | n_eval | MAE +7d | MAE +14d | MAE +30d | `days_until_30cm` MAE |
 |---|---:|---:|---:|---:|---:|---:|
-| 2025-03-01 | 19 181 | 3 031 | 7.94 | 9.30 | 11.49 | 13.54 |
-| 2025-06-01 | 21 664 | 2 320 | 7.32 | 9.44 | 12.35 | 11.57 |
-| 2025-09-01 | 23 986 | 2 994 | 11.70 | 14.05 | 17.07 | 9.98 |
-| 2025-12-01 | 25 587 | 3 091 | **13.73 (worst)** | **15.21 (worst)** | 17.06 | 9.17 |
-| 2026-03-01 | 27 893 | 3 098 | 8.02 | 9.65 | 11.80 | **15.29 (worst)** |
-| **Mean ± std** | | | 9.74 ± 2.52 | 11.53 ± 2.56 | 13.95 ± 2.56 | 11.91 ± 2.26 |
-| Median | | | 8.02 | 9.65 | 12.35 | 11.57 |
+| 2025-03-01 | 19 181 | 3 031 | 7.94 | 9.30 | 11.49 | 16.68 |
+| 2025-06-01 | 21 664 | 2 320 | 7.32 | 9.44 | 12.35 | 10.44 |
+| 2025-09-01 | 23 986 | 2 994 | 11.70 | 14.05 | 17.07 | 8.27 |
+| 2025-12-01 | 25 587 | 3 091 | **13.73 (worst)** | **15.21 (worst)** | 17.06 | 9.06 |
+| 2026-03-01 | 27 893 | 3 098 | 8.02 | 9.65 | 11.80 | **18.71 (worst)** |
+| **Mean ± std** | | | 9.74 ± 2.52 | 11.53 ± 2.56 | 13.95 ± 2.56 | 12.63 ± 4.24 |
+| Median | | | 8.02 | 9.65 | 12.35 | 10.44 |
 
-**Reading it honestly:** the model is not temporally stable. The +7d MAE swings from 7.32 to 13.73
-cm across origins — an 88% relative range — and the worst origin for height (2025-12-01) is not
-the worst origin for `days_until_30cm` (2026-03-01), so no single "bad period" explains every
-metric at once. The 2025-12-01 origin's eval window is mostly wet-season rows (2 353/3 091); its
-own wet-vs-dry split (14.04 vs 12.74 cm) shows the season split alone doesn't fully explain the
-spike either — some of this instability is not attributable to season, and is left unexplained
-rather than rationalised after the fact.
+Per-origin leakage audit (rows whose label reached into that origin's own eval window, after the
+B2.1 fix): **0 in all five origins** — see §"Rolling-origin leakage audit" in
+`reports/target-construction.md` for the full before/after counts.
+
+**Reading it honestly:** the model is not temporally stable, and this got MORE visible for
+`days_until_30cm` after the B2/B2.1 fixes, not less — its std nearly doubled (4.24 vs the original,
+pre-B2 2.26) and its worst/best spread widened (8.27–18.71 vs the original 9.17–15.29). This is a
+genuine, structural finding, not an artifact of the fix: the smaller, honestly-labelled event-only
+population is more sensitive to which trechos happen to fall in each origin's window. The +7d
+height MAE swings from 7.32 to 13.73 cm across origins — an 88% relative range — and the worst
+origin for height (2025-12-01) is not the worst origin for `days_until_30cm` (2026-03-01, before
+and after both fixes), so no single "bad period" explains every metric at once. The 2025-12-01
+origin's eval window is mostly wet-season rows (2 353/3 091); its own wet-vs-dry split (14.04 vs
+12.74 cm) shows the season split alone doesn't fully explain the spike either — some of this
+instability is not
+attributable to season, and is left unexplained rather than rationalised after the fact.
 
 ### OOD one-shot: how much does the frozen model degrade under a different growth mechanism?
 
@@ -409,38 +482,48 @@ rather than rationalised after the fact.
 | +7d height | 10.82→13.34 (**+23.3%**) | 10.89→13.31 (+22.2%) | 12.40→10.72 (−13.5%) |
 | +14d height | 12.91→16.57 (**+28.4%**) | 13.25→16.48 (+24.4%) | 20.18→17.23 (−14.6%) |
 | +30d height | 15.14→19.03 (**+25.7%**) | 15.33→19.10 (+24.5%) | 31.27→28.38 (−9.3%) |
-| `days_until_30cm` | 10.24→7.32 (−28.5%, see caveat) | 10.38→7.55 (−27.3%, see caveat) | 13.28→8.99 (−32.3%, see caveat) |
+| `days_until_30cm` (rewritten, B2) | 11.17→11.20 (+0.3%) | 11.48→11.12 (−3.1%) | 18.45→19.42 (+5.3%) |
 
 **The height row is the trustworthy signal, and it says the learned models degrade 22–28% under
 a mechanism change while the physics-based `mechanistic` baseline actually *improves*.** The
-`days_until_30cm` row's apparent improvement for every model (including the baseline) is a
-composition artifact, not a robustness result: **62.7%** of OOD rows already have `height_cm ≥
-30cm` at the anchor (vs **38.7%** on TEST), and **51.9%** of OOD's non-censored
-`days_until_30cm` targets are exactly `0` (vs **34.2%** on TEST) — the OOD holdout's task is
-mechanically easier because more of it is already-answered "0 days", not because any model
-transfers better to the new mechanism. This is exactly the kind of number this report is obligated
-to flag rather than present at face value.
+`days_until_30cm` row **no longer shows the large, one-sided "improvement" the pre-fix version
+reported** (previously −27% to −32%). That earlier number was a composition artifact: **62.7%** of
+OOD rows already have `height_cm ≥ 30cm` at the anchor (vs **38.7%** on TEST) — a fact about the
+raw data, unaffected by this fix — and under the OLD scoring, those already-critical rows'
+trivially-easy "0 days" answers were still counted, making OOD's task mechanically easier. **B2's
+fix removes that artifact at the source** (height≥30 anchors are now excluded from scoring
+entirely, not merely flagged), so what remains is small and in a mixed direction (+0.3% / −3.1% /
++5.3%) — closer to noise than to a real robustness signal either way, and no longer something this
+report needs to caveat as misleading.
 
 ### Ablation (VALIDATION, frozen Random Forest, one feature group removed at a time)
 
 Reference (full `keep_plus_candidate`): height MAE 9.47 / 11.14 / 13.50 cm; `days_until_30cm` MAE
-11.80 d.
+**13.12 d (rewritten, B2 — was 11.80 d before the fix)**.
+
+**`days_until_30cm` column rewritten (B2).** Height columns unchanged.
 
 | Group removed | Δ height MAE +7d | Δ +14d | Δ +30d | Δ `days_until_30cm` MAE |
 |---|---:|---:|---:|---:|
-| A. height/history (`height_cm`, `height_prev_cm`, `weekly_growth_cm`, `height_lag2_cm`) | **+3.24** | **+2.83** | **+1.50** | **+5.42** |
-| B. `days_since_rocada` / cycle (+`rocada_in_new_cycle`, `operational_status`) | +0.13 | +0.11 | +0.05 | +1.89 |
-| C. temperature/GDD (`gdd_week_tb15_c`, `tmin_week_c`) | +0.16 | +0.31 | +0.47 | +0.76 |
-| D. rain/water deficit (`rain_30d_mm`, `water_deficit_30d`, `water_deficit_90d`) | +0.01 | +0.04 | −0.06 | +0.72 |
-| E. additional candidates (`dry_season_flag`, `vegetation_type`) | +0.01 | +0.16 | +0.26 | +0.25 |
+| A. height/history (`height_cm`, `height_prev_cm`, `weekly_growth_cm`, `height_lag2_cm`) | **+3.24** | **+2.83** | **+1.50** | **+2.70** |
+| B. `days_since_rocada` / cycle (+`rocada_in_new_cycle`, `operational_status`) | +0.13 | +0.11 | +0.05 | +0.03 |
+| C. temperature/GDD (`gdd_week_tb15_c`, `tmin_week_c`) | +0.16 | +0.31 | +0.47 | +1.64 |
+| D. rain/water deficit (`rain_30d_mm`, `water_deficit_30d`, `water_deficit_90d`) | +0.01 | +0.04 | −0.06 | +1.77 |
+| E. additional candidates (`dry_season_flag`, `vegetation_type`) | +0.01 | +0.16 | +0.26 | +0.51 |
 
-**The model is almost entirely anchored on the current-height/history group** — removing it costs
-2–7× more MAE than removing any other single group, at every horizon, confirming the same
-conclusion Phase 7's permutation importance already reached. The cycle/roçada group is the clear
-second-most-important, especially for `days_until_30cm` (+1.89 d — the largest non-height
-contributor there). Weather (temperature and rain/water-deficit) and the additional candidates
-each contribute small, real, but individually minor amounts. **This ranking does not change
-`keep_plus_candidate` as the frozen feature set** — it explains it.
+**The model is almost entirely anchored on the current-height/history group for height** —
+removing it costs 2–7× more MAE than removing any other single group, at every horizon, confirming
+the same conclusion Phase 7's permutation importance already reached. **For `days_until_30cm`,
+the ranking changed materially after the fix:** the `days_since_rocada`/cycle group's contribution
+collapsed from +1.89 d (pre-fix) to essentially zero (+0.03 d) — an expected, honest consequence
+of B2 itself, not a coincidence: the population the model is now trained and scored on excludes
+every trajectory a `roçada` interrupted, so the model no longer needs cycle-timing information to
+compensate for post-intervention crossings it can no longer see. With that confound removed, the
+climate groups (temperature/GDD, rain/water-deficit) show up as **more** important than before
+(+0.76→+1.64 d and +0.72→+1.77 d respectively) — a genuinely different, and arguably more
+interpretable, picture of what actually drives the corrected `days_until_30cm` regressor.
+**This ranking does not change `keep_plus_candidate` as the frozen feature set** — it explains it
+differently than before.
 
 ### 95% confidence intervals on the TEST metrics (block bootstrap by `trecho_id`, 500 resamples)
 
@@ -449,7 +532,7 @@ each contribute small, real, but individually minor amounts. **This ranking does
 | Height MAE +7d | 10.82 | [10.43, 11.18] |
 | Height MAE +14d | 12.91 | [12.47, 13.34] |
 | Height MAE +30d | 15.14 | [14.71, 15.62] |
-| `days_until_30cm` MAE | 10.24 | [9.67, 10.76] |
+| `days_until_30cm` MAE (rewritten, B2) | 11.17 | [10.61, 11.73] |
 
 These intervals describe uncertainty in the **metric itself** (would a different sample of the
 same 118 trechos give a noticeably different MAE?) — not a prediction interval for any individual
@@ -484,13 +567,23 @@ everywhere (`ml_common.py`, `height_trajectory_days.py`) ✓.
 - **Random Forest (`keep_plus_candidate`, the Phase 7 frozen configuration) remains the
   recommended model.** It wins every height horizon and `days_until_30cm` on TEST, by a
   comfortable and stable margin over the best baseline (mechanistic/seasonal_climatology) and over
-  Ridge, and is statistically indistinguishable from HistGB (their 95%-CI-scale differences are
-  smaller than either model's own bootstrap width).
-- **Margin over the best baseline on TEST:** +7d 12.40→10.82 cm (**−12.7%**), +14d 17.70→12.91 cm
-  (**−27.1%**), +30d 17.70→15.14 cm (**−14.5%**), `days_until_30cm` 13.28→10.24 d (**−22.9%**).
+  Ridge. **Corrected claim about HistGB (Codex review finding):** RF's point estimate is close to
+  HistGB's (`days_until_30cm` 11.17 vs 11.48 d on TEST; height differences are similarly small at
+  every horizon) — but this was never a formal paired significance test, only two separate
+  bootstrap intervals compared by eye, so "statistically indistinguishable" overstated what was
+  actually checked. The honest claim: **the two models are close relative to RF's own sampling
+  uncertainty** (RF's `days_until_30cm` 95% CI is [10.61, 11.73], a half-width of ≈0.56 d — larger
+  than the 0.31 d gap to HistGB's point estimate), not a demonstrated equivalence.
+- **Margin over the best baseline on TEST (B2 — `days_until_30cm` rewritten):** +7d 12.40→10.82 cm
+  (**−12.7%**), +14d 17.70→12.91 cm (**−27.1%**), +30d 17.70→15.14 cm (**−14.5%**),
+  `days_until_30cm` 18.45→11.17 d (**−39.4%**, was −22.9% before this fix — a larger margin now,
+  against a correspondingly harder, honestly-labelled baseline comparison, not a claim that the
+  model itself improved).
 - **Degradation under OOD (mechanism shift):** height MAE worsens by **22–28%** across horizons.
-  `days_until_30cm`'s apparent OOD improvement is a composition artifact (see above), not a real
-  gain — the height numbers are the ones to trust here.
+  `days_until_30cm` now shows a small, near-flat TEST→OOD change (+0.3% RF, −3.1% HistGB — see
+  above); the earlier large *apparent improvement* was a composition artifact that this fix
+  removes at the source, not something to still read as "not a real gain" — there is no longer a
+  large number to explain away here.
 - **Is that degradation acceptable for a prototype?** For a self-contained, explicitly-labelled
   synthetic prototype whose stated purpose is methodology, not field deployment — yes, with the
   caveat stated loudly: it is evidence the model has learned some mechanism-specific structure
@@ -516,21 +609,24 @@ everywhere (`ml_common.py`, `height_trajectory_days.py`) ✓.
   physical structure (thermal accumulation, decay-since-cut) transfers better than a model that
   learned the shape of one particular generator's regrowth curves.
 - **Claims this evaluation supports:** "on this synthetic TEST split, the frozen Random Forest
-  configuration beats every implemented baseline and the Ridge/HistGB alternatives, at every
-  height horizon and for `days_until_30cm`, with a stable ranking across a 500-resample block
-  bootstrap"; "the same model degrades materially (22–28% height MAE) when the underlying growth
-  mechanism changes, while a mechanistic baseline does not"; "the model is not temporally stable
-  across rolling-origin windows even while never crossing physically absurd bounds"; "current
-  height and roçada-cycle timing account for the large majority of the model's predictive power,
-  by ablation".
+  configuration beats every implemented baseline and Ridge (`days_until_30cm` was not evaluated
+  for Ridge on TEST/OOD by this script) at every height horizon and for `days_until_30cm`, with a
+  stable ranking across a 500-resample block bootstrap"; "the same model degrades materially
+  (22–28% height MAE) when the underlying growth mechanism changes, while a mechanistic baseline
+  does not"; "the model is not temporally stable across rolling-origin windows even while never
+  crossing physically absurd bounds"; "current height accounts for the large majority of the
+  model's predictive power for height, by ablation; for `days_until_30cm`, current height is also
+  the single largest driver, but roçada-cycle timing is no longer a major one post-fix — see the
+  ablation section's explanation".
 - **Claims this evaluation does NOT support:** anything about real vegetation, real weather, or
   the actual SP-021/Rodoanel Oeste corridor — every row scored above, in VALIDATION, TEST, and
   OOD alike, is `provenance=synthetic`; a claim that the model "generalises well" (OOD height MAE
-  is worse, not better, than TEST, by a double-digit percentage); a claim that
-  `days_until_30cm`'s apparent OOD improvement reflects genuine robustness (it is a target-
-  composition artifact, quantified above); a claim of full temporal stability (rolling-origin
-  disagrees); a prediction interval for any individual `trecho` (that is Phase 9's scope — the
-  bootstrap CIs here describe the evaluation metric's own uncertainty, not a per-`trecho` forecast
-  band).
+  is worse, not better, than TEST, by a double-digit percentage; `days_until_30cm`'s near-flat
+  TEST→OOD change is small and mixed-direction, not evidence of robustness either); a claim of
+  full temporal stability (rolling-origin disagrees, and got more visible for `days_until_30cm`
+  after this fix, not less); a prediction interval for any individual `trecho` (that is Phase 9's
+  scope — the bootstrap CIs here describe the evaluation metric's own uncertainty, not a
+  per-`trecho` forecast band); a claim that RF and HistGB were shown statistically indistinguishable
+  (never formally tested — see the corrected wording above).
 
-Reviewed: 2026-09-10 (Phase 8 section).
+Reviewed: 2026-09-10 (Phase 8 section, originally; B2 remediation pass, same day).

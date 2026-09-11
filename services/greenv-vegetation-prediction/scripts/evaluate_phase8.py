@@ -38,7 +38,10 @@ from greenv_vegpred.evaluate.harness import (  # noqa: E402
     rocada_bucket, season_bucket, nivel_bucket, fnum,
 )
 from greenv_vegpred.models import random_forest  # noqa: E402
-from greenv_vegpred.models.ml_common import CATEGORICAL_COLS, HEIGHT_CLIP, DAYS_HORIZON  # noqa: E402
+from greenv_vegpred.models.ml_common import (  # noqa: E402
+    CATEGORICAL_COLS, HEIGHT_CLIP, DAYS_HORIZON, days_event_rows, days_outcome_counts,
+    event_date, rolling_origin_days_train_rows,
+)
 from greenv_vegpred.models.height_trajectory_days import HeightTrajectoryDaysModel, THRESHOLD_CM  # noqa: E402
 from greenv_vegpred.models.baseline import (  # noqa: E402
     PersistenceBaseline, SeasonalClimatologyBaseline, MechanisticHeightBaseline,
@@ -101,31 +104,34 @@ def fit_baselines(train_rows):
 
 
 def evaluate_sklearn_days_model_batch(model, val_rows):
-    """Same bookkeeping as harness.evaluate_days_until_30cm_model / the addendum's
-    evaluate_days_until_30cm_model_batch, but for a SklearnDaysUntil30Model (RF/Ridge/HistGB days
+    """B2 (Codex R01/R02/R04 remediation): same event-only, height<30 population as
+    harness.evaluate_days_until_30cm_model, for a SklearnDaysUntil30Model (RF/Ridge/HistGB days
     model) whose `.predict_batch()` returns a plain array of clipped values -- NOT (pred, meta)
     pairs like HeightTrajectoryDaysModel.predict_batch. A value above DAYS_HORIZON is treated as
-    censored, mirroring SklearnDaysUntil30Model.predict's own convention."""
-    censored_true = [r for r in val_rows if r["target_days_until_30cm_censored"] == "1"]
-    not_censored_true = [r for r in val_rows if r["target_days_until_30cm_censored"] == "0"
-                         and fnum(r["target_days_until_30cm"]) is not None]
-    preds_nc = model.predict_batch(not_censored_true) if not_censored_true else []
-    pairs, pred_censored_when_true_had_answer = [], 0
-    for r, p in zip(not_censored_true, preds_nc):
+    censored, mirroring SklearnDaysUntil30Model.predict's own convention. `outcome_counts_below_30cm`
+    reports all four categories as diagnostics; only `event` rows are ever scored numerically."""
+    event_rows = days_event_rows(val_rows)
+    censored_any = [r for r in val_rows
+                   if fnum(r.get("height_cm")) is not None and float(r["height_cm"]) < 30.0
+                   and r.get("target_days_until_30cm_outcome") != "event"]
+    preds_event = model.predict_batch(event_rows) if event_rows else []
+    pairs, pred_censored_when_event_known = [], 0
+    for r, p in zip(event_rows, preds_event):
         if p > DAYS_HORIZON:
-            pred_censored_when_true_had_answer += 1
+            pred_censored_when_event_known += 1
             continue
         pairs.append((float(r["target_days_until_30cm"]), float(p)))
-    preds_c = model.predict_batch(censored_true) if censored_true else []
-    censoring_agreement = int(sum(1 for p in preds_c if p > DAYS_HORIZON))
+    preds_c = model.predict_batch(censored_any) if censored_any else []
+    model_censored_agreement = int(sum(1 for p in preds_c if p > DAYS_HORIZON))
     dm = days_metrics(pairs)
-    dm["n_true_not_censored"] = len(not_censored_true)
+    dm["n_event_rows"] = len(event_rows)
     dm["n_scored"] = len(pairs)
-    dm["n_baseline_predicted_censored_but_true_had_answer"] = pred_censored_when_true_had_answer
-    dm["n_true_censored"] = len(censored_true)
-    dm["baseline_also_censored_when_true_censored"] = censoring_agreement
-    dm["baseline_also_censored_when_true_censored_pct"] = (
-        round(100 * censoring_agreement / len(censored_true), 1) if censored_true else None)
+    dm["n_model_predicted_censored_but_event_was_known"] = pred_censored_when_event_known
+    dm["outcome_counts_below_30cm"] = days_outcome_counts(val_rows)
+    dm["n_censored_any"] = len(censored_any)
+    dm["model_also_predicted_censored_on_censored_rows"] = model_censored_agreement
+    dm["model_also_predicted_censored_on_censored_rows_pct"] = (
+        round(100 * model_censored_agreement / len(censored_any), 1) if censored_any else None)
     dm["n_used_fallback_in_scored_or_censored"] = 0
     return dm
 
@@ -249,7 +255,16 @@ def main():
             print(f"  origin {origin_s}: skipped (n_train={len(o_train)}, n_eval={len(o_eval)}, too small)")
             continue
         h_model = random_forest.make_height_model(RF_CFG_TUPLE, FEATURE_SET_EXTENDED, CATEGORICAL_COLS).fit(o_train)
-        d_model = random_forest.make_days_model(RF_CFG_TUPLE, FEATURE_SET_EXTENDED, CATEGORICAL_COLS).fit(o_train)
+
+        # B2.1 fix: the days model's own training rows are additionally cut off at this origin's
+        # eval_start (win_start) -- see rolling_origin_days_train_rows's docstring. Audited below.
+        n_train_days_before_filter = len(days_event_rows(o_train))
+        o_train_days = rolling_origin_days_train_rows(o_train, win_start)
+        n_train_days_after_filter = len(days_event_rows(o_train_days))
+        labels_entering_eval_window_after_fix = sum(
+            1 for r in days_event_rows(o_train_days) if win_start <= event_date(r) <= win_end
+        )
+        d_model = random_forest.make_days_model(RF_CFG_TUPLE, FEATURE_SET_EXTENDED, CATEGORICAL_COLS).fit(o_train_days)
         h_metrics = height_all_horizons(h_model, o_eval)
         d_metrics = evaluate_sklearn_days_model_batch(d_model, o_eval)
         wet = [r for r in o_eval if r.get("dry_season_flag") == "0"]
@@ -258,13 +273,20 @@ def main():
         for label, subset in (("wet", wet), ("dry", dry)):
             if len(subset) >= 30:
                 seasonal[label] = {"n": len(subset), "mae_h7": height_all_horizons(h_model, subset)["7"]["mae"]}
-        entry = {"origin": origin_s, "n_train": len(o_train), "n_eval": len(o_eval),
+        entry = {"origin": origin_s, "eval_start": win_start.isoformat(), "n_train": len(o_train), "n_eval": len(o_eval),
                  "height_mae": {h: h_metrics[str(h)]["mae"] for h in HORIZONS},
-                 "days_until_30cm_mae": d_metrics["mae_days"], "by_season_mae_h7": seasonal}
+                 "days_until_30cm_mae": d_metrics["mae_days"], "by_season_mae_h7": seasonal,
+                 "days_label_leakage_audit": {
+                     "n_train_days_before_filter": n_train_days_before_filter,
+                     "n_train_days_after_filter": n_train_days_after_filter,
+                     "labels_entering_eval_window_after_fix": labels_entering_eval_window_after_fix,
+                 }}
         rolling.append(entry)
         print(f"  origin {origin_s}: n_train={len(o_train)} n_eval={len(o_eval)} "
              f"MAE 7/14/30={entry['height_mae'][7]}/{entry['height_mae'][14]}/{entry['height_mae'][30]} "
-             f"days={entry['days_until_30cm_mae']}")
+             f"days={entry['days_until_30cm_mae']} "
+             f"[days_train_before={n_train_days_before_filter} after={n_train_days_after_filter} "
+             f"leaked_after_fix={labels_entering_eval_window_after_fix}]")
 
     def agg(key_fn):
         vals = [key_fn(e) for e in rolling if key_fn(e) is not None]
@@ -343,8 +365,15 @@ def main():
     }
     assert sorted(sum(GROUPS.values(), [])) == sorted(FEATURE_SET_EXTENDED), "ablation groups must partition the frozen feature list exactly"
 
-    full_ref = {"height_mae": {"7": 9.468, "14": 11.14, "30": 13.5},  # from data/models/ml_validation_metrics.json (Phase 7, not recomputed)
-               "days_mae": 11.8}
+    # Read live from data/models/ml_validation_metrics.json (Phase 7's own VALIDATION numbers for
+    # the frozen random_forest__keep_plus_candidate config), never hardcoded/transcribed -- B2
+    # regenerates that file with the corrected days-target population, so a hardcoded reference
+    # here would silently go stale the moment the days model's training population changes.
+    ml_val_metrics = json.loads((MODULE_ROOT / "data" / "models" / "ml_validation_metrics.json").read_text(encoding="utf-8"))
+    full_ref = {
+        "height_mae": {str(h): ml_val_metrics["height"]["keep_plus_candidate"]["random_forest"][str(h)]["mae"] for h in HORIZONS},
+        "days_mae": ml_val_metrics["days_until_30cm"]["keep_plus_candidate"]["random_forest"]["mae_days"],
+    }
     ablation = {"full_keep_plus_candidate_reference": full_ref}
     for gname, gcols in GROUPS.items():
         reduced = [c for c in FEATURE_SET_EXTENDED if c not in gcols]
@@ -372,12 +401,11 @@ def main():
         preds = art["rf_height"].predict_height_batch(usable, h)
         triples = [(r["trecho_id"], float(r[tgt]), p) for r, p in zip(usable, preds)]
         ci[f"height_plus_{h}d"] = block_bootstrap_mae_ci(triples)
-    not_censored = [r for r in test if r["target_days_until_30cm_censored"] == "0"
-                    and fnum(r["target_days_until_30cm"]) is not None]
+    test_event_rows = days_event_rows(test)
     # SklearnDaysUntil30Model.predict_batch returns a plain array of clipped values (see
     # ml_common.py), not (pred, meta) pairs like HeightTrajectoryDaysModel.predict_batch.
-    preds_days = art["rf_days"].predict_batch(not_censored)
-    triples_days = [(r["trecho_id"], float(r["target_days_until_30cm"]), p) for r, p in zip(not_censored, preds_days)]
+    preds_days = art["rf_days"].predict_batch(test_event_rows)
+    triples_days = [(r["trecho_id"], float(r["target_days_until_30cm"]), p) for r, p in zip(test_event_rows, preds_days)]
     ci["days_until_30cm"] = block_bootstrap_mae_ci(triples_days)
     results["bootstrap_ci_test"] = ci
     for k, v in ci.items():

@@ -89,45 +89,66 @@
   },
   "days_until_30cm": {
    "ols": {
-    "n": 5237,
-    "mae_days": 18.48,
-    "median_abs_error_days": 14.66,
-    "within_3d_pct": 13.1,
-    "within_7d_pct": 25.0,
-    "n_true_not_censored": 5237,
-    "n_scored": 5237,
-    "n_baseline_predicted_censored_but_true_had_answer": 0,
-    "n_true_censored": 263,
-    "baseline_also_censored_when_true_censored": 0,
-    "baseline_also_censored_when_true_censored_pct": 0.0,
+    "n": 2889,
+    "mae_days": 15.76,
+    "median_abs_error_days": 11.26,
+    "within_3d_pct": 13.5,
+    "within_7d_pct": 32.6,
+    "n_event_rows": 2889,
+    "n_scored": 2889,
+    "n_model_predicted_censored_but_event_was_known": 0,
+    "outcome_counts_below_30cm": {
+     "event": 2889,
+     "censored_intervention": 218,
+     "censored_horizon": 73,
+     "censored_end_of_followup": 344,
+     "n_below_30cm": 3524
+    },
+    "n_censored_any": 635,
+    "model_also_predicted_censored_on_censored_rows": 0,
+    "model_also_predicted_censored_on_censored_rows_pct": 0.0,
     "n_used_fallback_in_scored_or_censored": 0
    },
    "ridge": {
-    "n": 5237,
-    "mae_days": 18.48,
-    "median_abs_error_days": 14.66,
-    "within_3d_pct": 13.1,
-    "within_7d_pct": 25.0,
-    "n_true_not_censored": 5237,
-    "n_scored": 5237,
-    "n_baseline_predicted_censored_but_true_had_answer": 0,
-    "n_true_censored": 263,
-    "baseline_also_censored_when_true_censored": 0,
-    "baseline_also_censored_when_true_censored_pct": 0.0,
+    "n": 2889,
+    "mae_days": 15.76,
+    "median_abs_error_days": 11.26,
+    "within_3d_pct": 13.5,
+    "within_7d_pct": 32.6,
+    "n_event_rows": 2889,
+    "n_scored": 2889,
+    "n_model_predicted_censored_but_event_was_known": 0,
+    "outcome_counts_below_30cm": {
+     "event": 2889,
+     "censored_intervention": 218,
+     "censored_horizon": 73,
+     "censored_end_of_followup": 344,
+     "n_below_30cm": 3524
+    },
+    "n_censored_any": 635,
+    "model_also_predicted_censored_on_censored_rows": 0,
+    "model_also_predicted_censored_on_censored_rows_pct": 0.0,
     "n_used_fallback_in_scored_or_censored": 0
    },
    "lasso": {
-    "n": 5237,
-    "mae_days": 18.45,
-    "median_abs_error_days": 14.55,
-    "within_3d_pct": 13.3,
-    "within_7d_pct": 25.1,
-    "n_true_not_censored": 5237,
-    "n_scored": 5237,
-    "n_baseline_predicted_censored_but_true_had_answer": 0,
-    "n_true_censored": 263,
-    "baseline_also_censored_when_true_censored": 0,
-    "baseline_also_censored_when_true_censored_pct": 0.0,
+    "n": 2889,
+    "mae_days": 15.76,
+    "median_abs_error_days": 11.26,
+    "within_3d_pct": 13.5,
+    "within_7d_pct": 32.6,
+    "n_event_rows": 2889,
+    "n_scored": 2889,
+    "n_model_predicted_censored_but_event_was_known": 0,
+    "outcome_counts_below_30cm": {
+     "event": 2889,
+     "censored_intervention": 218,
+     "censored_horizon": 73,
+     "censored_end_of_followup": 344,
+     "n_below_30cm": 3524
+    },
+    "n_censored_any": 635,
+    "model_also_predicted_censored_on_censored_rows": 0,
+    "model_also_predicted_censored_on_censored_rows_pct": 0.0,
     "n_used_fallback_in_scored_or_censored": 0
    }
   },
@@ -158,7 +179,7 @@
        "30": 15.969
       },
       "avg_val_mae": 14.709,
-      "fit_seconds": 3.4
+      "fit_seconds": 3.0
      },
      {
       "config": "0.01",
@@ -168,7 +189,7 @@
        "30": 15.968
       },
       "avg_val_mae": 14.707,
-      "fit_seconds": 2.8
+      "fit_seconds": 2.9
      },
      {
       "config": "0.1",
@@ -178,7 +199,7 @@
        "30": 15.986
       },
       "avg_val_mae": 14.738,
-      "fit_seconds": 1.8
+      "fit_seconds": 1.9
      }
     ]
    },
@@ -187,35 +208,35 @@
     "trials": [
      {
       "config": "None",
-      "val_mae_days": 18.476,
-      "fit_seconds": 0.4
+      "val_mae_days": 15.759,
+      "fit_seconds": 0.2
      }
     ]
    },
    "lasso_days": {
-    "chosen_config": "0.1",
+    "chosen_config": "0.001",
     "trials": [
      {
       "config": "0.001",
-      "val_mae_days": 18.478,
-      "fit_seconds": 1.3
+      "val_mae_days": 15.761,
+      "fit_seconds": 0.2
      },
      {
       "config": "0.01",
-      "val_mae_days": 18.488,
-      "fit_seconds": 1.0
+      "val_mae_days": 15.78,
+      "fit_seconds": 0.2
      },
      {
       "config": "0.1",
-      "val_mae_days": 18.455,
-      "fit_seconds": 0.5
+      "val_mae_days": 15.84,
+      "fit_seconds": 0.2
      }
     ]
    }
   },
   "reference_random_forest_keep_plus_candidate": {
    "avg_height_mae_7_14_30": 11.369,
-   "days_mae": 11.8
+   "days_mae": 13.12
   },
   "verdict": {
    "ols_or_lasso_beats_ridge_by_gt_0.05cm_avg_mae": false,
@@ -287,45 +308,59 @@
  },
  "days_until_30cm_framing_a_vs_b": {
   "framing_a_height_trajectory": {
-   "n": 5093,
-   "mae_days": 13.75,
-   "median_abs_error_days": 6.29,
-   "within_3d_pct": 39.6,
-   "within_7d_pct": 55.8,
-   "n_true_not_censored": 5237,
-   "n_scored": 5093,
-   "n_baseline_predicted_censored_but_true_had_answer": 144,
-   "n_true_censored": 263,
-   "baseline_also_censored_when_true_censored": 16,
-   "baseline_also_censored_when_true_censored_pct": 6.1,
+   "n": 2779,
+   "mae_days": 16.71,
+   "median_abs_error_days": 10.36,
+   "within_3d_pct": 15.2,
+   "within_7d_pct": 37.4,
+   "n_event_rows": 2889,
+   "n_scored": 2779,
+   "n_model_predicted_censored_but_event_was_known": 110,
+   "n_censored_any": 635,
+   "model_also_predicted_censored_on_censored_rows": 50,
+   "model_also_predicted_censored_on_censored_rows_pct": 7.9,
    "n_used_fallback_in_scored_or_censored": 0
   },
   "framing_b_direct_regression": {
-   "n": 5237,
-   "mae_days": 11.8,
-   "median_abs_error_days": 7.51,
-   "within_3d_pct": 38.0,
-   "within_7d_pct": 48.7,
-   "n_true_not_censored": 5237,
-   "n_scored": 5237,
-   "n_baseline_predicted_censored_but_true_had_answer": 0,
-   "n_true_censored": 263,
-   "baseline_also_censored_when_true_censored": 0,
-   "baseline_also_censored_when_true_censored_pct": 0.0,
+   "n": 2889,
+   "mae_days": 13.12,
+   "median_abs_error_days": 9.02,
+   "within_3d_pct": 18.5,
+   "within_7d_pct": 41.6,
+   "n_event_rows": 2889,
+   "n_scored": 2889,
+   "n_model_predicted_censored_but_event_was_known": 0,
+   "outcome_counts_below_30cm": {
+    "event": 2889,
+    "censored_intervention": 218,
+    "censored_horizon": 73,
+    "censored_end_of_followup": 344,
+    "n_below_30cm": 3524
+   },
+   "n_censored_any": 635,
+   "model_also_predicted_censored_on_censored_rows": 0,
+   "model_also_predicted_censored_on_censored_rows_pct": 0.0,
    "n_used_fallback_in_scored_or_censored": 0
   },
   "mechanistic_baseline": {
-   "n": 4755,
-   "mae_days": 14.39,
-   "median_abs_error_days": 6.54,
-   "within_3d_pct": 41.3,
-   "within_7d_pct": 55.0,
-   "n_true_not_censored": 5237,
-   "n_scored": 4755,
-   "n_baseline_predicted_censored_but_true_had_answer": 482,
-   "n_true_censored": 263,
-   "baseline_also_censored_when_true_censored": 105,
-   "baseline_also_censored_when_true_censored_pct": 39.9,
+   "n": 2550,
+   "mae_days": 19.36,
+   "median_abs_error_days": 13.16,
+   "within_3d_pct": 14.5,
+   "within_7d_pct": 31.9,
+   "n_event_rows": 2889,
+   "n_scored": 2550,
+   "n_model_predicted_censored_but_event_was_known": 339,
+   "outcome_counts_below_30cm": {
+    "event": 2889,
+    "censored_intervention": 218,
+    "censored_horizon": 73,
+    "censored_end_of_followup": 344,
+    "n_below_30cm": 3524
+   },
+   "n_censored_any": 635,
+   "model_also_predicted_censored_on_censored_rows": 248,
+   "model_also_predicted_censored_on_censored_rows_pct": 39.1,
    "n_used_fallback_in_scored_or_censored": 0,
    "fit_stats": {
     "n_entities_with_local_rate": 118,
@@ -342,10 +377,9 @@
    }
   },
   "framing_a_method_distribution_on_not_censored_validation": {
-   "already_above_threshold": 1955,
-   "interpolated": 2070,
-   "extrapolated": 1068,
-   "extrapolated_beyond_horizon": 135,
+   "interpolated": 1918,
+   "extrapolated": 861,
+   "extrapolated_beyond_horizon": 101,
    "non_increasing_tail": 9
   },
   "framing_a_sanity_n_negative_days": 0

@@ -27,15 +27,24 @@ científica além da decisão operacional do projeto.
 
 **4. "Qual é o erro do modelo?"**
 No TEST sintético: altura MAE 10,82 cm (+7d), 12,91 cm (+14d), 15,14 cm (+30d);
-`days_until_30cm` MAE 10,24 dias. *Evidência:* `reports/model-comparison.md`, com IC 95% via
+`days_until_30cm` MAE 11,17 dias (número atualizado — remediação B2, R01/R02/R04; ver
+`reports/target-construction.md`). *Evidência:* `reports/model-comparison.md`, com IC 95% via
 bootstrap. *Não afirmar:* que este é o erro esperado em campo real.
 
 **5. "Por que Random Forest?"**
-Venceu Ridge/OLS/Lasso/HistGradientBoosting em toda métrica de VALIDATION e depois em TEST, por
-margem grande (ex.: MAE altura +7d ~9,5 no RF vs. ~14,7 na família linear). *Evidência:*
+Em altura (+7/+14/+30d), RF teve o menor MAE de VALIDATION e TEST entre Ridge/OLS/Lasso/HistGB,
+por margem grande sobre a família linear (ex.: MAE +7d ~9,5 no RF vs. ~14,7 no Ridge/OLS/Lasso) e
+por margem pequena sobre HistGB (ex.: +7d TEST 10,82 vs 10,89 cm). Em `days_until_30cm`, RF também
+teve o menor MAE em VALIDATION e TEST (13,12/11,17 dias) contra HistGB (13,19/11,48 — as únicas
+duas alternativas reavaliadas em TEST pelo script da Fase 8). **Correção (revisão Codex):** a
+família linear (Ridge/OLS/Lasso, 15,76 nos três) só foi reavaliada em VALIDATION para
+`days_until_30cm` no B2 — não existe número de TEST para ela, então a comparação com RF em TEST
+fica restrita a HistGB; em VALIDATION, RF (13,12) também vence a família linear (15,76). *Evidência:*
 `reports/model-comparison.md`, `reports/hyperparameters.md`. *Não afirmar:* que RF é
 necessariamente o melhor modelo possível — foi o melhor **entre os testados**, com um espaço de
-busca pequeno e documentado (não uma busca exaustiva).
+busca pequeno e documentado (não uma busca exaustiva); a margem sobre HistGB é pequena e nunca foi
+testada formalmente como estatisticamente significativa (só duas estimativas com intervalo de
+confiança comparadas visualmente, não um teste pareado).
 
 **6. "Por que não rede neural?"**
 Fora do escopo explicitamente definido para este protótipo V1 (LSTM/Transformer/redes neurais
@@ -49,20 +58,28 @@ Regressão direta (não uma simulação passo-a-passo) a partir da observação 
 uma nova roçada desconhecida, em quantos dias este trecho deve atingir 30 cm?". Estados
 explícitos: já crítico (0 dias), estimativa finita com intervalo, sem previsão defensável em 120
 dias (`beyond_horizon`), ou dados insuficientes. *Evidência:* `reports/forecast-method.md` §1.
-*Não afirmar:* que é uma data garantida — é uma estimativa condicional a "sem nova intervenção".
+*Não afirmar:* que é uma data garantida — é uma estimativa condicional a "sem nova intervenção";
+e não afirmar que `beyond_horizon` é uma capacidade validada do modelo — é um estado de contrato,
+não uma probabilidade comprovada de "não vai cruzar em 120 dias" (ver `reports/model-card.md`,
+limitação R03).
 
 **8. "Por que o intervalo é tão grande?"**
-Porque essa é a incerteza real que o modelo e os dados atuais sustentam — largura média ≈48 dias
-(80%) e ≈63 dias (90%). Não estreitamos artificialmente à custa de cobertura. *Evidência:*
-`reports/forecast-method.md` §5/§9. *Não afirmar:* que um intervalo mais estreito seria fácil de
-conseguir sem sacrificar honestidade estatística.
+Porque essa é a incerteza real que o modelo e os dados atuais sustentam — largura média ≈40 dias
+(80%) e ≈55 dias (90%) (número atualizado, remediação B2). Após a remediação e o retreino, os
+intervalos observados ficaram menores que a versão anterior (≈48/≈63 dias) — mas a população de
+calibração mudou de tamanho e o modelo foi retreinado ao mesmo tempo, então não isolamos qual das
+duas mudanças explica quanto da redução; não afirmamos uma causa específica. Não estreitamos
+artificialmente à custa de cobertura. *Evidência:* `reports/forecast-method.md` §4/§5/§9. *Não
+afirmar:* que um intervalo mais estreito seria fácil de conseguir sem sacrificar honestidade
+estatística.
 
 **9. "Como vocês sabem se a incerteza funciona?"**
-Medimos a cobertura empírica no TEST: 83,2% para o nível nominal de 80%, e 90,8% para 90% — perto
-do nominal. Mas a garantia teórica do método (split conformal) depende de hipóteses
-(exchangeability) que aqui são só aproximadas, por causa da estrutura temporal dos dados e por
-VALIDATION também ter informado a escolha do modelo. *Evidência:* `reports/forecast-method.md`
-§2/§5. *Não afirmar:* uma garantia matemática exata e incondicional.
+Medimos a cobertura empírica no TEST: 84,8% para o nível nominal de 80%, e 93,7% para 90%
+(número atualizado, remediação B2) — acima do nominal, do lado conservador. Mas a garantia
+teórica do método (split conformal) depende de hipóteses (exchangeability) que aqui são só
+aproximadas, por causa da estrutura temporal dos dados e por VALIDATION também ter informado a
+escolha do modelo. *Evidência:* `reports/forecast-method.md` §2/§4/§5. *Não afirmar:* uma
+garantia matemática exata e incondicional.
 
 **10. "E se houver uma roçada amanhã?"**
 A previsão de `days_until_30cm` fica inválida retroativamente — o modelo nunca usa uma roçada
@@ -103,10 +120,11 @@ hoje uma integração automática measurement→previsão.
 **16. "Isso está pronto para produção?"**
 Não. É um protótipo V1 com metodologia completa e testada, mas sem dado real, sem consumer de
 medição, sem deployment, e com intervalos largos demais para uma decisão operacional automática
-sem supervisão humana. Ver §22 (Implementado vs. Demonstrado vs. Futuro) para o corte exato.
+sem supervisão humana. Ver §21 (Implementado vs. Demonstrado vs. Futuro) para o corte exato.
 
 **17. "Quantos testes automatizados existem e o que eles cobrem?"**
-146 testes `pytest`, cobrindo schema SQL (banco temporário real), classificação, parsing de
+197 testes `pytest` (146 na Fase 11; mais testes de hardening pré-push e das remediações B1/B1.1/B2/B2.1 do
+target `days_until_30cm`, ver `reports/tests.md`), cobrindo schema SQL (banco temporário real), classificação, parsing de
 identidade de trecho, vazamento de features, causalidade de roçada, o forecast e o conformal, o
 ranking, a API completa (incluindo o cenário sem o modelo grande), e um smoke test ponta-a-ponta.
 *Evidência:* `reports/tests.md`. O Random Forest grande é opcional na suíte (não versionado em
@@ -114,10 +132,14 @@ git, >5MB) — a suíte padrão passa sem ele.
 
 **18. "Por que Random Forest e HistGradientBoosting empataram tanto?"**
 Porque ambos são modelos de árvore com capacidade parecida sobre o mesmo feature set pequeno (14
-colunas); a diferença entre eles no TEST é de décimos de cm, dentro da largura do IC 95%
-bootstrap — estatisticamente indistinguíveis nesta escala. Random Forest foi mantido como
-principal porque venceu por uma margem (ainda que pequena) em toda métrica. *Evidência:*
-`reports/model-comparison.md`.
+colunas); a diferença entre eles no TEST é de décimos de cm em altura e de décimos de dia em
+`days_until_30cm` (11,17 vs 11,48 dias). Random Forest foi mantido como principal porque teve o
+menor MAE em toda métrica checada, por uma margem pequena. *Correção (revisão Codex):* essa
+proximidade nunca foi testada como significância estatística formal (nenhum teste pareado foi
+feito) — dizer que os dois são "estatisticamente indistinguíveis" seria uma afirmação mais forte
+do que o que foi checado; o correto é dizer que a diferença é pequena frente à própria incerteza
+de amostragem do RF (IC 95% de `days_until_30cm` no TEST: [10,61, 11,73], meia-largura ≈0,56 dia,
+maior que a diferença de 0,31 dia para o HistGB). *Evidência:* `reports/model-comparison.md`.
 
 **19. "Qual é o passo a passo até dados reais?"**
 1. Começar a armazenar medições reais com `trecho_id`, timestamp e qualidade.
@@ -134,6 +156,25 @@ principal porque venceu por uma margem (ainda que pequena) em toda métrica. *Ev
 Não promete economia financeira quantificada (nunca medida); não promete precisão de campo
 (métricas são 100% sintéticas); não promete funcionar em outra rodovia; não promete um deployment
 pronto; não promete que a integração automática measurement→previsão já existe.
+
+**21. Implementado vs. Demonstrado vs. Futuro**
+Três níveis de maturidade, para não confundir "existe e roda" com "foi provado" ou "foi planejado":
+
+- **Implementado (código real, roda hoje):** gerador sintético (Fase 4); construção de features
+  com isolamento temporal entre splits corrigido (Fase 5, R01/R02/R04); Random Forest congelado
+  para altura e para `days_until_30cm`; intervalo por split conformal (Fase 9); API FastAPI
+  (Fase 10, com o hardening pré-push da Fase 13); painel no dashboard (Fase 12); suíte de testes
+  automatizados (Fase 11).
+- **Demonstrado (a metodologia foi executada e medida, só que sobre dado sintético):** a
+  comparação de modelos (RF vence os baselines/linear/HistGB em VALIDATION e TEST sintéticos); a
+  cobertura empírica do conformal em TEST sintético; a degradação sob OOD sintético. Isso prova que
+  o **pipeline funciona e é honesto em como avalia a si mesmo** — não prova precisão em campo real.
+- **Futuro (documentado como plano, nada disso existe hoje):** ingestão de medição real com
+  `trecho_id` estável; retreino/recalibração com dados reais; integração automática
+  measurement→previsão; identidade linear estável no GeoJSON do mapa; autenticação/rate
+  limiting/monitoramento de produção; uma extensão de sobrevivência/censura estatística para
+  `days_until_30cm` além do que a Fase 7 (V1) faz hoje (ver `reports/model-card.md` "R03" para o
+  limite exato do que o regressor direto atual sabe e não sabe responder).
 
 ---
 

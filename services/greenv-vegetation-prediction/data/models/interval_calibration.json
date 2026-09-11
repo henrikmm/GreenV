@@ -5,14 +5,14 @@
  "feature_spec_version": "weather-v1+features-v1",
  "random_state": 42,
  "days_until_30cm": {
-  "n_calibration_population": 3282,
+  "n_calibration_population": 2889,
   "n_excluded_beyond_horizon_point": 0,
-  "n_used": 3282,
+  "n_used": 2889,
   "censoring_treatment": "censored VALIDATION rows (unknown true value) excluded from calibration entirely; rows whose OWN point estimate already sits at the 120-day cap are also excluded (undefined residual against a censored point) -- both counts reported above, not hidden.",
   "population_restriction": "height_cm < 30 at the anchor row (the >=30 case is deterministic and uses no interval)",
   "q_by_confidence": {
-   "0.8": 24.711,
-   "0.9": 34.57
+   "0.8": 21.155,
+   "0.9": 31.453
   }
  },
  "height": {

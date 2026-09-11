@@ -27,7 +27,9 @@ from greenv_vegpred.evaluate.harness import (  # noqa: E402
     stratify_height, stratify_days, rocada_bucket, season_bucket, nivel_bucket, fnum,
 )
 from greenv_vegpred.models import linear, random_forest, gradient_boosting  # noqa: E402
-from greenv_vegpred.models.ml_common import CATEGORICAL_COLS  # noqa: E402
+from greenv_vegpred.models.ml_common import (  # noqa: E402
+    CATEGORICAL_COLS, days_event_rows, days_outcome_counts as ml_common_days_outcome_counts,
+)
 from greenv_vegpred.models.baseline import (  # noqa: E402
     PersistenceBaseline, SeasonalClimatologyBaseline, MechanisticHeightBaseline,
     MechanisticDaysUntil30Baseline,
@@ -101,17 +103,19 @@ def select_height_model(make_fn, configs, feature_list, train_rows, val_rows):
 
 
 def select_days_model(make_fn, configs, feature_list, train_rows, val_rows):
-    not_censored = [r for r in val_rows if r["target_days_until_30cm_censored"] == "0"]
-    y_true = [float(r["target_days_until_30cm"]) for r in not_censored]
+    """B2: hyperparameter selection scores only `days_event_rows(val_rows)` -- height<30 anchors
+    with a genuine `event` outcome -- never a censored row's (unknown) time-to-event. `.fit()`
+    itself also filters `train_rows` the same way internally (`SklearnDaysUntil30Model.fit`)."""
+    event_rows = days_event_rows(val_rows)
+    y_true = [float(r["target_days_until_30cm"]) for r in event_rows]
     trials = []
     best = None
     for cfg in configs:
         t0 = time.time()
         model = make_fn(cfg, feature_list, CATEGORICAL_COLS).fit(train_rows)
-        p = model.predict_batch(not_censored)
-        # score only the not-censored truths, same convention as Phase 6 (predictions >120 still
-        # contribute their capped/clipped numeric error here, for a comparable search signal;
-        # final reported metrics use the harness's stricter censored-vs-not accounting)
+        p = model.predict_batch(event_rows)
+        # score only genuine events, same convention as the harness (predictions clipped at 0,
+        # never compared against a censored row's unknown true time)
         mae = mae_of(y_true, p)
         trials.append({"config": str(cfg), "val_mae_days": round(mae, 3),
                        "fit_seconds": round(time.time() - t0, 1)})
@@ -147,6 +151,29 @@ def main():
     assert not any(r["split"] == "test" for r in train + val), "test rows leaked into fit/eval sets"
     print(f"train={len(train)}  validation={len(val)}  (test and OOD not loaded by this script)")
 
+    # B2 (Codex R01/R02/R04 remediation): the days-until-30cm population actually usable for
+    # fitting/scoring is now strictly smaller than n_train/n_validation above -- reported exactly,
+    # not assumed, before any model touches it.
+    days_train_event_rows = days_event_rows(train)
+    days_val_event_rows = days_event_rows(val)
+    days_train_targets = np.array([float(r["target_days_until_30cm"]) for r in days_train_event_rows])
+    days_val_targets = np.array([float(r["target_days_until_30cm"]) for r in days_val_event_rows])
+    days_population_report = {
+        "n_train_days_event_rows": len(days_train_event_rows),
+        "n_validation_days_event_rows": len(days_val_event_rows),
+        "train_outcome_counts_below_30cm": ml_common_days_outcome_counts(train),
+        "validation_outcome_counts_below_30cm": ml_common_days_outcome_counts(val),
+        "train_target_distribution_days": {
+            "min": round(float(days_train_targets.min()), 2), "median": round(float(np.median(days_train_targets)), 2),
+            "mean": round(float(days_train_targets.mean()), 2), "max": round(float(days_train_targets.max()), 2),
+        },
+        "validation_target_distribution_days": {
+            "min": round(float(days_val_targets.min()), 2), "median": round(float(np.median(days_val_targets)), 2),
+            "mean": round(float(days_val_targets.mean()), 2), "max": round(float(days_val_targets.max()), 2),
+        },
+    }
+    print(f"days_until_30cm usable population: {json.dumps(days_population_report, indent=1)}")
+
     ARTIFACTS.mkdir(parents=True, exist_ok=True)
     OUT_JSON.parent.mkdir(parents=True, exist_ok=True)
 
@@ -158,6 +185,7 @@ def main():
     }
 
     results = {"n_train": len(train), "n_validation": len(val), "feature_sets": FEATURE_SETS,
+              "days_until_30cm_population": days_population_report,
               "height": {}, "days_until_30cm": {}, "selection": {}, "sanity": {}, "train_val_gap": {},
               "importances": {}}
 

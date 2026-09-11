@@ -35,22 +35,28 @@ usada — verificado por teste (`tests/test_features.py::TestRocadaCycleCausalit
 
 ## Targets
 
-`target_height_plus_{7,14,30}d_cm`; `target_days_until_30cm` (censurado em 120 dias — capado, não
-descartado, durante o treino; ver `reports/hyperparameters.md` para a justificativa do
-capped-regression em vez de um modelo de sobrevivência completo).
+`target_height_plus_{7,14,30}d_cm`; `target_days_until_30cm` — **corrigido na remediação B2**
+(revisão independente Codex, R01/R02/R04): treinado e avaliado somente sobre `event` (cruzamento
+de 30cm genuinamente observado, altura<30 no anchor), nunca capado em 120 nem em qualquer outro
+valor para os casos `censored_intervention`/`censored_horizon`/`censored_end_of_followup`, cujo
+tempo real até o evento é desconhecido. Ver `reports/target-construction.md` para a taxonomia
+completa e `reports/hyperparameters.md` para a justificativa de não usar um modelo de sobrevivência
+completo.
 
-## Avaliação (TEST, uma única vez, Fase 8)
+## Avaliação (TEST, uma única vez, Fase 8 — números atualizados na remediação B2)
 
 | Métrica | Random Forest | Melhor baseline | Melhoria |
 |---|---:|---:|---:|
 | Altura MAE +7d | **10.82 cm** | 12.40 cm (mechanistic) | −12.7% |
 | Altura MAE +14d | **12.91 cm** | 17.70 cm (seasonal) | −27.1% |
 | Altura MAE +30d | **15.14 cm** | 17.70 cm (seasonal) | −14.5% |
-| `days_until_30cm` MAE | **10.24 dias** | 13.28 dias (mechanistic) | −22.9% |
+| `days_until_30cm` MAE | **11.17 dias** | 18.45 dias (mechanistic) | −39.4% |
 
 IC 95% (bootstrap em bloco por trecho, TEST): +7d [10.43, 11.18]; +14d [12.47, 13.34]; +30d
-[14.71, 15.62]; days [9.67, 10.76]. **Todos os números acima são de dados sintéticos e validam o
-pipeline/metodologia, não a precisão real de campo.**
+[14.71, 15.62]; days [10.61, 11.73]. **Todos os números acima são de dados sintéticos e validam o
+pipeline/metodologia, não a precisão real de campo.** O MAE de `days_until_30cm` é maior que o
+valor pré-B2 (10.24 dias) porque a população pontuada agora é menor e honestamente rotulada
+(apenas eventos genuínos, altura<30) — não porque o modelo piorou.
 
 ## Generalização (OOD, uma única vez, diagnóstico)
 
@@ -61,11 +67,16 @@ que parte do sinal aprendido é específico do mecanismo do gerador, não uma re
 
 ## Incerteza
 
-Intervalo por split conformal, calibrado em VALIDATION, medido em TEST: cobertura empírica 83,2%
-(nominal 80%) e 90,8% (nominal 90%) — próxima do nominal, mas **larga**: largura média ≈47,9 dias
-(80%) e ≈63,3 dias (90%). A garantia teórica de cobertura depende de exchangeability, que aqui é
-só aproximada (VALIDATION também informou a seleção do modelo na Fase 7; há estrutura temporal
-com deriva medida). Ver `reports/forecast-method.md` §2 e §5.
+Intervalo por split conformal, calibrado em VALIDATION, medido em TEST (números atualizados na
+remediação B2): cobertura empírica 84,8% (nominal 80%) e 93,7% (nominal 90%) — acima do nominal,
+e **observada mais estreita** que antes da correção: largura média ≈39,9 dias (80%) e ≈55,3 dias
+(90%) (antes: ≈47,9 / ≈63,3). Após a remediação e o retreino, os intervalos observados ficaram
+menores — mas a população de calibração mudou de tamanho *e* o modelo foi retreinado ao mesmo
+tempo, e a contribuição individual de cada mudança não foi isolada por um experimento de ablação;
+não afirmamos uma relação causal específica entre "população mais limpa" e "intervalo mais
+estreito". A garantia teórica de cobertura depende de
+exchangeability, que aqui é só aproximada (VALIDATION também informou a seleção do modelo na
+Fase 7; há estrutura temporal com deriva medida). Ver `reports/forecast-method.md` §2 e §5.
 
 ## Limitações
 
@@ -77,6 +88,16 @@ com deriva medida). Ver `reports/forecast-method.md` §2 e §5.
 - Uma roçada futura desconhecida invalida a projeção de `days_until_30cm` (estrutural, não um bug).
 - 30 cm é a regra operacional do projeto/Motiva, não um limiar botânico universal da literatura.
 - O RF grande não está versionado em git (>5MB); a suíte de testes padrão não depende dele.
+- **R03 — o regressor direto de `days_until_30cm` não modela censura/sobrevivência.** Ele é
+  treinado e avaliado somente sobre trajetórias em que o cruzamento de 30cm foi de fato observado
+  antes de qualquer intervenção ou fim do acompanhamento (ver `reports/target-construction.md`).
+  Isso significa que ele estima bem "quantos dias, dado que o cruzamento vai acontecer nessas
+  condições" — mas **não** estima de forma validada "qual a probabilidade de não atingir 30cm
+  dentro de 120 dias". O estado `beyond_horizon` continua existindo como contrato da API/camada de
+  forecast (não foi removido), mas não é uma capacidade comprovada deste modelo V1 — é um estado
+  suportado, não uma previsão validada. Corrigir isso exigiria um classificador
+  evento-dentro-de-120-dias + regressão condicional, ou um modelo de sobrevivência completo
+  (Kaplan-Meier/AFT/Cox) — deliberadamente fora do escopo desta V1.
 
 ## Usos apropriados
 

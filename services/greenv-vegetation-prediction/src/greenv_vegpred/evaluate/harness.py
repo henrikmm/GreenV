@@ -18,6 +18,8 @@ from collections import defaultdict
 
 import numpy as np
 
+from ..models.ml_common import days_event_rows, days_outcome_counts
+
 
 def fnum(x):
     return None if x in (None, "") else float(x)
@@ -85,38 +87,46 @@ def days_metrics(pairs):
 
 
 def evaluate_days_until_30cm_model(model, val_rows):
-    """Full days-until-30cm evaluation, with censoring handled explicitly (never dropped
-    silently): reports MAE/median/±3d/±7d among rows where BOTH truth and prediction are real
-    numbers, plus the two censoring-confusion counts (predicted-censored-but-truth-had-an-answer,
-    and censoring agreement when truth genuinely never reaches 30cm)."""
-    censored_true = [r for r in val_rows if r["target_days_until_30cm_censored"] == "1"]
-    not_censored_true = [r for r in val_rows if r["target_days_until_30cm_censored"] == "0"
-                         and fnum(r["target_days_until_30cm"]) is not None]
+    """Full days-until-30cm evaluation (B2, Codex R01/R02/R04 remediation). MAE/median/±3d/±7d are
+    scored ONLY on `days_event_rows(val_rows)` -- height<30 anchors whose
+    `target_days_until_30cm_outcome == "event"`, the only population with a known, exact
+    time-to-event. `censored_intervention`/`censored_horizon`/`censored_end_of_followup` rows are
+    NEVER scored as if their (unknown) event time were known; `outcome_counts_below_30cm` reports
+    all four categories as diagnostics, not as ground truth for a numeric metric."""
+    event_rows = days_event_rows(val_rows)
+    outcome_counts = days_outcome_counts(val_rows)
+    censored_any = [r for r in val_rows
+                   if fnum(r.get("height_cm")) is not None and float(r["height_cm"]) < 30.0
+                   and r.get("target_days_until_30cm_outcome") != "event"]
 
-    pairs, fallback_n, pred_censored_when_true_had_answer = [], 0, 0
-    for r in not_censored_true:
+    pairs, fallback_n, pred_censored_when_event_known = [], 0, 0
+    for r in event_rows:
         pred, meta = model.predict(r)
         if meta.get("used_fallback"):
             fallback_n += 1
         if pred is None:
-            pred_censored_when_true_had_answer += 1
+            pred_censored_when_event_known += 1
             continue
         pairs.append((float(r["target_days_until_30cm"]), pred))
 
-    censoring_agreement = 0
-    for r in censored_true:
+    # Diagnostic only: does the model ALSO decline to give a number (predict "censored") on rows
+    # whose true outcome was itself some form of censoring? This is a qualitative agreement count,
+    # never a numeric comparison against an unknown true time-to-event.
+    model_censored_agreement = 0
+    for r in censored_any:
         _, meta = model.predict(r)
         if meta.get("censored"):
-            censoring_agreement += 1
+            model_censored_agreement += 1
 
     dm = days_metrics(pairs)
-    dm["n_true_not_censored"] = len(not_censored_true)
+    dm["n_event_rows"] = len(event_rows)
     dm["n_scored"] = len(pairs)
-    dm["n_baseline_predicted_censored_but_true_had_answer"] = pred_censored_when_true_had_answer
-    dm["n_true_censored"] = len(censored_true)
-    dm["baseline_also_censored_when_true_censored"] = censoring_agreement
-    dm["baseline_also_censored_when_true_censored_pct"] = (
-        round(100 * censoring_agreement / len(censored_true), 1) if censored_true else None)
+    dm["n_model_predicted_censored_but_event_was_known"] = pred_censored_when_event_known
+    dm["outcome_counts_below_30cm"] = outcome_counts
+    dm["n_censored_any"] = len(censored_any)
+    dm["model_also_predicted_censored_on_censored_rows"] = model_censored_agreement
+    dm["model_also_predicted_censored_on_censored_rows_pct"] = (
+        round(100 * model_censored_agreement / len(censored_any), 1) if censored_any else None)
     dm["n_used_fallback_in_scored_or_censored"] = fallback_n
     return dm
 
@@ -164,10 +174,10 @@ def stratify_height(models, val_rows, key_fn, horizon_days=7, target_key="target
 
 
 def stratify_days(model, val_rows, key_fn, min_n=30):
+    """B2: stratifies only over `days_event_rows` -- same event-only, height<30 population as
+    `evaluate_days_until_30cm_model`, never a censored row treated as a known time-to-event."""
     buckets = defaultdict(list)
-    for r in val_rows:
-        if r["target_days_until_30cm_censored"] == "1":
-            continue
+    for r in days_event_rows(val_rows):
         v = fnum(r["target_days_until_30cm"])
         if v is None:
             continue

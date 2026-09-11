@@ -71,7 +71,7 @@ Ver `reports/forecast-method.md` §1.
 ## Incerteza
 
 Um intervalo por **split conformal**, calibrado uma vez em VALIDATION, medido uma vez em TEST —
-**largo** (80%: ~48 dias de largura média; 90%: ~63 dias) e isso é uma limitação real da precisão
+**largo** (80%: ~40 dias de largura média; 90%: ~55 dias) e isso é uma limitação real da precisão
 atual, não escondida. Ver `reports/forecast-method.md`.
 
 ## API
@@ -126,7 +126,7 @@ src/greenv_vegpred/
   api/          Fase 10 — FastAPI (app, routes, service, loader, schemas, trecho_meta)
   schema.sql    Fase 2 — schema canônico (SQLite V1, portável para Postgres)
 scripts/        Um script por etapa reproduzível (build/train/evaluate/calibrate/verify)
-tests/          Fase 11 — 146 testes pytest
+tests/          Fase 11 — suíte pytest (197 testes após o hardening pré-push e as remediações B1/B1.1/B2/B2.1)
 data/           Sintéticos, features, modelos, forecasts — a maioria regenerável (ver .gitignore)
 reports/        Toda a documentação com evidência (metodologia, métricas, testes, integração)
 ```

@@ -1239,3 +1239,18 @@ window. The uncertainty interval keeps a crew from being sent a week too early o
 `roçada` events close the loop and expose recurrence ("same `trecho` cut three months ago"). The
 whole thing is the basis for a service level such as "no `trecho` above 30 cm for more than N
 days".
+
+---
+
+## Post-Phase-13 remediation (independent Codex review, R01/R02/R04)
+
+Before the Phase 13 checkpoint was pushed, an independent review found that `days_until_30cm`'s
+construction had a real, quantified label-window leak across split boundaries (R01), silently
+crossed a future roçada to answer a question about the pre-cut trajectory (R02), and conflated
+genuine 120-day censoring with simply running out of dataset to watch (R04) — plus, as a
+consequence, that the frozen Random Forest's `beyond_horizon` state was structurally unreachable
+(R03). None of Phases 1-4 (synthetic generation, schema, real weather) needed to change; the fix
+was scoped to Phase 5's target construction and everything downstream that consumes it (Phases
+6-9). Full account: `reports/target-construction.md` (construction fix) and the frozen-numbers
+reports listed at the top of each Phase 6-9 section above, all regenerated from the corrected
+population. `target_height_plus_{7,14,30}d_cm` were confirmed byte-for-byte unaffected.

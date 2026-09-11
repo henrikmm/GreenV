@@ -107,33 +107,47 @@
  },
  "days_until_30cm": {
   "naive_days_until_30cm": {
-   "n": 4213,
-   "mae_days": 17.4,
-   "median_abs_error_days": 6.47,
-   "within_3d_pct": 42.9,
-   "within_7d_pct": 55.5,
-   "n_true_not_censored": 5237,
-   "n_scored": 4213,
-   "n_baseline_predicted_censored_but_true_had_answer": 1024,
-   "n_true_censored": 263,
-   "baseline_also_censored_when_true_censored": 83,
-   "baseline_also_censored_when_true_censored_pct": 31.6,
-   "n_used_fallback_in_scored_or_censored": 655,
+   "n": 2012,
+   "mae_days": 25.1,
+   "median_abs_error_days": 16.17,
+   "within_3d_pct": 11.0,
+   "within_7d_pct": 28.1,
+   "n_event_rows": 2889,
+   "n_scored": 2012,
+   "n_model_predicted_censored_but_event_was_known": 877,
+   "outcome_counts_below_30cm": {
+    "event": 2889,
+    "censored_intervention": 218,
+    "censored_horizon": 73,
+    "censored_end_of_followup": 344,
+    "n_below_30cm": 3524
+   },
+   "n_censored_any": 635,
+   "model_also_predicted_censored_on_censored_rows": 230,
+   "model_also_predicted_censored_on_censored_rows_pct": 36.2,
+   "n_used_fallback_in_scored_or_censored": 553,
    "fallback_rate_cm_per_week": 9.52,
    "fallback_rate_fit_n": 13097
   },
   "mechanistic_days_until_30cm": {
-   "n": 4755,
-   "mae_days": 14.39,
-   "median_abs_error_days": 6.54,
-   "within_3d_pct": 41.3,
-   "within_7d_pct": 55.0,
-   "n_true_not_censored": 5237,
-   "n_scored": 4755,
-   "n_baseline_predicted_censored_but_true_had_answer": 482,
-   "n_true_censored": 263,
-   "baseline_also_censored_when_true_censored": 105,
-   "baseline_also_censored_when_true_censored_pct": 39.9,
+   "n": 2550,
+   "mae_days": 19.36,
+   "median_abs_error_days": 13.16,
+   "within_3d_pct": 14.5,
+   "within_7d_pct": 31.9,
+   "n_event_rows": 2889,
+   "n_scored": 2550,
+   "n_model_predicted_censored_but_event_was_known": 339,
+   "outcome_counts_below_30cm": {
+    "event": 2889,
+    "censored_intervention": 218,
+    "censored_horizon": 73,
+    "censored_end_of_followup": 344,
+    "n_below_30cm": 3524
+   },
+   "n_censored_any": 635,
+   "model_also_predicted_censored_on_censored_rows": 248,
+   "model_also_predicted_censored_on_censored_rows_pct": 39.1,
    "n_used_fallback_in_scored_or_censored": 0,
    "fit_stats": {
     "n_entities_with_local_rate": 118,
@@ -160,7 +174,7 @@
    "plus_14d": 21.71,
    "plus_30d": 24.15
   },
-  "days_until_30cm_true_censored_pct": 4.78
+  "days_until_30cm_censored_any_pct": 11.55
  },
  "stratified": {
   "height_plus_7d": {
@@ -237,89 +251,81 @@
   "days_until_30cm": {
    "naive_days_until_30cm": {
     "by_current_nivel": {
-     "nivel0": {
-      "n": 759,
-      "mae_days": 27.9
-     },
      "nivel1": {
-      "n": 539,
-      "mae_days": 32.63
+      "n": 447,
+      "mae_days": 29.85
      },
      "nivel2": {
-      "n": 1333,
-      "mae_days": 25.91
+      "n": 1217,
+      "mae_days": 23.15
      },
-     "nivel3": {
-      "n": 1582,
-      "mae_days": 0.0
+     "nivel0": {
+      "n": 348,
+      "mae_days": 25.84
      }
     },
     "by_season": {
      "wet(Oct-Mar)": {
-      "n": 1437,
-      "mae_days": 11.09
+      "n": 677,
+      "mae_days": 12.81
      },
      "dry(Apr-Sep)": {
-      "n": 2776,
-      "mae_days": 20.66
+      "n": 1335,
+      "mae_days": 31.34
      }
     },
     "by_rocada_proximity": {
-     "mid(14-60d)": {
-      "n": 2359,
-      "mae_days": 15.81
-     },
      "recent(<14d)": {
-      "n": 813,
-      "mae_days": 29.51
+      "n": 716,
+      "mae_days": 26.49
+     },
+     "mid(14-60d)": {
+      "n": 1000,
+      "mae_days": 24.72
      },
      "long(>60d)": {
-      "n": 1041,
-      "mae_days": 11.53
+      "n": 296,
+      "mae_days": 23.04
      }
     }
    },
    "mechanistic_days_until_30cm": {
     "by_current_nivel": {
-     "nivel0": {
-      "n": 867,
-      "mae_days": 23.67
-     },
      "nivel1": {
-      "n": 644,
-      "mae_days": 21.41
+      "n": 567,
+      "mae_days": 20.61
      },
      "nivel2": {
-      "n": 1662,
-      "mae_days": 20.53
+      "n": 1533,
+      "mae_days": 19.0
      },
-     "nivel3": {
-      "n": 1582,
-      "mae_days": 0.0
+     "nivel0": {
+      "n": 450,
+      "mae_days": 19.01
      }
     },
     "by_season": {
      "wet(Oct-Mar)": {
-      "n": 1537,
-      "mae_days": 10.37
+      "n": 768,
+      "mae_days": 11.64
      },
      "dry(Apr-Sep)": {
-      "n": 3218,
-      "mae_days": 16.31
+      "n": 1782,
+      "mae_days": 22.68
      }
     },
     "by_rocada_proximity": {
-     "mid(14-60d)": {
-      "n": 2677,
-      "mae_days": 12.72
-     },
      "recent(<14d)": {
-      "n": 843,
-      "mae_days": 18.76
+      "n": 760,
+      "mae_days": 17.25
+     },
+     "mid(14-60d)": {
+      "n": 1315,
+      "mae_days": 17.15
      },
      "long(>60d)": {
-      "n": 1235,
-      "mae_days": 15.04
+      "n": 475,
+      "mae_days": 28.86
      }
     }
    }

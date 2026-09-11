@@ -88,8 +88,8 @@ def main():
             f"plus_{h}d": round(100 * results["height"][h]["persistence"]["n_target_missing_excluded"] / len(val), 2)
             for h in HORIZONS
         },
-        "days_until_30cm_true_censored_pct": round(
-            100 * results["days_until_30cm"]["naive_days_until_30cm"]["n_true_censored"] / len(val), 2),
+        "days_until_30cm_censored_any_pct": round(
+            100 * results["days_until_30cm"]["naive_days_until_30cm"]["n_censored_any"] / len(val), 2),
     }
 
     # stratifications: +7d height across ALL height models; days_until_30cm for both days models

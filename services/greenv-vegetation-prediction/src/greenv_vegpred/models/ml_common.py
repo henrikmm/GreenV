@@ -10,6 +10,8 @@ CANDIDATE extension) -- never raw CSV columns, never true_height_cm, never an ad
 identity column (see feature_spec.EXCLUDE_LEAKAGE).
 """
 from __future__ import annotations
+from datetime import date, timedelta
+
 import numpy as np
 from sklearn.preprocessing import StandardScaler
 
@@ -20,6 +22,76 @@ DAYS_HORIZON = 120.0           # same right-censoring horizon as Phase 5/6
 
 def fnum(x):
     return None if x in (None, "") else float(x)
+
+
+CRITICAL_HEIGHT_CM = 30.0
+
+
+def days_event_rows(rows):
+    """B2 (Codex R01/R02/R04 remediation) — the only rows a `days_until_30cm` regressor may be
+    FIT or SCORED on: the anchor is below the operational threshold (an already-critical anchor
+    is a deterministic 0-day/`critical` case, handled once and for all by the forecast layer --
+    see `forecast/interval.py::build_days_forecast` -- never a case this regressor should learn
+    from or be judged on), and the label is a genuine `event`: the true, exact days-to-crossing
+    is known.
+
+    `censored_intervention` / `censored_horizon` / `censored_end_of_followup` rows are NEVER
+    included here, and never coerced into a numeric target (in particular, never 120 -- see
+    `build_days_until_30cm`'s own docstring in `features/build.py` for why each of those three
+    means a different kind of "we don't actually know the time-to-event", not a fourth kind of
+    known observation)."""
+    return [r for r in rows
+           if fnum(r.get("height_cm")) is not None and float(r["height_cm"]) < CRITICAL_HEIGHT_CM
+           and r.get("target_days_until_30cm_outcome") == "event"]
+
+
+def days_outcome_counts(rows):
+    """Diagnostic-only counts of the four-way censoring taxonomy, for a population of rows below
+    the critical threshold (matches `days_event_rows`'s own height filter, so the four counts here
+    sum to the same denominator `days_event_rows` draws its `event` count from). Never used to
+    build a numeric target -- reporting only."""
+    below = [r for r in rows if fnum(r.get("height_cm")) is not None and float(r["height_cm"]) < CRITICAL_HEIGHT_CM]
+    out = {"event": 0, "censored_intervention": 0, "censored_horizon": 0, "censored_end_of_followup": 0}
+    for r in below:
+        outcome = r.get("target_days_until_30cm_outcome")
+        if outcome in out:
+            out[outcome] += 1
+    out["n_below_30cm"] = len(below)
+    return out
+
+
+def event_date(row):
+    """The calendar date a row's own reported crossing actually falls on -- `as_of_date +
+    target_days_until_30cm` -- defined only for `outcome == "event"` rows (a censored row has no
+    known event date by definition). Shared by `days_event_rows`'s callers and by
+    `rolling_origin_days_train_rows` below, so the same date arithmetic is never duplicated."""
+    as_of = date.fromisoformat(row["as_of_date"])
+    return as_of + timedelta(days=int(float(row["target_days_until_30cm"])))
+
+
+def rolling_origin_days_train_rows(rows, eval_start):
+    """B2.1 (Codex independent review) — the rolling-origin backtest's own analogue of
+    `label_observation_cutoff` (features/build.py, R01's fixed-split fix). Partitioning TRAIN by
+    `as_of_date <= origin` alone does not stop a row's LABEL from reaching into the eval window
+    that same origin is about to be scored on: `target_days_until_30cm` can point up to 120 days
+    past its anchor, which can land inside `[eval_start, eval_end]` even for an anchor dated well
+    before `origin`. This filters out exactly those rows before a days model is ever fit on them.
+
+    Only rows whose `event_date()` (see above) falls on or after `eval_start` are removed —
+    `>=`, not `>`: a crossing exactly on `eval_start` belongs to the window being protected, same
+    convention as the fixed-split cutoff. A row that is not a clean `event` is left untouched here
+    (it is dropped anyway, downstream, by `days_event_rows` inside `SklearnDaysUntil30Model.fit()`
+    — irrelevant to this filter, which only concerns label-window leakage from real event labels).
+
+    Only ever applied to the DAYS model's own training rows — the HEIGHT model keeps using the
+    unfiltered row set (Codex-confirmed: real height-target offsets never exceed 28 days, safely
+    inside the existing 30-day embargo already used to separate `origin` from `eval_start`)."""
+    out = []
+    for r in rows:
+        if r.get("target_days_until_30cm_outcome") == "event" and event_date(r) >= eval_start:
+            continue
+        out.append(r)
+    return out
 
 
 class FeaturePipeline:
@@ -126,16 +198,23 @@ class SklearnHeightModel:
 
 
 class SklearnDaysUntil30Model:
-    """One fitted sklearn regressor on target_days_until_30cm, with right-censored rows CAPPED at
-    the 120-day horizon rather than dropped -- see reports/hyperparameters.md for why this simple
-    approximation was chosen over dropping censored rows (survivorship bias) or a full survival
-    model (Kaplan-Meier / AFT / Cox, explicitly out of scope: "sem inventar uma solução
-    complexa"). Every Phase 5 row has either a real value or censored=1 (never neither), so no
-    filtering is needed at fit time.
+    """One fitted sklearn regressor on target_days_until_30cm.
 
-    A prediction > 120 days is itself reported as censored, symmetric with how the training
-    target was capped -- so the censoring-agreement bookkeeping stays comparable to the Phase 6
-    baselines' own convention."""
+    B2 (Codex R01/R02/R04 remediation): fits ONLY on `days_event_rows(train_rows)` -- anchors
+    below 30cm whose target_days_until_30cm_outcome is a genuine `event`. The earlier version
+    capped every censored row (intervention, horizon, and end-of-followup alike) at the 120-day
+    horizon and fit on all of them as if 120 were an observed event time; that conflated three
+    different kinds of "we don't know the true time-to-event" into a single fabricated number and
+    is exactly what this fix removes -- see reports/target-construction.md. This regressor does
+    not model censoring/survival at all now (dropping censored rows, not a Kaplan-Meier/AFT/Cox
+    model -- "sem inventar uma solução complexa", per instruction); it is a plain conditional-mean
+    regressor over the population where the crossing was actually observed before any
+    intervention or follow-up limit. See R03 in reports/target-construction.md for what this does
+    and does not let the model claim about `beyond_horizon`.
+
+    A prediction > 120 days is still reported as censored -- the code path is kept (removing it
+    would be a contract change), but training labels no longer contain the value 120 itself, so
+    this branch is even less likely to fire than before, not a validated capability of this model."""
 
     def __init__(self, name, estimator_factory, feature_list, categorical_cols=CATEGORICAL_COLS,
                 scale_numeric=False):
@@ -146,14 +225,13 @@ class SklearnDaysUntil30Model:
         self.scale_numeric = scale_numeric
 
     def fit(self, train_rows):
-        y = np.array([
-            DAYS_HORIZON if r["target_days_until_30cm_censored"] == "1" else float(r["target_days_until_30cm"])
-            for r in train_rows
-        ])
+        train_rows = days_event_rows(train_rows)
+        y = np.array([float(r["target_days_until_30cm"]) for r in train_rows])
         self.pipe = FeaturePipeline(self.feature_list, self.categorical_cols, self.scale_numeric).fit(train_rows)
         X, _ = self.pipe.transform(train_rows)
         self.est = self.estimator_factory()
         self.est.fit(X, y)
+        self.n_train_event_rows = len(train_rows)
         return self
 
     def predict(self, row):

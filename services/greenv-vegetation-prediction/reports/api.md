@@ -141,10 +141,11 @@ classification" above), the same way it caps `operational_confidence`.
 `GET /api/v1/forecasts/{trecho_id}` (existing) → `200`, same shape as one ranking entry.
 `GET /api/v1/forecasts/{trecho_id}` (unknown id) → `404 {"detail":"no forecast for trecho_id='...'"}`.
 
-`POST /api/v1/forecasts/predict` (valid, `height_cm < 30`, model present):
+`POST /api/v1/forecasts/predict` (valid, `height_cm < 30`, model present) — **re-run live against
+the corrected model (B2), value changed:**
 ```json
-{"trecho_id":"demo:001","current_height_cm":15.96,"days_until_critical":24.9,
- "interval":{"lower_days":0.0,"upper_days":59.5,"confidence":0.9,"upper_is_horizon_bound":false},
+{"trecho_id":"demo:001","current_height_cm":15.96,"days_until_critical":38.0,
+ "interval":{"lower_days":6.6,"upper_days":69.5,"confidence":0.9,"upper_is_horizon_bound":false},
  "status":"forecast","operational_confidence":"medium","data_provenance":"synthetic"}
 ```
 

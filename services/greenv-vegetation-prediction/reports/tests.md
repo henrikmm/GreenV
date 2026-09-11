@@ -1,5 +1,13 @@
 # Tests (Phase 11) — verifying what Phases 1-10 already built
 
+**Current total: 197 tests** (146 as of this phase's own completion below, historical and
+unchanged; +11 from the pre-push security hardening pass → 157; +11 from the B1 target-construction
+remediation → 168; +4 from a B1.1 microfix regression → 172; +17 from the B2 days-model-policy
+remediation → 189; +8 from the B2.1 rolling-origin label-window-leakage fix → 197 — see
+`reports/api.md`'s hardening section and `reports/target-construction.md`). The narrative below
+describes Phase 11's own moment and its own count (146) — read it as history, not as the current
+total.
+
 **Phase 11 artifact of [`docs/VEGETATION_PREDICTION_TASK.md`](../../../../docs/VEGETATION_PREDICTION_TASK.md).**
 This phase adds **only** tests. No model was retrained, no interval was recalibrated, no
 hyperparameter/feature/metric from Phases 6-10 changed, and no HTTP contract was altered to make

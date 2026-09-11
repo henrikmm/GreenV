@@ -24,6 +24,14 @@ Concretely, in order of precedence:
 | model's own point estimate exceeds the 120-day horizon | `beyond_horizon` | `null` | `null` |
 | otherwise | `forecast` | finite | finite, clamped to `[0, 120]` |
 
+> **R03 — `beyond_horizon` is a supported contract state, not a validated model capability.** The
+> direct Random Forest regressor is fit and scored only on trajectories where the crossing was
+> actually observed (`reports/target-construction.md`), so its raw point estimate is a convex
+> combination of TRAIN's own event labels and, by construction, essentially never exceeds 120 --
+> this branch is kept for API-contract completeness (removing it would be a breaking change), not
+> because the model has been shown to reliably flag "will not cross within 120 days". See
+> `reports/model-card.md`'s R03 entry for what would be needed to make this a validated capability.
+
 **A roçada the model does not already know about can invalidate this projection.** No future
 roçada is ever a feature (`feature_spec.py`'s `EXCLUDE_LEAKAGE`/frozen `KEEP`/`CANDIDATE` lists
 have no such column, by design since Phase 5) — the forecast is conditional on "no further cut",
@@ -120,6 +128,9 @@ a trivial `(0, 0)` interval, never routed through the model or the conformal ban
 
 ### The forecast object
 
+**Rewritten (B2) — same TEST row, re-scored against the corrected model and calibration** (the
+point estimate and interval changed; the object shape did not):
+
 ```json
 {
  "trecho_id": "SP-021:norte:000000",
@@ -128,8 +139,8 @@ a trivial `(0, 0)` interval, never routed through the model or the conformal ban
  "critical_height_cm": 30.0,
  "operational_status": "ready",
  "blockers": null,
- "days_until_critical": 27.0,
- "interval": {"lower_days": 0.0, "upper_days": 61.6, "confidence": 0.9, "upper_is_horizon_bound": false},
+ "days_until_critical": 18.6,
+ "interval": {"lower_days": 0.0, "upper_days": 50.1, "confidence": 0.9, "upper_is_horizon_bound": false},
  "status": "forecast",
  "reason": null,
  "operational_confidence": "medium",
@@ -165,17 +176,18 @@ far from the threshold; see §9's honest reading of interval widths.) No `genera
   `status` and `days_until_critical` only — see §11).
 
 **A `not-ready` row keeps its point estimate and interval** (the frozen model and its VALIDATION
-calibration already saw a real mix of `ready`/`not-ready` rows — 583 of 3 282, 17.8%, in the actual
-calibration population used, see §4) — suppressing the number outright would have been a new,
-undiscussed behaviour change. What changes is only `operational_confidence`. Concretely, from a
-real VALIDATION row:
+calibration already saw a real mix of `ready`/`not-ready` rows — 520 of 2 889, 18.0%, in the actual
+calibration population used, see §4 — rewritten, B2) — suppressing the number outright would have
+been a new, undiscussed behaviour change. What changes is only `operational_confidence`.
+Concretely, from a real VALIDATION row (rewritten, B2 — a genuine VALIDATION-split row, `as_of_date`
+correctly inside 2025-01-31 → 2025-08-31):
 
 ```json
 {
- "trecho_id": "SP-021:norte:000000", "as_of_date": "2024-01-28", "current_height_cm": 14.76,
+ "trecho_id": "SP-021:sul:000000", "as_of_date": "2025-07-27", "current_height_cm": 14.07,
  "operational_status": "not-ready", "blockers": ["depth-degraded"],
- "days_until_critical": 23.1,
- "interval": {"lower_days": 0.0, "upper_days": 57.7, "confidence": 0.9, "upper_is_horizon_bound": false},
+ "days_until_critical": 39.1,
+ "interval": {"lower_days": 7.7, "upper_days": 70.6, "confidence": 0.9, "upper_is_horizon_bound": false},
  "status": "forecast", "reason": null,
  "operational_confidence": "low"
 }
@@ -187,17 +199,31 @@ that is exactly why both are exposed, under unambiguous, differently-named keys.
 
 ## 4. Calibration
 
+**Rewritten (B2 — Codex R01/R02/R04 remediation).** `days_until_30cm`'s population restriction is
+now expressed via the corrected outcome taxonomy (`reports/target-construction.md`) rather than
+the old binary censored flag; height rows are unaffected.
+
 | | Value |
 |---|---|
 | Calibration split | **VALIDATION only** (n=5 500 rows total; see restriction below) |
-| Population restriction (days) | `height_cm < 30` at the anchor AND non-censored, known truth (n=3 282) |
-| Excluded from calibration | Censored VALIDATION rows (unknown true value — a residual against an unknown number cannot be computed); 0 rows excluded for the model's own point estimate sitting at the 120-day cap (none did) |
+| Population restriction (days) | `height_cm < 30` at the anchor AND `target_days_until_30cm_outcome == "event"` (n=2 889) |
+| Excluded from calibration | `censored_intervention`/`censored_horizon`/`censored_end_of_followup` VALIDATION rows (unknown true value — a residual against an unknown number cannot be computed); 0 rows excluded for the model's own point estimate sitting at the 120-day cap (none did) |
 | Method | Split conformal, symmetric absolute-residual band |
-| `q` (days, 80%) | **24.71** |
-| `q` (days, 90%) | **34.57** |
-| Height `q` (cm) | +7d: 13.27 (80%) / 27.13 (90%); +14d: 17.40 / 28.17; +30d: 21.75 / 29.18 — n=4 622/4 306/4 172 |
+| `q` (days, 80%) | **21.16** (was 24.71 before this fix) |
+| `q` (days, 90%) | **31.45** (was 34.57 before this fix) |
+| Height `q` (cm) | +7d: 13.27 (80%) / 27.13 (90%); +14d: 17.40 / 28.17; +30d: 21.75 / 29.18 — n=4 622/4 306/4 172 (unchanged) |
 | Model frozen from | Phase 7 (`random_forest__keep_plus_candidate`, `n_estimators=300, max_depth=None, min_samples_leaf=20, random_state=42`) — unchanged |
 | Feature spec version | `weather-v1+features-v1` |
+
+**Observational, not causal (Codex review correction):** after the R01/R02/R04 remediation and the
+resulting retrain/recalibration, the measured interval is narrower than before (mean width ≈40/≈55
+days vs the pre-fix ≈48/≈63) and the calibration population is smaller (3 282→2 889). Both the
+population change and the retrained model changed at the same time in this remediation — **no
+ablation isolated how much of the width change comes from which one**, so this report does not
+claim a specific causal mechanism (e.g. "removing inflated residuals is *why* it narrowed"). What
+is measured and reported is the before/after width and coverage themselves (§5), not a decomposed
+explanation of the difference. This is not a claim that the interval is now "more accurate" in any
+field sense either — the data are still 100% synthetic.
 
 No temporal leakage: VALIDATION (2025-02 → 2025-08) is entirely before TEST (2025-10 → 2026-08),
 with the same 30-day embargo Phase 5 already established at that boundary — this phase reuses that
@@ -205,30 +231,33 @@ boundary, it does not redraw it. A global (not group-conditional) band was used,
 
 ## 5. TEST coverage (frozen interval, measured once)
 
+**Rewritten (B2).**
+
 | Confidence | n | Empirical coverage | Nominal | Mean width (days) | Median width (days) | Not covered |
 |---|---:|---:|---:|---:|---:|---:|
-| 80% | 4 562 | **83.2%** | 80% | 47.88 | 49.42 | 767 |
-| 90% | 4 562 | **90.8%** | 90% | 63.26 | 66.43 | 420 |
+| 80% | 4 210 | **84.8%** | 80% | 39.94 | 42.31 | 639 |
+| 90% | 4 210 | **93.7%** | 90% | 55.33 | 57.35 | 265 |
 
-Both levels land close to nominal, slightly on the conservative side (over-covering by 3.2 and 0.8
-points respectively) — exactly the direction a defensible interval should err on if it errs at
-all. 644 TEST rows are `target_days_until_30cm_censored=1` (true value unknown, >120 days) and are
-**not** included in this coverage denominator — checking "does the interval cover an unknown
-number" is not a computable statement; their count is reported, not folded into the percentage.
+Both levels land above nominal — slightly more conservative (over-covering) than the pre-fix
+version (83.2%/90.8%), and with a **narrower** band (mean width 39.94/55.33 vs the pre-fix
+47.88/63.26). Of TEST's 5 165 below-30cm rows, 955 are not a clean `event` (448
+`censored_intervention`, 20 `censored_horizon`, 487 `censored_end_of_followup`) and are **not**
+included in this coverage denominator — checking "does the interval cover an unknown number" is
+not a computable statement; their counts are reported, not folded into the percentage.
 
 **Stratified coverage (90%, TEST):**
 
 | Nível | n | Coverage | | Season | n | Coverage | | Roçada proximity | n | Coverage |
 |---|---:|---:|---|---|---:|---:|---|---|---:|---:|
-| 0 | 882 | 91.2% | | wet (Oct–Mar) | 2 642 | 93.0% | | recent (<14d) | 1 554 | 88.3% |
-| 1 | 1 275 | 87.1% | | dry (Apr–Sep) | 1 920 | 87.8% | | mid (14–60d) | 2 570 | 92.2% |
-| 2 | 2 405 | 92.6% | | | | | | long (>60d) | 438 | 91.6% |
+| 0 | 817 | 94.6% | | wet (Oct–Mar) | 2 312 | 98.7% | | recent (<14d) | 1 389 | 91.5% |
+| 1 | 1 161 | 90.7% | | dry (Apr–Sep) | 1 898 | 87.6% | | mid (14–60d) | 2 392 | 95.1% |
+| 2 | 2 232 | 94.9% | | | | | | long (>60d) | 429 | 93.2% |
 
 Nível 3 has **no rows here by construction** — it means `height_cm >= 30`, which routes to
-`status="critical"` and never enters the modelled forecast population at all. Every stratum sits
-within ±3 points of the 90% nominal target except Nível 1 and "recent roçada" (both ≈87%) — a mild
-under-coverage on the freshly-cut, fast-changing cases, worth watching but not large enough to
-justify a group-conditional band per §2's stated bar.
+`status="critical"` and never enters the modelled forecast population at all. Coverage is now
+generally *above* the 90% nominal target in every stratum (a shift from the pre-fix version, where
+Nível 1 and "recent roçada" mildly under-covered at ≈87%) — consistent with the interval being
+somewhat wider than strictly necessary for this cleaner population, not a new gap to fix.
 
 **Height interval coverage (TEST):**
 
@@ -247,35 +276,39 @@ is reported as a real, mild limitation, not smoothed over — see §13.
 
 ## 6. OOD (diagnostic only — calibration was frozen before this ran)
 
+**Rewritten (B2).**
+
 | Confidence | n | OOD coverage | TEST coverage | Δ |
 |---|---:|---:|---:|---:|
-| 80% | 6 104 | 87.2% | 83.2% | **+4.0 pts** |
-| 90% | 6 104 | 94.3% | 90.8% | **+3.5 pts** |
+| 80% | 5 934 | 85.6% | 84.8% | **+0.8 pts** |
+| 90% | 5 934 | 94.1% | 93.7% | **+0.4 pts** |
 
-**This is not presented as robustness without investigating why**, per instruction. Two candidate
-explanations were checked:
+**The OOD-vs-TEST coverage gap shrank sharply after this fix** (from +4.0/+3.5 points to
++0.8/+0.4) — both now sit close together, above nominal. Two candidate explanations were checked,
+same method as before:
 
-1. **Composition** (Phase 8's explanation for the point-accuracy "improvement"): 62.7% of OOD rows
-   already have `height_cm >= 30` vs. 38.7% on TEST. This does **not** directly explain the
-   coverage numbers above, because both TEST's and OOD's coverage denominators here are *already*
-   restricted to the same forecast-eligible subpopulation (`height_cm < 30`, non-censored) — the
-   composition difference changes how many rows are *outside* this table (routed to `critical`
-   instead), not the coverage computed within it.
-2. **Residual spread inside that same subpopulation, checked directly**: mean/median/p90 absolute
-   residual for `days_until_30cm`, restricted to `height_cm < 30` and non-censored —
-   VALIDATION (the calibration source): mean 16.42, median 12.81, p90 34.52 (≈ the frozen q90);
-   TEST: mean 15.16, median 11.37, p90 33.19; **OOD: mean 13.92, median 11.40, p90 27.46.** OOD's
-   own residuals, within this comparable subpopulation, are genuinely smaller than VALIDATION's —
-   which is why a VALIDATION-derived fixed-width band covers OOD *more* often. This looks like a
-   real property of the still-growing (<30 cm) slice of the monomolecular OOD mechanism in this
-   synthetic setup, not a composition artifact.
+1. **Composition**: 62.7% of OOD rows already have `height_cm >= 30` vs. 38.7% on TEST — still
+   true (a fact about the raw synthetic data, unaffected by this fix), and still does not directly
+   explain the coverage numbers above, since both denominators here are already restricted to
+   `height_cm < 30` with a known `event` outcome — the composition difference changes how many
+   rows are *outside* this table (routed to `critical` instead), not the coverage computed within
+   it.
+2. **Residual spread inside that same subpopulation, checked directly** (mean/median/p90 absolute
+   residual, restricted to `height_cm < 30` and `event`): VALIDATION (the calibration source):
+   mean 13.12, median 9.02, p90 31.38 (≈ the frozen q90 of 31.45); TEST: mean 11.17, median 7.40,
+   p90 27.07; **OOD: mean 11.20, median 7.91, p90 25.25.** OOD's own residuals remain slightly
+   smaller than TEST's/VALIDATION's within this comparable, now-cleaner subpopulation — the same
+   qualitative direction as before this fix, just at a much smaller magnitude, since the fix
+   already removed most of what was driving the two datasets apart.
 
 **What this does NOT support:** a claim that the interval or the model "transfers well" under
 mechanism shift, in general. Phase 8 already found the same frozen model's raw height-prediction
-accuracy degrades 22–28% under this same OOD mechanism. This section only says that, restricted to
-the specific slice of trechos still below 30 cm, this one holdout's residual spread for
-*days-until-30cm specifically* happened to be narrower — a single-dataset diagnostic observation,
-not a validated robustness property, and not re-used to touch the frozen calibration in any way.
+accuracy degrades 22–28% under this same OOD mechanism, and its `days_until_30cm` point-accuracy
+TEST→OOD change is now small and mixed-direction (§ above in `reports/model-comparison.md`), not a
+robustness result either. This section only says that, restricted to the specific slice of trechos
+still below 30 cm with a known event, this one holdout's residual spread for
+`days_until_30cm` specifically stayed narrow — a single-dataset diagnostic observation, not a
+validated robustness property, and not re-used to touch the frozen calibration in any way.
 
 ## 7. Height intervals — implemented (secondary structure)
 
@@ -289,25 +322,43 @@ Phase 4's own synthetic-model hard cap.
 
 ## 8. Sanity checks (real VALIDATION/TEST rows and forced overrides, `phase9_interval_evaluation.json` → `sanity_checks`)
 
+**Rewritten (B2) — re-run against the corrected model+calibration.**
+
 | Case | Result |
 |---|---|
 | A. height 35 cm | `days_until_critical=0.0`, `status="critical"` ✓ |
-| B. height 29 cm, strong growth (forced override) | `days_until_critical=14.1`, interval `[0.0, 48.7]`, `status="forecast"` — short point estimate as expected; the interval is still wide because it uses the *global* q90 (34.6 d), not a growth-rate-conditional one (§2) |
-| C. height 4 cm, slow growth (forced override) | `days_until_critical=40.4`, interval `[5.9, 75.0]`, `status="forecast"` — distant but not censored |
+| B. height 29 cm, strong growth (forced override) | `days_until_critical=10.8`, interval `[0.0, 42.2]`, `status="forecast"` — short point estimate as expected; the interval is still wide because it uses the *global* q90 (31.5 d), not a growth-rate-conditional one (§2) |
+| C. height 4 cm, slow growth (forced override) | `days_until_critical=38.7`, interval `[7.2, 70.1]`, `status="forecast"` — distant but not censored |
 | D. missing anchor height | `status="insufficient_data"`, `days_until_critical=null`, `interval=null` ✓ — no invented number |
-| E. lower-bound clamp | real VALIDATION row, point=11.16, q90=34.57 → raw lower = **-23.41**, clamped interval lower = **0.0** ✓ |
-| F. upper-bound horizon handling | real VALIDATION row, point=92.76, q90=34.57 → raw upper = **127.33** (>120), clamped `upper_days=120.0`, `upper_is_horizon_bound=true` ✓ — flagged, not silently truncated |
+| E. lower-bound clamp | real VALIDATION row, point=8.07, q90=31.45 → raw lower = **-23.39**, clamped interval lower = **0.0** ✓ |
+| F. upper-bound horizon handling | real VALIDATION row, point=84.67, q90=31.45 → raw upper = **116.12** (≤120 this time — not clamped, `upper_is_horizon_bound=false`) |
+
+**F no longer demonstrates the horizon clamp, honestly reported rather than reworked to force it
+back.** F is selected as "the largest point estimate in the calibration population" — with the
+narrower post-fix `q90` (31.45 vs 34.57) and the corrected, smaller calibration population's own
+extreme point estimate, `point + q90` no longer exceeds 120 for this selection method. The clamp
+code path itself is untouched and still covered by `tests/test_forecast.py`'s hand-built fixtures
+(§9's own unit tests, not this sample-selection-based sanity check) — this is a change in which
+*real* row happens to exercise it, not a change in whether the behaviour exists or is tested.
 
 ## 9. Limitations (must-read before using any of this operationally)
 
-- **The `days_until_30cm` intervals are wide — 80% mean width ≈ 47.9 days, 90% mean width ≈ 63.3
-  days (§5) — and that is a real limitation of the precision this model+data currently support,
-  not an implementation defect.** No attempt was made to narrow these artificially (a
+- **The `days_until_30cm` intervals are wide — 80% mean width ≈ 39.9 days, 90% mean width ≈ 55.3
+  days (§5, rewritten B2 — measured narrower than the pre-fix ≈47.9/≈63.3; §4 notes this
+  observationally, without isolating how much comes from the smaller population vs. the retrained
+  model) — and that is a real limitation of the precision this model+data currently support, not an
+  implementation defect.** No attempt was made to narrow these artificially (a
   growth-rate-conditional band, a tighter global quantile chosen after peeking at coverage, etc.)
-  at the cost of the coverage already measured in §5. A ≈2-month-wide band around an ≈11-30 day
-  point estimate is a genuinely weak operational signal for same-week crew scheduling on its own
-  — it is still useful as a ranking input (§11) and as an honest bound, but it should not be read
-  as a precise date.
+  at the cost of the coverage already measured in §5. A ≈6-week-wide band around an ≈11-day point
+  estimate is a genuinely weak operational signal for same-week crew scheduling on its own — it is
+  still useful as a ranking input (§11) and as an honest bound, but it should not be read as a
+  precise date.
+- **R03 — the underlying regressor does not model censoring/survival.** It is fit and scored only
+  on trajectories where a crossing was actually observed (`reports/target-construction.md`), so it
+  answers "how long, given that the crossing happens under these conditions" well, but it does not
+  give a validated answer to "what is the probability of not crossing within 120 days" —
+  `beyond_horizon` remains a supported API/contract state (§1), not a demonstrated capability of
+  this V1 model. See `reports/model-card.md`'s R03 entry.
 - **Every row in every split — TRAIN, VALIDATION, TEST, OOD — is `provenance=synthetic`.** Nothing
   here is a field-validated guarantee for the SP-021/Rodoanel Oeste corridor.
 - **The interval measures the model's own uncertainty inside this simulated methodology.** A 90%

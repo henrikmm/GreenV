@@ -6,14 +6,14 @@
   "feature_spec_version": "weather-v1+features-v1",
   "random_state": 42,
   "days_until_30cm": {
-   "n_calibration_population": 3282,
+   "n_calibration_population": 2889,
    "n_excluded_beyond_horizon_point": 0,
-   "n_used": 3282,
+   "n_used": 2889,
    "censoring_treatment": "censored VALIDATION rows (unknown true value) excluded from calibration entirely; rows whose OWN point estimate already sits at the 120-day cap are also excluded (undefined residual against a censored point) -- both counts reported above, not hidden.",
    "population_restriction": "height_cm < 30 at the anchor row (the >=30 case is deterministic and uses no interval)",
    "q_by_confidence": {
-    "0.8": 24.711,
-    "0.9": 34.57
+    "0.8": 21.155,
+    "0.9": 31.453
    }
   },
   "height": {
@@ -42,62 +42,68 @@
  },
  "test_days_coverage": {
   "0.8": {
-   "n": 4562,
-   "coverage_pct": 83.2,
-   "mean_width_days": 47.88,
-   "median_width_days": 49.42,
-   "n_not_covered": 767
+   "n": 4210,
+   "coverage_pct": 84.8,
+   "mean_width_days": 39.94,
+   "median_width_days": 42.31,
+   "n_not_covered": 639
   },
   "0.9": {
-   "n": 4562,
-   "coverage_pct": 90.8,
-   "mean_width_days": 63.26,
-   "median_width_days": 66.43,
-   "n_not_covered": 420
+   "n": 4210,
+   "coverage_pct": 93.7,
+   "mean_width_days": 55.33,
+   "median_width_days": 57.35,
+   "n_not_covered": 265
   },
   "meta": {
-   "n_population": 4562,
-   "n_true_censored_in_split": 644,
+   "n_population": 4210,
+   "outcome_counts_below_30cm": {
+    "event": 4210,
+    "censored_intervention": 448,
+    "censored_horizon": 20,
+    "censored_end_of_followup": 487,
+    "n_below_30cm": 5165
+   },
    "n_model_beyond_horizon_but_truth_known": 0
   }
  },
  "test_days_coverage_stratified_90pct": {
   "by_nivel": {
    "nivel2": {
-    "n": 2405,
-    "coverage_pct": 92.6
+    "n": 2232,
+    "coverage_pct": 94.9
    },
    "nivel1": {
-    "n": 1275,
-    "coverage_pct": 87.1
+    "n": 1161,
+    "coverage_pct": 90.7
    },
    "nivel0": {
-    "n": 882,
-    "coverage_pct": 91.2
+    "n": 817,
+    "coverage_pct": 94.6
    }
   },
   "by_season": {
    "wet(Oct-Mar)": {
-    "n": 2642,
-    "coverage_pct": 93.0
+    "n": 2312,
+    "coverage_pct": 98.7
    },
    "dry(Apr-Sep)": {
-    "n": 1920,
-    "coverage_pct": 87.8
+    "n": 1898,
+    "coverage_pct": 87.6
    }
   },
   "by_rocada_proximity": {
    "recent(<14d)": {
-    "n": 1554,
-    "coverage_pct": 88.3
+    "n": 1389,
+    "coverage_pct": 91.5
    },
    "mid(14-60d)": {
-    "n": 2570,
-    "coverage_pct": 92.2
+    "n": 2392,
+    "coverage_pct": 95.1
    },
    "long(>60d)": {
-    "n": 438,
-    "coverage_pct": 91.6
+    "n": 429,
+    "coverage_pct": 93.2
    }
   }
  },
@@ -147,22 +153,28 @@
  },
  "ood_days_coverage": {
   "0.8": {
-   "n": 6104,
-   "coverage_pct": 87.2,
-   "mean_width_days": 47.43,
-   "median_width_days": 49.42,
-   "n_not_covered": 784
+   "n": 5934,
+   "coverage_pct": 85.6,
+   "mean_width_days": 39.31,
+   "median_width_days": 42.31,
+   "n_not_covered": 857
   },
   "0.9": {
-   "n": 6104,
-   "coverage_pct": 94.3,
-   "mean_width_days": 62.46,
-   "median_width_days": 65.29,
+   "n": 5934,
+   "coverage_pct": 94.1,
+   "mean_width_days": 54.25,
+   "median_width_days": 55.71,
    "n_not_covered": 350
   },
   "meta": {
-   "n_population": 6104,
-   "n_true_censored_in_split": 191,
+   "n_population": 5934,
+   "outcome_counts_below_30cm": {
+    "event": 5934,
+    "censored_intervention": 198,
+    "censored_horizon": 21,
+    "censored_end_of_followup": 122,
+    "n_below_30cm": 6275
+   },
    "n_model_beyond_horizon_but_truth_known": 0
   }
  },
@@ -177,6 +189,8 @@
    "as_of_date": "2025-10-12",
    "current_height_cm": 35.0,
    "critical_height_cm": 30.0,
+   "operational_status": "ready",
+   "blockers": null,
    "model": "random_forest__keep_plus_candidate__framing_b",
    "data_provenance": "synthetic",
    "days_until_critical": 0.0,
@@ -186,96 +200,112 @@
     "confidence": 0.9
    },
    "status": "critical",
-   "reason": "already_at_or_above_threshold"
+   "reason": "already_at_or_above_threshold",
+   "operational_confidence": "high"
   },
   "B_height_29_strong_growth": {
    "trecho_id": "SP-021:norte:000000",
    "as_of_date": "2025-10-12",
    "current_height_cm": 29.0,
    "critical_height_cm": 30.0,
+   "operational_status": "ready",
+   "blockers": null,
    "model": "random_forest__keep_plus_candidate__framing_b",
    "data_provenance": "synthetic",
-   "days_until_critical": 14.1,
+   "days_until_critical": 10.8,
    "interval": {
     "lower_days": 0.0,
-    "upper_days": 48.7,
+    "upper_days": 42.2,
     "confidence": 0.9,
     "upper_is_horizon_bound": false
    },
    "status": "forecast",
-   "reason": null
+   "reason": null,
+   "operational_confidence": "medium"
   },
   "C_height_low_slow_growth": {
    "trecho_id": "SP-021:norte:000000",
    "as_of_date": "2025-10-12",
    "current_height_cm": 4.0,
    "critical_height_cm": 30.0,
+   "operational_status": "ready",
+   "blockers": null,
    "model": "random_forest__keep_plus_candidate__framing_b",
    "data_provenance": "synthetic",
-   "days_until_critical": 40.4,
+   "days_until_critical": 38.7,
    "interval": {
-    "lower_days": 5.9,
-    "upper_days": 75.0,
+    "lower_days": 7.2,
+    "upper_days": 70.1,
     "confidence": 0.9,
     "upper_is_horizon_bound": false
    },
    "status": "forecast",
-   "reason": null
+   "reason": null,
+   "operational_confidence": "medium"
   },
   "D_missing_anchor_height": {
    "trecho_id": "SP-021:norte:000000",
    "as_of_date": "2025-10-12",
    "current_height_cm": null,
    "critical_height_cm": 30.0,
+   "operational_status": "ready",
+   "blockers": null,
    "model": "random_forest__keep_plus_candidate__framing_b",
    "data_provenance": "synthetic",
    "days_until_critical": null,
    "interval": null,
    "status": "insufficient_data",
-   "reason": "missing_anchor_height_cm"
+   "reason": "missing_anchor_height_cm",
+   "operational_confidence": "low"
   },
   "E_lower_bound_clamped_to_zero": {
-   "point_estimate": 11.16,
-   "q90": 34.57,
-   "raw_lower_before_clamp": -23.41,
+   "point_estimate": 8.07,
+   "q90": 31.45,
+   "raw_lower_before_clamp": -23.39,
    "forecast": {
-    "trecho_id": "SP-021:sul:005500",
-    "as_of_date": "2025-04-06",
-    "current_height_cm": 27.83,
+    "trecho_id": "SP-021:norte:028500",
+    "as_of_date": "2025-02-02",
+    "current_height_cm": 27.93,
     "critical_height_cm": 30.0,
+    "operational_status": "ready",
+    "blockers": null,
     "model": "random_forest__keep_plus_candidate__framing_b",
     "data_provenance": "synthetic",
-    "days_until_critical": 11.2,
+    "days_until_critical": 8.1,
     "interval": {
      "lower_days": 0.0,
-     "upper_days": 45.7,
+     "upper_days": 39.5,
      "confidence": 0.9,
      "upper_is_horizon_bound": false
     },
     "status": "forecast",
-    "reason": null
+    "reason": null,
+    "operational_confidence": "medium"
    }
   },
   "F_upper_bound_horizon_handling": {
-   "point_estimate": 92.76,
-   "q90": 34.57,
-   "raw_upper_before_clamp": 127.33,
+   "point_estimate": 84.67,
+   "q90": 31.45,
+   "raw_upper_before_clamp": 116.12,
    "forecast": {
-    "trecho_id": "SP-021:norte:000500",
+    "trecho_id": "SP-021:norte:007500",
     "as_of_date": "2025-06-01",
     "current_height_cm": 0.0,
     "critical_height_cm": 30.0,
+    "operational_status": "ready",
+    "blockers": null,
     "model": "random_forest__keep_plus_candidate__framing_b",
     "data_provenance": "synthetic",
-    "days_until_critical": 92.8,
+    "days_until_critical": 84.7,
     "interval": {
-     "lower_days": 58.2,
-     "upper_days": 120.0,
+     "lower_days": 53.2,
+     "upper_days": 116.1,
      "confidence": 0.9,
-     "upper_is_horizon_bound": true
+     "upper_is_horizon_bound": false
     },
     "status": "forecast",
-    "reason": null
+    "reason": null,
+    "operational_confidence": "medium"
    }
   }
  },
@@ -284,16 +314,19 @@
   "as_of_date": "2025-11-23",
   "current_height_cm": 15.96,
   "critical_height_cm": 30.0,
+  "operational_status": "ready",
+  "blockers": null,
   "model": "random_forest__keep_plus_candidate__framing_b",
   "data_provenance": "synthetic",
-  "days_until_critical": 27.0,
+  "days_until_critical": 18.6,
   "interval": {
    "lower_days": 0.0,
-   "upper_days": 61.6,
+   "upper_days": 50.1,
    "confidence": 0.9,
    "upper_is_horizon_bound": false
   },
   "status": "forecast",
-  "reason": null
+  "reason": null,
+  "operational_confidence": "medium"
  }
 }

@@ -44,6 +44,7 @@ from greenv_vegpred.evaluate.harness import (  # noqa: E402
 from greenv_vegpred.models import linear  # noqa: E402
 from greenv_vegpred.models.recursive import RecursiveHeightModel  # noqa: E402
 from greenv_vegpred.models.height_trajectory_days import HeightTrajectoryDaysModel  # noqa: E402
+from greenv_vegpred.models.ml_common import days_event_rows  # noqa: E402
 
 # scripts/ is this file's own directory; Python already puts it on sys.path[0] when the script is
 # run directly, so this reuses the original script's constants/helpers without re-executing main().
@@ -76,32 +77,34 @@ def evaluate_height_model_batch(model, val_rows, horizon_days, target_key):
 
 
 def evaluate_days_until_30cm_model_batch(model, val_rows):
-    """Same semantics/bookkeeping as harness.evaluate_days_until_30cm_model, built from
-    `predict_batch` instead of one `predict` call per row. Also returns the method-distribution
-    Counter from the single pass, instead of a second pass just to inspect it."""
-    censored_true = [r for r in val_rows if r["target_days_until_30cm_censored"] == "1"]
-    not_censored_true = [r for r in val_rows if r["target_days_until_30cm_censored"] == "0"
-                         and fnum(r["target_days_until_30cm"]) is not None]
+    """B2: same event-only, height<30 population as harness.evaluate_days_until_30cm_model, built
+    from `predict_batch` instead of one `predict` call per row. Also returns the
+    method-distribution Counter from the single pass, instead of a second pass just to inspect
+    it."""
+    event_rows = days_event_rows(val_rows)
+    censored_any = [r for r in val_rows
+                   if fnum(r.get("height_cm")) is not None and float(r["height_cm"]) < 30.0
+                   and r.get("target_days_until_30cm_outcome") != "event"]
 
     methods = Counter()
-    pairs, pred_censored_when_true_had_answer = [], 0
-    for r, (pred, meta) in zip(not_censored_true, model.predict_batch(not_censored_true)):
+    pairs, pred_censored_when_event_known = [], 0
+    for r, (pred, meta) in zip(event_rows, model.predict_batch(event_rows)):
         methods[meta.get("method")] += 1
         if pred is None:
-            pred_censored_when_true_had_answer += 1
+            pred_censored_when_event_known += 1
             continue
         pairs.append((float(r["target_days_until_30cm"]), pred))
 
-    censoring_agreement = sum(1 for _, meta in model.predict_batch(censored_true) if meta.get("censored"))
+    model_censored_agreement = sum(1 for _, meta in model.predict_batch(censored_any) if meta.get("censored"))
 
     dm = days_metrics(pairs)
-    dm["n_true_not_censored"] = len(not_censored_true)
+    dm["n_event_rows"] = len(event_rows)
     dm["n_scored"] = len(pairs)
-    dm["n_baseline_predicted_censored_but_true_had_answer"] = pred_censored_when_true_had_answer
-    dm["n_true_censored"] = len(censored_true)
-    dm["baseline_also_censored_when_true_censored"] = censoring_agreement
-    dm["baseline_also_censored_when_true_censored_pct"] = (
-        round(100 * censoring_agreement / len(censored_true), 1) if censored_true else None)
+    dm["n_model_predicted_censored_but_event_was_known"] = pred_censored_when_event_known
+    dm["n_censored_any"] = len(censored_any)
+    dm["model_also_predicted_censored_on_censored_rows"] = model_censored_agreement
+    dm["model_also_predicted_censored_on_censored_rows_pct"] = (
+        round(100 * model_censored_agreement / len(censored_any), 1) if censored_any else None)
     dm["n_used_fallback_in_scored_or_censored"] = 0
     return dm, methods
 
@@ -196,9 +199,7 @@ def main():
     framing_b_metrics = orig["days_until_30cm"]["keep_plus_candidate"]["random_forest"]
     mechanistic_metrics = baseline["days_until_30cm"]["mechanistic_days_until_30cm"]
 
-    not_censored = [r for r in val if r["target_days_until_30cm_censored"] == "0"
-                    and fnum(r["target_days_until_30cm"]) is not None]
-    n_negative_days = sum(1 for pred, _ in framing_a.predict_batch(not_censored) if pred is not None and pred < 0)
+    n_negative_days = sum(1 for pred, _ in framing_a.predict_batch(days_event_rows(val)) if pred is not None and pred < 0)
     results["days_until_30cm_framing_a_vs_b"] = {
         "framing_a_height_trajectory": framing_a_metrics,
         "framing_b_direct_regression": framing_b_metrics,

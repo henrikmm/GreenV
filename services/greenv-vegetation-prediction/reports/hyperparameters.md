@@ -62,17 +62,27 @@ Each family exposes two constructors in `ml_common.py`:
   was not implemented in this pass; TASK.md lists both framings as something to "record", and only
   (B) was built.
 
-### Censoring treatment for `days_until_30cm`
+### Censoring treatment for `days_until_30cm` (corrected, B2 — Codex R01/R02/R04 remediation)
 
-Some `trechos` do not reach 30 cm within the observation window (right-censored target). Rather
-than building a full survival model (Cox, AFT, etc.) — which the instruction explicitly said not to
-invent without necessity — censored rows are **capped at `DAYS_HORIZON = 120` days** and kept in
-training as `120`, instead of being dropped. This is a documented simplification: it treats
-"more than 120 days" as "120 days" for fitting purposes, which biases the regressor toward
-under-estimating the true (unobserved, always ≥120) wait for the slowest-growing `trechos`, but
-keeps every row usable and avoids selection bias from dropping the hardest cases outright. At
-prediction time, any output over 120 is reported back with `censored: True` in the metadata rather
-than a bare number.
+**This section originally described a "cap censored rows at 120 days and train on 120 as if it
+were an observed event" simplification. An independent review found that approach conflated three
+different kinds of "we don't actually know the time-to-event" (an unrelated future roçada
+resetting the trajectory; a genuinely observed 120 days with no crossing; and simply running out
+of dataset to watch) into a single fabricated label. That approach is no longer used** — see
+`reports/target-construction.md` for the full four-way outcome taxonomy
+(`event`/`censored_intervention`/`censored_horizon`/`censored_end_of_followup`) now recorded on
+every row.
+
+The regressor (`SklearnDaysUntil30Model` in `ml_common.py`) is now fit and scored **only** on
+`days_event_rows()`: anchors below the 30cm threshold whose `target_days_until_30cm_outcome ==
+"event"` — the only population with a known, exact time-to-event. This is not a survival model
+(no Cox/AFT/Kaplan-Meier — still explicitly out of scope, "sem inventar uma solução complexa"); it
+is a plain conditional-mean regressor over a smaller, honestly-labelled population, with the three
+censored categories dropped rather than coerced into a number. At prediction time, any output over
+120 is still reported back with `censored: True` in the metadata (the code path is kept for
+contract stability), but training labels no longer contain the value 120 itself — see
+`reports/model-card.md`'s R03 entry for what this does and does not let the model claim about
+`beyond_horizon`.
 
 ## 4. Hyperparameter grids (chosen on `validation` only)
 
@@ -133,16 +143,19 @@ offer *there*", rather than re-running the two-feature-set sweep already done fo
 `LinearRegression` (true OLS, no hyperparameter) and `Lasso` (`alpha` grid `[0.001, 0.01, 0.1]`,
 `max_iter=5000`, chosen on VALIDATION) were added to `linear.py` alongside the existing Ridge.
 
+**`days_until_30cm` column rewritten (B2 — Codex R01/R02/R04 remediation); height column
+unchanged.**
+
 | | avg height MAE (7/14/30d) | days_until_30cm MAE |
 |---|---|---|
-| OLS | 14.709 | 18.48 |
-| Ridge (`alpha=0.01`, already chosen) | 14.709 | 18.48 |
-| Lasso (`alpha=0.1` chosen for height, `0.1` for days) | 14.707 | 18.45 |
-| *(reference)* Random Forest `keep_plus_candidate` | **11.369** | **11.80** |
+| OLS | 14.709 | 15.76 |
+| Ridge (`alpha=0.01`, already chosen) | 14.709 | 15.76 |
+| Lasso (`alpha=0.1` chosen for height, `0.1` for days) | 14.707 | 15.76 |
+| *(reference)* Random Forest `keep_plus_candidate` | **11.369** | **13.12** |
 
-**Verdict: OLS and Lasso add essentially no value over Ridge** (differences of ≤0.03 cm / ≤0.03
-days — noise, not a real improvement), and none of the three linear models comes anywhere close
-to Random Forest. This is expected given the height @+7d comparison already available in section
+**Verdict: OLS and Lasso add essentially no value over Ridge** (differences of ≤0.03 cm on height;
+on `days_until_30cm` all three now round to the identical 15.76 days — noise, not a real
+improvement), and none of the three linear models comes anywhere close to Random Forest. This is expected given the height @+7d comparison already available in section
 5 of the original pass: Ridge's own `alpha` sweep there was already flat (`14.686` at all three
 values on the `keep` set), meaning the problem's non-linearity — not the regularisation strength —
 is the limiting factor for every member of the linear family. **The frozen Random Forest choice
@@ -206,32 +219,32 @@ future weather, future roçada, or `true_height_cm`; it only ever calls that hei
 4. A non-positive last-segment slope, or an extrapolated day past 120, is reported as **censored**
    — the same convention framing (B) uses.
 
-**Result (VALIDATION):**
+**Result (VALIDATION) — rewritten (B2, Codex R01/R02/R04 remediation).** Scored only on
+`height_cm < 30` anchors with a known `event` outcome (n=2 889) — height≥30 rows no longer appear
+at all (previously counted as a trivial "already above threshold" method bucket).
 
-| | MAE (days) | median abs. error | %±3d | %±7d | n scored / not-censored |
+| | MAE (days) | median abs. error | %±3d | %±7d | n scored / n event rows |
 |---|---|---|---|---|---|
-| Framing (A) — height trajectory | 13.75 | **6.29** | **39.6%** | **55.8%** | 5093/5237 |
-| Framing (B) — direct regression (frozen) | **11.80** | 7.51 | 38.0% | 48.7% | 5237/5237 |
-| Mechanistic baseline (Phase 6) | 14.39 | 6.54 | 41.3% | 55.0% | 4755/5237 |
+| Framing (A) — height trajectory | 16.71 | 10.36 | 15.2% | 37.4% | 2779/2889 |
+| Framing (B) — direct regression (frozen) | **13.12** | **9.02** | **18.5%** | **41.6%** | 2889/2889 |
+| Mechanistic baseline (Phase 6) | 19.36 | 13.16 | 14.5% | 31.9% | 2550/2889 |
 
-Method distribution on the 5,237 non-censored validation rows: 1,955 already above threshold;
-2,070 cleanly interpolated; 1,068 extrapolated (accepted); 135 extrapolated past the 120-day
-horizon (reported censored); 9 with a non-increasing tail (reported censored). 144 rows where
-framing (A) predicted censored but the truth had an answer (vs. 0 for framing B — framing B never
-refuses an answer on a non-censored row). 0 negative day predictions.
+Method distribution on the 2,889 event validation rows: 1,918 cleanly interpolated; 861
+extrapolated (accepted); 101 extrapolated past the 120-day horizon (reported censored); 9 with a
+non-increasing tail (reported censored). 110 rows where framing (A) predicted censored but the
+event was known (vs. 0 for framing B — framing B never refuses an answer on an event row).
+0 negative day predictions.
 
-**Reading this honestly, not the way that flatters the newer piece:** framing (A)'s **mean** MAE
-(13.75) is worse than framing (B)'s (11.80) — the 1,068 extrapolated cases and the 135 pushed past
-the horizon carry the large errors that pull the mean up, exactly the weak point predicted in the
-design. But framing (A)'s **median** (6.29) and its **%±3d/%±7d** (39.6% / 55.8%) are actually
-*better* than framing (B)'s (7.51 / 38.0% / 48.7%) — a heavy-tailed error distribution: framing (A)
-is typically at least as precise as framing (B) on the bulk of rows, and worse only on the tail
-where it has to extrapolate. This nuance is recorded here rather than collapsed into a single
-"worse" verdict.
+**Reading this honestly:** framing (B) now wins on **every** metric — MAE (13.12 vs 16.71), median
+(9.02 vs 10.36), %±3d (18.5% vs 15.2%), and %±7d (41.6% vs 37.4%). Before this fix, framing (A) had
+a better median and %±3d/%±7d despite a worse mean, which read as "framing A is typically at least
+as precise, worse only on the extrapolation tail" — **that nuance no longer holds on the
+corrected, event-only population** and is not repeated here. The frozen choice of framing (B) is
+unaffected either way, but the reason to prefer it is now simpler than reported before: it is
+better on every axis checked, not just the mean.
 
-**Verdict: framing (B) (direct regression) remains the better choice by mean MAE and by full
-coverage (it never refuses an answer), and stays the frozen configuration for Phase 8.** Framing
+**Verdict: framing (B) (direct regression) remains the better choice, now on every metric checked
+(not just mean MAE and full coverage), and stays the frozen configuration for Phase 8.** Framing
 (A) is not discarded as worthless — it is a legitimate, fully-derived-from-existing-models second
-opinion whose typical-case precision is competitive — but it is not adopted as the primary
-approach given TASK.md's own preference for the simpler, directly-validated framing when both are
-viable.
+opinion — but on the corrected, event-only population it no longer has even a partial precision
+edge, reinforcing rather than complicating the choice of framing (B) as the primary approach.
