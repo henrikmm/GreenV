@@ -21,7 +21,13 @@ const s = {
     overflow: 'hidden',
   },
   frameBox: { padding: 12, display: 'flex', flexDirection: 'column', gap: 10 },
-  frameImage: { width: '100%', borderRadius: 'var(--radius-sm)', display: 'block', background: 'var(--bg-secondary)' },
+  // The captures are portrait phone video, so an uncapped width:100% drew a photograph
+  // nearly a screen tall and pushed the strip and the readings below the fold. Capped at
+  // the map's own height next to it, and centred rather than letterboxed.
+  frameImage: {
+    maxWidth: '100%', maxHeight: 300, margin: '0 auto', borderRadius: 'var(--radius-sm)',
+    display: 'block', background: 'var(--bg-secondary)',
+  },
   frameMeta: { fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.7 },
   strip: { display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 },
   thumb: (active) => ({
