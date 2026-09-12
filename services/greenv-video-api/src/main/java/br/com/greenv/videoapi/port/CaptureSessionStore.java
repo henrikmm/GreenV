@@ -5,6 +5,7 @@ import br.com.greenv.videoapi.domain.CaptureSessionDocument;
 import br.com.greenv.videoapi.domain.CaptureSessionQuery;
 import br.com.greenv.videoapi.domain.CaptureSessionSummary;
 import br.com.greenv.videoapi.domain.MeasurementProjection;
+import br.com.greenv.videoapi.domain.FrameReadings;
 import br.com.greenv.videoapi.domain.Page;
 import br.com.greenv.videoapi.domain.SegmentPlace;
 import java.time.Instant;
@@ -89,4 +90,17 @@ public interface CaptureSessionStore {
 
     /** Caches the place on the row. A row is written even when nothing was found. */
     void recordPlace(UUID sessionId, int segmentIndex, SegmentPlace place);
+
+    /**
+     * Replaces every frame reading of a segment, in one transaction.
+     *
+     * <p>Replace and not merge: the readings are derived wholesale from one assessment, and
+     * a partial overwrite would leave rows from a previous run beside rows from this one.
+     */
+    void replaceFrameReadings(UUID sessionId, int segmentIndex, List<FrameReadings> readings);
+
+    Optional<FrameReadings> findFrameReadings(UUID sessionId, int segmentIndex, int canonicalFrame);
+
+    /** Measured segments whose frame readings were never derived. Newest measurement first. */
+    List<CaptureSegmentDocument> findSegmentsAwaitingFrameReadings(int limit);
 }

@@ -5,6 +5,7 @@ import br.com.greenv.videoapi.domain.CaptureSessionDocument;
 import br.com.greenv.videoapi.domain.CaptureSessionQuery;
 import br.com.greenv.videoapi.domain.CaptureSessionSummary;
 import br.com.greenv.videoapi.domain.MeasurementProjection;
+import br.com.greenv.videoapi.domain.FrameReadings;
 import br.com.greenv.videoapi.domain.Page;
 import br.com.greenv.videoapi.domain.SegmentPlace;
 import br.com.greenv.videoapi.domain.Sentido;
@@ -375,6 +376,79 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                 result.getObject("last_segment_index", Integer.class),
                 result.getString("rodovia"),
                 Sentido.of(result.getString("sentido")));
+    }
+
+    @Override
+    @Transactional
+    public void replaceFrameReadings(UUID sessionId, int segmentIndex, List<FrameReadings> readings) {
+        jdbcTemplate.update(
+                "DELETE FROM segment_frame_readings WHERE session_id = ? AND segment_index = ?",
+                sessionId,
+                segmentIndex);
+        Timestamp now = Timestamp.from(Instant.now());
+        for (FrameReadings reading : readings) {
+            jdbcTemplate.update(
+                    """
+                    INSERT INTO segment_frame_readings (session_id, segment_index,
+                        canonical_frame, cells_voted, sample_count, extent95_median_m,
+                        extent95_max_m, largest_disagreement_m, evidence_for_cells, recorded_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    sessionId,
+                    segmentIndex,
+                    reading.canonicalFrame(),
+                    reading.cellsVoted(),
+                    reading.sampleCount(),
+                    reading.extent95MedianM(),
+                    reading.extent95MaxM(),
+                    reading.largestDisagreementM(),
+                    reading.evidenceForCells(),
+                    now);
+        }
+    }
+
+    @Override
+    public Optional<FrameReadings> findFrameReadings(
+            UUID sessionId, int segmentIndex, int canonicalFrame) {
+        return jdbcTemplate
+                .query(
+                        """
+                        SELECT * FROM segment_frame_readings
+                         WHERE session_id = ? AND segment_index = ? AND canonical_frame = ?
+                        """,
+                        JdbcCaptureSessionStoreAdapter::mapFrameReadings,
+                        sessionId,
+                        segmentIndex,
+                        canonicalFrame)
+                .stream()
+                .findFirst();
+    }
+
+    @Override
+    public List<CaptureSegmentDocument> findSegmentsAwaitingFrameReadings(int limit) {
+        return jdbcTemplate.query(
+                """
+                SELECT g.* FROM capture_segments g
+                 WHERE g.measurement_state IS NOT NULL
+                   AND NOT EXISTS (SELECT 1 FROM segment_frame_readings r
+                                    WHERE r.session_id = g.session_id
+                                      AND r.segment_index = g.segment_index)
+                 ORDER BY g.measured_at DESC NULLS LAST, g.segment_index
+                 LIMIT ?
+                """,
+                JdbcCaptureSessionStoreAdapter::mapSegment,
+                limit);
+    }
+
+    private static FrameReadings mapFrameReadings(ResultSet result, int row) throws SQLException {
+        return new FrameReadings(
+                result.getInt("canonical_frame"),
+                result.getInt("cells_voted"),
+                result.getLong("sample_count"),
+                result.getObject("extent95_median_m", Double.class),
+                result.getObject("extent95_max_m", Double.class),
+                result.getObject("largest_disagreement_m", Double.class),
+                result.getInt("evidence_for_cells"));
     }
 
     private static CaptureSegmentDocument mapSegment(ResultSet result, int row) throws SQLException {

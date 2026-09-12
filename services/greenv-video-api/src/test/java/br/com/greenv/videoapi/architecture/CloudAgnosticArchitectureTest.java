@@ -42,6 +42,7 @@ import br.com.greenv.videoapi.service.AuthenticationService;
 import br.com.greenv.videoapi.service.CaptureSessionService;
 import br.com.greenv.videoapi.service.IdentityAdminService;
 import br.com.greenv.videoapi.service.JobService;
+import br.com.greenv.videoapi.service.FrameReadingsBackfillService;
 import br.com.greenv.videoapi.service.OperationsService;
 import br.com.greenv.videoapi.service.PlaceResolutionService;
 import br.com.greenv.videoapi.service.TransientCleanupService;
@@ -177,6 +178,9 @@ class CloudAgnosticArchitectureTest {
                 .extracting(field -> field.getType().getPackageName())
                 .noneMatch(this::isAdapterPackage);
         assertThat(PlaceResolutionService.class.getDeclaredFields())
+                .extracting(field -> field.getType().getPackageName())
+                .noneMatch(this::isAdapterPackage);
+        assertThat(FrameReadingsBackfillService.class.getDeclaredFields())
                 .extracting(field -> field.getType().getPackageName())
                 .noneMatch(this::isAdapterPackage);
     }

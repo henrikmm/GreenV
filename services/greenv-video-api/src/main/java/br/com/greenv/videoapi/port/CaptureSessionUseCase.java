@@ -50,6 +50,14 @@ public interface CaptureSessionUseCase {
      */
     FrameReadings frameReadings(UUID sessionId, int segmentIndex, String fileName);
 
+    /**
+     * Derives and stores one segment's frame readings from its assessment.
+     *
+     * <p>Exists for the backfill, which fills in segments measured before the rows did.
+     * Recording a measurement already does this on its own.
+     */
+    void deriveFrameReadingsFor(UUID sessionId, int segmentIndex);
+
     /** One published JPEG, by name. Refuses a name the segment's manifest does not list. */
     byte[] frame(UUID sessionId, int segmentIndex, String fileName);
 

@@ -5,25 +5,26 @@ import br.com.greenv.videoapi.port.FrameReadingsReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * One frame's votes, pulled out of {@code assessment.json}.
+ * Every frame's votes, from one pass over {@code assessment.json}.
  *
- * <p>The assessment is organised by cell, not by frame: every measurement carries a
- * {@code frameVotes} array naming the frames that reached the voxel floor in it. Answering
- * "what did this photograph see" therefore means walking every cell and keeping the votes whose
- * {@code frameIndex} matches. A segment's assessment holds hundreds of cells and thousands of
- * votes, which is exactly why this happens here and not in a browser.
+ * <p>The assessment is organised by cell: each measurement carries a {@code frameVotes} array
+ * naming the frames that reached the voxel floor in it. So the walk is over cells, and the
+ * frames are accumulated on the way through. One pass answers for all of them, which is why
+ * this runs once when a measurement is recorded rather than once per click.
  *
- * <p>Two things this deliberately does not do. It never throws: a caller asking about a
+ * <p>Two things it deliberately does not do. It never throws: a caller asking about a
  * photograph should still get the photograph when the assessment is missing or malformed. And
  * it never falls back from {@code extent95} to {@code h95} when a cell has no local ground —
  * the plane-relative figure reads higher, and quietly substituting it would inflate a reading
- * that the rest of the system reports as tape-comparable.
+ * the rest of the system reports as tape-comparable.
  */
 @Component
 public class JacksonFrameReadingsAdapter implements FrameReadingsReader {
@@ -35,83 +36,57 @@ public class JacksonFrameReadingsAdapter implements FrameReadingsReader {
     }
 
     @Override
-    public FrameReadings read(byte[] assessment, int canonicalFrame) {
+    public List<FrameReadings> readAll(byte[] assessment) {
         if (assessment == null || assessment.length == 0) {
-            return FrameReadings.EMPTY;
+            return List.of();
         }
         try {
             JsonNode root = objectMapper.readTree(new String(assessment, StandardCharsets.UTF_8));
-            List<FrameReadings.CellVote> votes = new ArrayList<>();
-            List<Double> extents = new ArrayList<>();
-            long samples = 0;
-            int evidenceFor = 0;
-            Double largestDisagreement = null;
+            Map<Integer, Accumulator> byFrame = new HashMap<>();
 
             for (JsonNode cell : root.path("measurements")) {
-                if (namesFrame(cell.path("evidenceFrameIndices"), canonicalFrame)) {
-                    evidenceFor++;
-                }
-                JsonNode vote = voteOf(cell.path("frameVotes"), canonicalFrame);
-                if (vote == null) {
-                    continue;
-                }
                 Double localGround = decimal(cell, "localGroundM");
-                Double voteH95 = decimal(vote, "h95M");
                 Double cellH95 = decimal(cell, "h95M");
-                Double voteExtent = above(localGround, voteH95);
-                long sampleCount = vote.path("sampleCount").asLong(0);
-                samples += sampleCount;
-                if (voteExtent != null) {
-                    extents.add(voteExtent);
+
+                for (JsonNode index : cell.path("evidenceFrameIndices")) {
+                    accumulator(byFrame, index.asInt(Integer.MIN_VALUE)).evidenceFor++;
                 }
-                if (voteH95 != null && cellH95 != null) {
-                    double gap = Math.abs(voteH95 - cellH95);
-                    largestDisagreement = largestDisagreement == null
-                            ? gap
-                            : Math.max(largestDisagreement, gap);
+                for (JsonNode vote : cell.path("frameVotes")) {
+                    int frame = vote.path("frameIndex").asInt(Integer.MIN_VALUE);
+                    if (frame == Integer.MIN_VALUE) {
+                        continue;
+                    }
+                    Accumulator into = accumulator(byFrame, frame);
+                    into.cellsVoted++;
+                    into.sampleCount += vote.path("sampleCount").asLong(0);
+
+                    Double voteH95 = decimal(vote, "h95M");
+                    Double extent = above(localGround, voteH95);
+                    if (extent != null) {
+                        into.extents.add(extent);
+                    }
+                    if (voteH95 != null && cellH95 != null) {
+                        double gap = Math.abs(voteH95 - cellH95);
+                        into.largestDisagreement = into.largestDisagreement == null
+                                ? gap
+                                : Math.max(into.largestDisagreement, gap);
+                    }
                 }
-                votes.add(new FrameReadings.CellVote(
-                        cell.path("coordinate").path("alongRoadM").asDouble(),
-                        cell.path("coordinate").path("distanceFromRoadM").asDouble(),
-                        voteExtent,
-                        above(localGround, cellH95),
-                        voteH95,
-                        cellH95,
-                        sampleCount,
-                        cell.path("status").asString("")));
             }
 
-            votes.sort(Comparator.comparingDouble(FrameReadings.CellVote::alongRoadM));
-            return new FrameReadings(
-                    canonicalFrame,
-                    votes.size(),
-                    samples,
-                    median(extents),
-                    extents.stream().mapToDouble(Double::doubleValue).max().stream().boxed().findFirst().orElse(null),
-                    largestDisagreement,
-                    evidenceFor,
-                    votes);
+            List<FrameReadings> readings = new ArrayList<>();
+            for (Map.Entry<Integer, Accumulator> entry : byFrame.entrySet()) {
+                readings.add(entry.getValue().toReadings(entry.getKey()));
+            }
+            readings.sort(Comparator.comparingInt(FrameReadings::canonicalFrame));
+            return List.copyOf(readings);
         } catch (RuntimeException unreadable) {
-            return FrameReadings.EMPTY;
+            return List.of();
         }
     }
 
-    private static JsonNode voteOf(JsonNode frameVotes, int canonicalFrame) {
-        for (JsonNode vote : frameVotes) {
-            if (vote.path("frameIndex").asInt(Integer.MIN_VALUE) == canonicalFrame) {
-                return vote;
-            }
-        }
-        return null;
-    }
-
-    private static boolean namesFrame(JsonNode indices, int canonicalFrame) {
-        for (JsonNode index : indices) {
-            if (index.asInt(Integer.MIN_VALUE) == canonicalFrame) {
-                return true;
-            }
-        }
-        return false;
+    private static Accumulator accumulator(Map<Integer, Accumulator> byFrame, int frame) {
+        return byFrame.computeIfAbsent(frame, key -> new Accumulator());
     }
 
     /** Above the cell's own ground. Null in, null out — never the plane-relative figure. */
@@ -119,20 +94,41 @@ public class JacksonFrameReadingsAdapter implements FrameReadingsReader {
         return localGroundM == null || heightM == null ? null : heightM - localGroundM;
     }
 
-    private static Double median(List<Double> values) {
-        if (values.isEmpty()) {
-            return null;
-        }
-        List<Double> sorted = new ArrayList<>(values);
-        sorted.sort(Double::compareTo);
-        int middle = sorted.size() / 2;
-        return sorted.size() % 2 == 1
-                ? sorted.get(middle)
-                : (sorted.get(middle - 1) + sorted.get(middle)) / 2;
-    }
-
     private static Double decimal(JsonNode parent, String field) {
         JsonNode value = parent.path(field);
         return value.isNumber() ? value.asDouble() : null;
+    }
+
+    private static final class Accumulator {
+        private final List<Double> extents = new ArrayList<>();
+        private int cellsVoted;
+        private long sampleCount;
+        private int evidenceFor;
+        private Double largestDisagreement;
+
+        private FrameReadings toReadings(int canonicalFrame) {
+            return new FrameReadings(
+                    canonicalFrame,
+                    cellsVoted,
+                    sampleCount,
+                    median(extents),
+                    extents.stream().mapToDouble(Double::doubleValue).max().isPresent()
+                            ? extents.stream().mapToDouble(Double::doubleValue).max().getAsDouble()
+                            : null,
+                    largestDisagreement,
+                    evidenceFor);
+        }
+
+        private static Double median(List<Double> values) {
+            if (values.isEmpty()) {
+                return null;
+            }
+            List<Double> sorted = new ArrayList<>(values);
+            sorted.sort(Double::compareTo);
+            int middle = sorted.size() / 2;
+            return sorted.size() % 2 == 1
+                    ? sorted.get(middle)
+                    : (sorted.get(middle - 1) + sorted.get(middle)) / 2;
+        }
     }
 }

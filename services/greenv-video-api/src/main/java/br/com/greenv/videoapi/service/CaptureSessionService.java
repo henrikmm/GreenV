@@ -319,6 +319,30 @@ public class CaptureSessionService implements CaptureSessionUseCase {
                 announcement.measuredAt(),
                 projectionOf(announcement.sessionId(), announcement.segmentIndex(), packetKey),
                 clock.instant());
+        deriveFrameReadings(announcement.sessionId(), announcement.segmentIndex());
+    }
+
+    /**
+     * Turns the assessment into one row per photograph, once.
+     *
+     * <p>Here rather than on every request because the assessment is organised by cell: asking
+     * what one frame saw costs the same walk as asking for all of them, and the answer never
+     * changes after the run is published. A failure costs the rows and not the measurement —
+     * the segment is still recorded, and the backfill picks the segment up on its next pass.
+     */
+    private void deriveFrameReadings(UUID sessionId, int segmentIndex) {
+        byte[] assessment =
+                readIfPresent(CaptureObjectKeys.measurementArtifact(sessionId, segmentIndex, "assessment.json"));
+        List<FrameReadings> readings = frameReadingsReader.readAll(assessment);
+        if (readings.isEmpty()) {
+            return;
+        }
+        captureSessionStore.replaceFrameReadings(sessionId, segmentIndex, readings);
+    }
+
+    @Override
+    public void deriveFrameReadingsFor(UUID sessionId, int segmentIndex) {
+        deriveFrameReadings(sessionId, segmentIndex);
     }
 
     /**
@@ -408,9 +432,12 @@ public class CaptureSessionService implements CaptureSessionUseCase {
                         FailureKind.NOT_FOUND,
                         "sampled_frame_absent",
                         "this segment published no such frame"));
-        byte[] assessment = readIfPresent(
-                CaptureObjectKeys.measurementArtifact(sessionId, segmentIndex, "assessment.json"));
-        return frameReadingsReader.read(assessment, published.canonicalFrame());
+        return captureSessionStore
+                .findFrameReadings(sessionId, segmentIndex, published.canonicalFrame())
+                // No row means the assessment named no vote for this frame, or the backfill has
+                // not reached this segment yet. Both read as a frame that measured nothing, which
+                // is visible on screen rather than silent.
+                .orElseGet(() -> FrameReadings.empty(published.canonicalFrame()));
     }
 
     @Override

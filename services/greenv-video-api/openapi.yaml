@@ -667,8 +667,10 @@ paths:
         This returns, for one frame, the cells it voted in and what it said.
         Heights are extent95, above each cell's own local ground; the
         plane-relative figures travel alongside and are null on a cell that
-        never established its ground. A missing assessment answers with zero
-        cells rather than an error.
+        never established its ground. Derived once when the measurement is
+        recorded and read from a row, so this costs a row lookup and not a
+        walk of the assessment. A frame with no votes answers with zero cells
+        rather than an error.
       parameters:
         - $ref: '#/components/parameters/SessionId'
         - $ref: '#/components/parameters/SegmentIndex'
@@ -979,7 +981,7 @@ components:
   schemas:
     FrameReadings:
       type: object
-      required: [schemaVersion, canonicalFrame, cellsVoted, sampleCount, evidenceForCells, cells]
+      required: [schemaVersion, canonicalFrame, cellsVoted, sampleCount, evidenceForCells]
       properties:
         schemaVersion:
           const: 1
@@ -1002,29 +1004,6 @@ components:
         evidenceForCells:
           type: integer
           description: Cells that named this frame as one to look at
-        cells:
-          type: array
-          items:
-            type: object
-            required: [alongRoadM, distanceFromRoadM, sampleCount, cellStatus]
-            properties:
-              alongRoadM:
-                type: number
-              distanceFromRoadM:
-                type: number
-              voteExtent95M:
-                type: [number, 'null']
-              cellExtent95M:
-                type: [number, 'null']
-              voteH95M:
-                type: [number, 'null']
-              cellH95M:
-                type: [number, 'null']
-              sampleCount:
-                type: integer
-              cellStatus:
-                type: string
-                enum: [measured, insufficient-support]
     Team:
       type: object
       required: [schemaVersion, teamId, slug, name, shortName, colour, initials, status]
