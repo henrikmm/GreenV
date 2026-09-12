@@ -5,6 +5,7 @@ import { ClipboardList, Ruler, MapPin } from 'lucide-react'
 import { LEVELS, vegetationLevel, Card } from '@greenv/web-core'
 import { measurements, teams as teamsApi } from '../api/greenv'
 import { placeOfSegment } from '../api/place'
+import { readingOf } from '../api/reading'
 import PageShell from '../components/PageShell'
 import NewOrderModal from '../components/NewOrderModal'
 
@@ -69,9 +70,9 @@ const s = {
     height: 4, borderRadius: 2, marginTop: 4, background: colour,
     width: `${Math.max(4, Math.round(fraction * 100))}%`, maxWidth: 120,
   }),
-  pill: (level) => ({
+  pill: (reading) => ({
     display: 'inline-flex', padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600,
-    color: LEVELS[level].color, background: LEVELS[level].bg,
+    color: reading.colour, background: reading.background, lineHeight: 1.35,
   }),
   linkBtn: {
     fontSize: 11.5, fontWeight: 700, color: 'var(--motiva)', background: 'none',
@@ -203,6 +204,7 @@ export default function SegmentsPage() {
               <tbody>
                 {visible.map((segment, position) => {
                   const level = vegetationLevel(segment.measurementLevel)
+                  const reading = readingOf(segment)
                   const place = placeOf(segment)
                   const height = segment.measurementExtent95P95M
                   return (
@@ -230,7 +232,9 @@ export default function SegmentsPage() {
                           <div style={s.bar(height / tallest, LEVELS[level].color)} />
                         )}
                       </td>
-                      <td style={s.td}><span style={s.pill(level)}>{LEVELS[level].label}</span></td>
+                      <td style={s.td}>
+                        <span style={s.pill(reading)} title={reading.title}>{reading.label}</span>
+                      </td>
                       <td style={s.td}>
                         {segment.measurementCellsMeasured != null
                           ? `${segment.measurementCellsMeasured} · ${segment.measurementCellsAbstained} sem evidência`

@@ -5,6 +5,7 @@ import { ArrowLeft, ClipboardList } from 'lucide-react'
 import { LEVELS, vegetationLevel, Card } from '@greenv/web-core'
 import { sessions, teams as teamsApi } from '../api/greenv'
 import { placeOfSegment, placeOfSession } from '../api/place'
+import { readingOf } from '../api/reading'
 import NewOrderModal from '../components/NewOrderModal'
 import SessionMap from '../components/SessionMap'
 import PageShell from '../components/PageShell'
@@ -38,9 +39,9 @@ const s = {
   },
   td: { padding: '12px 10px', fontSize: 12.5, borderBottom: '1px solid var(--border)' },
   mono: { fontFamily: 'var(--font-mono)' },
-  pill: (level) => ({
+  pill: (reading) => ({
     display: 'inline-flex', padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600,
-    color: LEVELS[level].color, background: LEVELS[level].bg,
+    color: reading.colour, background: reading.background, lineHeight: 1.35,
   }),
   hint: { fontSize: 12.5, color: 'var(--text-muted)', lineHeight: 1.6 },
   frameMeta: { fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.8, marginTop: 10 },
@@ -166,7 +167,11 @@ export default function SessionDetailPage() {
                           : [...previous, segment.segmentIndex])} />
                     </td>
                     <td style={{ ...s.td, ...s.mono }}>{segment.segmentIndex}</td>
-                    <td style={s.td}><span style={s.pill(level)}>{LEVELS[level].label}</span></td>
+                    <td style={s.td}>
+                      <span style={s.pill(readingOf(segment))} title={readingOf(segment).title}>
+                        {readingOf(segment).label}
+                      </span>
+                    </td>
                     <td style={{ ...s.td, ...s.mono }}>
                       {segment.measurementExtent95P95M != null
                         ? `${(segment.measurementExtent95P95M * 100).toFixed(0)} cm`
