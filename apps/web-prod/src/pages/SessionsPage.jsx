@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Route, Ruler, TriangleAlert, Camera, ArrowUpRight } from 'lucide-react'
 import {
   LEVELS, vegetationLevel, AnimatedNumber, Card, useAuth,
-  LevelDonut, WeeklyBarChart, bucketByWeek,
+  LevelDonut, WeeklyBarChart, bucketByWeek, describePlace, centreOf,
 } from '@greenv/web-core'
 import { sessions as sessionsApi, measurements } from '../api/greenv'
 import PageShell from '../components/PageShell'
@@ -119,6 +119,18 @@ export default function SessionsPage() {
     return tally
   }, [measuredItems])
 
+  // O lugar de cada sessão sai do centro dos trechos que ela mediu. O campo de via era texto
+  // livre digitado em campo, então não identifica nada — vem vazio ou vem "TESTE".
+  const placeOf = useMemo(() => {
+    const bySession = new Map()
+    for (const segment of measuredItems) {
+      const list = bySession.get(segment.sessionId) ?? []
+      list.push({ latitude: segment.trackCenterLat, longitude: segment.trackCenterLon })
+      bySession.set(segment.sessionId, list)
+    }
+    return (sessionId) => describePlace(centreOf(bySession.get(sessionId)))
+  }, [measuredItems])
+
   const weekly = useMemo(
     () => bucketByWeek((page?.items ?? []).map(session => session.startedAt), 10),
     [page])
@@ -222,7 +234,7 @@ export default function SessionsPage() {
             <thead>
               <tr>
                 <th style={s.th}>Início</th>
-                <th style={s.th}>Via</th>
+                <th style={s.th}>Onde</th>
                 <th style={s.th}>Dispositivo</th>
                 <th style={s.th}>Trechos</th>
                 <th style={s.th}>Medidos</th>
@@ -233,11 +245,20 @@ export default function SessionsPage() {
                 <tr key={session.sessionId} style={s.row}
                   onClick={() => navigate(`/sessoes/${session.sessionId}`)}>
                   <td style={s.td}>{new Date(session.startedAt).toLocaleString('pt-BR')}</td>
-                  <td style={s.td}>
-                    {session.rodovia
-                      ? `${session.rodovia}${session.sentido ? ' · ' + session.sentido : ''}`
-                      : <span style={{ color: 'var(--text-muted)' }}>não identificada</span>}
-                  </td>
+                  <td style={s.td}>{(() => {
+                    const place = placeOf(session.sessionId)
+                    if (!place) {
+                      return <span style={{ color: 'var(--text-muted)' }}>sem posição</span>
+                    }
+                    return (
+                      <>
+                        {place.label}
+                        {place.detail && (
+                          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{place.detail}</div>
+                        )}
+                      </>
+                    )
+                  })()}</td>
                   <td style={{ ...s.td, ...s.mono }}>{session.deviceId}</td>
                   <td style={s.td}>{session.segmentCount}</td>
                   <td style={s.td}>

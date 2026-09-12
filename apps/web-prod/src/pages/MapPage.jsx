@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Sun, Satellite } from 'lucide-react'
-import { vegetationLevel, Legend } from '@greenv/web-core'
-import { sessions as sessionsApi } from '../api/greenv'
+import { vegetationLevel, Legend, describePlace, centreOf } from '@greenv/web-core'
+import { sessions as sessionsApi, measurements } from '../api/greenv'
 import PageShell from '../components/PageShell'
 import SessionsMap from '../components/SessionsMap'
 import SessionsSidebar from '../components/SessionsSidebar'
@@ -36,27 +36,35 @@ export default function MapPage() {
 
   useEffect(() => {
     let live = true
-    sessionsApi.list({ limit: 50 })
-      .then(async (page) => {
+    // As medições vêm junto só pelo centro de cada trecho. É a mesma fonte que a visão geral e
+    // a tela da sessão usam para dizer onde a captura foi feita, e ler a mesma coisa nas três é o
+    // que impede o mapa de rotular um lugar e a tabela de rotular outro, noventa metros ao lado.
+    Promise.all([sessionsApi.list({ limit: 50 }), measurements.list({ limit: 200 })])
+      .then(async ([page, measured]) => {
         const tracks = await Promise.all(page.items.map(session =>
           sessionsApi.track(session.sessionId)
             .then(track => ({ session, track }))
             // Uma sessão sem segmento medido não tem trilha, e isso é resposta, não falha.
             .catch(() => ({ session, track: null }))))
-        if (live) setState({ loading: false, tracks })
+        if (live) setState({ loading: false, tracks, measured: measured.items })
       })
       .catch(error => { if (live) setState({ loading: false, tracks: [], error }) })
     return () => { live = false }
   }, [])
 
-  const { tracks, loading, error } = state
+  const { tracks, measured, loading, error } = state
 
   const entries = useMemo(() => tracks.map(({ session, track }) => {
     const drawable = Boolean(track?.features?.length)
     const worst = Math.max(0, ...(track?.features ?? [])
       .map(feature => vegetationLevel(feature.properties?.level)))
-    return { session, track, drawable, worst }
-  }), [tracks])
+    // O lugar vem do centro dos trechos medidos. O nome da via era texto livre digitado em
+    // campo e não identifica nada: vem vazio, ou vem "TESTE".
+    const centres = (measured ?? [])
+      .filter(segment => segment.sessionId === session.sessionId)
+      .map(segment => ({ latitude: segment.trackCenterLat, longitude: segment.trackCenterLon }))
+    return { session, track, drawable, worst, place: describePlace(centreOf(centres)) }
+  }), [tracks, measured])
 
   // Uma linha por trecho medido: o polígono é a mesma medição desenhada de outro jeito, e
   // contá-lo dobraria todo número.

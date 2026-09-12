@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { AnimatePresence } from 'framer-motion'
 import { ArrowLeft, ClipboardList } from 'lucide-react'
-import { LEVELS, vegetationLevel, Card } from '@greenv/web-core'
+import { LEVELS, vegetationLevel, Card, describePlace, centreOf } from '@greenv/web-core'
 import { sessions, teams as teamsApi } from '../api/greenv'
 import NewOrderModal from '../components/NewOrderModal'
 import SessionMap from '../components/SessionMap'
@@ -100,9 +100,12 @@ export default function SessionDetailPage() {
   const { session, segments, track, frames, teams } = state
   const measured = segments.filter(segment => segment.measurementState != null)
   const chosenSegments = measured.filter(segment => chosen.includes(segment.segmentIndex))
-  const road = session.rodovia
-    ? `${session.rodovia}${session.sentido ? ' · SENTIDO ' + session.sentido.toUpperCase() : ''}`
-    : 'VIA NÃO IDENTIFICADA'
+  // O lugar vem do centro dos trechos medidos, não do campo de via: aquele era texto livre
+  // digitado em campo e não identifica lugar nenhum.
+  const place = describePlace(centreOf(measured.map(segment => ({
+    latitude: segment.trackCenterLat, longitude: segment.trackCenterLon,
+  }))))
+  const road = place ? place.label.toUpperCase() : 'SEM POSIÇÃO REGISTRADA'
 
   return (
     <PageShell currentPage="sessions" roadTag={road}>
@@ -110,11 +113,9 @@ export default function SessionDetailPage() {
         <button style={s.back} onClick={() => navigate('/sessoes')}>
           <ArrowLeft size={13} /> Sessões
         </button>
-        <div style={s.title}>
-          {session.rodovia || 'Via não identificada'}
-          {session.sentido ? ` · sentido ${session.sentido}` : ''}
-        </div>
+        <div style={s.title}>{place?.label ?? 'Sem posição registrada'}</div>
         <div style={s.subtitle}>
+          {place?.detail && <>{place.detail} · </>}
           {new Date(session.startedAt).toLocaleString('pt-BR')} · {session.segmentCount} trechos,
           {' '}{session.measuredSegmentCount} medidos · {frames.length} quadros publicados
         </div>

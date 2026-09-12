@@ -56,7 +56,9 @@ export function generateOrderId() {
   return `OS-ROÇ-${y}${m}-${seq}`
 }
 
-const ROAD_ANCHORS = [
+// Exportado de propósito: `index.js` já reexportava este nome, que nunca existiu como export.
+// O bundler resolvia para undefined em silêncio, então quem importasse recebia nada.
+export const ROAD_ANCHORS = [
   { km: 0,    lat: -23.4080, lon: -46.7290 },
   { km: 5,    lat: -23.4310, lon: -46.7520 },
   { km: 10,   lat: -23.4600, lon: -46.7700 },

@@ -148,12 +148,15 @@ export default function SessionsSidebar({
           {error && <div style={{ ...s.state, color: LEVELS[3].color }}>{error.message}</div>}
           {!loading && entries.length === 0 && <div style={s.state}>Nenhuma sessão capturada ainda.</div>}
 
-          {entries.map(({ session, track, worst, drawable }) => (
+          {entries.map(({ session, track, worst, drawable, place }) => (
             <motion.div key={session.sessionId} whileTap={{ scale: 0.99 }}
               style={s.card(selectedId === session.sessionId)}
               onClick={() => onSelect(drawable ? session.sessionId : null)}>
-              <div style={s.cardRoad}>{session.rodovia ?? 'Via não identificada'}</div>
-              <div style={s.cardWhen}>{new Date(session.startedAt).toLocaleString('pt-BR')}</div>
+              <div style={s.cardRoad}>{place?.label ?? 'Sem posição registrada'}</div>
+              <div style={s.cardWhen}>
+                {place?.detail && <>{place.detail}<br /></>}
+                {new Date(session.startedAt).toLocaleString('pt-BR')}
+              </div>
               <div style={s.cardRow}>
                 <span style={s.pill(worst)}>{LEVELS[worst].label}</span>
                 <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>

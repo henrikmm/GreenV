@@ -4,6 +4,7 @@
 export { LEVELS, EQUIPMENT_TYPES, getPolygonStyle, getLevel, formatArea, formatKm, getFeatureId,
          generateOrderId, ROAD_ANCHORS, kmToLatLng, vegetationLevel } from './utils/classification'
 export { haversineKm, nearestKm, suggestCombinedRoutes, planRoute } from './utils/routePlanner'
+export { describePlace, centreOf, ON_ROAD_KM } from './utils/place'
 export { buildOrder } from './utils/orders'
 export { startOfWeek, formatWeekLabel, bucketByWeek } from './utils/date'
 export { STATUS_MAP, PRIORITY_MAP } from './orderMeta'
