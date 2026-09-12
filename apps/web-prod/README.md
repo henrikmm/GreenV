@@ -116,6 +116,26 @@ Duas honestidades sobre a tela de ordens:
   demonstração, para que uma ordem tenha a quem ser atribuída no primeiro dia. Não são o quadro da
   concessionária. São configuração, e trocá-las é um `UPDATE`.
 
+## Como uma sessão é nomeada
+
+Pelo lugar, nunca pelo campo de via. Aquele campo era texto livre que o operador preenchia à mão,
+então chega vazio, ou com a palavra que alguém usou testando. O que existe de confiável é a
+posição: cada trecho medido carrega o centro da própria trilha, calculado pela API a partir da
+telemetria.
+
+O nome da rua vem do **Nominatim**, o serviço de geocodificação reversa do OpenStreetMap, em
+`src/api/places.js`. Três cuidados, que são o que a política de uso dele pede: uma consulta por
+vez com um segundo de intervalo, resultado em cache no `localStorage` por coordenada arredondada
+a quatro casas, e falha silenciosa — sem resposta, a tela volta para a coordenada e a distância
+até a SP-021, que `web-core/src/utils/place.js` calcula sem sair do navegador.
+
+Isto não acrescenta exposição: o painel já carrega as telhas do OpenStreetMap centradas
+exatamente nessas coordenadas, então o mesmo servidor já sabe onde a captura foi.
+
+**O lugar definitivo disto é a API**, resolvendo uma vez por sessão e guardando na linha. Aqui
+resolve uma vez por navegador, o que é barato para um punhado de sessões e caro se um dia forem
+centenas.
+
 ## O que o painel não afirma
 
 O aviso de "leituras não validadas" que ficava no topo de cada tela foi retirado a pedido, em 12 de

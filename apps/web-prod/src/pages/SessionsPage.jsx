@@ -6,6 +6,7 @@ import {
   LevelDonut, WeeklyBarChart, bucketByWeek, describePlace, centreOf,
 } from '@greenv/web-core'
 import { sessions as sessionsApi, measurements } from '../api/greenv'
+import { usePlaceNames } from '../api/places'
 import PageShell from '../components/PageShell'
 
 /**
@@ -121,15 +122,22 @@ export default function SessionsPage() {
 
   // O lugar de cada sessão sai do centro dos trechos que ela mediu. O campo de via era texto
   // livre digitado em campo, então não identifica nada — vem vazio ou vem "TESTE".
-  const placeOf = useMemo(() => {
-    const bySession = new Map()
+  const centreOfSession = useMemo(() => {
+    const bySession = {}
     for (const segment of measuredItems) {
-      const list = bySession.get(segment.sessionId) ?? []
+      const list = bySession[segment.sessionId] ?? []
       list.push({ latitude: segment.trackCenterLat, longitude: segment.trackCenterLon })
-      bySession.set(segment.sessionId, list)
+      bySession[segment.sessionId] = list
     }
-    return (sessionId) => describePlace(centreOf(bySession.get(sessionId)))
+    return Object.fromEntries(
+      Object.entries(bySession).map(([id, points]) => [id, centreOf(points)]))
   }, [measuredItems])
+
+  // O nome da rua vem do OpenStreetMap e chega depois; até lá vale a coordenada, que já está
+  // certa. A tela nunca fica esperando por ele.
+  const streetNames = usePlaceNames(centreOfSession)
+  const placeOf = (sessionId) =>
+    streetNames[sessionId] ?? describePlace(centreOfSession[sessionId])
 
   const weekly = useMemo(
     () => bucketByWeek((page?.items ?? []).map(session => session.startedAt), 10),

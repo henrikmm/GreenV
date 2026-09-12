@@ -4,6 +4,7 @@ import { AnimatePresence } from 'framer-motion'
 import { ArrowLeft, ClipboardList } from 'lucide-react'
 import { LEVELS, vegetationLevel, Card, describePlace, centreOf } from '@greenv/web-core'
 import { sessions, teams as teamsApi } from '../api/greenv'
+import { usePlaceNames } from '../api/places'
 import NewOrderModal from '../components/NewOrderModal'
 import SessionMap from '../components/SessionMap'
 import PageShell from '../components/PageShell'
@@ -86,6 +87,18 @@ export default function SessionDetailPage() {
     return () => { live = false }
   }, [sessionId])
 
+  // Antes dos retornos antecipados de propósito: um hook chamado depois de um `return` roda
+  // numa renderização e não na outra, e o React quebra na transição de "carregando" para pronto.
+  //
+  // O lugar vem do centro dos trechos medidos, não do campo de via: aquele era texto livre
+  // digitado em campo e não identifica lugar nenhum. O nome da rua chega depois, do
+  // OpenStreetMap; até lá a coordenada segura o lugar.
+  const centre = centreOf((state.segments ?? [])
+    .filter(segment => segment.measurementState != null)
+    .map(segment => ({ latitude: segment.trackCenterLat, longitude: segment.trackCenterLon })))
+  const streetNames = usePlaceNames(centre ? { session: centre } : {})
+  const place = streetNames.session ?? describePlace(centre)
+
   if (state.loading) {
     return <PageShell currentPage="sessions"><div style={s.hint}>Carregando sessão…</div></PageShell>
   }
@@ -100,11 +113,6 @@ export default function SessionDetailPage() {
   const { session, segments, track, frames, teams } = state
   const measured = segments.filter(segment => segment.measurementState != null)
   const chosenSegments = measured.filter(segment => chosen.includes(segment.segmentIndex))
-  // O lugar vem do centro dos trechos medidos, não do campo de via: aquele era texto livre
-  // digitado em campo e não identifica lugar nenhum.
-  const place = describePlace(centreOf(measured.map(segment => ({
-    latitude: segment.trackCenterLat, longitude: segment.trackCenterLon,
-  }))))
   const road = place ? place.label.toUpperCase() : 'SEM POSIÇÃO REGISTRADA'
 
   return (

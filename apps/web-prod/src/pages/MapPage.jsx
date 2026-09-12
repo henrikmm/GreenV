@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Sun, Satellite } from 'lucide-react'
 import { vegetationLevel, Legend, describePlace, centreOf } from '@greenv/web-core'
 import { sessions as sessionsApi, measurements } from '../api/greenv'
+import { usePlaceNames } from '../api/places'
 import PageShell from '../components/PageShell'
 import SessionsMap from '../components/SessionsMap'
 import SessionsSidebar from '../components/SessionsSidebar'
@@ -54,7 +55,7 @@ export default function MapPage() {
 
   const { tracks, measured, loading, error } = state
 
-  const entries = useMemo(() => tracks.map(({ session, track }) => {
+  const rows = useMemo(() => tracks.map(({ session, track }) => {
     const drawable = Boolean(track?.features?.length)
     const worst = Math.max(0, ...(track?.features ?? [])
       .map(feature => vegetationLevel(feature.properties?.level)))
@@ -63,8 +64,17 @@ export default function MapPage() {
     const centres = (measured ?? [])
       .filter(segment => segment.sessionId === session.sessionId)
       .map(segment => ({ latitude: segment.trackCenterLat, longitude: segment.trackCenterLon }))
-    return { session, track, drawable, worst, place: describePlace(centreOf(centres)) }
+    return { session, track, drawable, worst, centre: centreOf(centres) }
   }), [tracks, measured])
+
+  const centreById = useMemo(
+    () => Object.fromEntries(rows.map(row => [row.session.sessionId, row.centre])), [rows])
+  // O nome da rua chega depois da primeira pintura; a coordenada segura o lugar até lá.
+  const streetNames = usePlaceNames(centreById)
+  const entries = useMemo(() => rows.map(row => ({
+    ...row,
+    place: streetNames[row.session.sessionId] ?? describePlace(row.centre),
+  })), [rows, streetNames])
 
   // Uma linha por trecho medido: o polígono é a mesma medição desenhada de outro jeito, e
   // contá-lo dobraria todo número.
