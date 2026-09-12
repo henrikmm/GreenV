@@ -74,6 +74,9 @@ export default function SessionMap({ track, frames = [], onFrameClick, height = 
             click: () => { setActive(frame.fileName); onFrameClick?.(frame) },
           }}
         >
+          {/* Sem a foto aqui. Ela já está no painel ao lado, e repeti-la numa bolha sobre o
+              mapa enche a tela de imagem onde o que se procura é o ponto. O balão fica com o
+              que só ele pode dizer: qual quadro é este e quanto se confia na posição dele. */}
           <Popup>
             <div style={{ fontSize: 12, lineHeight: 1.6 }}>
               <strong>{frame.fileName}</strong>
@@ -81,8 +84,6 @@ export default function SessionMap({ track, frames = [], onFrameClick, height = 
               {frame.capturedAtUtc ? new Date(frame.capturedAtUtc).toLocaleString('pt-BR') : 'sem horário'}
               <br />
               precisão {frame.horizontalAccuracyMeters?.toFixed(1) ?? '?'} m · {frame.locationQuality}
-              <br />
-              <img src={frame.imageUrl} alt={frame.fileName} style={{ width: 220, marginTop: 6, borderRadius: 4 }} />
             </div>
           </Popup>
         </CircleMarker>
