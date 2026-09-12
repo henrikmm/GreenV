@@ -714,6 +714,134 @@ paths:
           description: Segment not found
         '409':
           description: The segment has not been measured
+  /v2/teams:
+    get:
+      operationId: listTeams
+      summary: The field teams, each with the work it is carrying
+      description: >-
+        Read-only. Teams are administered outside the dashboard, and the three
+        counters travel with the row because the screen that lists teams always
+        shows both.
+      responses:
+        '200':
+          description: Every team
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Team'
+  /v2/service-orders:
+    get:
+      operationId: listServiceOrders
+      summary: Service orders, newest first
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pendente, em_andamento, concluida, cancelada]
+        - name: priority
+          in: query
+          schema:
+            type: string
+            enum: [baixa, media, alta, urgente]
+        - name: teamId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: search
+          in: query
+          description: Matched against the reference and the notes, case-insensitively
+          schema:
+            type: string
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: One page of service orders
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceOrderPage'
+    post:
+      operationId: openServiceOrder
+      summary: Open an order against measured segments
+      description: >-
+        The area, the level and the centre are derived from the segments rather
+        than supplied, so an order can always say what evidence justified it. A
+        segment with no measurement is refused with 409.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateServiceOrder'
+      responses:
+        '201':
+          description: The order as opened
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceOrder'
+        '409':
+          description: A target segment has no measurement
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /v2/service-orders/{orderId}:
+    get:
+      operationId: getServiceOrder
+      summary: One order, with its targets and its whole history
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      responses:
+        '200':
+          description: The order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceOrder'
+        '404':
+          description: No such order
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+    patch:
+      operationId: amendServiceOrder
+      summary: Change what a person may change
+      description: >-
+        Every field is optional and a null one is left alone. A change of status
+        appends to the history; nothing else does.
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateServiceOrder'
+      responses:
+        '200':
+          description: The amended order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceOrder'
+    delete:
+      operationId: cancelServiceOrder
+      summary: Cancel the order
+      description: >-
+        Sets the status to cancelada and appends to the history. The row is not
+        removed, because an order that was opened is a decision someone took.
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      responses:
+        '204':
+          description: Cancelled
 components:
   securitySchemes:
     bearerAuth:
@@ -741,6 +869,13 @@ components:
         token lifted from a log is useless without it. State-changing requests must also carry
         `X-CSRF-Token` matching the readable `greenv_csrf` cookie.
   parameters:
+    OrderId:
+      name: orderId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     Limit:
       name: limit
       in: query
@@ -809,6 +944,190 @@ components:
         minimum: 1
         maximum: 30000
   schemas:
+    Team:
+      type: object
+      required: [schemaVersion, teamId, slug, name, shortName, colour, initials, status]
+      properties:
+        schemaVersion:
+          const: 1
+        teamId:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        name:
+          type: string
+        shortName:
+          type: string
+        region:
+          type: string
+          nullable: true
+        colour:
+          type: string
+        initials:
+          type: string
+        status:
+          type: string
+          enum: [em_campo, disponivel, fora_servico]
+        pendingOrders:
+          type: integer
+        inProgressOrders:
+          type: integer
+        completedOrders:
+          type: integer
+        totalOrders:
+          type: integer
+    ServiceOrder:
+      type: object
+      required: [schemaVersion, orderId, reference, status, priority, createdAt, updatedAt, targets, history]
+      properties:
+        schemaVersion:
+          const: 1
+        orderId:
+          type: string
+          format: uuid
+        reference:
+          type: string
+          description: What a crew reads out on the radio
+        status:
+          type: string
+          enum: [pendente, em_andamento, concluida, cancelada]
+        priority:
+          type: string
+          enum: [baixa, media, alta, urgente]
+        teamId:
+          type: string
+          format: uuid
+          nullable: true
+        scheduledFor:
+          type: string
+          format: date
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        equipment:
+          type: string
+          nullable: true
+          description: Derived from the measured level, not read off a parcel record
+        areaSquareMetres:
+          type: number
+          nullable: true
+          description: >-
+            Estimated from the five-metre measured band, not surveyed. This
+            system has no parcel geometry.
+        vegetationLevel:
+          type: integer
+          nullable: true
+        centreLat:
+          type: number
+          nullable: true
+        centreLon:
+          type: number
+          nullable: true
+        createdBy:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        targets:
+          type: array
+          items:
+            type: object
+            required: [sessionId, segmentIndex]
+            properties:
+              sessionId:
+                type: string
+                format: uuid
+              segmentIndex:
+                type: integer
+        history:
+          type: array
+          items:
+            type: object
+            required: [status, recordedAt]
+            properties:
+              status:
+                type: string
+                enum: [pendente, em_andamento, concluida, cancelada]
+              note:
+                type: string
+                nullable: true
+              recordedBy:
+                type: string
+                nullable: true
+              recordedAt:
+                type: string
+                format: date-time
+    ServiceOrderPage:
+      type: object
+      required: [schemaVersion, items, total, limit, offset, hasMore]
+      properties:
+        schemaVersion:
+          const: 1
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServiceOrder'
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+        hasMore:
+          type: boolean
+    CreateServiceOrder:
+      type: object
+      required: [priority, targets]
+      properties:
+        priority:
+          type: string
+          enum: [baixa, media, alta, urgente]
+        teamId:
+          type: string
+          format: uuid
+          nullable: true
+        scheduledFor:
+          type: string
+          format: date
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        targets:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [sessionId, segmentIndex]
+            properties:
+              sessionId:
+                type: string
+                format: uuid
+              segmentIndex:
+                type: integer
+    UpdateServiceOrder:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [pendente, em_andamento, concluida, cancelada]
+        priority:
+          type: string
+          enum: [baixa, media, alta, urgente]
+        teamId:
+          type: string
+          format: uuid
+        scheduledFor:
+          type: string
+          format: date
+        notes:
+          type: string
     CreateCaptureSessionRequest:
       type: object
       required: [deviceId]

@@ -5,6 +5,8 @@ import LoginPage from './pages/LoginPage'
 import SessionsPage from './pages/SessionsPage'
 import SessionDetailPage from './pages/SessionDetailPage'
 import MapPage from './pages/MapPage'
+import OrdersPage from './pages/OrdersPage'
+import TeamsPage from './pages/TeamsPage'
 
 /**
  * A versão que fala com a API.
@@ -25,6 +27,8 @@ function Shell() {
         <Route path="/sessoes" element={<SessionsPage />} />
         <Route path="/sessoes/:sessionId" element={<SessionDetailPage />} />
         <Route path="/mapa" element={<MapPage />} />
+        <Route path="/ordens" element={<OrdersPage />} />
+        <Route path="/equipes" element={<TeamsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/sessoes" replace />} />
     </Routes>

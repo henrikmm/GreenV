@@ -94,8 +94,21 @@ aberto direto ou recarregado devolve 404 e só a raiz funciona.
 | `/sessoes` | A lista de capturas, com quantos trechos cada uma tem e quantos foram medidos |
 | `/sessoes/:id` | Uma sessão: a trilha no mapa, a tabela de trechos, e o quadro do ponto clicado |
 | `/mapa` | Todas as sessões no mesmo mapa, com a lista ao lado enquadrando cada uma |
+| `/ordens` | Ordens de serviço abertas contra trechos medidos |
+| `/equipes` | As equipes de campo e quantas ordens cada uma carrega |
 
-Ordens, equipes e tendências ainda não existem aqui: dependem de tabelas e rotas que a API não tem.
+As quatro abas são as mesmas da demonstração. O que muda é o alvo de uma ordem: lá é um polígono
+do KMZ, aqui é um trecho medido, que é a única coisa neste sistema que carrega uma altura e uma
+posição reais. A API recusa com 409 uma ordem aberta contra um trecho sem medição.
+
+Duas honestidades sobre a tela de ordens:
+
+- **A área é estimada, não levantada.** Não existe geometria de parcela em lugar nenhum deste
+  sistema. O número vem da faixa de cinco metros que a grade mediu, multiplicada por um
+  comprimento de trecho presumido. Está documentado assim em `OperationsService` e no contrato.
+- **As quatro equipes vieram semeadas** pela migração `V9`, com os nomes da lista de exemplo da
+  demonstração, para que uma ordem tenha a quem ser atribuída no primeiro dia. Não são o quadro da
+  concessionária. São configuração, e trocá-las é um `UPDATE`.
 
 ## O que o painel não afirma
 

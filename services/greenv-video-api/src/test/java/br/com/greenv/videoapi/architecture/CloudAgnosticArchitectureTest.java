@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import br.com.greenv.videoapi.api.AuthController;
 import br.com.greenv.videoapi.api.CaptureSessionController;
 import br.com.greenv.videoapi.api.MeasurementController;
+import br.com.greenv.videoapi.api.ServiceOrderController;
+import br.com.greenv.videoapi.api.TeamController;
 import br.com.greenv.videoapi.api.IdentityAdminController;
 import br.com.greenv.videoapi.api.JwkSetController;
 import br.com.greenv.videoapi.api.OAuthTokenController;
@@ -24,6 +26,9 @@ import br.com.greenv.videoapi.port.IdentityAdminUseCase;
 import br.com.greenv.videoapi.port.JwkSetProvider;
 import br.com.greenv.videoapi.port.MeasurementAnnouncementReader;
 import br.com.greenv.videoapi.port.OAuthClientStore;
+import br.com.greenv.videoapi.port.OperationsUseCase;
+import br.com.greenv.videoapi.port.ServiceOrderStore;
+import br.com.greenv.videoapi.port.TeamStore;
 import br.com.greenv.videoapi.port.SecretHasher;
 import br.com.greenv.videoapi.port.SessionCookieWriter;
 import br.com.greenv.videoapi.port.UserStore;
@@ -35,10 +40,13 @@ import br.com.greenv.videoapi.service.AuthenticationService;
 import br.com.greenv.videoapi.service.CaptureSessionService;
 import br.com.greenv.videoapi.service.IdentityAdminService;
 import br.com.greenv.videoapi.service.JobService;
+import br.com.greenv.videoapi.service.OperationsService;
 import br.com.greenv.videoapi.service.TransientCleanupService;
 import br.com.greenv.videoapi.storage.JdbcAuthSessionStoreAdapter;
 import br.com.greenv.videoapi.storage.JdbcCaptureSessionStoreAdapter;
 import br.com.greenv.videoapi.storage.JdbcOAuthClientStoreAdapter;
+import br.com.greenv.videoapi.storage.JdbcServiceOrderStoreAdapter;
+import br.com.greenv.videoapi.storage.JdbcTeamStoreAdapter;
 import br.com.greenv.videoapi.storage.JdbcUserStoreAdapter;
 import br.com.greenv.videoapi.storage.LocalCaptureObjectStorageAdapter;
 import br.com.greenv.videoapi.storage.S3CaptureObjectStorageAdapter;
@@ -72,10 +80,13 @@ class CloudAgnosticArchitectureTest {
         assertInboundDependencies(OAuthTokenController.class);
         assertInboundDependencies(JwkSetController.class);
         assertInboundDependencies(IdentityAdminController.class);
+        assertInboundDependencies(ServiceOrderController.class);
+        assertInboundDependencies(TeamController.class);
         assertThat(CaptureSessionUseCase.class).isAssignableFrom(CaptureSessionService.class);
         assertThat(LegacyJobUseCase.class).isAssignableFrom(JobService.class);
         assertThat(AuthenticationUseCase.class).isAssignableFrom(AuthenticationService.class);
         assertThat(IdentityAdminUseCase.class).isAssignableFrom(IdentityAdminService.class);
+        assertThat(OperationsUseCase.class).isAssignableFrom(OperationsService.class);
     }
 
     @Test
@@ -84,6 +95,7 @@ class CloudAgnosticArchitectureTest {
         assertNoMethodTypeFromPackage(LegacyJobUseCase.class, "br.com.greenv.videoapi.api");
         assertNoMethodTypeFromPackage(AuthenticationUseCase.class, "br.com.greenv.videoapi.api");
         assertNoMethodTypeFromPackage(IdentityAdminUseCase.class, "br.com.greenv.videoapi.api");
+        assertNoMethodTypeFromPackage(OperationsUseCase.class, "br.com.greenv.videoapi.api");
     }
 
     @Test
@@ -104,6 +116,8 @@ class CloudAgnosticArchitectureTest {
         assertThat(UserStore.class).isAssignableFrom(JdbcUserStoreAdapter.class);
         assertThat(AuthSessionStore.class).isAssignableFrom(JdbcAuthSessionStoreAdapter.class);
         assertThat(OAuthClientStore.class).isAssignableFrom(JdbcOAuthClientStoreAdapter.class);
+        assertThat(TeamStore.class).isAssignableFrom(JdbcTeamStoreAdapter.class);
+        assertThat(ServiceOrderStore.class).isAssignableFrom(JdbcServiceOrderStoreAdapter.class);
         assertThat(AccessTokenIssuer.class).isAssignableFrom(NimbusAccessTokenIssuerAdapter.class);
         assertThat(AccessTokenVerifier.class).isAssignableFrom(NimbusAccessTokenVerifierAdapter.class);
         assertThat(JwkSetProvider.class).isAssignableFrom(RsaJwkSetProviderAdapter.class);
@@ -122,6 +136,8 @@ class CloudAgnosticArchitectureTest {
         assertThat(JdbcUserStoreAdapter.class.getSimpleName()).endsWith("Adapter");
         assertThat(JdbcAuthSessionStoreAdapter.class.getSimpleName()).endsWith("Adapter");
         assertThat(JdbcOAuthClientStoreAdapter.class.getSimpleName()).endsWith("Adapter");
+        assertThat(JdbcTeamStoreAdapter.class.getSimpleName()).endsWith("Adapter");
+        assertThat(JdbcServiceOrderStoreAdapter.class.getSimpleName()).endsWith("Adapter");
         assertThat(NimbusAccessTokenIssuerAdapter.class.getSimpleName()).endsWith("Adapter");
         assertThat(NimbusAccessTokenVerifierAdapter.class.getSimpleName()).endsWith("Adapter");
         assertThat(RsaJwkSetProviderAdapter.class.getSimpleName()).endsWith("Adapter");
@@ -146,6 +162,9 @@ class CloudAgnosticArchitectureTest {
                 .extracting(field -> field.getType().getPackageName())
                 .noneMatch(this::isAdapterPackage);
         assertThat(IdentityAdminService.class.getDeclaredFields())
+                .extracting(field -> field.getType().getPackageName())
+                .noneMatch(this::isAdapterPackage);
+        assertThat(OperationsService.class.getDeclaredFields())
                 .extracting(field -> field.getType().getPackageName())
                 .noneMatch(this::isAdapterPackage);
     }

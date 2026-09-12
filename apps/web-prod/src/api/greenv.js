@@ -94,6 +94,50 @@ export const measurements = {
   },
 }
 
+export const teams = {
+  list() {
+    return getJson('/v2/teams')
+  },
+}
+
+export const serviceOrders = {
+  list({ status, priority, teamId, search, limit = 50, offset = 0 } = {}) {
+    const query = new URLSearchParams({ limit, offset })
+    if (status) query.set('status', status)
+    if (priority) query.set('priority', priority)
+    if (teamId) query.set('teamId', teamId)
+    if (search) query.set('search', search)
+    return getJson(`/v2/service-orders?${query}`)
+  },
+
+  get(orderId) {
+    return getJson(`/v2/service-orders/${orderId}`)
+  },
+
+  /**
+   * Abre uma ordem contra trechos medidos.
+   *
+   * Só os alvos e o plano vão no corpo. A área, o nível e o centro são lidos dos trechos pela
+   * API: uma ordem precisa poder dizer que evidência a justificou, e um cliente que pudesse
+   * enviar esses números poderia abrir uma ordem alegando uma altura que ninguém mediu.
+   */
+  open({ priority, teamId, scheduledFor, notes, targets }) {
+    return sendJson('/v2/service-orders', 'POST', {
+      priority, teamId: teamId || null, scheduledFor: scheduledFor || null,
+      notes: notes || null, targets,
+    })
+  },
+
+  amend(orderId, changes) {
+    return sendJson(`/v2/service-orders/${orderId}`, 'PATCH', changes)
+  },
+
+  /** Cancela. A linha permanece: uma ordem aberta é uma decisão que alguém tomou. */
+  cancel(orderId) {
+    return sendJson(`/v2/service-orders/${orderId}`, 'DELETE')
+  },
+}
+
 /**
  * O nível de um segmento medido, com o mesmo cuidado que o resto do sistema tem.
  *

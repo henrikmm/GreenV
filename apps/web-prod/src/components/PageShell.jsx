@@ -1,4 +1,4 @@
-import { NavBar, LayoutDashboard, MapIcon } from '@greenv/web-core'
+import { NavBar, LayoutDashboard, MapIcon, ClipboardList, Users } from '@greenv/web-core'
 
 /**
  * O casco de altura total que toda tela precisa ter.
@@ -12,8 +12,10 @@ import { NavBar, LayoutDashboard, MapIcon } from '@greenv/web-core'
  * não quer rolagem nem padding, e por isso existe a variante `fill`.
  */
 export const TABS = [
-  { key: 'sessions', label: 'Sessões', path: '/sessoes', icon: LayoutDashboard },
+  { key: 'sessions', label: 'Visão Geral', path: '/sessoes', icon: LayoutDashboard },
   { key: 'map', label: 'Mapa', path: '/mapa', icon: MapIcon },
+  { key: 'orders', label: 'Ordens de Serviço', path: '/ordens', icon: ClipboardList },
+  { key: 'teams', label: 'Equipes', path: '/equipes', icon: Users },
 ]
 
 const s = {
