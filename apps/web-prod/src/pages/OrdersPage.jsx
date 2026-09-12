@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { RotateCw, Trash2, ClipboardList, Layers } from 'lucide-react'
-import { Badge, STATUS_MAP, PRIORITY_MAP, LEVELS, vegetationLevel, useToast } from '@greenv/web-core'
+import { AnimatePresence } from 'framer-motion'
+import { RotateCw, Trash2, ClipboardList, Layers, History } from 'lucide-react'
+import {
+  Badge, STATUS_MAP, PRIORITY_MAP, LEVELS, vegetationLevel, useToast, OrderHistoryModal,
+} from '@greenv/web-core'
 import { serviceOrders, teams as teamsApi } from '../api/greenv'
 import PageShell from '../components/PageShell'
 
@@ -77,12 +80,28 @@ function formatArea(squareMetres) {
   return `${Math.round(squareMetres).toLocaleString('pt-BR')} m²`
 }
 
+/**
+ * O histórico compartilhado fala em `id`, `at` e `by`; a API fala em `reference`, `recordedAt`
+ * e `recordedBy`. Traduzir aqui é mais barato do que dar ao componente uma segunda forma.
+ */
+function toSharedShape(order) {
+  return {
+    id: order.reference,
+    status: order.status,
+    createdAt: order.createdAt,
+    history: order.history.map(event => ({
+      status: event.status, at: event.recordedAt, by: event.recordedBy,
+    })),
+  }
+}
+
 export default function OrdersPage() {
   const { addToast } = useToast()
   const [state, setState] = useState({ loading: true, orders: [], teams: [] })
   const [filterStatus, setFilterStatus] = useState('all')
   const [filterPriority, setFilterPriority] = useState('all')
   const [search, setSearch] = useState('')
+  const [historyOrder, setHistoryOrder] = useState(null)
 
   const load = useCallback(() => {
     setState(previous => ({ ...previous, loading: true }))
@@ -243,6 +262,10 @@ export default function OrdersPage() {
                   </td>
                   <td style={s.td}>{teamName(order.teamId)}</td>
                   <td style={s.td}>
+                    <button style={s.actionBtn} title="Histórico"
+                      onClick={() => setHistoryOrder(toSharedShape(order))}>
+                      <History size={13} />
+                    </button>
                     <button style={s.actionBtn} title="Avançar status" onClick={() => advance(order)}>
                       <RotateCw size={13} />
                     </button>
@@ -261,6 +284,12 @@ export default function OrdersPage() {
           </tbody>
         </table>
       )}
+
+      <AnimatePresence>
+        {historyOrder && (
+          <OrderHistoryModal order={historyOrder} onClose={() => setHistoryOrder(null)} />
+        )}
+      </AnimatePresence>
     </PageShell>
   )
 }
