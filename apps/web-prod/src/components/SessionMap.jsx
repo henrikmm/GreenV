@@ -46,6 +46,8 @@ export default function SessionMap({ track, frames = [], onFrameClick, height = 
       center={[-23.55, -46.7]} zoom={13}
       style={{ height, width: '100%', borderRadius: 'var(--radius-md)' }}
       scrollWheelZoom
+      // A mesma base cinza da demonstração, para que a cor na tela seja a do nível e não a do mapa.
+      className="map-mono"
     >
       <TileLayer
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"

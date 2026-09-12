@@ -10,9 +10,29 @@ import { LEVELS, vegetationLevel } from '@greenv/web-core'
  * KMZ sobre ele. Aqui não há corredor: cada sessão está onde foi capturada, e o enquadramento
  * tem de ser calculado a partir do que existe. Duas sessões a treze quilômetros da SP-021
  * aparecem no lugar onde realmente foram gravadas, que é a resposta honesta.
+ *
+ * As duas camadas são as mesmas que a API desenha: a linha é onde a câmera passou, e o polígono
+ * é essa linha alargada nos cinco metros que a grade mediu — dos dois lados, porque o pacote
+ * dobra os lados e nunca registrou de qual deles a célula veio.
  */
-export default function SessionsMap({ tracks = [], selectedId, onSelect, onOpen }) {
+export default function SessionsMap({
+  tracks = [], selectedId, onSelect, onOpen,
+  layers = { track: true, band: true }, filterLevel = null, satellite = false,
+}) {
   const drawn = useMemo(() => tracks.filter(entry => entry.track?.features?.length), [tracks])
+
+  const visible = useMemo(() => drawn.map(({ session, track }) => ({
+    session,
+    track: {
+      ...track,
+      features: track.features.filter(feature => {
+        const kind = feature.properties?.kind
+        if (kind === 'band' && !layers.band) return false
+        if (kind === 'track' && !layers.track) return false
+        return filterLevel === null || vegetationLevel(feature.properties?.level) === filterLevel
+      }),
+    },
+  })).filter(entry => entry.track.features.length), [drawn, layers, filterLevel])
 
   const styleFor = (sessionId) => (feature) => {
     const level = LEVELS[vegetationLevel(feature.properties?.level)] ?? LEVELS[0]
@@ -39,15 +59,25 @@ export default function SessionsMap({ tracks = [], selectedId, onSelect, onOpen 
   }
 
   return (
-    <MapContainer center={[-23.55, -46.7]} zoom={12} style={{ flex: 1, height: '100%' }} scrollWheelZoom>
-      <TileLayer
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        attribution="&copy; OpenStreetMap"
-      />
-      <FitToTracks tracks={drawn} selectedId={selectedId} />
-      {drawn.map(({ session, track }) => (
+    <MapContainer
+      center={[-23.55, -46.7]} zoom={12} style={{ flex: 1, height: '100%' }} scrollWheelZoom
+      className={satellite ? '' : 'map-mono'}
+    >
+      {satellite ? (
+        <TileLayer
+          attribution="Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics"
+          url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+        />
+      ) : (
+        <TileLayer
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
+      )}
+      <FitToTracks tracks={visible} selectedId={selectedId} />
+      {visible.map(({ session, track }) => (
         <GeoJSON
-          key={`${session.sessionId}:${selectedId === session.sessionId}`}
+          key={`${session.sessionId}:${selectedId === session.sessionId}:${filterLevel}:${layers.track}:${layers.band}`}
           data={track}
           style={styleFor(session.sessionId)}
           onEachFeature={(feature, layer) => {
