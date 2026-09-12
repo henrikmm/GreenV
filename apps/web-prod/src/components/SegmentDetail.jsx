@@ -15,18 +15,35 @@ import SessionMap from './SessionMap'
  * pede três vezes o mesmo GeoJSON.
  */
 const s = {
-  panel: { display: 'grid', gridTemplateColumns: 'minmax(0, 3fr) minmax(220px, 2fr)', gap: 14, padding: '4px 0 14px' },
+  // Os dois lados esticam juntos: a grade já iguala a altura das colunas, e o mapa ocupa o que
+  // sobra da sua. Com altura fixa ele virava uma tira de 1031 por 260 numa tela larga, com um
+  // palmo de branco embaixo, enquanto a foto ao lado descia três vezes mais.
+  panel: {
+    display: 'grid', gridTemplateColumns: 'minmax(0, 3fr) minmax(260px, 2fr)',
+    gap: 14, padding: '4px 0 14px', alignItems: 'stretch',
+  },
+  mapColumn: { display: 'flex', flexDirection: 'column', minWidth: 0 },
+  mapCard: { flex: 1, minHeight: 260 },
   card: {
     background: 'white', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)',
     overflow: 'hidden',
   },
   frameBox: { padding: 12, display: 'flex', flexDirection: 'column', gap: 10 },
-  // The captures are portrait phone video, so an uncapped width:100% drew a photograph
-  // nearly a screen tall and pushed the strip and the readings below the fold. Capped at
-  // the map's own height next to it, and centred rather than letterboxed.
+  // Os quadros saem da câmera em pé, 576 por 1024. Sem teto, `width: 100%` desenhava uns 750
+  // pixels de altura e empurrava a tira e as leituras para fora da tela. O teto é a altura, não
+  // a largura, para que um quadro em pé estreite em vez de ganhar tarjas.
+  //
+  // E o que sobrava ao lado de uma foto estreita era branco, enquanto as leituras caíam abaixo
+  // da dobra. Lado a lado o painel encurta e o número fica visível junto da imagem de que ele
+  // fala; quebra em duas linhas quando a coluna aperta.
+  frameHead: { display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' },
+  framePlate: {
+    background: 'var(--bg-secondary)', borderRadius: 'var(--radius-sm)',
+    display: 'grid', placeItems: 'center', padding: 8, flex: '0 0 auto',
+  },
+  frameSide: { flex: '1 1 190px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 8 },
   frameImage: {
-    maxWidth: '100%', maxHeight: 300, margin: '0 auto', borderRadius: 'var(--radius-sm)',
-    display: 'block', background: 'var(--bg-secondary)',
+    maxWidth: '100%', maxHeight: 340, borderRadius: 'var(--radius-sm)', display: 'block',
   },
   frameMeta: { fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.7 },
   strip: { display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 },
@@ -42,7 +59,7 @@ const s = {
   },
   summaryValue: { fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--text-primary)' },
   readings: {
-    borderTop: '1px solid var(--border)', paddingTop: 10, marginTop: 2,
+    borderTop: '1px solid var(--border)', paddingTop: 8,
     display: 'flex', flexDirection: 'column', gap: 6,
   },
   readingTitle: {
@@ -114,7 +131,7 @@ export default function SegmentDetail({ segment, place }) {
 
   return (
     <div style={s.panel}>
-      <div>
+      <div style={s.mapColumn}>
         <div style={s.summary}>
           <span>altura p95 <span style={{ ...s.summaryValue, color: LEVELS[level].color }}>
             {segment.measurementExtent95P95M != null
@@ -133,74 +150,80 @@ export default function SegmentDetail({ segment, place }) {
           </span></span>
           <span>quadros <span style={s.summaryValue}>{frames?.length ?? 0}</span></span>
         </div>
-        <div style={s.card}>
-          <SessionMap track={track} frames={frames} onFrameClick={setSelected} height={260} />
+        <div style={{ ...s.card, ...s.mapCard }}>
+          <SessionMap track={track} frames={frames} onFrameClick={setSelected} height="100%" />
         </div>
       </div>
 
       <div style={{ ...s.card, ...s.frameBox }}>
         {selected ? (
           <>
-            <img src={selected.imageUrl} alt={selected.fileName} style={s.frameImage} />
-            <div style={s.frameMeta}>
-              <strong style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>
-                {selected.fileName}
-              </strong><br />
-              {selected.capturedAtUtc && new Date(selected.capturedAtUtc).toLocaleString('pt-BR')}<br />
-              precisão {selected.horizontalAccuracyMeters?.toFixed(1) ?? '?'} m · {selected.locationQuality ?? 'sem posição'}
-            </div>
+            <div style={s.frameHead}>
+              <div style={s.framePlate}>
+                <img src={selected.imageUrl} alt={selected.fileName} style={s.frameImage} />
+              </div>
+              <div style={s.frameSide}>
+                <div style={s.frameMeta}>
+                  <strong style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>
+                    {selected.fileName}
+                  </strong><br />
+                  {selected.capturedAtUtc && new Date(selected.capturedAtUtc).toLocaleString('pt-BR')}<br />
+                  precisão {selected.horizontalAccuracyMeters?.toFixed(1) ?? '?'} m · {selected.locationQuality ?? 'sem posição'}
+              </div>
 
-            <div style={s.readings}>
-              <div style={s.readingTitle}>O que este quadro mediu</div>
-              {readings === null && <div style={s.readingNote}>Carregando…</div>}
-              {readings?.cellsVoted === 0 && (
-                <div style={s.readingNote}>
-                  Este quadro não votou em nenhuma célula. Ou não alcançou o piso de voxels em
-                  lugar nenhum da faixa, ou o pacote desta medição não guardou o detalhe.
-                </div>
-              )}
-              {readings?.cellsVoted > 0 && (
-                <>
-                  <div style={s.readingRow}>
-                    <span>células votadas</span>
-                    <span style={s.readingValue}>{readings.cellsVoted}</span>
+              <div style={s.readings}>
+                <div style={s.readingTitle}>O que este quadro mediu</div>
+                {readings === null && <div style={s.readingNote}>Carregando…</div>}
+                {readings?.cellsVoted === 0 && (
+                  <div style={s.readingNote}>
+                    Este quadro não votou em nenhuma célula. Ou não alcançou o piso de voxels em
+                    lugar nenhum da faixa, ou o pacote desta medição não guardou o detalhe.
                   </div>
-                  <div style={s.readingRow}>
-                    <span>altura mediana</span>
-                    <span style={s.readingValue}>
-                      {readings.extent95MedianM != null
-                        ? `${(readings.extent95MedianM * 100).toFixed(0)} cm`
-                        : '—'}
-                    </span>
-                  </div>
-                  <div style={s.readingRow}>
-                    <span>maior altura</span>
-                    <span style={s.readingValue}>
-                      {readings.extent95MaxM != null
-                        ? `${(readings.extent95MaxM * 100).toFixed(0)} cm`
-                        : '—'}
-                    </span>
-                  </div>
-                  {readings.largestDisagreementM != null && (
+                )}
+                {readings?.cellsVoted > 0 && (
+                  <>
                     <div style={s.readingRow}>
-                      <span>maior discordância</span>
+                      <span>células votadas</span>
+                      <span style={s.readingValue}>{readings.cellsVoted}</span>
+                    </div>
+                    <div style={s.readingRow}>
+                      <span>altura mediana</span>
                       <span style={s.readingValue}>
-                        {(readings.largestDisagreementM * 100).toFixed(0)} cm
+                        {readings.extent95MedianM != null
+                          ? `${(readings.extent95MedianM * 100).toFixed(0)} cm`
+                          : '—'}
                       </span>
                     </div>
-                  )}
-                  {readings.evidenceForCells > 0 && (
-                    <div style={s.readingNote}>
-                      Escolhido como evidência em {readings.evidenceForCells}{' '}
-                      {readings.evidenceForCells === 1 ? 'célula' : 'células'}.
+                    <div style={s.readingRow}>
+                      <span>maior altura</span>
+                      <span style={s.readingValue}>
+                        {readings.extent95MaxM != null
+                          ? `${(readings.extent95MaxM * 100).toFixed(0)} cm`
+                          : '—'}
+                      </span>
                     </div>
-                  )}
-                  <div style={s.readingNote}>
-                    Altura acima do solo local de cada célula. A discordância é a diferença entre
-                    o que este quadro votou e o que a célula concluiu com todos os quadros.
-                  </div>
-                </>
-              )}
+                    {readings.largestDisagreementM != null && (
+                      <div style={s.readingRow}>
+                        <span>maior discordância</span>
+                        <span style={s.readingValue}>
+                          {(readings.largestDisagreementM * 100).toFixed(0)} cm
+                        </span>
+                      </div>
+                    )}
+                    {readings.evidenceForCells > 0 && (
+                      <div style={s.readingNote}>
+                        Escolhido como evidência em {readings.evidenceForCells}{' '}
+                        {readings.evidenceForCells === 1 ? 'célula' : 'células'}.
+                      </div>
+                    )}
+                    <div style={s.readingNote}>
+                      Altura acima do solo local de cada célula. A discordância é a diferença entre
+                      o que este quadro votou e o que a célula concluiu com todos os quadros.
+                    </div>
+                  </>
+                )}
+                </div>
+              </div>
             </div>
           </>
         ) : (

@@ -76,7 +76,11 @@ const s = {
   }),
   empty: { padding: 40, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 },
   row: (open) => ({ cursor: 'pointer', background: open ? 'var(--motiva-subtle)' : 'transparent' }),
-  chevron: { color: 'var(--text-muted)', display: 'flex', alignItems: 'center' },
+  // Sem `display: flex` aqui. Uma célula que vira contêiner flex deixa de ser célula: sai da
+  // grade de colunas da tabela e se desenha por conta própria, que era a coluna solta e
+  // deslocada à direita, com traços que não batiam com as linhas.
+  chevron: { color: 'var(--text-muted)', width: 34, textAlign: 'center', lineHeight: 0 },
+  chevronIcon: { display: 'inline-block', verticalAlign: 'middle' },
   detailCell: { padding: '0 14px', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border)' },
 }
 
@@ -251,7 +255,9 @@ export default function SegmentsPage() {
                           : '—'}
                       </td>
                       <td style={{ ...s.td, ...s.chevron }}>
-                        {openKey === keyOf(segment) ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                        {openKey === keyOf(segment)
+                          ? <ChevronDown size={15} style={s.chevronIcon} />
+                          : <ChevronRight size={15} style={s.chevronIcon} />}
                       </td>
                     </tr>
                     {openKey === keyOf(segment) && (

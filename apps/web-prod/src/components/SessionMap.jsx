@@ -34,7 +34,7 @@ export default function SessionMap({ track, frames = [], onFrameClick, height = 
   if (!track || !track.features?.length) {
     return (
       <div style={{
-        height, display: 'grid', placeItems: 'center', borderRadius: 'var(--radius-md)',
+        height, minHeight: 220, display: 'grid', placeItems: 'center', borderRadius: 'var(--radius-md)',
         border: '1px dashed var(--border)', color: 'var(--text-muted)', fontSize: 14,
       }}>
         Esta sessão ainda não tem trilha desenhável.
@@ -45,7 +45,7 @@ export default function SessionMap({ track, frames = [], onFrameClick, height = 
   return (
     <MapContainer
       center={[-23.55, -46.7]} zoom={13}
-      style={{ height, width: '100%', borderRadius: 'var(--radius-md)' }}
+      style={{ height, minHeight: 220, width: '100%', borderRadius: 'var(--radius-md)' }}
       scrollWheelZoom
       // A mesma base cinza da demonstração, para que a cor na tela seja a do nível e não a do mapa.
       className="map-mono"
@@ -54,6 +54,7 @@ export default function SessionMap({ track, frames = [], onFrameClick, height = 
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         attribution="&copy; OpenStreetMap"
       />
+      <KeepSized />
       <FitToTrack track={track} />
       <SessionRoute track={track} />
       <GeoJSON key={JSON.stringify(track).length} data={track} style={styleFor} />
@@ -90,6 +91,26 @@ export default function SessionMap({ track, frames = [], onFrameClick, height = 
       ))}
     </MapContainer>
   )
+}
+
+/**
+ * Leaflet mede o contêiner uma vez, na montagem.
+ *
+ * Quando o mapa preenche uma coluna em vez de ter altura fixa, essa altura só existe depois que
+ * o irmão ao lado decidiu a dele, e a medida da montagem fica velha — as peças ficam cortadas e
+ * o enquadramento sai errado. Observar o contêiner custa nada e vale também para a janela
+ * mudando de tamanho.
+ */
+function KeepSized() {
+  const map = useMap()
+
+  useEffect(() => {
+    const observer = new ResizeObserver(() => map.invalidateSize())
+    observer.observe(map.getContainer())
+    return () => observer.disconnect()
+  }, [map])
+
+  return null
 }
 
 /** Cada sessão está num lugar diferente, então o enquadramento não pode ser fixo. */
