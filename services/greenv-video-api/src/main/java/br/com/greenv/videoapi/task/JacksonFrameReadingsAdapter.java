@@ -44,7 +44,7 @@ public class JacksonFrameReadingsAdapter implements FrameReadingsReader {
             JsonNode root = objectMapper.readTree(new String(assessment, StandardCharsets.UTF_8));
             Map<Integer, Accumulator> byFrame = new HashMap<>();
 
-            for (JsonNode cell : root.path("measurements")) {
+            for (JsonNode cell : cellsOf(root)) {
                 Double localGround = decimal(cell, "localGroundM");
                 Double cellH95 = decimal(cell, "h95M");
 
@@ -83,6 +83,20 @@ public class JacksonFrameReadingsAdapter implements FrameReadingsReader {
         } catch (RuntimeException unreadable) {
             return List.of();
         }
+    }
+
+    /**
+     * The cells, wherever the file puts them.
+     *
+     * <p>`assessment.json` wraps the assessment in an `assessment` key, which is what
+     * {@code JacksonMeasurementProjectionAdapter} has always read and what this missed on its
+     * first attempt: reading the root found nothing, wrote no rows, and failed silently because
+     * an unreadable assessment is a legitimate outcome here. The unwrapped shape is accepted too
+     * so a future packet that drops the wrapper does not repeat the same quiet nothing.
+     */
+    private static JsonNode cellsOf(JsonNode root) {
+        JsonNode wrapped = root.path("assessment").path("measurements");
+        return wrapped.isArray() ? wrapped : root.path("measurements");
     }
 
     private static Accumulator accumulator(Map<Integer, Accumulator> byFrame, int frame) {
