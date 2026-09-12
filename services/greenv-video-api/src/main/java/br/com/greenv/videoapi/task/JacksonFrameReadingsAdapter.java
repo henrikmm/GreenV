@@ -49,14 +49,17 @@ public class JacksonFrameReadingsAdapter implements FrameReadingsReader {
                 Double cellH95 = decimal(cell, "h95M");
 
                 for (JsonNode index : cell.path("evidenceFrameIndices")) {
-                    accumulator(byFrame, index.asInt(Integer.MIN_VALUE)).evidenceFor++;
+                    int canonical = canonicalOf(index.asInt(Integer.MIN_VALUE));
+                    if (canonical != Integer.MIN_VALUE) {
+                        accumulator(byFrame, canonical).evidenceFor++;
+                    }
                 }
                 for (JsonNode vote : cell.path("frameVotes")) {
-                    int frame = vote.path("frameIndex").asInt(Integer.MIN_VALUE);
-                    if (frame == Integer.MIN_VALUE) {
+                    int canonical = canonicalOf(vote.path("frameIndex").asInt(Integer.MIN_VALUE));
+                    if (canonical == Integer.MIN_VALUE) {
                         continue;
                     }
-                    Accumulator into = accumulator(byFrame, frame);
+                    Accumulator into = accumulator(byFrame, canonical);
                     into.cellsVoted++;
                     into.sampleCount += vote.path("sampleCount").asLong(0);
 
@@ -83,6 +86,23 @@ public class JacksonFrameReadingsAdapter implements FrameReadingsReader {
         } catch (RuntimeException unreadable) {
             return List.of();
         }
+    }
+
+    /**
+     * The assessment counts frames from zero; the JPEGs are named from one.
+     *
+     * <p>`frame-context.mjs` in the measurement worker states the rule — "the extractor writes
+     * `frame-%04d.jpg` starting at 1. So canonical = FrameRecord.index + 1" — and the packets on
+     * record agree exactly: a segment publishing `frame-0001.jpg` through `frame-0103.jpg`
+     * carries assessment indices 0 through 102. Checked against three segments on 12 September
+     * 2026, each matching at the top of its range.
+     *
+     * <p>Getting this wrong is not visibly wrong, which is why it has a comment and a test.
+     * Neighbouring frames photograph nearly the same patch, so an off-by-one shows plausible
+     * heights for the wrong picture.
+     */
+    private static int canonicalOf(int frameIndex) {
+        return frameIndex == Integer.MIN_VALUE ? Integer.MIN_VALUE : frameIndex + 1;
     }
 
     /**

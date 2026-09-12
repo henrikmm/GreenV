@@ -28,7 +28,10 @@ class JacksonFrameReadingsAdapterTest {
         return json.getBytes(StandardCharsets.UTF_8);
     }
 
-    /** Two cells. Frame 7 votes in both, frame 9 in one. Ground is 0.10 m in the first cell. */
+    /**
+     * Two cells. Assessment index 6 votes in both, index 8 in one; those are the JPEGs
+     * `frame-0007.jpg` and `frame-0009.jpg`. Ground is 0.10 m in the first cell.
+     */
     private static final String WRAPPED =
             """
             {
@@ -39,10 +42,10 @@ class JacksonFrameReadingsAdapterTest {
                     "localGroundM": 0.10,
                     "h95M": 0.60,
                     "status": "measured",
-                    "evidenceFrameIndices": [7],
+                    "evidenceFrameIndices": [6],
                     "frameVotes": [
-                      {"frameIndex": 7, "sampleCount": 40, "h50M": 0.3, "h90M": 0.5, "h95M": 0.70},
-                      {"frameIndex": 9, "sampleCount": 10, "h50M": 0.2, "h90M": 0.4, "h95M": 0.55}
+                      {"frameIndex": 6, "sampleCount": 40, "h50M": 0.3, "h90M": 0.5, "h95M": 0.70},
+                      {"frameIndex": 8, "sampleCount": 10, "h50M": 0.2, "h90M": 0.4, "h95M": 0.55}
                     ]
                   },
                   {
@@ -52,7 +55,7 @@ class JacksonFrameReadingsAdapterTest {
                     "status": "measured",
                     "evidenceFrameIndices": [],
                     "frameVotes": [
-                      {"frameIndex": 7, "sampleCount": 60, "h50M": 0.4, "h90M": 0.8, "h95M": 0.90}
+                      {"frameIndex": 6, "sampleCount": 60, "h50M": 0.4, "h90M": 0.8, "h95M": 0.90}
                     ]
                   }
                 ]
@@ -65,6 +68,20 @@ class JacksonFrameReadingsAdapterTest {
         List<FrameReadings> readings = adapter.readAll(bytes(WRAPPED));
 
         assertThat(readings).extracting(FrameReadings::canonicalFrame).containsExactly(7, 9);
+    }
+
+    /**
+     * The assessment counts from zero and the JPEGs are named from one.
+     *
+     * <p>Shipped wrong once. Neighbouring frames photograph nearly the same patch, so an
+     * off-by-one shows plausible heights for the wrong picture and nothing looks broken.
+     */
+    @Test
+    void shiftsTheAssessmentIndexOntoTheNumberInTheFileName() {
+        List<FrameReadings> readings = adapter.readAll(bytes(WRAPPED));
+
+        // The fixture votes with indices 6 and 8, which are frame-0007.jpg and frame-0009.jpg.
+        assertThat(readings).extracting(FrameReadings::canonicalFrame).doesNotContain(6, 8);
     }
 
     @Test
@@ -118,7 +135,7 @@ class JacksonFrameReadingsAdapterTest {
                   {"coordinate": {"alongRoadM": 1.0, "distanceFromRoadM": 2.0},
                    "localGroundM": null, "h95M": 0.60, "status": "insufficient-support",
                    "evidenceFrameIndices": [], "frameVotes": [
-                     {"frameIndex": 3, "sampleCount": 5, "h50M": 0.2, "h90M": 0.4, "h95M": 0.5}]}
+                     {"frameIndex": 2, "sampleCount": 5, "h50M": 0.2, "h90M": 0.4, "h95M": 0.5}]}
                 ]}}
                 """;
 
