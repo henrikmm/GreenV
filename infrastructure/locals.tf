@@ -150,7 +150,10 @@ locals {
     # Nominatim's usage policy asks every caller to identify itself and to be reachable. A
     # deployment that will not do that should set GREENV_PLACES_ENABLED to false and get
     # kilometre markers only, rather than send an anonymous request a second.
-    GREENV_PLACES_USER_AGENT = "GreenV/${var.environment} (${var.api_hostname})"
+    # `coalesce`, not a bare interpolation: `api_hostname` is optional and null by default,
+    # and a null inside a template is a plan error rather than an empty string. Ten of the
+    # sixteen `terraform test` runs leave it unset, which is how this broke CI once.
+    GREENV_PLACES_USER_AGENT = "GreenV/${var.environment} (${coalesce(var.api_hostname, var.project_name)})"
 
     GREENV_RABBITMQ_DYNAMIC                    = "false"
     PORT                                       = "8080"
