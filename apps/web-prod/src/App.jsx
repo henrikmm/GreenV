@@ -4,7 +4,7 @@ import { auth } from './api/greenv'
 import LoginPage from './pages/LoginPage'
 import SessionsPage from './pages/SessionsPage'
 import SessionDetailPage from './pages/SessionDetailPage'
-import AppBar from './components/AppBar'
+import MapPage from './pages/MapPage'
 
 /**
  * A versão que fala com a API.
@@ -22,8 +22,9 @@ function Shell() {
       <Route path="/login" element={<LoginPage />} />
       <Route element={<ProtectedRoute />}>
         <Route path="/" element={<Navigate to="/sessoes" replace />} />
-        <Route path="/sessoes" element={<AppBar><SessionsPage /></AppBar>} />
-        <Route path="/sessoes/:sessionId" element={<AppBar><SessionDetailPage /></AppBar>} />
+        <Route path="/sessoes" element={<SessionsPage />} />
+        <Route path="/sessoes/:sessionId" element={<SessionDetailPage />} />
+        <Route path="/mapa" element={<MapPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/sessoes" replace />} />
     </Routes>

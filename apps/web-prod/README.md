@@ -86,11 +86,24 @@ que a raiz e os nomes dos arquivos carregam um hash que muda a cada build.
 `public/_redirects` manda todo caminho para `index.html` com status 200. Sem isso, qualquer link
 aberto direto ou recarregado devolve 404 e só a raiz funciona.
 
-## O que o painel mostra, e o que ele não afirma
+## As telas
 
-Toda tela que mostra altura mostra também que nenhuma leitura automática foi conferida contra fita
-métrica, e que os limiares de 10 e 30 cm ainda não foram aprovados pela Motiva. Não é enfeite: é a
-diferença entre evidência para olhar e instrução para mandar uma equipe.
+| Rota | O que é |
+|---|---|
+| `/login` | Entrar. Sem botões de acesso rápido: nenhuma senha vive no cliente |
+| `/sessoes` | A lista de capturas, com quantos trechos cada uma tem e quantos foram medidos |
+| `/sessoes/:id` | Uma sessão: a trilha no mapa, a tabela de trechos, e o quadro do ponto clicado |
+| `/mapa` | Todas as sessões no mesmo mapa, com a lista ao lado enquadrando cada uma |
+
+Ordens, equipes e tendências ainda não existem aqui: dependem de tabelas e rotas que a API não tem.
+
+## O que o painel não afirma
+
+O aviso de "leituras não validadas" que ficava no topo de cada tela foi retirado a pedido, em 12 de
+setembro de 2026. O que ele dizia continua verdadeiro e continua no dado: cada `Feature` do GeoJSON
+sai com `operationalStatus: "not-ready"`, e [`docs/AUTOMATIC-HEIGHT.md`](../../docs/AUTOMATIC-HEIGHT.md)
+lista os bloqueadores. Nenhuma altura automática foi conferida contra fita métrica e os limiares de
+10 e 30 cm não foram aprovados pela Motiva — a tela simplesmente não diz mais isso em voz alta.
 
 Três coisas que o formato dos dados impõe e que a tela respeita:
 
@@ -105,6 +118,13 @@ Três coisas que o formato dos dados impõe e que a tela respeita:
 
 ## Estado
 
-Construído e verificado com `npm run build`. Não há teste nem lint neste app, como também não há
-no `web-mock`. As telas de ordens, equipes e tendências ainda não existem aqui: elas dependem de
-tabelas e rotas que a API não tem.
+Construído com `npm run build` e olhado no navegador em 12 de setembro de 2026: as quatro telas
+foram abertas no Edge contra um servidor de mentira com o formato real da API, e o clique num ponto
+da trilha abriu o quadro correspondente. Não há teste nem lint neste app, como também não há no
+`web-mock`.
+
+Uma armadilha que já quebrou este painel uma vez: `global.css` põe `overflow: hidden` em `html`,
+`body` e `#root`, então **toda tela precisa do seu próprio casco de rolagem**. É o que
+`components/PageShell.jsx` faz. Uma página que só empilha conteúdo com padding parece funcionar
+até o conteúdo passar da dobra, e então o resto fica inalcançável — sem barra de rolagem e sem
+erro nenhum no console.
