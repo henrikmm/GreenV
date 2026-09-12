@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { Layers, Filter, ListTree } from 'lucide-react'
+import { Layers, Filter, ListTree, Maximize2 } from 'lucide-react'
 import { LEVELS } from '@greenv/web-core'
 
 /**
@@ -71,6 +71,13 @@ const s = {
     background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: 0,
   },
   state: { fontSize: 12.5, color: 'var(--text-muted)', lineHeight: 1.6 },
+  frameBtn: {
+    width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+    padding: '11px 16px', borderRadius: 'var(--radius-sm)', fontSize: 13, fontWeight: 700,
+    cursor: 'pointer', fontFamily: 'inherit', border: '1.5px solid var(--motiva)',
+    background: 'white', color: 'var(--motiva)',
+  },
+  frameHint: { fontSize: 11.5, color: 'var(--text-muted)', marginTop: 8, lineHeight: 1.5 },
 }
 
 function Toggle({ label, active, onToggle }) {
@@ -87,9 +94,23 @@ export default function SessionsSidebar({
   layers, onToggleLayer, filterLevel, onFilterLevel,
   loading, error,
 }) {
+  const drawableCount = entries.filter(entry => entry.drawable).length
+
   return (
     <div style={s.sidebar}>
       <div style={s.body}>
+        <div style={s.section}>
+          {/* Cada sessão está num lugar diferente, então voltar a ver todas de uma vez é a ação
+              que esta tela mais precisa — o equivalente ao "Planejar Rota" da demonstração. */}
+          <motion.button style={s.frameBtn} onClick={() => onSelect(null)} whileTap={{ scale: 0.97 }}>
+            <Maximize2 size={15} /> Enquadrar tudo
+          </motion.button>
+          <div style={s.frameHint}>
+            {drawableCount} de {entries.length} {entries.length === 1 ? 'sessão tem' : 'sessões têm'}
+            {' '}trilha desenhável. Clique numa para enquadrá-la sozinha.
+          </div>
+        </div>
+
         <div style={s.section}>
           <div style={s.sectionTitle}>Resumo — trechos medidos</div>
           <div style={s.statsGrid}>

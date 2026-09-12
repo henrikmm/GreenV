@@ -1,7 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Route, Ruler, TriangleAlert, Camera } from 'lucide-react'
-import { LEVELS, vegetationLevel, AnimatedNumber, Card, useAuth } from '@greenv/web-core'
+import { Route, Ruler, TriangleAlert, Camera, ArrowUpRight } from 'lucide-react'
+import {
+  LEVELS, vegetationLevel, AnimatedNumber, Card, useAuth,
+  LevelDonut, WeeklyBarChart, bucketByWeek,
+} from '@greenv/web-core'
 import { sessions as sessionsApi, measurements } from '../api/greenv'
 import PageShell from '../components/PageShell'
 
@@ -10,8 +13,9 @@ import PageShell from '../components/PageShell'
  *
  * Esta tela não existe na demonstração e não poderia existir antes: até a API ganhar uma rota de
  * listagem, não havia como descobrir o que tinha sido capturado sem já ter o identificador. O
- * arranjo é o da visão geral da demo — indicadores no topo, o resto abaixo — porque é o mesmo
- * produto.
+ * arranjo é o da visão geral da demo — indicadores, dois gráficos, dois cartões, a tabela —
+ * porque é o mesmo produto. O que muda é a origem: aqui cada número sai de uma medição que
+ * existe, e nenhum é semeado.
  */
 const KPI_ACCENTS = ['#5e22f3', '#0ea5a0', '#dc2626', '#ca8a04']
 
@@ -19,15 +23,35 @@ const s = {
   header: { marginBottom: 22 },
   greeting: { fontSize: 22, fontWeight: 700 },
   subtitle: { fontSize: 13, color: 'var(--text-secondary)', marginTop: 3 },
-  kpiGrid: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 },
+  kpiGrid: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 12 },
   kpiIcon: (bg, c) => ({
     width: 32, height: 32, borderRadius: 9, background: bg, color: c,
     display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 12,
   }),
   kpiValue: { fontSize: 25, fontWeight: 700, fontFamily: 'var(--font-mono)' },
   kpiLabel: { fontSize: 11.5, color: 'var(--text-muted)', marginTop: 3 },
+  chartsGrid: { display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 12, marginBottom: 12 },
   cardTitle: { fontSize: 13, fontWeight: 700, marginBottom: 2 },
   cardHint: { fontSize: 11, color: 'var(--text-muted)', marginBottom: 14 },
+  criticalRow: {
+    display: 'flex', alignItems: 'center', gap: 10, padding: '9px 4px',
+    borderBottom: '1px solid var(--border)',
+  },
+  criticalDot: (c) => ({ width: 8, height: 8, borderRadius: '50%', background: c, flexShrink: 0 }),
+  criticalName: { fontSize: 12.5, fontWeight: 600, flex: 1 },
+  criticalValue: { fontSize: 11.5, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' },
+  linkBtn: {
+    display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600,
+    color: 'var(--motiva)', background: 'none', border: 'none', cursor: 'pointer',
+    fontFamily: 'inherit', marginTop: 10, padding: 0,
+  },
+  statRow: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    padding: '10px 12px', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-sm)',
+    marginBottom: 8,
+  },
+  statLabel: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'var(--text-secondary)' },
+  statValue: { fontSize: 15, fontWeight: 700, fontFamily: 'var(--font-mono)' },
   toolbar: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 },
   toggle: (on) => ({
     padding: '7px 13px', borderRadius: 'var(--radius-sm)', fontSize: 12.5, fontWeight: 600,
@@ -68,23 +92,53 @@ export default function SessionsPage() {
   }, [measuredOnly])
 
   const { page, measured, loading, error } = state
-  const measuredItems = measured?.items ?? []
-  const overdue = measuredItems.filter(m => vegetationLevel(m.measurementLevel) === 3).length
-  const tallest = measuredItems.reduce(
-    (highest, m) => Math.max(highest, m.measurementExtent95P95M ?? 0), 0)
+  const measuredItems = useMemo(() => measured?.items ?? [], [measured])
+
+  const counts = useMemo(() => {
+    const byLevel = { 1: 0, 2: 0, 3: 0 }
+    for (const segment of measuredItems) {
+      const level = vegetationLevel(segment.measurementLevel)
+      if (level > 0) byLevel[level] += 1
+    }
+    return byLevel
+  }, [measuredItems])
+
+  const tallest = useMemo(() => [...measuredItems]
+    .filter(segment => segment.measurementExtent95P95M != null)
+    .sort((a, b) => b.measurementExtent95P95M - a.measurementExtent95P95M)
+    .slice(0, 5), [measuredItems])
+
+  // A precisão do GPS é parte da leitura, não um detalhe de infraestrutura: um trecho medido a
+  // partir de fixes de dezoito metros nao vale o mesmo que um medido a partir de cinco.
+  const byQuality = useMemo(() => {
+    const tally = {}
+    for (const segment of measuredItems) {
+      const quality = segment.trackLocationQuality ?? 'sem posição'
+      tally[quality] = (tally[quality] ?? 0) + 1
+    }
+    return tally
+  }, [measuredItems])
+
+  const weekly = useMemo(
+    () => bucketByWeek((page?.items ?? []).map(session => session.startedAt), 10),
+    [page])
+
+  const overdue = counts[3]
+  const highest = tallest[0]?.measurementExtent95P95M ?? 0
+  const measuredTotal = counts[1] + counts[2] + counts[3]
 
   const kpis = [
     { icon: Route, label: 'Sessões capturadas', value: page?.total ?? 0 },
     { icon: Ruler, label: 'Trechos medidos', value: measured?.total ?? 0 },
     { icon: TriangleAlert, label: 'Acima de 30 cm', value: overdue },
-    { icon: Camera, label: 'Maior altura p95', value: tallest * 100, decimals: 0, suffix: ' cm' },
+    { icon: Camera, label: 'Maior altura p95', value: highest * 100, decimals: 0, suffix: ' cm' },
   ]
 
   return (
     <PageShell currentPage="sessions">
       <div style={s.header}>
         <div style={s.greeting}>Olá, {user?.name?.split(' ')[0] || 'operador'} 👋</div>
-        <div style={s.subtitle}>Cada rota gravada em campo, com o que já foi medido nela.</div>
+        <div style={s.subtitle}>Visão geral das capturas — o que foi gravado e o que já foi medido.</div>
       </div>
 
       <div style={s.kpiGrid}>
@@ -103,7 +157,54 @@ export default function SessionsPage() {
         })}
       </div>
 
-      <Card delay={0.2} style={{ padding: '18px 18px 4px' }}>
+      <div style={s.chartsGrid}>
+        <Card delay={0.15}>
+          <div style={s.cardTitle}>Capturas por semana</div>
+          <div style={s.cardHint}>Sessões gravadas em campo, últimas 10 semanas</div>
+          <WeeklyBarChart data={weekly} label="sessões" />
+        </Card>
+        <Card delay={0.2}>
+          <div style={s.cardTitle}>Trechos por nível</div>
+          <div style={s.cardHint}>Classificação da altura medida em cada trecho</div>
+          <LevelDonut counts={counts} total={measuredTotal} />
+        </Card>
+      </div>
+
+      <div style={s.chartsGrid}>
+        <Card delay={0.25}>
+          <div style={s.cardTitle}>Trechos mais altos</div>
+          <div style={s.cardHint}>Maior altura p95 medida — prioridade máxima</div>
+          {tallest.map(segment => (
+            <div key={`${segment.sessionId}:${segment.segmentIndex}`} style={s.criticalRow}>
+              <span style={s.criticalDot(LEVELS[vegetationLevel(segment.measurementLevel)].color)} />
+              <span style={s.criticalName}>Trecho {segment.segmentIndex}</span>
+              <span style={s.criticalValue}>
+                {(segment.measurementExtent95P95M * 100).toFixed(0)} cm
+              </span>
+            </div>
+          ))}
+          {tallest.length === 0 && <div style={s.empty}>Nenhum trecho medido ainda.</div>}
+          <button style={s.linkBtn} onClick={() => navigate('/mapa')}>
+            Ver no mapa <ArrowUpRight size={13} />
+          </button>
+        </Card>
+        <Card delay={0.3}>
+          <div style={s.cardTitle}>Qualidade do GPS</div>
+          <div style={s.cardHint}>De onde veio a posição de cada trecho medido</div>
+          {Object.entries(byQuality).map(([quality, count]) => (
+            <div key={quality} style={s.statRow}>
+              <span style={s.statLabel}>
+                <span style={s.criticalDot(quality === 'good' ? '#16a34a' : '#ca8a04')} />
+                {quality === 'good' ? 'Boa' : quality === 'poor' ? 'Ruim' : quality}
+              </span>
+              <span style={s.statValue}>{count}</span>
+            </div>
+          ))}
+          {measuredItems.length === 0 && <div style={s.empty}>Nenhum trecho medido ainda.</div>}
+        </Card>
+      </div>
+
+      <Card delay={0.35} style={{ padding: '18px 18px 4px' }}>
         <div style={s.cardTitle}>Sessões de captura</div>
         <div style={s.cardHint}>Clique numa linha para ver a trilha e os quadros daquela sessão.</div>
 

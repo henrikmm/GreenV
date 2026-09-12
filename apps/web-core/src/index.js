@@ -21,6 +21,7 @@ export { default as UserMenu } from './components/UserMenu'
 export { default as ProtectedRoute } from './components/ProtectedRoute'
 export { default as Legend } from './components/Legend'
 export { default as FitBounds } from './components/FitBounds'
+export { default as BasemapTone } from './components/BasemapTone'
 export { default as TimeScrubber } from './components/TimeScrubber'
 export { default as ToastContainer } from './components/ToastContainer'
 

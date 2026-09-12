@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { MapContainer, TileLayer, GeoJSON, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
-import { LEVELS, vegetationLevel } from '@greenv/web-core'
+import { LEVELS, vegetationLevel, BasemapTone } from '@greenv/web-core'
 
 /**
  * Todas as sessões no mesmo mapa.
@@ -61,8 +61,8 @@ export default function SessionsMap({
   return (
     <MapContainer
       center={[-23.55, -46.7]} zoom={12} style={{ flex: 1, height: '100%' }} scrollWheelZoom
-      className={satellite ? '' : 'map-mono'}
     >
+      <BasemapTone mono={!satellite} />
       {satellite ? (
         <TileLayer
           attribution="Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics"
