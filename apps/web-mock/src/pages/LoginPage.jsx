@@ -92,9 +92,12 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
 
-  const doLogin = (mail, pass) => {
-    const result = login(mail, pass)
-    if (!result.ok) { setError(result.error); return }
+  // `login` virou assíncrono quando o core passou a servir também o painel real, que conversa
+  // com a API. Chamá-lo sem esperar devolvia uma promessa, cujo `ok` é indefinido, e a demo
+  // parava no login sem dizer por quê.
+  const doLogin = async (mail, pass) => {
+    const result = await login(mail, pass)
+    if (!result?.ok) { setError(result?.error ?? 'Não foi possível entrar.'); return }
     navigate('/')
     addToast({ type: 'success', message: `Bem-vindo(a), ${result.user?.name?.split(' ')[0] || ''}!` })
   }
