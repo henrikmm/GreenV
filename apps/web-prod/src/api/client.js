@@ -60,6 +60,15 @@ async function failure(response) {
 let refreshing = null
 
 /**
+ * As rotas em que um 401 é a resposta, não um acesso vencido.
+ *
+ * Renovar depois de uma senha errada é pedir para a API confirmar duas vezes que ninguém entrou:
+ * não há sessão para renovar. Só `/v2/auth/me` fica de fora desta lista, porque ali o 401 é
+ * exatamente o sintoma que a renovação existe para resolver.
+ */
+const SESSION_ROUTES = new Set(['/v2/auth/login', '/v2/auth/logout', '/v2/auth/refresh'])
+
+/**
  * Uma requisição, renovando a sessão uma única vez se o acesso tiver expirado.
  *
  * A renovação é compartilhada entre chamadas simultâneas: uma tela que carrega quatro listas ao
@@ -68,7 +77,7 @@ let refreshing = null
  */
 export async function request(path, options = {}) {
   let response = await raw(path, options)
-  if (response.status === 401 && !options.noRetry && path !== '/v2/auth/refresh') {
+  if (response.status === 401 && !options.noRetry && !SESSION_ROUTES.has(path)) {
     refreshing = refreshing ?? raw('/v2/auth/refresh', { method: 'POST' }).finally(() => { refreshing = null })
     const renewed = await refreshing
     if (renewed.ok) response = await raw(path, options)
