@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { AnimatePresence } from 'framer-motion'
 import { ArrowLeft, ClipboardList } from 'lucide-react'
-import { LEVELS, vegetationLevel, Card, describePlace, centreOf } from '@greenv/web-core'
+import { LEVELS, vegetationLevel, Card } from '@greenv/web-core'
 import { sessions, teams as teamsApi } from '../api/greenv'
-import { usePlaceNames } from '../api/places'
+import { placeOfSegment, placeOfSession } from '../api/place'
 import NewOrderModal from '../components/NewOrderModal'
 import SessionMap from '../components/SessionMap'
 import PageShell from '../components/PageShell'
@@ -87,17 +87,11 @@ export default function SessionDetailPage() {
     return () => { live = false }
   }, [sessionId])
 
-  // Antes dos retornos antecipados de propósito: um hook chamado depois de um `return` roda
-  // numa renderização e não na outra, e o React quebra na transição de "carregando" para pronto.
-  //
-  // O lugar vem do centro dos trechos medidos, não do campo de via: aquele era texto livre
-  // digitado em campo e não identifica lugar nenhum. O nome da rua chega depois, do
-  // OpenStreetMap; até lá a coordenada segura o lugar.
-  const centre = centreOf((state.segments ?? [])
-    .filter(segment => segment.measurementState != null)
-    .map(segment => ({ latitude: segment.trackCenterLat, longitude: segment.trackCenterLon })))
-  const streetNames = usePlaceNames(centre ? { session: centre } : {})
-  const place = streetNames.session ?? describePlace(centre)
+  // O lugar vem dos trechos medidos, não do campo de via: aquele era texto livre digitado em
+  // campo e não identifica lugar nenhum. A API resolve a rua de cada trecho; uma sessão que
+  // cruza mais de uma diz a primeira e conta as outras.
+  const place = placeOfSession((state.segments ?? [])
+    .filter(segment => segment.measurementState != null))
 
   if (state.loading) {
     return <PageShell currentPage="sessions"><div style={s.hint}>Carregando sessão…</div></PageShell>

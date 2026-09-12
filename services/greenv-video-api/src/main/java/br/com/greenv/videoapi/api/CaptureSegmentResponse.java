@@ -42,6 +42,19 @@ public record CaptureSegmentResponse(
         Double trackCenterLat,
         Double trackCenterLon,
         String trackLocationQuality,
+        // Where the stretch is, in words, resolved from its own track centre and cached on
+        // the row. Null while the resolver has not been round yet.
+        String placeLabel,
+        String placeDetail,
+        // Approximate, and named so: reverse geocoding answers with the nearest addressable
+        // point, which on a verge is the building across the road.
+        String placeHouseNumber,
+        String placeRoad,
+        // The nearest kilometre post. The posts average 1066 m apart, so this names a
+        // stretch of road and never a position; the offset says how loose it is.
+        Integer placeKm,
+        Double placeKmOffsetM,
+        String placeSource,
         String framesUrl) {
 
     public static CaptureSegmentResponse from(CaptureSegmentDocument segment, String baseUrl) {
@@ -56,6 +69,7 @@ public record CaptureSegmentResponse(
                 : baseUrl + segmentPath + "/measurement";
         String framesUrl = segment.manifestObjectKey() == null ? null : baseUrl + segmentPath + "/frames";
         var measurement = segment.measurement();
+        var place = segment.place();
         return new CaptureSegmentResponse(
                 1,
                 segment.sessionId(),
@@ -86,6 +100,13 @@ public record CaptureSegmentResponse(
                 measurement.trackCenterLat(),
                 measurement.trackCenterLon(),
                 measurement.trackLocationQuality(),
+                place == null ? null : place.label(),
+                place == null ? null : place.detail(),
+                place == null ? null : place.houseNumber(),
+                place == null ? null : place.road(),
+                place == null ? null : place.km(),
+                place == null ? null : place.kmOffsetMetres(),
+                place == null ? null : place.source(),
                 framesUrl);
     }
 }

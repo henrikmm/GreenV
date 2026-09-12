@@ -145,7 +145,13 @@ locals {
   }
 
   api_environment = merge(local.common_environment, {
-    AZURE_CLIENT_ID                            = azurerm_user_assigned_identity.api.client_id
+    AZURE_CLIENT_ID = azurerm_user_assigned_identity.api.client_id
+
+    # Nominatim's usage policy asks every caller to identify itself and to be reachable. A
+    # deployment that will not do that should set GREENV_PLACES_ENABLED to false and get
+    # kilometre markers only, rather than send an anonymous request a second.
+    GREENV_PLACES_USER_AGENT = "GreenV/${var.environment} (${var.api_hostname})"
+
     GREENV_RABBITMQ_DYNAMIC                    = "false"
     PORT                                       = "8080"
     SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE = "5"

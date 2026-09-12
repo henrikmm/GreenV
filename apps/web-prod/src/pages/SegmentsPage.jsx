@@ -2,9 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AnimatePresence } from 'framer-motion'
 import { ClipboardList, Ruler, MapPin } from 'lucide-react'
-import { LEVELS, vegetationLevel, Card, describePlace } from '@greenv/web-core'
+import { LEVELS, vegetationLevel, Card } from '@greenv/web-core'
 import { measurements, teams as teamsApi } from '../api/greenv'
-import { usePlaceNames } from '../api/places'
+import { placeOfSegment } from '../api/place'
 import PageShell from '../components/PageShell'
 import NewOrderModal from '../components/NewOrderModal'
 
@@ -100,17 +100,8 @@ export default function SegmentsPage() {
 
   const { items, teams, loading, error } = state
 
-  // Cada trecho pergunta pelo próprio lugar. Duas leituras da mesma rua caem no mesmo cache,
-  // porque a chave é a coordenada arredondada e não o identificador do trecho.
-  const centreById = useMemo(() => Object.fromEntries(items
-    .filter(segment => segment.trackCenterLat != null)
-    .map(segment => [keyOf(segment), {
-      latitude: segment.trackCenterLat, longitude: segment.trackCenterLon,
-    }])), [items])
-  const streetNames = usePlaceNames(centreById)
-
-  const placeOf = (segment) =>
-    streetNames[keyOf(segment)] ?? describePlace(centreById[keyOf(segment)])
+  // Cada trecho já vem com o próprio lugar resolvido pela API.
+  const placeOf = (segment) => placeOfSegment(segment)
 
   // Sem altura vai para o fim, não para o começo: uma leitura que ninguém conseguiu medir não é
   // uma leitura baixa, e ordenar nulo como zero a enterraria junto com a grama aparada.
@@ -125,7 +116,7 @@ export default function SegmentsPage() {
     const place = placeOf(segment)
     return (place?.label ?? '').toLowerCase().includes(search.toLowerCase())
       || (place?.detail ?? '').toLowerCase().includes(search.toLowerCase())
-  }), [ranked, filterLevel, search, streetNames])
+  }), [ranked, filterLevel, search])
 
   const counts = useMemo(() => {
     const tally = { 0: 0, 1: 0, 2: 0, 3: 0 }

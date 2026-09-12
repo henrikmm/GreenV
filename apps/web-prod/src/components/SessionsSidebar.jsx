@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion'
 import { Layers, Filter, ListTree, Maximize2 } from 'lucide-react'
-import { LEVELS } from '@greenv/web-core'
+import { LEVELS, vegetationLevel } from '@greenv/web-core'
 
 /**
  * A barra lateral do mapa, no mesmo vocabulário da demonstração.
@@ -78,6 +78,19 @@ const s = {
     background: 'white', color: 'var(--motiva)',
   },
   frameHint: { fontSize: 11.5, color: 'var(--text-muted)', marginTop: 8, lineHeight: 1.5 },
+  stretchList: { marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 8 },
+  stretchRow: (active) => ({
+    display: 'flex', alignItems: 'center', gap: 7, padding: '5px 6px', borderRadius: 6,
+    cursor: 'pointer', background: active ? 'var(--motiva-subtle)' : 'transparent',
+  }),
+  stretchDot: (colour) => ({
+    width: 7, height: 7, borderRadius: '50%', background: colour, flexShrink: 0,
+  }),
+  stretchName: {
+    fontSize: 11.5, flex: 1, color: 'var(--text-secondary)', whiteSpace: 'nowrap',
+    overflow: 'hidden', textOverflow: 'ellipsis',
+  },
+  stretchHeight: { fontSize: 11, fontWeight: 700, fontFamily: 'var(--font-mono)' },
 }
 
 function Toggle({ label, active, onToggle }) {
@@ -90,7 +103,7 @@ function Toggle({ label, active, onToggle }) {
 }
 
 export default function SessionsSidebar({
-  entries = [], counts, selectedId, onSelect, onOpen,
+  entries = [], counts, selectedId, onSelect, onOpen, onOpenSegment,
   layers, onToggleLayer, filterLevel, onFilterLevel,
   loading, error,
 }) {
@@ -148,7 +161,7 @@ export default function SessionsSidebar({
           {error && <div style={{ ...s.state, color: LEVELS[3].color }}>{error.message}</div>}
           {!loading && entries.length === 0 && <div style={s.state}>Nenhuma sessão capturada ainda.</div>}
 
-          {entries.map(({ session, track, worst, drawable, place }) => (
+          {entries.map(({ session, track, worst, drawable, place, stretches }) => (
             <motion.div key={session.sessionId} whileTap={{ scale: 0.99 }}
               style={s.card(selectedId === session.sessionId)}
               onClick={() => onSelect(drawable ? session.sessionId : null)}>
@@ -168,6 +181,36 @@ export default function SessionsSidebar({
                 </button>
               </div>
               {!drawable && <div style={{ ...s.cardWhen, marginTop: 6 }}>sem trilha desenhável</div>}
+
+              {/* Os trechos dentro da sessão. Uma volta cruza ruas e mistura um trecho
+                  limpo com um crítico, e o rótulo da sessão sozinho esconde justamente
+                  isso. Aqui cada leitura aparece com a própria rua e a própria altura. */}
+              {stretches?.length > 0 && (
+                <div style={s.stretchList}>
+                  {stretches.map(({ segment, place: spot }) => {
+                    const level = vegetationLevel(segment.measurementLevel)
+                    return (
+                      <div key={segment.segmentIndex}
+                        style={s.stretchRow(selectedId === session.sessionId)}
+                        title={spot?.detail ?? undefined}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          onOpenSegment?.(session.sessionId, segment.segmentIndex)
+                        }}>
+                        <span style={s.stretchDot(LEVELS[level].color)} />
+                        <span style={s.stretchName}>
+                          {spot?.label ?? `Trecho ${segment.segmentIndex}`}
+                        </span>
+                        <span style={{ ...s.stretchHeight, color: LEVELS[level].color }}>
+                          {segment.measurementExtent95P95M != null
+                            ? `${(segment.measurementExtent95P95M * 100).toFixed(0)} cm`
+                            : '—'}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
               {drawable && (() => {
                 const drawnSegments = track.features.filter(f => f.properties?.kind === 'track').length
                 return (

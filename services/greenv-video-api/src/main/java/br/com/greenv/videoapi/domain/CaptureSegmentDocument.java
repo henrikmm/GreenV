@@ -31,6 +31,12 @@ public record CaptureSegmentDocument(
          * reads a field rather than checking for a null object first.
          */
         MeasurementProjection measurement,
+        /**
+         * Where the stretch is, in words, cached from its own track centre. Null until the
+         * resolver has been round; {@link SegmentPlace#isEmpty()} once it has been and found
+         * nothing.
+         */
+        SegmentPlace place,
         Instant createdAt,
         Instant updatedAt) {
 

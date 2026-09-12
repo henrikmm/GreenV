@@ -6,6 +6,7 @@ import br.com.greenv.videoapi.domain.CaptureSessionQuery;
 import br.com.greenv.videoapi.domain.CaptureSessionSummary;
 import br.com.greenv.videoapi.domain.MeasurementProjection;
 import br.com.greenv.videoapi.domain.Page;
+import br.com.greenv.videoapi.domain.SegmentPlace;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -77,4 +78,15 @@ public interface CaptureSessionStore {
     long readySegmentCount(UUID sessionId);
 
     long measuredSegmentCount(UUID sessionId);
+
+    /**
+     * Measured stretches that carry a position and were never asked about.
+     *
+     * <p>Ordered newest first, so a fresh measurement gets its street name before an old one that
+     * nobody is looking at.
+     */
+    List<CaptureSegmentDocument> findSegmentsAwaitingPlace(int limit);
+
+    /** Caches the place on the row. A row is written even when nothing was found. */
+    void recordPlace(UUID sessionId, int segmentIndex, SegmentPlace place);
 }

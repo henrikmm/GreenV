@@ -1295,6 +1295,29 @@ components:
         trackLocationQuality:
           type: [string, 'null']
           enum: [good, degraded, unavailable, null]
+        placeLabel:
+          type: [string, 'null']
+          description: The street, or the neighbourhood when no street is mapped there
+        placeDetail:
+          type: [string, 'null']
+        placeHouseNumber:
+          type: [string, 'null']
+          description: >-
+            Approximate. Reverse geocoding answers with the nearest addressable
+            point, which on a verge is the building across the road.
+        placeRoad:
+          type: [string, 'null']
+        placeKm:
+          type: [integer, 'null']
+          description: >-
+            The nearest kilometre post. The posts average 1066 m apart, so this names
+            a stretch of road and never a position.
+        placeKmOffsetM:
+          type: [number, 'null']
+          description: How far that post was, so a reader can see how loose the km is
+        placeSource:
+          type: [string, 'null']
+          enum: [openstreetmap, reference-markers, none, null]
         framesUrl:
           type: [string, 'null']
           format: uri

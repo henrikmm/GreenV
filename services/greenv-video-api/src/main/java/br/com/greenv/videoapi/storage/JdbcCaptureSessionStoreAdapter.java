@@ -6,6 +6,7 @@ import br.com.greenv.videoapi.domain.CaptureSessionQuery;
 import br.com.greenv.videoapi.domain.CaptureSessionSummary;
 import br.com.greenv.videoapi.domain.MeasurementProjection;
 import br.com.greenv.videoapi.domain.Page;
+import br.com.greenv.videoapi.domain.SegmentPlace;
 import br.com.greenv.videoapi.domain.Sentido;
 import br.com.greenv.videoapi.port.CaptureSessionStore;
 import br.com.greenv.videoapi.service.ApplicationException;
@@ -400,8 +401,66 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                 result.getObject("measurement_is_mock", Boolean.class),
                 instant(result, "measured_at"),
                 mapProjection(result),
+                mapPlace(result),
                 instant(result, "created_at"),
                 instant(result, "updated_at"));
+    }
+
+    /**
+     * Null until the resolver has been round, so a caller can tell "not asked yet" from
+     * "asked and there is nothing there". The second reads as a row with a timestamp and no
+     * label.
+     */
+    private static SegmentPlace mapPlace(ResultSet result) throws SQLException {
+        Instant resolvedAt = instant(result, "place_resolved_at");
+        if (resolvedAt == null) {
+            return null;
+        }
+        return new SegmentPlace(
+                result.getString("place_label"),
+                result.getString("place_detail"),
+                result.getString("place_house_number"),
+                result.getString("place_road"),
+                result.getObject("place_km", Integer.class),
+                result.getObject("place_km_offset_m", Double.class),
+                result.getString("place_source"),
+                resolvedAt);
+    }
+
+    @Override
+    public List<CaptureSegmentDocument> findSegmentsAwaitingPlace(int limit) {
+        return jdbcTemplate.query(
+                """
+                SELECT * FROM capture_segments
+                 WHERE track_center_lat IS NOT NULL
+                   AND place_resolved_at IS NULL
+                 ORDER BY measured_at DESC NULLS LAST, segment_index
+                 LIMIT ?
+                """,
+                JdbcCaptureSessionStoreAdapter::mapSegment,
+                limit);
+    }
+
+    @Override
+    public void recordPlace(UUID sessionId, int segmentIndex, SegmentPlace place) {
+        jdbcTemplate.update(
+                """
+                UPDATE capture_segments
+                   SET place_label = ?, place_detail = ?, place_house_number = ?,
+                       place_road = ?, place_km = ?, place_km_offset_m = ?,
+                       place_source = ?, place_resolved_at = ?
+                 WHERE session_id = ? AND segment_index = ?
+                """,
+                place.label(),
+                place.detail(),
+                place.houseNumber(),
+                place.road(),
+                place.km(),
+                place.kmOffsetMetres(),
+                place.source(),
+                Timestamp.from(place.resolvedAt()),
+                sessionId,
+                segmentIndex);
     }
 
     private static MeasurementProjection mapProjection(ResultSet result) throws SQLException {

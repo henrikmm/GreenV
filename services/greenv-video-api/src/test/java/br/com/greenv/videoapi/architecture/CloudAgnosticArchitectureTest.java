@@ -27,6 +27,7 @@ import br.com.greenv.videoapi.port.JwkSetProvider;
 import br.com.greenv.videoapi.port.MeasurementAnnouncementReader;
 import br.com.greenv.videoapi.port.OAuthClientStore;
 import br.com.greenv.videoapi.port.OperationsUseCase;
+import br.com.greenv.videoapi.port.PlaceNameResolver;
 import br.com.greenv.videoapi.port.ServiceOrderStore;
 import br.com.greenv.videoapi.port.TeamStore;
 import br.com.greenv.videoapi.port.SecretHasher;
@@ -41,6 +42,7 @@ import br.com.greenv.videoapi.service.CaptureSessionService;
 import br.com.greenv.videoapi.service.IdentityAdminService;
 import br.com.greenv.videoapi.service.JobService;
 import br.com.greenv.videoapi.service.OperationsService;
+import br.com.greenv.videoapi.service.PlaceResolutionService;
 import br.com.greenv.videoapi.service.TransientCleanupService;
 import br.com.greenv.videoapi.storage.JdbcAuthSessionStoreAdapter;
 import br.com.greenv.videoapi.storage.JdbcCaptureSessionStoreAdapter;
@@ -59,6 +61,7 @@ import br.com.greenv.videoapi.token.NimbusAccessTokenVerifierAdapter;
 import br.com.greenv.videoapi.token.RsaJwkSetProviderAdapter;
 import br.com.greenv.videoapi.task.AzureServiceBusSegmentWorkQueueAdapter;
 import br.com.greenv.videoapi.task.JacksonMeasurementAnnouncementReaderAdapter;
+import br.com.greenv.videoapi.task.NominatimPlaceNameAdapter;
 import br.com.greenv.videoapi.task.JacksonSegmentMessageSerializerAdapter;
 import br.com.greenv.videoapi.task.RabbitMqSegmentWorkQueueAdapter;
 import br.com.greenv.videoapi.task.SqsSegmentWorkQueueAdapter;
@@ -118,6 +121,7 @@ class CloudAgnosticArchitectureTest {
         assertThat(OAuthClientStore.class).isAssignableFrom(JdbcOAuthClientStoreAdapter.class);
         assertThat(TeamStore.class).isAssignableFrom(JdbcTeamStoreAdapter.class);
         assertThat(ServiceOrderStore.class).isAssignableFrom(JdbcServiceOrderStoreAdapter.class);
+        assertThat(PlaceNameResolver.class).isAssignableFrom(NominatimPlaceNameAdapter.class);
         assertThat(AccessTokenIssuer.class).isAssignableFrom(NimbusAccessTokenIssuerAdapter.class);
         assertThat(AccessTokenVerifier.class).isAssignableFrom(NimbusAccessTokenVerifierAdapter.class);
         assertThat(JwkSetProvider.class).isAssignableFrom(RsaJwkSetProviderAdapter.class);
@@ -138,6 +142,7 @@ class CloudAgnosticArchitectureTest {
         assertThat(JdbcOAuthClientStoreAdapter.class.getSimpleName()).endsWith("Adapter");
         assertThat(JdbcTeamStoreAdapter.class.getSimpleName()).endsWith("Adapter");
         assertThat(JdbcServiceOrderStoreAdapter.class.getSimpleName()).endsWith("Adapter");
+        assertThat(NominatimPlaceNameAdapter.class.getSimpleName()).endsWith("Adapter");
         assertThat(NimbusAccessTokenIssuerAdapter.class.getSimpleName()).endsWith("Adapter");
         assertThat(NimbusAccessTokenVerifierAdapter.class.getSimpleName()).endsWith("Adapter");
         assertThat(RsaJwkSetProviderAdapter.class.getSimpleName()).endsWith("Adapter");
@@ -165,6 +170,9 @@ class CloudAgnosticArchitectureTest {
                 .extracting(field -> field.getType().getPackageName())
                 .noneMatch(this::isAdapterPackage);
         assertThat(OperationsService.class.getDeclaredFields())
+                .extracting(field -> field.getType().getPackageName())
+                .noneMatch(this::isAdapterPackage);
+        assertThat(PlaceResolutionService.class.getDeclaredFields())
                 .extracting(field -> field.getType().getPackageName())
                 .noneMatch(this::isAdapterPackage);
     }

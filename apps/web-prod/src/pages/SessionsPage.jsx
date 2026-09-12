@@ -3,10 +3,10 @@ import { useNavigate } from 'react-router-dom'
 import { Route, Ruler, TriangleAlert, Camera, ArrowUpRight } from 'lucide-react'
 import {
   LEVELS, vegetationLevel, AnimatedNumber, Card, useAuth,
-  LevelDonut, WeeklyBarChart, bucketByWeek, describePlace, centreOf,
+  LevelDonut, WeeklyBarChart, bucketByWeek,
 } from '@greenv/web-core'
 import { sessions as sessionsApi, measurements } from '../api/greenv'
-import { usePlaceNames } from '../api/places'
+import { placeOfSegment, placeOfSession } from '../api/place'
 import PageShell from '../components/PageShell'
 
 /**
@@ -122,40 +122,17 @@ export default function SessionsPage() {
 
   // O lugar de cada sessão sai do centro dos trechos que ela mediu. O campo de via era texto
   // livre digitado em campo, então não identifica nada — vem vazio ou vem "TESTE".
-  const centreOfSession = useMemo(() => {
+  // Os trechos de cada sessão, para o rótulo de lugar. A API já resolveu a rua de cada um;
+  // aqui só se decide o que dizer quando uma sessão cruza mais de uma.
+  const segmentsOfSession = useMemo(() => {
     const bySession = {}
     for (const segment of measuredItems) {
-      const list = bySession[segment.sessionId] ?? []
-      list.push({ latitude: segment.trackCenterLat, longitude: segment.trackCenterLon })
-      bySession[segment.sessionId] = list
+      bySession[segment.sessionId] = [...(bySession[segment.sessionId] ?? []), segment]
     }
-    return Object.fromEntries(
-      Object.entries(bySession).map(([id, points]) => [id, centreOf(points)]))
+    return bySession
   }, [measuredItems])
 
-  // Os trechos mais altos pedem o próprio lugar, não o da sessão: o ponto da lista é justamente
-  // que uma sessão mistura trecho limpo com trecho crítico.
-  const centres = useMemo(() => {
-    const points = Object.fromEntries(
-      Object.entries(centreOfSession).map(([id, point]) => [`session:${id}`, point]))
-    for (const segment of measuredItems) {
-      if (segment.trackCenterLat == null) continue
-      points[`segment:${segment.sessionId}:${segment.segmentIndex}`] = {
-        latitude: segment.trackCenterLat, longitude: segment.trackCenterLon,
-      }
-    }
-    return points
-  }, [centreOfSession, measuredItems])
-
-  // O nome da rua vem do OpenStreetMap e chega depois; até lá vale a coordenada, que já está
-  // certa. A tela nunca fica esperando por ele.
-  const streetNames = usePlaceNames(centres)
-  const placeOf = (sessionId) =>
-    streetNames[`session:${sessionId}`] ?? describePlace(centreOfSession[sessionId])
-  const placeOfSegment = (segment) => {
-    const key = `segment:${segment.sessionId}:${segment.segmentIndex}`
-    return streetNames[key] ?? describePlace(centres[key])
-  }
+  const placeOf = (sessionId) => placeOfSession(segmentsOfSession[sessionId])
 
   const weekly = useMemo(
     () => bucketByWeek((page?.items ?? []).map(session => session.startedAt), 10),
