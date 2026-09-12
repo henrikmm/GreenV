@@ -82,6 +82,17 @@ export const sessions = {
     return getJson(`/v2/capture-sessions/${sessionId}/segments/${segmentIndex}/frames`)
   },
 
+  /**
+   * O que um quadro contribuiu para a medição.
+   *
+   * Separado dos bytes do JPEG porque custa outra coisa: a foto sai direto do armazenamento, e
+   * isto percorre todas as células do assessment atrás dos votos daquele quadro.
+   */
+  frameReadings(sessionId, segmentIndex, fileName) {
+    return getJson(
+      `/v2/capture-sessions/${sessionId}/segments/${segmentIndex}/frames/${fileName}/readings`)
+  },
+
   /** O pacote inteiro, para quem quiser a grade de células e a proveniência. */
   measurement(sessionId, segmentIndex) {
     return getJson(`/v2/capture-sessions/${sessionId}/segments/${segmentIndex}/measurement`)

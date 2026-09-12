@@ -5,6 +5,7 @@ import br.com.greenv.videoapi.domain.CaptureSessionDocument;
 import br.com.greenv.videoapi.domain.CaptureSessionQuery;
 import br.com.greenv.videoapi.domain.CaptureSessionSummary;
 import br.com.greenv.videoapi.domain.Page;
+import br.com.greenv.videoapi.domain.FrameReadings;
 import br.com.greenv.videoapi.domain.SampledFrame;
 import br.com.greenv.videoapi.domain.SegmentMeasurementAnnouncement;
 import java.io.InputStream;
@@ -39,6 +40,15 @@ public interface CaptureSessionUseCase {
 
     /** The frames this segment published, with a camera position for each where it is known. */
     List<SampledFrame> frames(UUID sessionId, int segmentIndex);
+
+    /**
+     * What one photograph contributed to the measurement.
+     *
+     * <p>Verge Studio measures a cell by letting every frame that saw it vote. This
+     * answers, for one frame, which cells it voted in and what it said, which is the
+     * difference between "this stretch is 3.18 m" and "this photograph is why".
+     */
+    FrameReadings frameReadings(UUID sessionId, int segmentIndex, String fileName);
 
     /** One published JPEG, by name. Refuses a name the segment's manifest does not list. */
     byte[] frame(UUID sessionId, int segmentIndex, String fileName);

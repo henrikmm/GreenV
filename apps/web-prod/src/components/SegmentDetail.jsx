@@ -35,6 +35,20 @@ const s = {
     marginBottom: 10, flexWrap: 'wrap',
   },
   summaryValue: { fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--text-primary)' },
+  readings: {
+    borderTop: '1px solid var(--border)', paddingTop: 10, marginTop: 2,
+    display: 'flex', flexDirection: 'column', gap: 6,
+  },
+  readingTitle: {
+    fontSize: 10, fontWeight: 700, color: 'var(--text-muted)',
+    textTransform: 'uppercase', letterSpacing: '0.06em',
+  },
+  readingRow: {
+    display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+    fontSize: 11.5, color: 'var(--text-secondary)',
+  },
+  readingValue: { fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--text-primary)' },
+  readingNote: { fontSize: 10.5, color: 'var(--text-muted)', lineHeight: 1.5 },
 }
 
 const trackCache = new Map()
@@ -49,6 +63,7 @@ function loadTrack(sessionId) {
 export default function SegmentDetail({ segment, place }) {
   const [state, setState] = useState({ loading: true })
   const [selected, setSelected] = useState(null)
+  const [readings, setReadings] = useState(null)
 
   useEffect(() => {
     let live = true
@@ -70,6 +85,20 @@ export default function SegmentDetail({ segment, place }) {
       .catch(error => { if (live) setState({ loading: false, error }) })
     return () => { live = false }
   }, [segment.sessionId, segment.segmentIndex])
+
+  // As leituras vêm por quadro e só quando um é escolhido. Buscar as de todos junto com a
+  // lista seria uma varredura do assessment por foto, e quase nenhuma delas é aberta.
+  useEffect(() => {
+    let live = true
+    setReadings(null)
+    if (!selected) return undefined
+    sessions.frameReadings(segment.sessionId, segment.segmentIndex, selected.fileName)
+      .then(result => { if (live) setReadings(result) })
+      // Um pacote sem assessment responde com zero células, mas a rede ainda pode falhar;
+      // a foto continua valendo sem o que ela mediu.
+      .catch(() => { if (live) setReadings(null) })
+    return () => { live = false }
+  }, [selected, segment.sessionId, segment.segmentIndex])
 
   const { track, frames, loading, error } = state
   const level = vegetationLevel(segment.measurementLevel)
@@ -113,6 +142,59 @@ export default function SegmentDetail({ segment, place }) {
               </strong><br />
               {selected.capturedAtUtc && new Date(selected.capturedAtUtc).toLocaleString('pt-BR')}<br />
               precisão {selected.horizontalAccuracyMeters?.toFixed(1) ?? '?'} m · {selected.locationQuality ?? 'sem posição'}
+            </div>
+
+            <div style={s.readings}>
+              <div style={s.readingTitle}>O que este quadro mediu</div>
+              {readings === null && <div style={s.readingNote}>Carregando…</div>}
+              {readings?.cellsVoted === 0 && (
+                <div style={s.readingNote}>
+                  Este quadro não votou em nenhuma célula. Ou não alcançou o piso de voxels em
+                  lugar nenhum da faixa, ou o pacote desta medição não guardou o detalhe.
+                </div>
+              )}
+              {readings?.cellsVoted > 0 && (
+                <>
+                  <div style={s.readingRow}>
+                    <span>células votadas</span>
+                    <span style={s.readingValue}>{readings.cellsVoted}</span>
+                  </div>
+                  <div style={s.readingRow}>
+                    <span>altura mediana</span>
+                    <span style={s.readingValue}>
+                      {readings.extent95MedianM != null
+                        ? `${(readings.extent95MedianM * 100).toFixed(0)} cm`
+                        : '—'}
+                    </span>
+                  </div>
+                  <div style={s.readingRow}>
+                    <span>maior altura</span>
+                    <span style={s.readingValue}>
+                      {readings.extent95MaxM != null
+                        ? `${(readings.extent95MaxM * 100).toFixed(0)} cm`
+                        : '—'}
+                    </span>
+                  </div>
+                  {readings.largestDisagreementM != null && (
+                    <div style={s.readingRow}>
+                      <span>maior discordância</span>
+                      <span style={s.readingValue}>
+                        {(readings.largestDisagreementM * 100).toFixed(0)} cm
+                      </span>
+                    </div>
+                  )}
+                  {readings.evidenceForCells > 0 && (
+                    <div style={s.readingNote}>
+                      Escolhido como evidência em {readings.evidenceForCells}{' '}
+                      {readings.evidenceForCells === 1 ? 'célula' : 'células'}.
+                    </div>
+                  )}
+                  <div style={s.readingNote}>
+                    Altura acima do solo local de cada célula. A discordância é a diferença entre
+                    o que este quadro votou e o que a célula concluiu com todos os quadros.
+                  </div>
+                </>
+              )}
             </div>
           </>
         ) : (

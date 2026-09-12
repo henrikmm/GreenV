@@ -658,6 +658,39 @@ paths:
                 format: binary
         '404':
           description: This segment published no such frame
+  /v2/capture-sessions/{sessionId}/segments/{segmentIndex}/frames/{fileName}/readings:
+    get:
+      operationId: getFrameReadings
+      summary: What this photograph contributed to the measurement
+      description: >-
+        Verge Studio measures a cell by letting every frame that saw it vote.
+        This returns, for one frame, the cells it voted in and what it said.
+        Heights are extent95, above each cell's own local ground; the
+        plane-relative figures travel alongside and are null on a cell that
+        never established its ground. A missing assessment answers with zero
+        cells rather than an error.
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - $ref: '#/components/parameters/SegmentIndex'
+        - name: fileName
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^frame-[0-9]{4}\.jpg$'
+      responses:
+        '200':
+          description: The frame's contribution
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FrameReadings'
+        '404':
+          description: This segment published no such frame
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /v2/capture-sessions/{sessionId}/segments/{segmentIndex}/manifest:
     get:
       operationId: getCaptureSegmentManifest
@@ -944,6 +977,54 @@ components:
         minimum: 1
         maximum: 30000
   schemas:
+    FrameReadings:
+      type: object
+      required: [schemaVersion, canonicalFrame, cellsVoted, sampleCount, evidenceForCells, cells]
+      properties:
+        schemaVersion:
+          const: 1
+        canonicalFrame:
+          type: integer
+        cellsVoted:
+          type: integer
+          description: Cells this frame reached the voxel floor in
+        sampleCount:
+          type: integer
+        extent95MedianM:
+          type: [number, 'null']
+        extent95MaxM:
+          type: [number, 'null']
+        largestDisagreementM:
+          type: [number, 'null']
+          description: >-
+            The widest gap between what this frame said and what its cell
+            settled on across every frame.
+        evidenceForCells:
+          type: integer
+          description: Cells that named this frame as one to look at
+        cells:
+          type: array
+          items:
+            type: object
+            required: [alongRoadM, distanceFromRoadM, sampleCount, cellStatus]
+            properties:
+              alongRoadM:
+                type: number
+              distanceFromRoadM:
+                type: number
+              voteExtent95M:
+                type: [number, 'null']
+              cellExtent95M:
+                type: [number, 'null']
+              voteH95M:
+                type: [number, 'null']
+              cellH95M:
+                type: [number, 'null']
+              sampleCount:
+                type: integer
+              cellStatus:
+                type: string
+                enum: [measured, insufficient-support]
     Team:
       type: object
       required: [schemaVersion, teamId, slug, name, shortName, colour, initials, status]

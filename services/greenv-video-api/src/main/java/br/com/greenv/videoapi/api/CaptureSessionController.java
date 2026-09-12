@@ -188,6 +188,20 @@ public class CaptureSessionController {
         return captureSessionUseCase.frame(sessionId, segmentIndex, fileName);
     }
 
+    /**
+     * What this photograph contributed to the measurement.
+     *
+     * <p>Separate from the frame's bytes because it answers a different question and costs a
+     * different amount: the JPEG is 65 KB straight out of storage, this walks every cell of the
+     * assessment looking for the frame's votes.
+     */
+    @GetMapping(path = "/{sessionId}/segments/{segmentIndex}/frames/{fileName}/readings")
+    FrameReadingsResponse frameReadings(
+            @PathVariable UUID sessionId, @PathVariable int segmentIndex, @PathVariable String fileName) {
+        return FrameReadingsResponse.from(
+                captureSessionUseCase.frameReadings(sessionId, segmentIndex, fileName));
+    }
+
     @GetMapping(
             path = "/{sessionId}/segments/{segmentIndex}/manifest",
             produces = MediaType.APPLICATION_JSON_VALUE)

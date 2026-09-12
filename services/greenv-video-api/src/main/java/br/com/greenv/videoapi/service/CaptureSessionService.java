@@ -6,6 +6,7 @@ import br.com.greenv.videoapi.domain.CaptureObjectKeys;
 import br.com.greenv.videoapi.domain.CaptureSessionDocument;
 import br.com.greenv.videoapi.domain.CaptureSessionQuery;
 import br.com.greenv.videoapi.domain.CaptureSessionSummary;
+import br.com.greenv.videoapi.domain.FrameReadings;
 import br.com.greenv.videoapi.domain.MeasurementProjection;
 import br.com.greenv.videoapi.domain.Page;
 import br.com.greenv.videoapi.domain.SegmentExtractionRequest;
@@ -14,6 +15,7 @@ import br.com.greenv.videoapi.domain.SegmentMeasurementAnnouncement;
 import br.com.greenv.videoapi.domain.Sentido;
 import br.com.greenv.videoapi.port.CaptureObjectStorage;
 import br.com.greenv.videoapi.port.CaptureSessionStore;
+import br.com.greenv.videoapi.port.FrameReadingsReader;
 import br.com.greenv.videoapi.port.CaptureSessionUseCase;
 import br.com.greenv.videoapi.port.IdentifierGenerator;
 import br.com.greenv.videoapi.port.MeasurementProjectionReader;
@@ -57,6 +59,7 @@ public class CaptureSessionService implements CaptureSessionUseCase {
     private final IdentifierGenerator identifierGenerator;
     private final MeasurementProjectionReader projectionReader;
     private final SampledFrameReader frameReader;
+    private final FrameReadingsReader frameReadingsReader;
     private final SegmentTrackWriter trackWriter;
     private final Clock clock;
 
@@ -68,6 +71,7 @@ public class CaptureSessionService implements CaptureSessionUseCase {
             IdentifierGenerator identifierGenerator,
             MeasurementProjectionReader projectionReader,
             SampledFrameReader frameReader,
+            FrameReadingsReader frameReadingsReader,
             SegmentTrackWriter trackWriter,
             Clock clock) {
         this.captureSessionStore = captureSessionStore;
@@ -77,6 +81,7 @@ public class CaptureSessionService implements CaptureSessionUseCase {
         this.identifierGenerator = identifierGenerator;
         this.projectionReader = projectionReader;
         this.frameReader = frameReader;
+        this.frameReadingsReader = frameReadingsReader;
         this.trackWriter = trackWriter;
         this.clock = clock;
     }
@@ -381,6 +386,31 @@ public class CaptureSessionService implements CaptureSessionUseCase {
         }
         return objectStorage.read(
                 CaptureObjectKeys.sampledFrame(sessionId, segmentIndex, fileName), MAXIMUM_FRAME_BYTES);
+    }
+
+    /**
+     * One frame's votes, out of the assessment rather than the result envelope.
+     *
+     * <p>The name is checked against the manifest first, for the same reason the bytes
+     * route checks it: a caller that can name any object can read any object. The canonical
+     * frame number comes from the manifest entry and not from parsing the string again.
+     *
+     * <p>A missing or unreadable assessment answers with an empty reading, not an error. The
+     * photograph exists either way, and the screen that asks this question is already
+     * showing it.
+     */
+    @Override
+    public FrameReadings frameReadings(UUID sessionId, int segmentIndex, String fileName) {
+        var published = frames(sessionId, segmentIndex).stream()
+                .filter(frame -> frame.fileName().equals(fileName))
+                .findFirst()
+                .orElseThrow(() -> new ApplicationException(
+                        FailureKind.NOT_FOUND,
+                        "sampled_frame_absent",
+                        "this segment published no such frame"));
+        byte[] assessment = readIfPresent(
+                CaptureObjectKeys.measurementArtifact(sessionId, segmentIndex, "assessment.json"));
+        return frameReadingsReader.read(assessment, published.canonicalFrame());
     }
 
     @Override
