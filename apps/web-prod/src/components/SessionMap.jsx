@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { MapContainer, TileLayer, GeoJSON, CircleMarker, Popup, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import { LEVELS, vegetationLevel } from '@greenv/web-core'
+import SessionRoute from './SessionRoute'
 
 /**
  * O caminho de uma sessão, onde quer que ela tenha sido feita.
@@ -54,6 +55,7 @@ export default function SessionMap({ track, frames = [], onFrameClick, height = 
         attribution="&copy; OpenStreetMap"
       />
       <FitToTrack track={track} />
+      <SessionRoute track={track} />
       <GeoJSON key={JSON.stringify(track).length} data={track} style={styleFor} />
 
       {frames.filter(frame => frame.latitude != null).map(frame => (

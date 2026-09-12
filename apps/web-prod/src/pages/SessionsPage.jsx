@@ -185,41 +185,25 @@ export default function SessionsPage() {
         </Card>
       </div>
 
-      <div style={s.chartsGrid}>
-        <Card delay={0.25}>
-          <div style={s.cardTitle}>Trechos mais altos</div>
-          <div style={s.cardHint}>Maior altura p95 medida — prioridade máxima</div>
-          {tallest.map(segment => (
-            <div key={`${segment.sessionId}:${segment.segmentIndex}`} style={s.criticalRow}>
-              <span style={s.criticalDot(LEVELS[vegetationLevel(segment.measurementLevel)].color)} />
-              <span style={s.criticalName}>
-                {placeOfSegment(segment)?.label ?? `Trecho ${segment.segmentIndex}`}
-              </span>
-              <span style={s.criticalValue}>
-                {(segment.measurementExtent95P95M * 100).toFixed(0)} cm
-              </span>
-            </div>
-          ))}
-          {tallest.length === 0 && <div style={s.empty}>Nenhum trecho medido ainda.</div>}
-          <button style={s.linkBtn} onClick={() => navigate('/trechos')}>
-            Ver todos os trechos <ArrowUpRight size={13} />
-          </button>
-        </Card>
-        <Card delay={0.3}>
-          <div style={s.cardTitle}>Qualidade do GPS</div>
-          <div style={s.cardHint}>De onde veio a posição de cada trecho medido</div>
-          {Object.entries(byQuality).map(([quality, count]) => (
-            <div key={quality} style={s.statRow}>
-              <span style={s.statLabel}>
-                <span style={s.criticalDot(quality === 'good' ? '#16a34a' : '#ca8a04')} />
-                {quality === 'good' ? 'Boa' : quality === 'poor' ? 'Ruim' : quality}
-              </span>
-              <span style={s.statValue}>{count}</span>
-            </div>
-          ))}
-          {measuredItems.length === 0 && <div style={s.empty}>Nenhum trecho medido ainda.</div>}
-        </Card>
-      </div>
+      <Card delay={0.25} style={{ marginBottom: 12 }}>
+        <div style={s.cardTitle}>Trechos mais altos</div>
+        <div style={s.cardHint}>Maior altura p95 medida — prioridade máxima</div>
+        {tallest.map(segment => (
+          <div key={`${segment.sessionId}:${segment.segmentIndex}`} style={s.criticalRow}>
+            <span style={s.criticalDot(LEVELS[vegetationLevel(segment.measurementLevel)].color)} />
+            <span style={s.criticalName}>
+              {placeOfSegment(segment)?.label ?? `Trecho ${segment.segmentIndex}`}
+            </span>
+            <span style={s.criticalValue}>
+              {(segment.measurementExtent95P95M * 100).toFixed(0)} cm
+            </span>
+          </div>
+        ))}
+        {tallest.length === 0 && <div style={s.empty}>Nenhum trecho medido ainda.</div>}
+        <button style={s.linkBtn} onClick={() => navigate('/trechos')}>
+          Ver todos os trechos <ArrowUpRight size={13} />
+        </button>
+      </Card>
 
       <Card delay={0.35} style={{ padding: '18px 18px 4px' }}>
         <div style={s.cardTitle}>Sessões de captura</div>

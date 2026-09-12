@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import { MapContainer, TileLayer, GeoJSON, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import { LEVELS, vegetationLevel, BasemapTone } from '@greenv/web-core'
+import SessionRoute from './SessionRoute'
 
 /**
  * Todas as sessões no mesmo mapa.
@@ -75,6 +76,10 @@ export default function SessionsMap({
         />
       )}
       <FitToTracks tracks={visible} selectedId={selectedId} />
+      {/* Por baixo das faixas: o percurso de cada sessão, ligado ponta a ponta. */}
+      {drawn.map(({ session, track }) => (
+        <SessionRoute key={`route:${session.sessionId}`} track={track} />
+      ))}
       {visible.map(({ session, track }) => (
         <GeoJSON
           key={`${session.sessionId}:${selectedId === session.sessionId}:${filterLevel}:${layers.track}:${layers.band}`}
