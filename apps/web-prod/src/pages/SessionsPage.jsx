@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Route, Ruler, TriangleAlert, Camera, ArrowUpRight } from 'lucide-react'
 import {
   LEVELS, vegetationLevel, AnimatedNumber, Card, useAuth,
-  LevelDonut, WeeklyBarChart, bucketByWeek,
+  LevelDonut, WeeklyBarChart, bucketByWeek, dayKey, dayLabel,
 } from '@greenv/web-core'
 import { sessions as sessionsApi, measurements } from '../api/greenv'
 import { placeOfSegment, placeOfSession } from '../api/place'
@@ -53,7 +53,12 @@ const s = {
   },
   statLabel: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'var(--text-secondary)' },
   statValue: { fontSize: 15, fontWeight: 700, fontFamily: 'var(--font-mono)' },
-  toolbar: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 },
+  toolbar: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' },
+  daySelect: {
+    padding: '7px 11px', background: 'white', border: '1px solid var(--border)',
+    borderRadius: 'var(--radius-sm)', fontSize: 12.5, fontFamily: 'inherit',
+    color: 'var(--text-primary)', outline: 'none', cursor: 'pointer',
+  },
   toggle: (on) => ({
     padding: '7px 13px', borderRadius: 'var(--radius-sm)', fontSize: 12.5, fontWeight: 600,
     cursor: 'pointer', fontFamily: 'inherit',
@@ -82,6 +87,7 @@ export default function SessionsPage() {
   const { user } = useAuth()
   const [state, setState] = useState({ loading: true })
   const [measuredOnly, setMeasuredOnly] = useState(false)
+  const [filterDay, setFilterDay] = useState('')
 
   useEffect(() => {
     let live = true
@@ -133,6 +139,24 @@ export default function SessionsPage() {
   }, [measuredItems])
 
   const placeOf = (sessionId) => placeOfSession(segmentsOfSession[sessionId])
+
+  // Os dias em que se saiu a campo. Uma volta inteira é de um dia só, então o dia é o recorte
+  // natural de "o que foi gravado nessa saída".
+  const days = useMemo(() => {
+    const tally = new Map()
+    for (const session of page?.items ?? []) {
+      const key = dayKey(session.startedAt)
+      if (!key) continue
+      const seen = tally.get(key)
+      tally.set(key, { key, label: dayLabel(session.startedAt), count: (seen?.count ?? 0) + 1 })
+    }
+    return [...tally.values()].sort((a, b) => b.key.localeCompare(a.key))
+  }, [page])
+
+  const visibleSessions = useMemo(() => {
+    const all = page?.items ?? []
+    return filterDay ? all.filter(session => dayKey(session.startedAt) === filterDay) : all
+  }, [page, filterDay])
 
   const weekly = useMemo(
     () => bucketByWeek((page?.items ?? []).map(session => session.startedAt), 10),
@@ -213,6 +237,15 @@ export default function SessionsPage() {
           <button style={s.toggle(measuredOnly)} onClick={() => setMeasuredOnly(v => !v)}>
             Somente com medição
           </button>
+          {days.length > 1 && (
+            <select style={s.daySelect} value={filterDay}
+              onChange={event => setFilterDay(event.target.value)}>
+              <option value="">Todos os dias</option>
+              {days.map(day => (
+                <option key={day.key} value={day.key}>{day.label} ({day.count})</option>
+              ))}
+            </select>
+          )}
         </div>
 
         {loading && <div style={s.empty}>Carregando…</div>}
@@ -230,7 +263,7 @@ export default function SessionsPage() {
               </tr>
             </thead>
             <tbody>
-              {page.items.map(session => (
+              {visibleSessions.map(session => (
                 <tr key={session.sessionId} style={s.row}
                   onClick={() => navigate(`/sessoes/${session.sessionId}`)}>
                   <td style={s.td}>{new Date(session.startedAt).toLocaleString('pt-BR')}</td>
@@ -260,9 +293,10 @@ export default function SessionsPage() {
                   </td>
                 </tr>
               ))}
-              {page.items.length === 0 && (
+              {visibleSessions.length === 0 && (
                 <tr><td style={{ ...s.td, ...s.empty }} colSpan={5}>
-                  Nenhuma sessão {measuredOnly ? 'com medição ' : ''}encontrada.
+                  Nenhuma sessão {measuredOnly ? 'com medição ' : ''}encontrada
+                  {filterDay ? ` em ${days.find(d => d.key === filterDay)?.label ?? ''}` : ''}.
                 </td></tr>
               )}
             </tbody>

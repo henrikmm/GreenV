@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import { ClipboardList, Ruler, ChevronRight, ChevronDown } from 'lucide-react'
-import { LEVELS, vegetationLevel, Card } from '@greenv/web-core'
+import { LEVELS, vegetationLevel, Card, dayKey, dayLabel } from '@greenv/web-core'
 import { measurements, teams as teamsApi } from '../api/greenv'
 import { placeOfSegment } from '../api/place'
 import { readingOf } from '../api/reading'
@@ -50,6 +50,11 @@ const s = {
     color: active ? colour : 'var(--text-secondary)',
   }),
   dot: (colour) => ({ width: 8, height: 8, borderRadius: '50%', background: colour }),
+  daySelect: {
+    padding: '8px 12px', background: 'white', border: '1px solid var(--border)',
+    borderRadius: 'var(--radius-sm)', fontSize: 12.5, fontFamily: 'inherit',
+    color: 'var(--text-primary)', outline: 'none', cursor: 'pointer',
+  },
   searchInput: {
     padding: '8px 12px', background: 'white', border: '1px solid var(--border)',
     borderRadius: 'var(--radius-sm)', fontSize: 13, fontFamily: 'inherit',
@@ -63,6 +68,7 @@ const s = {
   },
   td: { padding: '13px 14px', fontSize: 12.5, borderBottom: '1px solid var(--border)', verticalAlign: 'middle' },
   rank: { fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', width: 30 },
+  subDate: { fontSize: 11, color: 'var(--text-muted)', marginTop: 1 },
   place: { fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' },
   placeDetail: { fontSize: 11, color: 'var(--text-muted)', marginTop: 1 },
   height: { fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 700 },
@@ -89,6 +95,8 @@ const keyOf = (segment) => `${segment.sessionId}:${segment.segmentIndex}`
 export default function SegmentsPage() {
   const [state, setState] = useState({ loading: true, items: [], teams: [] })
   const [filterLevel, setFilterLevel] = useState(null)
+  // O dia da captura, não o da medição: é a saída a campo que a pessoa lembra.
+  const [filterDay, setFilterDay] = useState('')
   const [search, setSearch] = useState('')
   const [chosen, setChosen] = useState([])
   const [ordering, setOrdering] = useState(false)
@@ -109,10 +117,29 @@ export default function SegmentsPage() {
   // Cada trecho já vem com o próprio lugar resolvido pela API.
   const placeOf = (segment) => placeOfSegment(segment)
 
+  // Os dias em que se saiu a campo, do mais recente para o mais antigo, com quantas leituras
+  // cada um rendeu. Sai dos próprios trechos, então não custa uma segunda consulta.
+  const days = useMemo(() => {
+    const tally = new Map()
+    for (const segment of items) {
+      const key = dayKey(segment.capturedAt)
+      if (!key) continue
+      const seen = tally.get(key)
+      tally.set(key, { key, label: dayLabel(segment.capturedAt), count: (seen?.count ?? 0) + 1 })
+    }
+    return [...tally.values()].sort((a, b) => b.key.localeCompare(a.key))
+  }, [items])
+
+  // O dia filtra antes de tudo, por isso os cartões e as contagens dos chips saem daqui: um
+  // número do mês inteiro sobre uma lista de um dia só seria uma contradição na mesma tela.
+  const inDay = useMemo(() => (
+    filterDay ? items.filter(segment => dayKey(segment.capturedAt) === filterDay) : items
+  ), [items, filterDay])
+
   // Sem altura vai para o fim, não para o começo: uma leitura que ninguém conseguiu medir não é
   // uma leitura baixa, e ordenar nulo como zero a enterraria junto com a grama aparada.
-  const ranked = useMemo(() => [...items].sort((a, b) =>
-    (b.measurementExtent95P95M ?? -1) - (a.measurementExtent95P95M ?? -1)), [items])
+  const ranked = useMemo(() => [...inDay].sort((a, b) =>
+    (b.measurementExtent95P95M ?? -1) - (a.measurementExtent95P95M ?? -1)), [inDay])
 
   const tallest = ranked[0]?.measurementExtent95P95M ?? 0
 
@@ -126,9 +153,9 @@ export default function SegmentsPage() {
 
   const counts = useMemo(() => {
     const tally = { 0: 0, 1: 0, 2: 0, 3: 0 }
-    for (const segment of items) tally[vegetationLevel(segment.measurementLevel)] += 1
+    for (const segment of inDay) tally[vegetationLevel(segment.measurementLevel)] += 1
     return tally
-  }, [items])
+  }, [inDay])
 
   const chosenSegments = items.filter(segment => chosen.includes(keyOf(segment)))
 
@@ -181,6 +208,15 @@ export default function SegmentsPage() {
             <span style={s.dot(LEVELS[level].color)} />{LEVELS[level].desc}
           </button>
         ))}
+        {days.length > 1 && (
+          <select style={s.daySelect} value={filterDay}
+            onChange={event => setFilterDay(event.target.value)}>
+            <option value="">Todos os dias</option>
+            {days.map(day => (
+              <option key={day.key} value={day.key}>{day.label} ({day.count})</option>
+            ))}
+          </select>
+        )}
         <input style={s.searchInput} placeholder="Buscar por rua ou bairro…"
           value={search} onChange={event => setSearch(event.target.value)} />
       </div>
@@ -203,7 +239,7 @@ export default function SegmentsPage() {
                   <th style={s.th} /><th style={s.th}>#</th><th style={s.th}>Onde</th>
                   <th style={s.th}>Altura p95</th><th style={s.th}>Nível</th>
                   <th style={s.th}>Células</th><th style={s.th}>GPS</th>
-                  <th style={s.th}>Medido em</th><th style={s.th} />
+                  <th style={s.th}>Capturado em</th><th style={s.th} />
                 </tr>
               </thead>
               <tbody>
@@ -249,10 +285,19 @@ export default function SegmentsPage() {
                           : '—'}
                       </td>
                       <td style={s.td}>{segment.trackLocationQuality ?? '—'}</td>
+                      {/* A captura primeiro, e a medição abaixo. O filtro de dia é pelo dia da
+                          saída a campo, e essas duas datas divergem de verdade: uma sessão
+                          gravada em 10/09 foi medida em 11/09. Mostrar só a medição faria a
+                          coluna contradizer o filtro logo acima dela. */}
                       <td style={s.td}>
-                        {segment.measuredAt
-                          ? new Date(segment.measuredAt).toLocaleDateString('pt-BR')
+                        {segment.capturedAt
+                          ? new Date(segment.capturedAt).toLocaleDateString('pt-BR')
                           : '—'}
+                        {segment.measuredAt && (
+                          <div style={s.subDate}>
+                            medido {new Date(segment.measuredAt).toLocaleDateString('pt-BR')}
+                          </div>
+                        )}
                       </td>
                       <td style={{ ...s.td, ...s.chevron }}>
                         {openKey === keyOf(segment)

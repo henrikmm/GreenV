@@ -6,7 +6,7 @@ export { LEVELS, EQUIPMENT_TYPES, getPolygonStyle, getLevel, formatArea, formatK
 export { haversineKm, nearestKm, suggestCombinedRoutes, planRoute } from './utils/routePlanner'
 export { describePlace, centreOf, ON_ROAD_KM } from './utils/place'
 export { buildOrder } from './utils/orders'
-export { startOfWeek, formatWeekLabel, bucketByWeek } from './utils/date'
+export { startOfWeek, formatWeekLabel, bucketByWeek, dayKey, dayLabel } from './utils/date'
 export { STATUS_MAP, PRIORITY_MAP } from './orderMeta'
 
 export { AuthProvider, useAuth } from './context/AuthContext'
