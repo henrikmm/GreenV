@@ -1,13 +1,13 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
-import { ClipboardList, Ruler, MapPin } from 'lucide-react'
+import { ClipboardList, Ruler, ChevronRight, ChevronDown } from 'lucide-react'
 import { LEVELS, vegetationLevel, Card } from '@greenv/web-core'
 import { measurements, teams as teamsApi } from '../api/greenv'
 import { placeOfSegment } from '../api/place'
 import { readingOf } from '../api/reading'
 import PageShell from '../components/PageShell'
 import NewOrderModal from '../components/NewOrderModal'
+import SegmentDetail from '../components/SegmentDetail'
 
 /**
  * Toda leitura, a mais alta primeiro.
@@ -74,22 +74,23 @@ const s = {
     display: 'inline-flex', padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600,
     color: reading.colour, background: reading.background, lineHeight: 1.35,
   }),
-  linkBtn: {
-    fontSize: 11.5, fontWeight: 700, color: 'var(--motiva)', background: 'none',
-    border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: 0,
-  },
   empty: { padding: 40, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 },
+  row: (open) => ({ cursor: 'pointer', background: open ? 'var(--motiva-subtle)' : 'transparent' }),
+  chevron: { color: 'var(--text-muted)', display: 'flex', alignItems: 'center' },
+  detailCell: { padding: '0 14px', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border)' },
 }
 
 const keyOf = (segment) => `${segment.sessionId}:${segment.segmentIndex}`
 
 export default function SegmentsPage() {
-  const navigate = useNavigate()
   const [state, setState] = useState({ loading: true, items: [], teams: [] })
   const [filterLevel, setFilterLevel] = useState(null)
   const [search, setSearch] = useState('')
   const [chosen, setChosen] = useState([])
   const [ordering, setOrdering] = useState(false)
+  // Um trecho aberto por vez: dois mapas lado a lado numa tabela competem por atenção e
+  // por rede, e a pergunta que a lista responde é sempre sobre uma leitura.
+  const [openKey, setOpenKey] = useState(null)
 
   useEffect(() => {
     let live = true
@@ -208,9 +209,12 @@ export default function SegmentsPage() {
                   const place = placeOf(segment)
                   const height = segment.measurementExtent95P95M
                   return (
-                    <tr key={keyOf(segment)}>
+                    <Fragment key={keyOf(segment)}>
+                    <tr style={s.row(openKey === keyOf(segment))}
+                      onClick={() => setOpenKey(openKey === keyOf(segment) ? null : keyOf(segment))}>
                       <td style={s.td}>
                         <input type="checkbox" checked={chosen.includes(keyOf(segment))}
+                          onClick={(event) => event.stopPropagation()}
                           onChange={() => setChosen(previous => previous.includes(keyOf(segment))
                             ? previous.filter(key => key !== keyOf(segment))
                             : [...previous, keyOf(segment)])} />
@@ -246,13 +250,18 @@ export default function SegmentsPage() {
                           ? new Date(segment.measuredAt).toLocaleDateString('pt-BR')
                           : '—'}
                       </td>
-                      <td style={s.td}>
-                        <button style={s.linkBtn}
-                          onClick={() => navigate(`/sessoes/${segment.sessionId}`)}>
-                          <MapPin size={11} /> sessão
-                        </button>
+                      <td style={{ ...s.td, ...s.chevron }}>
+                        {openKey === keyOf(segment) ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
                       </td>
                     </tr>
+                    {openKey === keyOf(segment) && (
+                      <tr key={`${keyOf(segment)}:aberto`}>
+                        <td style={s.detailCell} colSpan={9}>
+                          <SegmentDetail segment={segment} place={place} />
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   )
                 })}
               </tbody>
