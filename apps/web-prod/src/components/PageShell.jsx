@@ -1,4 +1,5 @@
 import { NavBar, LayoutDashboard, MapIcon, ClipboardList, Users } from '@greenv/web-core'
+import { Ruler } from 'lucide-react'
 
 /**
  * O casco de altura total que toda tela precisa ter.
@@ -13,6 +14,7 @@ import { NavBar, LayoutDashboard, MapIcon, ClipboardList, Users } from '@greenv/
  */
 export const TABS = [
   { key: 'sessions', label: 'Visão Geral', path: '/sessoes', icon: LayoutDashboard },
+  { key: 'segments', label: 'Trechos', path: '/trechos', icon: Ruler },
   { key: 'map', label: 'Mapa', path: '/mapa', icon: MapIcon },
   { key: 'orders', label: 'Ordens de Serviço', path: '/ordens', icon: ClipboardList },
   { key: 'teams', label: 'Equipes', path: '/equipes', icon: Users },

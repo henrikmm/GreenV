@@ -5,6 +5,7 @@ import LoginPage from './pages/LoginPage'
 import SessionsPage from './pages/SessionsPage'
 import SessionDetailPage from './pages/SessionDetailPage'
 import MapPage from './pages/MapPage'
+import SegmentsPage from './pages/SegmentsPage'
 import OrdersPage from './pages/OrdersPage'
 import TeamsPage from './pages/TeamsPage'
 
@@ -26,6 +27,7 @@ function Shell() {
         <Route path="/" element={<Navigate to="/sessoes" replace />} />
         <Route path="/sessoes" element={<SessionsPage />} />
         <Route path="/sessoes/:sessionId" element={<SessionDetailPage />} />
+        <Route path="/trechos" element={<SegmentsPage />} />
         <Route path="/mapa" element={<MapPage />} />
         <Route path="/ordens" element={<OrdersPage />} />
         <Route path="/equipes" element={<TeamsPage />} />

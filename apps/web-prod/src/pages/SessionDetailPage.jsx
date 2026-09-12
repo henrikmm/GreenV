@@ -216,8 +216,7 @@ export default function SessionDetailPage() {
       <AnimatePresence>
         {ordering && chosenSegments.length > 0 && (
           <NewOrderModal
-            sessionId={sessionId}
-            segments={chosenSegments}
+            segments={chosenSegments.map(segment => ({ ...segment, sessionId }))}
             teams={teams ?? []}
             onCreated={() => setChosen([])}
             onClose={() => setOrdering(false)}

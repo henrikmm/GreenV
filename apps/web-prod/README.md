@@ -93,6 +93,7 @@ aberto direto ou recarregado devolve 404 e só a raiz funciona.
 | `/login` | Entrar. Sem botões de acesso rápido: nenhuma senha vive no cliente |
 | `/sessoes` | A lista de capturas, com quantos trechos cada uma tem e quantos foram medidos |
 | `/sessoes/:id` | Uma sessão: a trilha no mapa, a tabela de trechos, e o quadro do ponto clicado |
+| `/trechos` | Toda leitura, a mais alta primeiro, cada uma com a própria rua |
 | `/mapa` | Todas as sessões no mesmo mapa, com a lista ao lado enquadrando cada uma |
 | `/ordens` | Ordens de serviço abertas contra trechos medidos |
 | `/equipes` | As equipes de campo e quantas ordens cada uma carrega |
@@ -101,8 +102,17 @@ As quatro abas são as mesmas da demonstração. O que muda é o alvo de uma ord
 do KMZ, aqui é um trecho medido, que é a única coisa neste sistema que carrega uma altura e uma
 posição reais. A API recusa com 409 uma ordem aberta contra um trecho sem medição.
 
-**Uma ordem nasce na tela da sessão.** Marque um ou mais trechos medidos na tabela e clique em
-"Criar OS"; um trecho sem medição não pode ser marcado. O formulário envia só a decisão — os
+**A visão por trecho existe porque a visão por sessão engana.** Uma volta de carro produz oito
+trechos e recebe um rótulo só: o pior nível, um lugar médio. Se sete estão limpos e um está com
+três metros de mato, a sessão diz "nível 3" e não diz onde. Em `/trechos` a linha é a leitura —
+altura, rua, células e qualidade de GPS próprias — ordenada pela altura, que é como se decide
+para onde a equipe vai primeiro.
+
+**Uma ordem nasce em qualquer das duas telas.** Marque um ou mais trechos medidos e clique em "Criar OS".
+Na tela da sessão um trecho sem medição não pode ser marcado; em `/trechos` só há trechos
+medidos. Uma ordem aberta da lista de críticos atravessa sessões sem cerimônia, porque os dois
+piores trechos do dia raramente foram gravados na mesma volta, e combiná-los é o que economiza
+deslocamento. O formulário envia só a decisão — os
 alvos, a prioridade, a equipe, a data e a observação — e a API deriva a área, o nível, o centro e
 o equipamento das próprias medições. A referência aparece depois da resposta, porque quem a emite
 é o servidor: mostrar um número antes seria mostrar algo que pode não ser o que foi gravado.

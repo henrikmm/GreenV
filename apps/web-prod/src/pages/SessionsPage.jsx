@@ -133,11 +133,29 @@ export default function SessionsPage() {
       Object.entries(bySession).map(([id, points]) => [id, centreOf(points)]))
   }, [measuredItems])
 
+  // Os trechos mais altos pedem o próprio lugar, não o da sessão: o ponto da lista é justamente
+  // que uma sessão mistura trecho limpo com trecho crítico.
+  const centres = useMemo(() => {
+    const points = Object.fromEntries(
+      Object.entries(centreOfSession).map(([id, point]) => [`session:${id}`, point]))
+    for (const segment of measuredItems) {
+      if (segment.trackCenterLat == null) continue
+      points[`segment:${segment.sessionId}:${segment.segmentIndex}`] = {
+        latitude: segment.trackCenterLat, longitude: segment.trackCenterLon,
+      }
+    }
+    return points
+  }, [centreOfSession, measuredItems])
+
   // O nome da rua vem do OpenStreetMap e chega depois; até lá vale a coordenada, que já está
   // certa. A tela nunca fica esperando por ele.
-  const streetNames = usePlaceNames(centreOfSession)
+  const streetNames = usePlaceNames(centres)
   const placeOf = (sessionId) =>
-    streetNames[sessionId] ?? describePlace(centreOfSession[sessionId])
+    streetNames[`session:${sessionId}`] ?? describePlace(centreOfSession[sessionId])
+  const placeOfSegment = (segment) => {
+    const key = `segment:${segment.sessionId}:${segment.segmentIndex}`
+    return streetNames[key] ?? describePlace(centres[key])
+  }
 
   const weekly = useMemo(
     () => bucketByWeek((page?.items ?? []).map(session => session.startedAt), 10),
@@ -197,15 +215,17 @@ export default function SessionsPage() {
           {tallest.map(segment => (
             <div key={`${segment.sessionId}:${segment.segmentIndex}`} style={s.criticalRow}>
               <span style={s.criticalDot(LEVELS[vegetationLevel(segment.measurementLevel)].color)} />
-              <span style={s.criticalName}>Trecho {segment.segmentIndex}</span>
+              <span style={s.criticalName}>
+                {placeOfSegment(segment)?.label ?? `Trecho ${segment.segmentIndex}`}
+              </span>
               <span style={s.criticalValue}>
                 {(segment.measurementExtent95P95M * 100).toFixed(0)} cm
               </span>
             </div>
           ))}
           {tallest.length === 0 && <div style={s.empty}>Nenhum trecho medido ainda.</div>}
-          <button style={s.linkBtn} onClick={() => navigate('/mapa')}>
-            Ver no mapa <ArrowUpRight size={13} />
+          <button style={s.linkBtn} onClick={() => navigate('/trechos')}>
+            Ver todos os trechos <ArrowUpRight size={13} />
           </button>
         </Card>
         <Card delay={0.3}>

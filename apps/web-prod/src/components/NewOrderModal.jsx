@@ -115,7 +115,14 @@ const s = {
   },
 }
 
-export default function NewOrderModal({ sessionId, segments, teams = [], onCreated, onClose }) {
+/**
+ * Cada alvo carrega a própria sessão, e não há um `sessionId` para o modal inteiro.
+ *
+ * Parece detalhe e não é: uma ordem combinada nascida da lista de trechos críticos cruza
+ * sessões por definição — os dois piores trechos do dia raramente foram gravados na mesma
+ * volta. A tabela `service_order_segments` guarda a sessão por linha justamente por isso.
+ */
+export default function NewOrderModal({ segments, teams = [], onCreated, onClose }) {
   const { addToast } = useToast()
   const [form, setForm] = useState({ priority: 'media', teamId: '', scheduledFor: '', notes: '' })
   const [busy, setBusy] = useState(false)
@@ -137,7 +144,9 @@ export default function NewOrderModal({ sessionId, segments, teams = [], onCreat
         teamId: form.teamId || null,
         scheduledFor: form.scheduledFor || null,
         notes: form.notes || null,
-        targets: segments.map(segment => ({ sessionId, segmentIndex: segment.segmentIndex })),
+        targets: segments.map(segment => ({
+          sessionId: segment.sessionId, segmentIndex: segment.segmentIndex,
+        })),
       })
       setCreated(order)
       addToast({
@@ -218,9 +227,11 @@ export default function NewOrderModal({ sessionId, segments, teams = [], onCreat
             {segments.map(segment => {
               const level = vegetationLevel(segment.measurementLevel)
               return (
-                <div key={segment.segmentIndex} style={s.trechoRow}>
+                <div key={`${segment.sessionId}:${segment.segmentIndex}`} style={s.trechoRow}>
                   <span style={s.trechoDot(LEVELS[level].color)} />
-                  <span style={s.trechoName}>Trecho {segment.segmentIndex}</span>
+                  <span style={s.trechoName}>
+                    {segment.placeLabel ?? `Trecho ${segment.segmentIndex}`}
+                  </span>
                   <span style={s.trechoHeight}>
                     {segment.measurementExtent95P95M != null
                       ? `${(segment.measurementExtent95P95M * 100).toFixed(0)} cm`
