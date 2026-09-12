@@ -101,6 +101,12 @@ As quatro abas são as mesmas da demonstração. O que muda é o alvo de uma ord
 do KMZ, aqui é um trecho medido, que é a única coisa neste sistema que carrega uma altura e uma
 posição reais. A API recusa com 409 uma ordem aberta contra um trecho sem medição.
 
+**Uma ordem nasce na tela da sessão.** Marque um ou mais trechos medidos na tabela e clique em
+"Criar OS"; um trecho sem medição não pode ser marcado. O formulário envia só a decisão — os
+alvos, a prioridade, a equipe, a data e a observação — e a API deriva a área, o nível, o centro e
+o equipamento das próprias medições. A referência aparece depois da resposta, porque quem a emite
+é o servidor: mostrar um número antes seria mostrar algo que pode não ser o que foi gravado.
+
 Duas honestidades sobre a tela de ordens:
 
 - **A área é estimada, não levantada.** Não existe geometria de parcela em lugar nenhum deste
