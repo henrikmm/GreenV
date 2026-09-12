@@ -36,7 +36,6 @@ const s = {
     width: 30, height: 30, borderRadius: 9, background: 'rgba(255,255,255,0.14)',
     display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
-  road: { position: 'relative', fontSize: 11.5, color: 'rgba(255,255,255,0.55)', fontFamily: 'var(--font-mono)' },
 
   formPanel: { flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 },
   formCard: { width: 380 },
@@ -128,7 +127,6 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <div style={s.road}>DADOS REAIS DA API</div>
         <GrassHorizon style={{ bottom: -8, opacity: 0.9 }} />
       </motion.div>
 

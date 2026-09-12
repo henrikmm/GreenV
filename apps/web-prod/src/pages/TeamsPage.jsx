@@ -40,7 +40,6 @@ const s = {
     letterSpacing: '0.04em', marginTop: 2,
   },
   state: { padding: 40, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 },
-  note: { fontSize: 11.5, color: 'var(--text-muted)', marginTop: 18, lineHeight: 1.6, maxWidth: 620 },
 }
 
 export default function TeamsPage() {
@@ -99,14 +98,6 @@ export default function TeamsPage() {
           )
         })}
       </div>
-
-      {!loading && !error && (
-        <div style={s.note}>
-          Estas quatro equipes vieram semeadas com o banco, para que uma ordem tenha a quem ser
-          atribuída no primeiro dia. Não são o quadro da concessionária: são configuração, e
-          trocá-las é um UPDATE, não um reprocessamento.
-        </div>
-      )}
     </PageShell>
   )
 }

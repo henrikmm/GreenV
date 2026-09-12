@@ -32,7 +32,7 @@ const s = {
 export default function PageShell({ currentPage, roadTag, variant = 'document', children }) {
   return (
     <div style={s.page}>
-      <NavBar currentPage={currentPage} tabs={TABS} roadTag={roadTag ?? 'DADOS REAIS DA API'} />
+      <NavBar currentPage={currentPage} tabs={TABS} roadTag={roadTag ?? ''} />
       <div style={variant === 'fill' ? s.fill : s.document}>{children}</div>
     </div>
   )

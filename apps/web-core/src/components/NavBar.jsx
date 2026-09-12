@@ -77,7 +77,7 @@ export default function NavBar({ currentPage, tabs = DEMO_TABS, roadTag = 'SP-02
       </div>
 
       <div style={s.right}>
-        <span style={s.roadTag}>{roadTag}</span>
+        {roadTag && <span style={s.roadTag}>{roadTag}</span>}
         <UserMenu />
       </div>
     </nav>

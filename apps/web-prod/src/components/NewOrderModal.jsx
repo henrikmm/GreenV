@@ -40,7 +40,7 @@ const s = {
     justifyContent: 'center', cursor: 'pointer', fontFamily: 'inherit',
   },
   body: { padding: 24 },
-  infoGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 },
+  infoGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 20 },
   infoBox: {
     padding: '12px 14px', background: 'var(--bg-secondary)',
     borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)',
@@ -61,11 +61,6 @@ const s = {
   trechoDot: (colour) => ({ width: 8, height: 8, borderRadius: '50%', background: colour, flexShrink: 0 }),
   trechoName: { fontSize: 12.5, fontWeight: 600, flex: 1 },
   trechoHeight: { fontSize: 11.5, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' },
-  summaryBox: {
-    display: 'flex', gap: 10, padding: '10px 12px', background: 'var(--motiva-subtle)',
-    fontSize: 11.5, color: 'var(--text-secondary)', borderRadius: 'var(--radius-sm)',
-    marginBottom: 20, lineHeight: 1.5,
-  },
   divider: { height: 1, background: 'var(--border)', margin: '20px 0' },
   formGroup: { marginBottom: 16 },
   label: {
@@ -196,7 +191,6 @@ export default function NewOrderModal({ segments, teams = [], onCreated, onClose
         <div style={s.header}>
           <div>
             <div style={s.modalTitle}>{combined ? 'Nova OS combinada' : 'Nova ordem de serviço'}</div>
-            <div style={s.subtitle}>A referência é emitida pela API ao salvar.</div>
           </div>
           <button style={s.closeBtn} onClick={onClose}><X size={16} /></button>
         </div>
@@ -217,10 +211,6 @@ export default function NewOrderModal({ segments, teams = [], onCreated, onClose
                 {tallest > 0 ? `${(tallest * 100).toFixed(0)} cm` : '—'}
               </div>
             </div>
-            <div style={s.infoBox}>
-              <div style={s.infoLabel}>Equipamento</div>
-              <div style={{ ...s.infoValue, fontSize: 11.5 }}>derivado pela API</div>
-            </div>
           </div>
 
           <div style={s.trechoList}>
@@ -240,11 +230,6 @@ export default function NewOrderModal({ segments, teams = [], onCreated, onClose
                 </div>
               )
             })}
-          </div>
-
-          <div style={s.summaryBox}>
-            A área da ordem é estimada a partir da faixa de cinco metros que a grade mediu. Não há
-            geometria de parcela neste sistema, e nenhuma leitura foi conferida com fita métrica.
           </div>
 
           <div style={s.divider} />
