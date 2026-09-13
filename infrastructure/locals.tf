@@ -196,6 +196,12 @@ locals {
     # session a third-party cookie, which Safari and Firefox already block outright.
     GREENV_COOKIE_SAME_SITE = var.cookie_same_site
 
+    # The dashboard is served from a different subdomain than the API, and the CSRF cookie is
+    # the one the page has to read back. Host-only, it is invisible there, and every write is
+    # answered 401 — a login problem the login is not having. The session cookies keep the
+    # __Host- prefix and take no domain.
+    GREENV_COOKIE_CSRF_DOMAIN = var.cookie_csrf_domain
+
     # GREENV_JWT_EPHEMERAL_KEY is deliberately absent and asserted absent in tests/mvp.tftest.hcl.
     # A deployment must never fall back to a key that dies with the process.
   })

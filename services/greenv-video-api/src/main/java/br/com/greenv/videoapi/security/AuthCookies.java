@@ -60,7 +60,7 @@ public final class AuthCookies {
 
     private static ResponseCookie.ResponseCookieBuilder builder(
             AuthProperties properties, String name, String value) {
-        return ResponseCookie.from(name, value)
+        ResponseCookie.ResponseCookieBuilder builder = ResponseCookie.from(name, value)
                 // The __Host- prefix is only honoured with these exact three, and no domain.
                 .httpOnly(!CSRF.equals(name))
                 // Never configurable: a session cookie sent in the clear is a session anyone
@@ -68,5 +68,16 @@ public final class AuthCookies {
                 .secure(true)
                 .path("/")
                 .sameSite(properties.cookie().sameSite());
+
+        // Only the CSRF cookie, and only when configured. A dashboard on a sibling subdomain
+        // cannot read a host-only cookie, and a token it cannot read is a token it cannot echo:
+        // every write then fails the double-submit check and answers 401, which reads as a login
+        // problem and is not one. The session cookies must never take a domain — it would strip
+        // the __Host- prefix that stops a sibling subdomain shadowing them.
+        String domain = properties.cookie().csrfDomain();
+        if (CSRF.equals(name) && domain != null) {
+            builder.domain(domain);
+        }
+        return builder;
     }
 }

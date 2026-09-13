@@ -29,7 +29,7 @@ public record AuthProperties(
         accessTokenTtl = positiveOrDefault(accessTokenTtl, Duration.ofMinutes(15));
         refreshTokenTtl = positiveOrDefault(refreshTokenTtl, Duration.ofDays(7));
         clientCredentialsTtl = positiveOrDefault(clientCredentialsTtl, Duration.ofHours(4));
-        cookie = cookie == null ? new Cookie("Lax") : cookie;
+        cookie = cookie == null ? new Cookie("Lax", null) : cookie;
     }
 
     /**
@@ -40,10 +40,18 @@ public record AuthProperties(
      * <p>{@code sameSite} is a property only so that {@code None} has to be a deliberate,
      * reviewable act. Lax is right whenever the dashboard and the API share a registrable domain,
      * which the Vite dev proxy arranges locally.
+     *
+     * <p>{@code csrfDomain} widens one cookie and only one. The session cookies keep the
+     * {@code __Host-} prefix, which forbids a domain outright, and they never needed one: the
+     * browser sends them to this host by itself. The CSRF cookie is the opposite kind of thing —
+     * it exists to be read by script on the dashboard's page, and when the dashboard is served
+     * from a different subdomain a host-only cookie is invisible to it. Left unset, nothing
+     * changes; that is the right answer whenever both are served from one host.
      */
-    public record Cookie(String sameSite) {
+    public record Cookie(String sameSite, String csrfDomain) {
         public Cookie {
             sameSite = blankTo(sameSite, "Lax");
+            csrfDomain = csrfDomain == null || csrfDomain.isBlank() ? null : csrfDomain.trim();
         }
     }
 
