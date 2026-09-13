@@ -99,9 +99,37 @@ export const sessions = {
   },
 }
 
+/**
+ * As leituras, ordenadas e filtradas pela API.
+ *
+ * Isto já foi uma chamada só, pedindo duzentas linhas para ordenar no navegador. Funcionava
+ * enquanto tudo coubesse numa resposta: passando disso, a primeira página vira a mais alta de
+ * um recorte qualquer e fica igualzinha à mais alta que existe. Agora a ordem, o filtro e a
+ * página são da consulta, e os contadores vêm de uma rota própria porque não mudam quando
+ * alguém rola a lista.
+ */
+function measurementParams({ level, capturedFrom, capturedTo, search }) {
+  const query = new URLSearchParams()
+  if (level != null) query.set('level', level)
+  if (capturedFrom) query.set('capturedFrom', capturedFrom)
+  if (capturedTo) query.set('capturedTo', capturedTo)
+  if (search) query.set('q', search)
+  return query
+}
+
 export const measurements = {
-  list({ limit = 100, offset = 0 } = {}) {
-    return getJson(`/v2/measurements?limit=${limit}&offset=${offset}`)
+  list({ sort = 'HEIGHT_DESC', limit = 25, offset = 0, ...filters } = {}) {
+    const query = measurementParams(filters)
+    query.set('sort', sort)
+    query.set('limit', limit)
+    query.set('offset', offset)
+    return getJson(`/v2/measurements?${query}`)
+  },
+  summary(filters = {}) {
+    // O nível não vai: os contadores respondem por todos eles, senão o chip escolhido seria o
+    // único com número e os outros zerariam por estarem fora do próprio filtro.
+    const { level, ...rest } = filters
+    return getJson(`/v2/measurements/summary?${measurementParams(rest)}`)
   },
 }
 

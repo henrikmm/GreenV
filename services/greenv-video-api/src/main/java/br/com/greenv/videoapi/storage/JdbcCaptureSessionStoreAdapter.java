@@ -5,6 +5,8 @@ import br.com.greenv.videoapi.domain.CaptureSessionDocument;
 import br.com.greenv.videoapi.domain.CaptureSessionQuery;
 import br.com.greenv.videoapi.domain.CaptureSessionSummary;
 import br.com.greenv.videoapi.domain.MeasurementProjection;
+import br.com.greenv.videoapi.domain.MeasurementQuery;
+import br.com.greenv.videoapi.domain.MeasurementSummary;
 import br.com.greenv.videoapi.domain.FrameReadings;
 import br.com.greenv.videoapi.domain.Page;
 import br.com.greenv.videoapi.domain.SegmentPlace;
@@ -18,6 +20,8 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.dao.DuplicateKeyException;
@@ -320,22 +324,113 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                 sessionId);
     }
 
-    /** Measured segments across every session, newest measurement first. The map's feed. */
+    /**
+     * One page of readings, ordered and filtered in SQL.
+     *
+     * <p>This used to hand out two hundred rows in whatever order they were measured and let the
+     * browser sort them. That is only the right answer while everything fits in one request: past
+     * that, the first page is the tallest of an arbitrary two hundred instead of the tallest there
+     * is, and nothing on screen admits it. V13 adds the two indexes these orders read.
+     */
     @Override
-    public Page<CaptureSegmentDocument> findMeasuredSegments(CaptureSessionQuery query) {
+    public Page<CaptureSegmentDocument> findMeasurements(MeasurementQuery query) {
+        List<Object> arguments = new ArrayList<>();
+        String where = whereFor(query, arguments);
+
         Long total = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM capture_segments WHERE measurement_state IS NOT NULL", Long.class);
+                "SELECT COUNT(*) FROM capture_segments" + where, Long.class, arguments.toArray());
+
+        List<Object> paged = new ArrayList<>(arguments);
+        paged.add(query.limit());
+        paged.add(query.offset());
         List<CaptureSegmentDocument> items = jdbcTemplate.query(
-                """
-                SELECT * FROM capture_segments
-                 WHERE measurement_state IS NOT NULL
-                 ORDER BY measured_at DESC, session_id DESC, segment_index
-                 LIMIT ? OFFSET ?
-                """,
+                "SELECT * FROM capture_segments" + where
+                        + " ORDER BY " + query.sort().orderBy() + " LIMIT ? OFFSET ?",
                 JdbcCaptureSessionStoreAdapter::mapSegment,
-                query.limit(),
-                query.offset());
+                paged.toArray());
         return new Page<>(items, total == null ? 0 : total, query.limit(), query.offset());
+    }
+
+    /**
+     * The counters, in one pass over the same filter.
+     *
+     * <p>Four separate counts would be four scans of the same rows to draw four cards. The level
+     * is bucketed in SQL with the same rule the rest of the system uses: anything that is not 1, 2
+     * or 3 — null included — is level 0, which is "not classified" and not "low".
+     */
+    @Override
+    public MeasurementSummary summariseMeasurements(MeasurementQuery query) {
+        List<Object> arguments = new ArrayList<>();
+        String where = whereFor(query.withoutLevel(), arguments);
+
+        return jdbcTemplate.query(
+                """
+                SELECT COUNT(*) AS total,
+                       SUM(CASE WHEN measurement_level = 1 THEN 1 ELSE 0 END) AS level_1,
+                       SUM(CASE WHEN measurement_level = 2 THEN 1 ELSE 0 END) AS level_2,
+                       SUM(CASE WHEN measurement_level = 3 THEN 1 ELSE 0 END) AS level_3,
+                       SUM(CASE WHEN measurement_level IN (1, 2, 3) THEN 0 ELSE 1 END) AS level_0,
+                       MAX(measurement_extent95_p95_m) AS tallest
+                  FROM capture_segments
+                """
+                        + where,
+                result -> {
+                    if (!result.next()) {
+                        return MeasurementSummary.empty();
+                    }
+                    double tallest = result.getDouble("tallest");
+                    return new MeasurementSummary(
+                            result.getLong("total"),
+                            Map.of(
+                                    0, result.getLong("level_0"),
+                                    1, result.getLong("level_1"),
+                                    2, result.getLong("level_2"),
+                                    3, result.getLong("level_3")),
+                            result.wasNull() ? null : tallest);
+                },
+                arguments.toArray());
+    }
+
+    /**
+     * The filter both of the above share, so a count can never disagree with the page it labels.
+     *
+     * <p>The capture window is half-open. Two adjacent days sharing the row recorded exactly at
+     * midnight would put it on both screens and in neither total.
+     */
+    private static String whereFor(MeasurementQuery query, List<Object> arguments) {
+        List<String> clauses = new ArrayList<>();
+        clauses.add("measurement_state IS NOT NULL");
+
+        if (query.level() != null) {
+            if (query.level() == 0) {
+                clauses.add("(measurement_level IS NULL OR measurement_level NOT IN (1, 2, 3))");
+            } else {
+                clauses.add("measurement_level = ?");
+                arguments.add(query.level());
+            }
+        }
+        if (query.capturedFrom() != null) {
+            clauses.add("captured_at >= ?");
+            arguments.add(Timestamp.from(query.capturedFrom()));
+        }
+        if (query.capturedTo() != null) {
+            clauses.add("captured_at < ?");
+            arguments.add(Timestamp.from(query.capturedTo()));
+        }
+        if (query.search() != null) {
+            // The same three fields the dashboard composes its label from, so what a person types
+            // is matched against what they read on the row.
+            clauses.add("""
+                    (LOWER(COALESCE(place_label, '')) LIKE ?
+                      OR LOWER(COALESCE(place_detail, '')) LIKE ?
+                      OR LOWER(COALESCE(place_road, '')) LIKE ?)
+                    """);
+            String pattern = "%" + query.search().toLowerCase(Locale.ROOT) + "%";
+            arguments.add(pattern);
+            arguments.add(pattern);
+            arguments.add(pattern);
+        }
+        return " WHERE " + String.join(" AND ", clauses);
     }
 
     @Override

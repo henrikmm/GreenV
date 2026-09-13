@@ -8,6 +8,8 @@ import br.com.greenv.videoapi.domain.CaptureSessionQuery;
 import br.com.greenv.videoapi.domain.CaptureSessionSummary;
 import br.com.greenv.videoapi.domain.FrameReadings;
 import br.com.greenv.videoapi.domain.MeasurementProjection;
+import br.com.greenv.videoapi.domain.MeasurementQuery;
+import br.com.greenv.videoapi.domain.MeasurementSummary;
 import br.com.greenv.videoapi.domain.Page;
 import br.com.greenv.videoapi.domain.SegmentExtractionRequest;
 import br.com.greenv.videoapi.domain.SampledFrame;
@@ -454,8 +456,13 @@ public class CaptureSessionService implements CaptureSessionUseCase {
     }
 
     @Override
-    public Page<CaptureSegmentDocument> listMeasurements(CaptureSessionQuery query) {
-        return captureSessionStore.findMeasuredSegments(query);
+    public Page<CaptureSegmentDocument> listMeasurements(MeasurementQuery query) {
+        return captureSessionStore.findMeasurements(query);
+    }
+
+    @Override
+    public MeasurementSummary summariseMeasurements(MeasurementQuery query) {
+        return captureSessionStore.summariseMeasurements(query);
     }
 
     @Override

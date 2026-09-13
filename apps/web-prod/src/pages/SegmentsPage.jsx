@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import { ClipboardList, Ruler, ChevronRight, ChevronDown } from 'lucide-react'
-import { LEVELS, vegetationLevel, Card, dayKey, dayLabel } from '@greenv/web-core'
+import { LEVELS, vegetationLevel, Card } from '@greenv/web-core'
 import { measurements, teams as teamsApi } from '../api/greenv'
 import { placeOfSegment } from '../api/place'
 import { readingOf } from '../api/reading'
@@ -85,6 +85,26 @@ const s = {
   // Sem `display: flex` aqui. Uma célula que vira contêiner flex deixa de ser célula: sai da
   // grade de colunas da tabela e se desenha por conta própria, que era a coluna solta e
   // deslocada à direita, com traços que não batiam com as linhas.
+  chipCount: {
+    fontFamily: 'var(--font-mono)', fontSize: 11, opacity: 0.75, marginLeft: 2,
+  },
+  clearDay: {
+    padding: '7px 11px', fontSize: 12, fontFamily: 'inherit', cursor: 'pointer',
+    border: '1px solid var(--border)', background: 'white', color: 'var(--text-muted)',
+    borderRadius: 'var(--radius-sm)',
+  },
+  pager: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+    padding: '12px 14px', borderTop: '1px solid var(--border)',
+  },
+  pagerCount: { fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' },
+  pagerButtons: { display: 'flex', gap: 8 },
+  pageBtn: (enabled) => ({
+    padding: '7px 14px', fontSize: 12.5, fontWeight: 600, fontFamily: 'inherit',
+    borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'white',
+    color: enabled ? 'var(--text-primary)' : 'var(--text-muted)',
+    cursor: enabled ? 'pointer' : 'not-allowed', opacity: enabled ? 1 : 0.5,
+  }),
   chevron: { color: 'var(--text-muted)', width: 34, textAlign: 'center', lineHeight: 0 },
   chevronIcon: { display: 'inline-block', verticalAlign: 'middle' },
   detailCell: { padding: '0 14px', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border)' },
@@ -92,12 +112,49 @@ const s = {
 
 const keyOf = (segment) => `${segment.sessionId}:${segment.segmentIndex}`
 
+const ORDERS = [
+  ['HEIGHT_DESC', 'Mais altos primeiro'],
+  ['HEIGHT_ASC', 'Mais baixos primeiro'],
+  ['CAPTURED_DESC', 'Captura mais recente'],
+  ['CAPTURED_ASC', 'Captura mais antiga'],
+  ['MEASURED_DESC', 'Medição mais recente'],
+]
+
+const PAGE_SIZE = 25
+
+/**
+ * Um dia local vira os dois instantes que o delimitam.
+ *
+ * O navegador é quem sabe em que fuso a pessoa está; a API compara instantes, que é a única
+ * coisa que uma coluna com fuso compara sem inventar. O limite de cima é exclusivo, senão a
+ * leitura gravada exatamente à meia-noite apareceria em dois dias.
+ */
+function boundsOfDay(value) {
+  if (!value) return { capturedFrom: undefined, capturedTo: undefined }
+  const [year, month, day] = value.split('-').map(Number)
+  const start = new Date(year, month - 1, day)
+  const end = new Date(year, month - 1, day + 1)
+  return { capturedFrom: start.toISOString(), capturedTo: end.toISOString() }
+}
+
 export default function SegmentsPage() {
-  const [state, setState] = useState({ loading: true, items: [], teams: [] })
+  const [sort, setSort] = useState('HEIGHT_DESC')
   const [filterLevel, setFilterLevel] = useState(null)
-  // O dia da captura, não o da medição: é a saída a campo que a pessoa lembra.
+  // O dia da captura, não o da medição: é a saída a campo que a pessoa lembra. Um campo de data
+  // em vez de uma lista de dias, porque enumerar os dias que existem custaria varrer a tabela
+  // inteira — que é justamente o que esta tela deixou de fazer.
   const [filterDay, setFilterDay] = useState('')
   const [search, setSearch] = useState('')
+  const [debounced, setDebounced] = useState('')
+  const [offset, setOffset] = useState(0)
+
+  const [state, setState] = useState({ loading: true, items: [], total: 0, hasMore: false })
+  const [summary, setSummary] = useState(null)
+  const [teams, setTeams] = useState([])
+
+  // Os trechos escolhidos são guardados inteiros, não por chave. Uma ordem combinada junta os
+  // piores do dia e eles raramente caem na mesma página; guardar só a chave perderia a escolha
+  // no instante em que a linha saísse da tela.
   const [chosen, setChosen] = useState([])
   const [ordering, setOrdering] = useState(false)
   // Um trecho aberto por vez: dois mapas lado a lado numa tabela competem por atenção e
@@ -105,59 +162,56 @@ export default function SegmentsPage() {
   const [openKey, setOpenKey] = useState(null)
 
   useEffect(() => {
-    let live = true
-    Promise.all([measurements.list({ limit: 200 }), teamsApi.list().catch(() => [])])
-      .then(([page, teams]) => { if (live) setState({ loading: false, items: page.items, teams }) })
-      .catch(error => { if (live) setState({ loading: false, items: [], teams: [], error }) })
-    return () => { live = false }
-  }, [])
+    const timer = setTimeout(() => setDebounced(search), 300)
+    return () => clearTimeout(timer)
+  }, [search])
 
-  const { items, teams, loading, error } = state
+  useEffect(() => { teamsApi.list().then(setTeams).catch(() => setTeams([])) }, [])
+
+  const filters = useMemo(() => ({
+    level: filterLevel, search: debounced, ...boundsOfDay(filterDay),
+  }), [filterLevel, debounced, filterDay])
+
+  // Trocar um filtro volta para a primeira página. Manter o deslocamento deixaria a lista vazia
+  // com um total cheio, que lê como erro e é só a página cinco de um resultado de três linhas.
+  useEffect(() => { setOffset(0); setOpenKey(null) }, [filters, sort])
+
+  useEffect(() => {
+    let live = true
+    setState(previous => ({ ...previous, loading: true }))
+    measurements.list({ ...filters, sort, limit: PAGE_SIZE, offset })
+      .then(page => {
+        if (live) setState({ loading: false, items: page.items, total: page.total, hasMore: page.hasMore })
+      })
+      .catch(error => { if (live) setState({ loading: false, items: [], total: 0, hasMore: false, error }) })
+    return () => { live = false }
+  }, [filters, sort, offset])
+
+  // Os contadores não mudam quando se rola a lista, então só são buscados quando o filtro muda.
+  useEffect(() => {
+    let live = true
+    measurements.summary(filters)
+      .then(answer => { if (live) setSummary(answer) })
+      .catch(() => { if (live) setSummary(null) })
+    return () => { live = false }
+  }, [filters])
+
+  const { items: visible, total, hasMore, loading, error } = state
 
   // Cada trecho já vem com o próprio lugar resolvido pela API.
   const placeOf = (segment) => placeOfSegment(segment)
 
-  // Os dias em que se saiu a campo, do mais recente para o mais antigo, com quantas leituras
-  // cada um rendeu. Sai dos próprios trechos, então não custa uma segunda consulta.
-  const days = useMemo(() => {
-    const tally = new Map()
-    for (const segment of items) {
-      const key = dayKey(segment.capturedAt)
-      if (!key) continue
-      const seen = tally.get(key)
-      tally.set(key, { key, label: dayLabel(segment.capturedAt), count: (seen?.count ?? 0) + 1 })
-    }
-    return [...tally.values()].sort((a, b) => b.key.localeCompare(a.key))
-  }, [items])
+  const counts = summary?.countsByLevel ?? {}
+  const countOf = (level) => counts[String(level)] ?? 0
+  const tallest = summary?.tallestExtent95M ?? 0
 
-  // O dia filtra antes de tudo, por isso os cartões e as contagens dos chips saem daqui: um
-  // número do mês inteiro sobre uma lista de um dia só seria uma contradição na mesma tela.
-  const inDay = useMemo(() => (
-    filterDay ? items.filter(segment => dayKey(segment.capturedAt) === filterDay) : items
-  ), [items, filterDay])
-
-  // Sem altura vai para o fim, não para o começo: uma leitura que ninguém conseguiu medir não é
-  // uma leitura baixa, e ordenar nulo como zero a enterraria junto com a grama aparada.
-  const ranked = useMemo(() => [...inDay].sort((a, b) =>
-    (b.measurementExtent95P95M ?? -1) - (a.measurementExtent95P95M ?? -1)), [inDay])
-
-  const tallest = ranked[0]?.measurementExtent95P95M ?? 0
-
-  const visible = useMemo(() => ranked.filter(segment => {
-    if (filterLevel !== null && vegetationLevel(segment.measurementLevel) !== filterLevel) return false
-    if (!search) return true
-    const place = placeOf(segment)
-    return (place?.label ?? '').toLowerCase().includes(search.toLowerCase())
-      || (place?.detail ?? '').toLowerCase().includes(search.toLowerCase())
-  }), [ranked, filterLevel, search])
-
-  const counts = useMemo(() => {
-    const tally = { 0: 0, 1: 0, 2: 0, 3: 0 }
-    for (const segment of inDay) tally[vegetationLevel(segment.measurementLevel)] += 1
-    return tally
-  }, [inDay])
-
-  const chosenSegments = items.filter(segment => chosen.includes(keyOf(segment)))
+  const chosenSegments = chosen
+  const toggleChosen = (segment) => setChosen(previous => (
+    previous.some(other => keyOf(other) === keyOf(segment))
+      ? previous.filter(other => keyOf(other) !== keyOf(segment))
+      : [...previous, segment]
+  ))
+  const isChosen = (segment) => chosen.some(other => keyOf(other) === keyOf(segment))
 
   return (
     <PageShell currentPage="segments">
@@ -179,15 +233,15 @@ export default function SegmentsPage() {
 
       <div style={s.statsRow}>
         <div style={s.statCard(LEVELS[3].color)}>
-          <div style={{ ...s.statNumber, color: LEVELS[3].color }}>{counts[3]}</div>
+          <div style={{ ...s.statNumber, color: LEVELS[3].color }}>{countOf(3)}</div>
           <div style={s.statLabel}>Acima de 30 cm</div>
         </div>
         <div style={s.statCard(LEVELS[2].color)}>
-          <div style={{ ...s.statNumber, color: LEVELS[2].color }}>{counts[2]}</div>
+          <div style={{ ...s.statNumber, color: LEVELS[2].color }}>{countOf(2)}</div>
           <div style={s.statLabel}>Entre 10 e 30 cm</div>
         </div>
         <div style={s.statCard(LEVELS[1].color)}>
-          <div style={{ ...s.statNumber, color: LEVELS[1].color }}>{counts[1]}</div>
+          <div style={{ ...s.statNumber, color: LEVELS[1].color }}>{countOf(1)}</div>
           <div style={s.statLabel}>Abaixo de 10 cm</div>
         </div>
         <div style={s.statCard('var(--motiva)')}>
@@ -206,16 +260,17 @@ export default function SegmentsPage() {
           <button key={level} style={s.chip(filterLevel === level, LEVELS[level].color)}
             onClick={() => setFilterLevel(filterLevel === level ? null : level)}>
             <span style={s.dot(LEVELS[level].color)} />{LEVELS[level].desc}
+            <span style={s.chipCount}>{countOf(level)}</span>
           </button>
         ))}
-        {days.length > 1 && (
-          <select style={s.daySelect} value={filterDay}
-            onChange={event => setFilterDay(event.target.value)}>
-            <option value="">Todos os dias</option>
-            {days.map(day => (
-              <option key={day.key} value={day.key}>{day.label} ({day.count})</option>
-            ))}
-          </select>
+        <select style={s.daySelect} value={sort} onChange={event => setSort(event.target.value)}>
+          {ORDERS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select>
+        <input type="date" style={s.daySelect} value={filterDay}
+          title="Dia da captura"
+          onChange={event => setFilterDay(event.target.value)} />
+        {filterDay && (
+          <button style={s.clearDay} onClick={() => setFilterDay('')}>limpar dia</button>
         )}
         <input style={s.searchInput} placeholder="Buscar por rua ou bairro…"
           value={search} onChange={event => setSearch(event.target.value)} />
@@ -225,7 +280,7 @@ export default function SegmentsPage() {
 
       {!error && (
         <Card style={{ padding: 0, overflow: 'hidden' }}>
-          {loading && <div style={s.empty}>Carregando leituras…</div>}
+          {loading && visible.length === 0 && <div style={s.empty}>Carregando leituras…</div>}
           {!loading && visible.length === 0 && (
             <div style={s.empty}>
               <Ruler size={34} style={{ opacity: 0.4, marginBottom: 10 }} />
@@ -253,13 +308,11 @@ export default function SegmentsPage() {
                     <tr style={s.row(openKey === keyOf(segment))}
                       onClick={() => setOpenKey(openKey === keyOf(segment) ? null : keyOf(segment))}>
                       <td style={s.td}>
-                        <input type="checkbox" checked={chosen.includes(keyOf(segment))}
+                        <input type="checkbox" checked={isChosen(segment)}
                           onClick={(event) => event.stopPropagation()}
-                          onChange={() => setChosen(previous => previous.includes(keyOf(segment))
-                            ? previous.filter(key => key !== keyOf(segment))
-                            : [...previous, keyOf(segment)])} />
+                          onChange={() => toggleChosen(segment)} />
                       </td>
-                      <td style={{ ...s.td, ...s.rank }}>{position + 1}</td>
+                      <td style={{ ...s.td, ...s.rank }}>{offset + position + 1}</td>
                       <td style={s.td}>
                         <div style={s.place}>
                           {place?.label ?? <span style={{ color: 'var(--text-muted)' }}>sem posição</span>}
@@ -317,6 +370,27 @@ export default function SegmentsPage() {
                 })}
               </tbody>
             </table>
+          )}
+
+          {/* O rodapé diz de quantas, porque com a lista paginada a contagem de linhas na tela
+              deixou de responder isso. */}
+          {total > 0 && (
+            <div style={s.pager}>
+              <span style={s.pagerCount}>
+                {offset + 1}–{offset + visible.length} de {total}
+                {chosen.length > 0 && ` · ${chosen.length} escolhido${chosen.length > 1 ? 's' : ''}`}
+              </span>
+              <div style={s.pagerButtons}>
+                <button style={s.pageBtn(offset > 0)} disabled={offset === 0}
+                  onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>
+                  Anterior
+                </button>
+                <button style={s.pageBtn(hasMore)} disabled={!hasMore}
+                  onClick={() => setOffset(offset + PAGE_SIZE)}>
+                  Próxima
+                </button>
+              </div>
+            </div>
           )}
         </Card>
       )}

@@ -712,21 +712,51 @@ paths:
   /v2/measurements:
     get:
       operationId: listMeasurements
-      summary: Measured segments across every session, newest first
+      summary: One page of readings across every session
       description: >-
-        The map's feed. Carries the projected summary only; the packet itself is
-        at the segment's measurement route. Every reading reports
-        operationalStatus "not-ready".
+        The dashboard's feed, ordered and filtered here rather than in the
+        client. A caller that fetches everything and sorts it locally is right
+        only until there is more than one page of it, and then shows the tallest
+        of an arbitrary slice as though it were the tallest there is. Carries
+        the projected summary only; the packet itself is at the segment's
+        measurement route. Every reading reports operationalStatus "not-ready".
       parameters:
+        - $ref: '#/components/parameters/MeasurementSort'
+        - $ref: '#/components/parameters/MeasurementLevel'
+        - $ref: '#/components/parameters/CapturedFrom'
+        - $ref: '#/components/parameters/CapturedTo'
+        - $ref: '#/components/parameters/MeasurementSearch'
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Offset'
       responses:
         '200':
-          description: One page of measured segments
+          description: One page of readings
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/CaptureSegmentPage'
+  /v2/measurements/summary:
+    get:
+      operationId: summariseMeasurements
+      summary: How many readings the same filter selects, by level
+      description: >-
+        The counters above the list. Its own route because the answer is the
+        same for every page of one filter, and because a count describing only
+        the page would be an answer about the request rather than about the
+        data. The level filter is ignored here: the counters answer for every
+        level so the chips can show what choosing one would give.
+      parameters:
+        - $ref: '#/components/parameters/MeasurementLevel'
+        - $ref: '#/components/parameters/CapturedFrom'
+        - $ref: '#/components/parameters/CapturedTo'
+        - $ref: '#/components/parameters/MeasurementSearch'
+      responses:
+        '200':
+          description: Counters for the filtered set
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeasurementSummary'
   /v2/capture-sessions/{sessionId}/segments/{segmentIndex}/measurement:
     get:
       operationId: getCaptureSegmentMeasurement
@@ -927,6 +957,60 @@ components:
       schema:
         type: integer
         minimum: 0
+    MeasurementSort:
+      name: sort
+      in: query
+      required: false
+      description: >-
+        Order of the page. Defaults to HEIGHT_DESC, which is the order the list
+        is read in: the tallest grass decides where a crew goes first. Every
+        order carries the primary key behind it so paging is stable, and a
+        reading with no measurable height sorts last in both directions rather
+        than as zero. An unrecognised value falls back to the default.
+      schema:
+        type: string
+        enum: [HEIGHT_DESC, HEIGHT_ASC, CAPTURED_DESC, CAPTURED_ASC, MEASURED_DESC]
+    MeasurementLevel:
+      name: level
+      in: query
+      required: false
+      description: >-
+        Keep only readings at this level. 0 gathers everything that was not
+        classified, which is not the same as low.
+      schema:
+        type: integer
+        minimum: 0
+        maximum: 3
+    CapturedFrom:
+      name: capturedFrom
+      in: query
+      required: false
+      description: >-
+        Inclusive lower bound on capture time. A day is a local idea and this
+        service does not guess whose, so a caller filtering by day sends the two
+        instants that bound it in its own timezone.
+      schema:
+        type: string
+        format: date-time
+    CapturedTo:
+      name: capturedTo
+      in: query
+      required: false
+      description: >-
+        Exclusive upper bound on capture time, so two adjacent days never share
+        the reading recorded exactly at midnight.
+      schema:
+        type: string
+        format: date-time
+    MeasurementSearch:
+      name: q
+      in: query
+      required: false
+      description: >-
+        Case-insensitive match against the resolved place: street, detail or
+        highway designation. The same fields a client composes its label from.
+      schema:
+        type: string
     JobId:
       name: jobId
       in: path
@@ -1417,6 +1501,27 @@ components:
           type: integer
         hasMore:
           type: boolean
+    MeasurementSummary:
+      type: object
+      required: [schemaVersion, total, countsByLevel]
+      description: >-
+        Counters over every reading the filter selects, not over the page. The
+        tallest is absent when nothing in the set carried a measurable height.
+      properties:
+        schemaVersion:
+          const: 1
+        total:
+          type: integer
+        countsByLevel:
+          type: object
+          description: >-
+            Keyed by level as text, "0" to "3". A level with no readings is
+            present as zero rather than missing.
+          additionalProperties:
+            type: integer
+        tallestExtent95M:
+          type: number
+          nullable: true
     SampledFrame:
       type: object
       required: [fileName, canonicalFrame, imageUrl]

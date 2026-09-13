@@ -5,6 +5,8 @@ import br.com.greenv.videoapi.domain.CaptureSessionDocument;
 import br.com.greenv.videoapi.domain.CaptureSessionQuery;
 import br.com.greenv.videoapi.domain.CaptureSessionSummary;
 import br.com.greenv.videoapi.domain.MeasurementProjection;
+import br.com.greenv.videoapi.domain.MeasurementQuery;
+import br.com.greenv.videoapi.domain.MeasurementSummary;
 import br.com.greenv.videoapi.domain.FrameReadings;
 import br.com.greenv.videoapi.domain.Page;
 import br.com.greenv.videoapi.domain.SegmentPlace;
@@ -71,8 +73,11 @@ public interface CaptureSessionStore {
     /** Every segment of one session, in capture order. */
     List<CaptureSegmentDocument> findSegments(UUID sessionId);
 
-    /** Measured segments across every session, newest measurement first. */
-    Page<CaptureSegmentDocument> findMeasuredSegments(CaptureSessionQuery query);
+    /** One page of readings across every session, ordered and filtered by {@code query}. */
+    Page<CaptureSegmentDocument> findMeasurements(MeasurementQuery query);
+
+    /** The counters for the whole filtered set, which a page of it cannot answer. */
+    MeasurementSummary summariseMeasurements(MeasurementQuery query);
 
     long segmentCount(UUID sessionId);
 

@@ -4,6 +4,8 @@ import br.com.greenv.videoapi.domain.CaptureSegmentDocument;
 import br.com.greenv.videoapi.domain.CaptureSessionDocument;
 import br.com.greenv.videoapi.domain.CaptureSessionQuery;
 import br.com.greenv.videoapi.domain.CaptureSessionSummary;
+import br.com.greenv.videoapi.domain.MeasurementQuery;
+import br.com.greenv.videoapi.domain.MeasurementSummary;
 import br.com.greenv.videoapi.domain.Page;
 import br.com.greenv.videoapi.domain.FrameReadings;
 import br.com.greenv.videoapi.domain.SampledFrame;
@@ -32,8 +34,11 @@ public interface CaptureSessionUseCase {
     /** Every segment of one session, in capture order. Throws when the session is unknown. */
     List<CaptureSegmentDocument> listSegments(UUID sessionId);
 
-    /** Measured segments across every session, newest first: the map's feed. */
-    Page<CaptureSegmentDocument> listMeasurements(CaptureSessionQuery query);
+    /** One page of readings across every session, ordered and filtered by {@code query}. */
+    Page<CaptureSegmentDocument> listMeasurements(MeasurementQuery query);
+
+    /** How many readings the same filter selects, by level, and the tallest among them. */
+    MeasurementSummary summariseMeasurements(MeasurementQuery query);
 
     /** The session drawn as GeoJSON: the camera path and the band the measurement covered. */
     byte[] track(UUID sessionId);
