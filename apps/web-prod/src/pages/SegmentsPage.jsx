@@ -41,7 +41,9 @@ const s = {
   }),
   statNumber: { fontSize: 28, fontWeight: 700, fontFamily: 'var(--font-mono)' },
   statLabel: { fontSize: 11, color: 'var(--text-muted)', marginTop: 2, textTransform: 'uppercase' },
-  filtersRow: { display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' },
+  chipsRow: { display: 'flex', gap: 10, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' },
+  controlsRow: { display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' },
+  dateLabel: { fontSize: 12, color: 'var(--text-muted)' },
   chip: (active, colour) => ({
     display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 13px', borderRadius: 20,
     fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
@@ -50,7 +52,7 @@ const s = {
     color: active ? colour : 'var(--text-secondary)',
   }),
   dot: (colour) => ({ width: 8, height: 8, borderRadius: '50%', background: colour }),
-  daySelect: {
+  control: {
     padding: '8px 12px', background: 'white', border: '1px solid var(--border)',
     borderRadius: 'var(--radius-sm)', fontSize: 12.5, fontFamily: 'inherit',
     color: 'var(--text-primary)', outline: 'none', cursor: 'pointer',
@@ -123,27 +125,28 @@ const ORDERS = [
 const PAGE_SIZE = 25
 
 /**
- * Um dia local vira os dois instantes que o delimitam.
+ * Um dia local vira um instante, no fuso de quem olha.
  *
- * O navegador é quem sabe em que fuso a pessoa está; a API compara instantes, que é a única
- * coisa que uma coluna com fuso compara sem inventar. O limite de cima é exclusivo, senão a
- * leitura gravada exatamente à meia-noite apareceria em dois dias.
+ * O navegador é quem sabe onde a pessoa está; a API compara instantes, que é a única coisa que
+ * uma coluna com fuso compara sem inventar. `plusDays` existe porque as duas pontas do intervalo
+ * não são simétricas: "de 10/09" começa à meia-noite do dia 10, mas "até 11/09" tem de terminar
+ * à meia-noite do dia 12, senão o dia que a pessoa escolheu como fim fica de fora dele.
  */
-function boundsOfDay(value) {
-  if (!value) return { capturedFrom: undefined, capturedTo: undefined }
+function instantOfDay(value, plusDays = 0) {
+  if (!value) return undefined
   const [year, month, day] = value.split('-').map(Number)
-  const start = new Date(year, month - 1, day)
-  const end = new Date(year, month - 1, day + 1)
-  return { capturedFrom: start.toISOString(), capturedTo: end.toISOString() }
+  return new Date(year, month - 1, day + plusDays).toISOString()
 }
 
 export default function SegmentsPage() {
   const [sort, setSort] = useState('HEIGHT_DESC')
   const [filterLevel, setFilterLevel] = useState(null)
-  // O dia da captura, não o da medição: é a saída a campo que a pessoa lembra. Um campo de data
+  // O dia da captura, não o da medição: é a saída a campo que a pessoa lembra. Campos de data
   // em vez de uma lista de dias, porque enumerar os dias que existem custaria varrer a tabela
-  // inteira — que é justamente o que esta tela deixou de fazer.
-  const [filterDay, setFilterDay] = useState('')
+  // inteira — que é justamente o que esta tela deixou de fazer. As duas pontas são
+  // independentes: só "de" é daquele dia em diante, só "até" é tudo até ele.
+  const [fromDay, setFromDay] = useState('')
+  const [toDay, setToDay] = useState('')
   const [search, setSearch] = useState('')
   const [debounced, setDebounced] = useState('')
   const [offset, setOffset] = useState(0)
@@ -169,8 +172,11 @@ export default function SegmentsPage() {
   useEffect(() => { teamsApi.list().then(setTeams).catch(() => setTeams([])) }, [])
 
   const filters = useMemo(() => ({
-    level: filterLevel, search: debounced, ...boundsOfDay(filterDay),
-  }), [filterLevel, debounced, filterDay])
+    level: filterLevel,
+    search: debounced,
+    capturedFrom: instantOfDay(fromDay),
+    capturedTo: instantOfDay(toDay, 1),
+  }), [filterLevel, debounced, fromDay, toDay])
 
   // Trocar um filtro volta para a primeira página. Manter o deslocamento deixaria a lista vazia
   // com um total cheio, que lê como erro e é só a página cinco de um resultado de três linhas.
@@ -252,7 +258,9 @@ export default function SegmentsPage() {
         </div>
       </div>
 
-      <div style={s.filtersRow}>
+      {/* Duas linhas: o nível é uma escolha, o resto é um recorte. Numa linha só os sete
+          controles empurravam a busca para fora da tela numa janela estreita. */}
+      <div style={s.chipsRow}>
         <button style={s.chip(filterLevel === null, 'var(--motiva)')} onClick={() => setFilterLevel(null)}>
           Todos
         </button>
@@ -263,15 +271,27 @@ export default function SegmentsPage() {
             <span style={s.chipCount}>{countOf(level)}</span>
           </button>
         ))}
-        <select style={s.daySelect} value={sort} onChange={event => setSort(event.target.value)}>
+      </div>
+
+      <div style={s.controlsRow}>
+        <select style={s.control} value={sort} onChange={event => setSort(event.target.value)}>
           {ORDERS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </select>
-        <input type="date" style={s.daySelect} value={filterDay}
-          title="Dia da captura"
-          onChange={event => setFilterDay(event.target.value)} />
-        {filterDay && (
-          <button style={s.clearDay} onClick={() => setFilterDay('')}>limpar dia</button>
+
+        {/* `max` e `min` cruzados deixam o próprio campo recusar um intervalo invertido, em vez
+            de a lista voltar vazia sem explicar por quê. */}
+        <span style={s.dateLabel}>de</span>
+        <input type="date" style={s.control} value={fromDay} max={toDay || undefined}
+          onChange={event => setFromDay(event.target.value)} />
+        <span style={s.dateLabel}>até</span>
+        <input type="date" style={s.control} value={toDay} min={fromDay || undefined}
+          onChange={event => setToDay(event.target.value)} />
+        {(fromDay || toDay) && (
+          <button style={s.clearDay} onClick={() => { setFromDay(''); setToDay('') }}>
+            limpar datas
+          </button>
         )}
+
         <input style={s.searchInput} placeholder="Buscar por rua ou bairro…"
           value={search} onChange={event => setSearch(event.target.value)} />
       </div>
