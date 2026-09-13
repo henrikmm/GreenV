@@ -792,6 +792,41 @@ from the road is unsigned, so V1 assumes the mask covers one side. The ground un
 plane: a crowned shoulder or a ditch inside five metres becomes grass height and nothing notices.
 Every result is stamped `validationStatus: "unvalidated"` and human acceptance does not change it.
 
+### A driven capture needs the band, the scale and the track decided per run — 2026-09-13
+
+**On the first day of vehicle-mounted capture, 20 of 43 segments measured no cell and the rest
+read 0.02–0.15 m, and none of it was the mask.** Re-measured from the kept `scene.glb` and
+`result.npz` with no GPU (`docs/evidence/2026-09-13-car-mount.md`): the fixed `offsetM: 2` band
+lay on the road side of the camera track in 37 of 37 usable segments while the verge sat 5–9 m
+out on the other side; DA3's per-clip scale ran 0.78x–1.86x (median 1.24x) against the GPS path
+length of the very frames it reconstructed; and four segments whose camera track collapsed to
+0.5–6.6 m — a phone still being mounted, a stopped car — were reported as 1.1–3.9 m of vegetation
+from a door handle and a tree.
+
+Three request fields, all off by default so every walked fixture measures as recorded, in
+`scripts/grass-anchor.mjs` (pure, 12 tests) and `runGrassPipeline`: `offsetSide: "auto"` places
+the edge at the 10th percentile of the back-projected mask's lateral distance less 0.5 m, on the
+side holding at least 70% of it, and widens the band to the 90th percentile within 5–10 m;
+`trackLengthM` scales the run so the camera track is as long as the caller says the vehicle
+drove, one factor per run applied to the alignment, the poses and the plane together, refused
+outside 0.5x–2x with the blocker `scale-anchor-unusable`; `minTrackM` refuses a shorter track
+with `camera-track-too-short`. `cameraHeightM` exists for a caller that has taped one and wins
+over the track anchor. All decisions and the model's own numbers travel under `corridor.band`,
+`corridor.cameraTrack` and `scale`. With the three on, the 43 runs go from 900 measured cells to
+24,603, the twenty empty segments to four (three refused, one without a ground plane), and the
+median usable segment from 2 cells to 614. **The far end of a 10 m band reaches the tree line:**
+in 9 runs 10–25% of cells read over 2 m from 5–10 m out on ground 0.5–5.4 m above the road.
+Which aggregate a mowing policy takes is still the open question of `GRASS-QUALITY.md`. No
+reading here is graded against a tape.
+
+Three things the same day established about the capture rather than the pipeline: the frame
+extractor's distance grouping publishes the first 30–40 m of a 170–250 m segment at highway
+speed, so four fifths of the road never reaches the model; the manifest's per-frame
+`distanceMeters` is a usable scale anchor and the camera's height above the plane is not (0.93 to
+2.25 m for one mount, not constant after correction); and `check-grass-quality.mjs`'s
+`process.argv[1].endsWith('/…')` guard never fires on Windows, where the checker has to be called
+through its export.
+
 ### The grid measures from each cell's own ground, not from the plane — 2026-09-05
 
 **The default reading is now an extent: `extent50M`, `extent90M`, `extent95M`, from a low
