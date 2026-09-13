@@ -53,7 +53,12 @@ function loadTrack(sessionId) {
   return trackCache.get(sessionId)
 }
 
-export default function SegmentDetail({ segment, place }) {
+/**
+ * @param focusFileName o quadro a abrir já selecionado, quando quem abriu o trecho veio de um
+ *   ponto do mapa da sessão. Sem isso o painel escolheria o primeiro quadro e a pessoa teria de
+ *   reencontrar no mapa pequeno o ponto que acabou de clicar no grande.
+ */
+export default function SegmentDetail({ segment, place, focusFileName }) {
   const [state, setState] = useState({ loading: true })
   const [selected, setSelected] = useState(null)
 
@@ -72,11 +77,15 @@ export default function SegmentDetail({ segment, place }) {
           ? { ...track, features: track.features.filter(f => f.properties?.segmentIndex === segment.segmentIndex) }
           : null
         setState({ loading: false, track: onlyThis, frames })
-        setSelected(frames.find(frame => frame.latitude != null) ?? frames[0] ?? null)
+        setSelected(
+          (focusFileName && frames.find(frame => frame.fileName === focusFileName))
+            ?? frames.find(frame => frame.latitude != null)
+            ?? frames[0]
+            ?? null)
       })
       .catch(error => { if (live) setState({ loading: false, error }) })
     return () => { live = false }
-  }, [segment.sessionId, segment.segmentIndex])
+  }, [segment.sessionId, segment.segmentIndex, focusFileName])
 
   const { track, frames, loading, error } = state
   const level = vegetationLevel(segment.measurementLevel)

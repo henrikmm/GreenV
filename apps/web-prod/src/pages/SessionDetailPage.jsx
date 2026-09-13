@@ -9,7 +9,6 @@ import { readingOf } from '../api/reading'
 import NewOrderModal from '../components/NewOrderModal'
 import SessionMap from '../components/SessionMap'
 import SegmentDetail from '../components/SegmentDetail'
-import FramePanel from '../components/FramePanel'
 import PageShell from '../components/PageShell'
 
 /**
@@ -27,10 +26,17 @@ const s = {
   header: { marginBottom: 18 },
   title: { fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' },
   subtitle: { fontSize: 13, color: 'var(--text-secondary)', marginTop: 3 },
-  grid: {
-    display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(280px, 1fr)',
-    gap: 12, marginTop: 12, alignItems: 'start',
-  },
+  list: { marginTop: 12 },
+  chipsRow: { display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' },
+  chip: (active, colour) => ({
+    display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 11px', borderRadius: 20,
+    fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+    border: `1.5px solid ${active ? colour : 'var(--border)'}`,
+    background: active ? `${colour}15` : 'white',
+    color: active ? colour : 'var(--text-secondary)',
+  }),
+  chipCount: { fontFamily: 'var(--font-mono)', fontSize: 10.5, opacity: 0.75, marginLeft: 2 },
+  dot: (colour) => ({ width: 7, height: 7, borderRadius: '50%', background: colour }),
   cardTitle: { fontSize: 13, fontWeight: 700, marginBottom: 2 },
   cardHint: { fontSize: 11, color: 'var(--text-muted)', marginBottom: 14 },
   table: { width: '100%', borderCollapse: 'separate', borderSpacing: 0 },
@@ -64,16 +70,20 @@ export default function SessionDetailPage() {
   const { sessionId } = useParams()
   const navigate = useNavigate()
   const [state, setState] = useState({ loading: true })
-  const [selected, setSelected] = useState(null)
-  // Um trecho aberto por vez, como na lista de trechos.
+  // Um trecho aberto por vez, como na lista de trechos, e o quadro que o abriu.
   const [openIndex, setOpenIndex] = useState(null)
+  const [focusFrame, setFocusFrame] = useState(null)
+  // A sessão é finita e já veio inteira, então o filtro é local. Na lista de trechos ele teve
+  // de ir para o servidor porque lá a lista é paginada e o navegador só tem uma página.
+  const [filterLevel, setFilterLevel] = useState(null)
   const [chosen, setChosen] = useState([])
   const [ordering, setOrdering] = useState(false)
 
   useEffect(() => {
     let live = true
     setState({ loading: true })
-    setSelected(null)
+    setOpenIndex(null)
+    setFocusFrame(null)
     setChosen([])
     Promise.all([
       sessions.get(sessionId), sessions.segments(sessionId), sessions.track(sessionId),
@@ -113,6 +123,19 @@ export default function SessionDetailPage() {
 
   const { session, segments, track, frames, teams } = state
   const measured = segments.filter(segment => segment.measurementState != null)
+  // Sem `useMemo`: estas duas linhas ficam depois dos retornos de carregando e de erro, e um
+  // hook ali roda em número diferente entre uma renderização e a seguinte, que é erro de React.
+  // Uma sessão tem um punhado de trechos, então contar de novo não custa nada.
+  const countsByLevel = {}
+  for (const segment of segments) {
+    const level = vegetationLevel(segment.measurementLevel)
+    countsByLevel[level] = (countsByLevel[level] ?? 0) + 1
+  }
+
+  const visibleSegments = filterLevel === null
+    ? segments
+    : segments.filter(segment => vegetationLevel(segment.measurementLevel) === filterLevel)
+
   const chosenSegments = measured.filter(segment => chosen.includes(segment.segmentIndex))
   const road = place ? place.label.toUpperCase() : 'SEM POSIÇÃO REGISTRADA'
 
@@ -131,10 +154,17 @@ export default function SessionDetailPage() {
       </div>
 
       <Card style={{ padding: 12 }}>
-        <SessionMap track={track} frames={frames} onFrameClick={setSelected} height={440} />
+        {/* Clicar num ponto abre o trecho a que ele pertence, já naquele quadro. O painel
+            lateral que existia aqui mostrava a foto longe da leitura que a explica; dentro do
+            trecho ela aparece junto da altura, da cobertura e dos quadros vizinhos. */}
+        <SessionMap track={track} frames={frames} height={440}
+          onFrameClick={(frame) => {
+            setOpenIndex(frame.segmentIndex)
+            setFocusFrame(frame.fileName)
+          }} />
       </Card>
 
-      <div style={s.grid}>
+      <div style={s.list}>
         <Card delay={0.05} style={{ padding: '18px 18px 4px' }}>
           <div style={s.cardHead}>
             <div>
@@ -151,6 +181,24 @@ export default function SessionDetailPage() {
               {chosenSegments.length > 1 ? `Criar OS (${chosenSegments.length})` : 'Criar OS'}
             </button>
           </div>
+
+          {/* Só aparece quando há mais de um nível para separar: numa sessão de dois trechos
+              iguais os chips seriam quatro botões que não mudam nada. */}
+          {Object.keys(countsByLevel).length > 1 && (
+            <div style={s.chipsRow}>
+              <button style={s.chip(filterLevel === null, 'var(--motiva)')}
+                onClick={() => setFilterLevel(null)}>
+                Todos <span style={s.chipCount}>{segments.length}</span>
+              </button>
+              {[3, 2, 1, 0].filter(level => countsByLevel[level]).map(level => (
+                <button key={level} style={s.chip(filterLevel === level, LEVELS[level].color)}
+                  onClick={() => setFilterLevel(filterLevel === level ? null : level)}>
+                  <span style={s.dot(LEVELS[level].color)} />{LEVELS[level].desc}
+                  <span style={s.chipCount}>{countsByLevel[level]}</span>
+                </button>
+              ))}
+            </div>
+          )}
           <table style={s.table}>
             <thead>
               <tr>
@@ -160,7 +208,7 @@ export default function SessionDetailPage() {
               </tr>
             </thead>
             <tbody>
-              {segments.map(segment => {
+              {visibleSegments.map(segment => {
                 const level = vegetationLevel(segment.measurementLevel)
                 const open = openIndex === segment.segmentIndex
                 return (
@@ -203,7 +251,8 @@ export default function SessionDetailPage() {
                       <td style={s.detailCell} colSpan={7}>
                         {/* O mesmo componente da lista de trechos, para que abrir um trecho
                             daqui responda exatamente o que abrir de lá responde. */}
-                        <SegmentDetail segment={{ ...segment, sessionId }} />
+                        <SegmentDetail segment={{ ...segment, sessionId }}
+                          focusFileName={focusFrame} />
                       </td>
                     </tr>
                   )}
@@ -214,15 +263,6 @@ export default function SessionDetailPage() {
           </table>
         </Card>
 
-        <Card delay={0.1}>
-          <div style={s.cardTitle}>Quadro</div>
-          <div style={s.cardHint}>A foto tirada no ponto que você clicar no mapa.</div>
-          {selected ? (
-            <FramePanel frame={selected} sessionId={sessionId} showSegment />
-          ) : (
-            <div style={s.hint}>Nenhum ponto selecionado ainda.</div>
-          )}
-        </Card>
       </div>
 
       <AnimatePresence>
