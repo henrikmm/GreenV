@@ -479,18 +479,43 @@ paths:
   /v2/capture-sessions/{sessionId}/segments:
     get:
       operationId: listCaptureSegments
-      summary: Every segment of one session, in capture order
+      summary: One page of a session's segments, in capture order
+      description: >-
+        Ordered by segment index always: a session is a sequence, and reading
+        it in any other order would be reading a different thing. This answered
+        with the whole session once, on the reasoning that a session is finite.
+        It is, and an hour in the field is three hundred and sixty ten-second
+        segments; finite is not bounded.
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - $ref: '#/components/parameters/MeasurementLevel'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: One page of the session's segments
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaptureSegmentPage'
+        '404':
+          description: Session not found
+  /v2/capture-sessions/{sessionId}/segments/summary:
+    get:
+      operationId: summariseCaptureSegments
+      summary: How many of this session's segments fall in each level
+      description: >-
+        The counters for the filter above a paged list. Counts the session, not
+        the page, for the same reason the readings feed needs its own summary.
       parameters:
         - $ref: '#/components/parameters/SessionId'
       responses:
         '200':
-          description: The session's segments
+          description: Counters for the session
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/CaptureSegment'
+                $ref: '#/components/schemas/MeasurementSummary'
         '404':
           description: Session not found
   /v2/capture-sessions/{sessionId}/track:

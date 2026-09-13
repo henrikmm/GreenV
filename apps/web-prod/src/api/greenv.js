@@ -69,8 +69,26 @@ export const sessions = {
     return getJson(`/v2/capture-sessions/${sessionId}`)
   },
 
-  segments(sessionId) {
-    return getJson(`/v2/capture-sessions/${sessionId}/segments`)
+  /**
+   * Uma página dos trechos da sessão, em ordem de captura.
+   *
+   * Já devolveu a sessão inteira, e a tela buscava os quadros de cada trecho em seguida — uma
+   * requisição por trecho. Uma hora de campo são trezentos e sessenta deles, então isso era
+   * trezentas e sessenta chamadas antes de desenhar qualquer coisa.
+   */
+  segments(sessionId, { level, limit = 25, offset = 0 } = {}) {
+    const query = new URLSearchParams({ limit, offset })
+    if (level != null) query.set('level', level)
+    return getJson(`/v2/capture-sessions/${sessionId}/segments?${query}`)
+  },
+
+  /** Quantos trechos da sessão caem em cada nível, para os chips acima da lista. */
+  segmentsSummary(sessionId) {
+    return getJson(`/v2/capture-sessions/${sessionId}/segments/summary`)
+  },
+
+  segment(sessionId, segmentIndex) {
+    return getJson(`/v2/capture-sessions/${sessionId}/segments/${segmentIndex}`)
   },
 
   /** O desenho da sessão: a trilha e a faixa medida, já em GeoJSON. */

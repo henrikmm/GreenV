@@ -17,6 +17,8 @@ import PageShell from '../components/PageShell'
  * O mapa ocupa a largura toda e a lista de trechos fica ao lado do quadro selecionado, que é o
  * mesmo arranjo que a tela de mapa da demonstração usa.
  */
+const PAGE_SIZE = 25
+
 const s = {
   back: {
     display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: 'var(--text-muted)',
@@ -35,6 +37,19 @@ const s = {
     flexWrap: 'wrap',
   },
   focusIndex: { fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' },
+  pager: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+    padding: '8px 2px 12px', fontSize: 12,
+  },
+  mapNote: { fontSize: 11, color: 'var(--text-muted)', padding: '8px 2px 0', lineHeight: 1.5 },
+  pagerCount: { fontSize: 11.5, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' },
+  pagerButtons: { display: 'flex', gap: 8 },
+  pageBtn: (enabled) => ({
+    padding: '6px 13px', fontSize: 12, fontWeight: 600, fontFamily: 'inherit',
+    borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'white',
+    color: enabled ? 'var(--text-primary)' : 'var(--text-muted)',
+    cursor: enabled ? 'pointer' : 'not-allowed', opacity: enabled ? 1 : 0.5,
+  }),
   focusBack: {
     padding: '5px 11px', fontSize: 11.5, fontWeight: 600, fontFamily: 'inherit',
     cursor: 'pointer', borderRadius: 'var(--radius-sm)', background: 'white',
@@ -89,9 +104,12 @@ export default function SessionDetailPage() {
   // procurar de novo, no meio deles, aquele que acabou de ser apontado. O mapa de cima continua
   // inteiro, porque é por ele que se troca de trecho.
   const [focusIndex, setFocusIndex] = useState(null)
-  // A sessão é finita e já veio inteira, então o filtro é local. Na lista de trechos ele teve
-  // de ir para o servidor porque lá a lista é paginada e o navegador só tem uma página.
+  // Finita não é o mesmo que curta: uma hora de campo são trezentos e sessenta trechos de dez
+  // segundos. Filtro, página e contagem vêm do servidor, como na lista de trechos.
   const [filterLevel, setFilterLevel] = useState(null)
+  const [offset, setOffset] = useState(0)
+  const [summary, setSummary] = useState(null)
+  const [focusSegment, setFocusSegment] = useState(null)
   const [chosen, setChosen] = useState([])
   const [ordering, setOrdering] = useState(false)
 
@@ -101,29 +119,59 @@ export default function SessionDetailPage() {
     setOpenIndex(null)
     setFocusFrame(null)
     setFocusIndex(null)
+    setFocusSegment(null)
+    setOffset(0)
     setChosen([])
     Promise.all([
-      sessions.get(sessionId), sessions.segments(sessionId), sessions.track(sessionId),
+      sessions.get(sessionId), sessions.track(sessionId),
       // Uma ordem pode ser aberta sem equipe, então a lista falhar não impede o resto.
       teamsApi.list().catch(() => []),
+      sessions.segmentsSummary(sessionId).catch(() => null),
     ])
-      .then(async ([session, segments, track, teams]) => {
-        const lists = await Promise.all(
-          segments.map(segment =>
-            sessions.frames(sessionId, segment.segmentIndex)
-              .then(list => list.map(frame => ({ ...frame, segmentIndex: segment.segmentIndex })))
-              // Um trecho sem manifesto responde 409, o que é uma resposta e não uma falha.
-              .catch(() => [])),
-        )
-        if (live) setState({ loading: false, session, segments, track, teams, frames: lists.flat() })
+      .then(([session, track, teams, tally]) => {
+        if (!live) return
+        setSummary(tally)
+        setState({ loading: false, session, track, teams, segments: [], frames: [], total: 0 })
       })
       .catch(error => { if (live) setState({ loading: false, error }) })
     return () => { live = false }
   }, [sessionId])
 
+  // A página de trechos, e os quadros só dos trechos dela. Vinte e cinco chamadas por página em
+  // vez de uma por trecho da sessão inteira, que é o que fazia esta tela demorar a aparecer.
+  useEffect(() => {
+    let live = true
+    sessions.segments(sessionId, { level: filterLevel, limit: PAGE_SIZE, offset })
+      .then(async page => {
+        const lists = await Promise.all(
+          page.items.map(segment =>
+            sessions.frames(sessionId, segment.segmentIndex)
+              .then(list => list.map(frame => ({ ...frame, segmentIndex: segment.segmentIndex })))
+              // Um trecho sem manifesto responde 409, o que é uma resposta e não uma falha.
+              .catch(() => [])),
+        )
+        if (!live) return
+        setState(previous => ({
+          ...previous,
+          segments: page.items,
+          total: page.total,
+          hasMore: page.hasMore,
+          frames: lists.flat(),
+        }))
+      })
+      .catch(() => { if (live) setState(previous => ({ ...previous, segments: [], total: 0 })) })
+    return () => { live = false }
+  }, [sessionId, filterLevel, offset])
+
+  // Trocar de filtro volta para a primeira página, senão a lista abre vazia num deslocamento
+  // que o novo filtro não alcança.
+  useEffect(() => { setOffset(0) }, [filterLevel])
+
   // O lugar vem dos trechos medidos, não do campo de via: aquele era texto livre digitado em
   // campo e não identifica lugar nenhum. A API resolve a rua de cada trecho; uma sessão que
   // cruza mais de uma diz a primeira e conta as outras.
+  // O rótulo sai dos trechos carregados, que agora são uma página. Numa sessão de uma saída só
+  // isso dá o mesmo nome, e quando não dá o próprio rótulo já diz "e mais N vias".
   const place = placeOfSession((state.segments ?? [])
     .filter(segment => segment.measurementState != null))
 
@@ -138,22 +186,21 @@ export default function SessionDetailPage() {
     )
   }
 
-  const { session, segments, track, frames, teams } = state
+  const { session, segments, track, frames, teams, total = 0, hasMore = false } = state
   const measured = segments.filter(segment => segment.measurementState != null)
-  // Sem `useMemo`: estas duas linhas ficam depois dos retornos de carregando e de erro, e um
-  // hook ali roda em número diferente entre uma renderização e a seguinte, que é erro de React.
-  // Uma sessão tem um punhado de trechos, então contar de novo não custa nada.
-  const countsByLevel = {}
-  for (const segment of segments) {
-    const level = vegetationLevel(segment.measurementLevel)
-    countsByLevel[level] = (countsByLevel[level] ?? 0) + 1
-  }
+  // As contagens são da sessão inteira e vêm do servidor: uma contagem da página seria um fato
+  // sobre a requisição, e não sobre a sessão.
+  const countsByLevel = summary?.countsByLevel ?? {}
+  const countOf = (level) => countsByLevel[String(level)] ?? 0
+  const levelsPresent = [3, 2, 1, 0].filter(level => countOf(level) > 0)
 
+  // Em foco a lista é só o trecho apontado, que pode nem estar na página carregada — daí ele
+  // ser buscado por conta própria quando não estiver.
   const visibleSegments = focusIndex !== null
-    ? segments.filter(segment => segment.segmentIndex === focusIndex)
-    : filterLevel === null
-      ? segments
-      : segments.filter(segment => vegetationLevel(segment.measurementLevel) === filterLevel)
+    ? (segments.filter(segment => segment.segmentIndex === focusIndex).length
+        ? segments.filter(segment => segment.segmentIndex === focusIndex)
+        : (focusSegment ? [focusSegment] : []))
+    : segments
 
   const chosenSegments = measured.filter(segment => chosen.includes(segment.segmentIndex))
   const road = place ? place.label.toUpperCase() : 'SEM POSIÇÃO REGISTRADA'
@@ -181,7 +228,22 @@ export default function SessionDetailPage() {
             setOpenIndex(frame.segmentIndex)
             setFocusFrame(frame.fileName)
             setFocusIndex(frame.segmentIndex)
+            const naPagina = segments.find(s => s.segmentIndex === frame.segmentIndex)
+            setFocusSegment(naPagina ?? null)
+            if (!naPagina) {
+              sessions.segment(sessionId, frame.segmentIndex)
+                .then(setFocusSegment)
+                .catch(() => setFocusIndex(null))
+            }
           }} />
+        {/* A linha é a sessão inteira; os pontos são só os trechos listados abaixo. Buscar os
+            quadros de todos eles seria uma chamada por trecho, que é o que esta tela deixou de
+            fazer. Dizer isso é melhor do que deixar a pessoa concluir que a captura acabou
+            onde os pontos acabam. */}
+        <div style={s.mapNote}>
+          A linha é o caminho inteiro da sessão. Os pontos clicáveis são os quadros dos{' '}
+          {segments.length} trechos desta página{total > segments.length ? ` de ${total}` : ''}.
+        </div>
       </Card>
 
       <div style={s.list}>
@@ -204,20 +266,20 @@ export default function SessionDetailPage() {
 
           {/* Só aparece quando há mais de um nível para separar: numa sessão de dois trechos
               iguais os chips seriam quatro botões que não mudam nada. */}
-          {Object.keys(countsByLevel).length > 1 && (
+          {levelsPresent.length > 1 && (
             <div style={s.chipsRow}>
               <button style={s.chip(filterLevel === null && focusIndex === null, 'var(--motiva)')}
                 onClick={() => { setFilterLevel(null); setFocusIndex(null) }}>
-                Todos <span style={s.chipCount}>{segments.length}</span>
+                Todos <span style={s.chipCount}>{summary?.total ?? 0}</span>
               </button>
-              {[3, 2, 1, 0].filter(level => countsByLevel[level]).map(level => (
+              {levelsPresent.map(level => (
                 <button key={level} style={s.chip(filterLevel === level && focusIndex === null, LEVELS[level].color)}
                   onClick={() => {
                     setFocusIndex(null)
                     setFilterLevel(filterLevel === level ? null : level)
                   }}>
                   <span style={s.dot(LEVELS[level].color)} />{LEVELS[level].desc}
-                  <span style={s.chipCount}>{countsByLevel[level]}</span>
+                  <span style={s.chipCount}>{countOf(level)}</span>
                 </button>
               ))}
             </div>
@@ -232,6 +294,24 @@ export default function SessionDetailPage() {
                 onClick={() => { setFocusIndex(null); setOpenIndex(null); setFocusFrame(null) }}>
                 ver todos os trechos
               </button>
+            </div>
+          )}
+
+          {focusIndex === null && total > PAGE_SIZE && (
+            <div style={s.pager}>
+              <span style={s.pagerCount}>
+                {offset + 1}–{offset + segments.length} de {total}
+              </span>
+              <div style={s.pagerButtons}>
+                <button style={s.pageBtn(offset > 0)} disabled={offset === 0}
+                  onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>
+                  Anterior
+                </button>
+                <button style={s.pageBtn(hasMore)} disabled={!hasMore}
+                  onClick={() => setOffset(offset + PAGE_SIZE)}>
+                  Próxima
+                </button>
+              </div>
             </div>
           )}
 

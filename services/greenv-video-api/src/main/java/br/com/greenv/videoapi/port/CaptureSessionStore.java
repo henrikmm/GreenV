@@ -10,6 +10,7 @@ import br.com.greenv.videoapi.domain.MeasurementSummary;
 import br.com.greenv.videoapi.domain.FrameReadings;
 import br.com.greenv.videoapi.domain.Page;
 import br.com.greenv.videoapi.domain.SegmentPlace;
+import br.com.greenv.videoapi.domain.SegmentQuery;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -70,8 +71,14 @@ public interface CaptureSessionStore {
     /** One page of sessions, newest first, filtered by {@code query}. */
     Page<CaptureSessionSummary> findSessions(CaptureSessionQuery query);
 
-    /** Every segment of one session, in capture order. */
+    /** Every segment of one session, in capture order. Callers that need the whole sequence. */
     List<CaptureSegmentDocument> findSegments(UUID sessionId);
+
+    /** One page of a session's segments, in capture order. */
+    Page<CaptureSegmentDocument> findSegments(SegmentQuery query);
+
+    /** How many of a session's segments fall in each level, so a filter can show its own size. */
+    MeasurementSummary summariseSegments(UUID sessionId);
 
     /** One page of readings across every session, ordered and filtered by {@code query}. */
     Page<CaptureSegmentDocument> findMeasurements(MeasurementQuery query);

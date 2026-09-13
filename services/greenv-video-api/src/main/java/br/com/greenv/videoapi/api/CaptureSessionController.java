@@ -1,6 +1,7 @@
 package br.com.greenv.videoapi.api;
 
 import br.com.greenv.videoapi.domain.CaptureSessionQuery;
+import br.com.greenv.videoapi.domain.SegmentQuery;
 import br.com.greenv.videoapi.domain.Sentido;
 import br.com.greenv.videoapi.port.CaptureSessionUseCase;
 import br.com.greenv.videoapi.service.ApplicationException;
@@ -156,11 +157,30 @@ public class CaptureSessionController {
                 CaptureSessionResponse::from);
     }
 
+    /**
+     * One page of a session's segments, in capture order.
+     *
+     * <p>This answered with the whole session once, on the reasoning that a session is finite. It
+     * is, and an hour in the field is three hundred and sixty ten-second segments. Finite is not
+     * bounded, and a client that reads them all then asks for each one's frames makes a request
+     * per segment before it draws anything.
+     */
     @GetMapping("/{sessionId}/segments")
-    List<CaptureSegmentResponse> listSegments(@PathVariable UUID sessionId) {
-        return captureSessionUseCase.listSegments(sessionId).stream()
-                .map(segment -> CaptureSegmentResponse.from(segment, baseUrl()))
-                .toList();
+    PageResponse<CaptureSegmentResponse> listSegments(
+            @PathVariable UUID sessionId,
+            @RequestParam(required = false) Integer level,
+            @RequestParam(defaultValue = "0") int limit,
+            @RequestParam(defaultValue = "0") int offset) {
+        String url = baseUrl();
+        return PageResponse.from(
+                captureSessionUseCase.listSegments(new SegmentQuery(sessionId, level, limit, offset)),
+                segment -> CaptureSegmentResponse.from(segment, url));
+    }
+
+    /** How many of this session's segments fall in each level, for the filter above the list. */
+    @GetMapping("/{sessionId}/segments/summary")
+    MeasurementSummaryResponse summariseSegments(@PathVariable UUID sessionId) {
+        return MeasurementSummaryResponse.from(captureSessionUseCase.summariseSegments(sessionId));
     }
 
     /**

@@ -9,6 +9,7 @@ import br.com.greenv.videoapi.domain.MeasurementSummary;
 import br.com.greenv.videoapi.domain.Page;
 import br.com.greenv.videoapi.domain.FrameReadings;
 import br.com.greenv.videoapi.domain.SampledFrame;
+import br.com.greenv.videoapi.domain.SegmentQuery;
 import br.com.greenv.videoapi.domain.SegmentMeasurementAnnouncement;
 import java.io.InputStream;
 import java.time.Instant;
@@ -31,8 +32,11 @@ public interface CaptureSessionUseCase {
      */
     Page<CaptureSessionSummary> listSessions(CaptureSessionQuery query);
 
-    /** Every segment of one session, in capture order. Throws when the session is unknown. */
-    List<CaptureSegmentDocument> listSegments(UUID sessionId);
+    /** One page of a session's segments, in capture order. Throws when the session is unknown. */
+    Page<CaptureSegmentDocument> listSegments(SegmentQuery query);
+
+    /** How many of a session's segments fall in each level, for the filter above the list. */
+    MeasurementSummary summariseSegments(UUID sessionId);
 
     /** One page of readings across every session, ordered and filtered by {@code query}. */
     Page<CaptureSegmentDocument> listMeasurements(MeasurementQuery query);

@@ -9,6 +9,7 @@ import br.com.greenv.videoapi.domain.CaptureSessionSummary;
 import br.com.greenv.videoapi.domain.FrameReadings;
 import br.com.greenv.videoapi.domain.MeasurementProjection;
 import br.com.greenv.videoapi.domain.MeasurementQuery;
+import br.com.greenv.videoapi.domain.SegmentQuery;
 import br.com.greenv.videoapi.domain.MeasurementSummary;
 import br.com.greenv.videoapi.domain.Page;
 import br.com.greenv.videoapi.domain.SegmentExtractionRequest;
@@ -379,7 +380,11 @@ public class CaptureSessionService implements CaptureSessionUseCase {
      */
     @Override
     public byte[] track(UUID sessionId) {
-        return trackWriter.featureCollection(listSegments(sessionId));
+        // The whole session on purpose. A drawing of a route with a page of it missing is not a
+        // shorter drawing, it is a wrong one, and this is one document rather than a list a
+        // reader scrolls.
+        captureSessionStore.getSession(sessionId);
+        return trackWriter.featureCollection(captureSessionStore.findSegments(sessionId));
     }
 
     @Override
@@ -448,11 +453,17 @@ public class CaptureSessionService implements CaptureSessionUseCase {
     }
 
     @Override
-    public List<CaptureSegmentDocument> listSegments(UUID sessionId) {
+    public Page<CaptureSegmentDocument> listSegments(SegmentQuery query) {
         // Rejects an unknown session rather than answering an empty list, so a mistyped id reads
         // as 404 and not as a session that exists and recorded nothing.
+        captureSessionStore.getSession(query.sessionId());
+        return captureSessionStore.findSegments(query);
+    }
+
+    @Override
+    public MeasurementSummary summariseSegments(UUID sessionId) {
         captureSessionStore.getSession(sessionId);
-        return captureSessionStore.findSegments(sessionId);
+        return captureSessionStore.summariseSegments(sessionId);
     }
 
     @Override

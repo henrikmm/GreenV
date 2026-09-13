@@ -10,6 +10,7 @@ import br.com.greenv.videoapi.domain.MeasurementSummary;
 import br.com.greenv.videoapi.domain.FrameReadings;
 import br.com.greenv.videoapi.domain.Page;
 import br.com.greenv.videoapi.domain.SegmentPlace;
+import br.com.greenv.videoapi.domain.SegmentQuery;
 import br.com.greenv.videoapi.domain.Sentido;
 import br.com.greenv.videoapi.port.CaptureSessionStore;
 import br.com.greenv.videoapi.service.ApplicationException;
@@ -315,12 +316,83 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
         return new Page<>(items, total == null ? 0 : total, query.limit(), query.offset());
     }
 
-    /** Every segment of one session, in capture order. Unbounded on purpose: a session is finite. */
+    /**
+     * Every segment of one session, in capture order.
+     *
+     * <p>Unbounded, and that is a decision for its callers rather than a claim that the list is
+     * short: an hour of capture is three hundred and sixty segments. The route a dashboard reads
+     * takes the paged overload below.
+     */
     @Override
     public List<CaptureSegmentDocument> findSegments(UUID sessionId) {
         return jdbcTemplate.query(
                 "SELECT * FROM capture_segments WHERE session_id = ? ORDER BY segment_index",
                 JdbcCaptureSessionStoreAdapter::mapSegment,
+                sessionId);
+    }
+
+    /** One page of them. Ordered by index because a session is a sequence, not a ranking. */
+    @Override
+    public Page<CaptureSegmentDocument> findSegments(SegmentQuery query) {
+        List<Object> arguments = new ArrayList<>();
+        arguments.add(query.sessionId());
+        String where = " WHERE session_id = ?";
+        if (query.level() != null) {
+            where += query.level() == 0
+                    ? " AND (measurement_level IS NULL OR measurement_level NOT IN (1, 2, 3))"
+                    : " AND measurement_level = ?";
+            if (query.level() != 0) {
+                arguments.add(query.level());
+            }
+        }
+
+        Long total = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM capture_segments" + where, Long.class, arguments.toArray());
+
+        List<Object> paged = new ArrayList<>(arguments);
+        paged.add(query.limit());
+        paged.add(query.offset());
+        List<CaptureSegmentDocument> items = jdbcTemplate.query(
+                "SELECT * FROM capture_segments" + where + " ORDER BY segment_index LIMIT ? OFFSET ?",
+                JdbcCaptureSessionStoreAdapter::mapSegment,
+                paged.toArray());
+        return new Page<>(items, total == null ? 0 : total, query.limit(), query.offset());
+    }
+
+    /**
+     * The level tally for one session, in one pass.
+     *
+     * <p>The chips above a paged list have to count the session and not the page, for the same
+     * reason the readings list needed its own summary: a count of what is on screen is a fact
+     * about the request.
+     */
+    @Override
+    public MeasurementSummary summariseSegments(UUID sessionId) {
+        return jdbcTemplate.query(
+                """
+                SELECT COUNT(*) AS total,
+                       SUM(CASE WHEN measurement_level = 1 THEN 1 ELSE 0 END) AS level_1,
+                       SUM(CASE WHEN measurement_level = 2 THEN 1 ELSE 0 END) AS level_2,
+                       SUM(CASE WHEN measurement_level = 3 THEN 1 ELSE 0 END) AS level_3,
+                       SUM(CASE WHEN measurement_level IN (1, 2, 3) THEN 0 ELSE 1 END) AS level_0,
+                       MAX(measurement_extent95_p95_m) AS tallest
+                  FROM capture_segments
+                 WHERE session_id = ?
+                """,
+                result -> {
+                    if (!result.next()) {
+                        return MeasurementSummary.empty();
+                    }
+                    double tallest = result.getDouble("tallest");
+                    return new MeasurementSummary(
+                            result.getLong("total"),
+                            Map.of(
+                                    0, result.getLong("level_0"),
+                                    1, result.getLong("level_1"),
+                                    2, result.getLong("level_2"),
+                                    3, result.getLong("level_3")),
+                            result.wasNull() ? null : tallest);
+                },
                 sessionId);
     }
 

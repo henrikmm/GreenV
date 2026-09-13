@@ -7,6 +7,7 @@ import br.com.greenv.videoapi.domain.MeasurementQuery;
 import br.com.greenv.videoapi.domain.MeasurementSort;
 import br.com.greenv.videoapi.domain.MeasurementSummary;
 import br.com.greenv.videoapi.domain.Page;
+import br.com.greenv.videoapi.domain.SegmentQuery;
 import br.com.greenv.videoapi.port.CaptureSessionStore;
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -212,6 +213,46 @@ class JdbcMeasurementQueryIntegrationTest {
 
         assertThat(summary.total()).isZero();
         assertThat(summary.tallestM()).isNull();
+    }
+
+    /**
+     * A session is read as a sequence, so its page is ordered by index and never by height.
+     *
+     * <p>It also has to include the segment that was never measured: the readings feed is about
+     * what was measured, but a session's own list is about what was recorded, and a stretch the
+     * pipeline has not reached yet is exactly what someone opens a session to find.
+     */
+    @Test
+    void pagesOneSessionInCaptureOrderIncludingWhatWasNotMeasured() {
+        Page<CaptureSegmentDocument> first = store.findSegments(
+                new SegmentQuery(otherSession, null, 2, 0));
+        Page<CaptureSegmentDocument> second = store.findSegments(
+                new SegmentQuery(otherSession, null, 2, 2));
+
+        assertThat(first.items()).extracting(CaptureSegmentDocument::segmentIndex).containsExactly(0, 1);
+        assertThat(second.items()).extracting(CaptureSegmentDocument::segmentIndex).containsExactly(2, 3);
+        assertThat(first.total()).isEqualTo(4);
+        assertThat(second.hasMore()).isFalse();
+    }
+
+    @Test
+    void filtersOneSessionByLevel() {
+        assertThat(store.findSegments(new SegmentQuery(otherSession, 2, 25, 0)).items())
+                .extracting(CaptureSegmentDocument::segmentIndex)
+                .containsExactly(0);
+    }
+
+    @Test
+    void countsEveryLevelInTheSessionRatherThanOnThePage() {
+        MeasurementSummary summary = store.summariseSegments(otherSession);
+
+        // Four segments: one level 2, one level 1, one measured with no level, one never measured.
+        assertThat(summary.total()).isEqualTo(4);
+        assertThat(summary.countsByLevel())
+                .containsEntry(0, 2L)
+                .containsEntry(1, 1L)
+                .containsEntry(2, 1L)
+                .containsEntry(3, 0L);
     }
 
     private List<CaptureSegmentDocument> query(MeasurementSort sort, int limit, int offset) {
