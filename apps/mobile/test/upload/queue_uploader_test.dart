@@ -33,28 +33,31 @@ Future<MemoryCaptureQueue> _queueWithOneClosedSegment() async {
 }
 
 void main() {
-  test('retains offline data and lets it go as soon as the API takes it', () async {
-    final queue = await _queueWithOneClosedSegment();
-    final backend = FakeBackend()..online = false;
-    final uploader = QueueUploader(queue: queue, backend: backend);
+  test(
+    'retains offline data and lets it go as soon as the API takes it',
+    () async {
+      final queue = await _queueWithOneClosedSegment();
+      final backend = FakeBackend()..online = false;
+      final uploader = QueueUploader(queue: queue, backend: backend);
 
-    await uploader.syncOnce();
-    expect(queue.backlog.value, 1);
-    expect(
-      (await queue.sessions()).single.segments.single.state,
-      SegmentUploadState.pending,
-    );
+      await uploader.syncOnce();
+      expect(queue.backlog.value, 1);
+      expect(
+        (await queue.sessions()).single.segments.single.state,
+        SegmentUploadState.pending,
+      );
 
-    backend.online = true;
-    await uploader.syncOnce();
-    expect(
-      queue.backlog.value,
-      0,
-      reason: 'the upload was accepted, so nothing is still queued',
-    );
-    expect(backend.uploads, 1);
-    expect(backend.completions, 1);
-  });
+      backend.online = true;
+      await uploader.syncOnce();
+      expect(
+        queue.backlog.value,
+        0,
+        reason: 'the upload was accepted, so nothing is still queued',
+      );
+      expect(backend.uploads, 1);
+      expect(backend.completions, 1);
+    },
+  );
 
   test('forgets a finished session instead of re-announcing it', () async {
     final queue = await _queueWithOneClosedSegment();

@@ -18,7 +18,13 @@ void main() {
     addTearDown(coordinator.dispose);
 
     await tester.pumpWidget(
-      CaptureApp(dependencies: AppDependencies(capture: coordinator, authenticator: _authenticator())),
+      CaptureApp(
+        dependencies: AppDependencies(
+          operations: FakeOperationsGateway(),
+          capture: coordinator,
+          authenticator: _authenticator(),
+        ),
+      ),
     );
     expect(find.bySemanticsLabel('motiva'), findsOneWidget);
     expect(find.bySemanticsLabel('GreenV'), findsOneWidget);
@@ -43,7 +49,7 @@ void main() {
     expect(find.text('Olá, equipe de campo'), findsNothing);
   });
 
-  testWidgets('navigates home, upload, network summary and map', (
+  testWidgets('navigates home, stretches, map, orders and upload', (
     tester,
   ) async {
     final coordinator = _coordinator();
@@ -52,22 +58,31 @@ void main() {
     await tester.pumpWidget(
       CaptureApp(
         dependencies: AppDependencies(
+          operations: FakeOperationsGateway(),
           capture: coordinator,
           authenticator: await _signedIn(),
         ),
         initialPage: MotivaPage.home,
       ),
     );
-    expect(find.text('Malha monitorada'), findsOneWidget);
-
-    await tester.ensureVisible(find.text('Ver mapa'));
-    await tester.tap(find.text('Ver mapa'));
     await tester.pumpAndSettle();
-    expect(find.text('RESUMO DA MALHA'), findsOneWidget);
+    expect(find.text('Resumo da operação'), findsOneWidget);
 
+    await tester.tap(find.byKey(const Key('nav-trechos')));
+    await tester.pumpAndSettle();
+    expect(find.text('Trechos medidos'), findsOneWidget);
+
+    // With nothing measured the map has nothing to pin, and says so instead of drawing tiles.
     await tester.tap(find.byKey(const Key('nav-mapa')));
     await tester.pumpAndSettle();
-    expect(find.text('Buscar rodovia, trecho ou km'), findsOneWidget);
+    expect(
+      find.text('Nenhum trecho medido com posição ainda.'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const Key('nav-ordens')));
+    await tester.pumpAndSettle();
+    expect(find.text('Ordens de serviço'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('nav-upload')));
     await tester.pumpAndSettle();
@@ -81,6 +96,7 @@ void main() {
     await tester.pumpWidget(
       CaptureApp(
         dependencies: AppDependencies(
+          operations: FakeOperationsGateway(),
           capture: coordinator,
           authenticator: await _signedIn(),
         ),
@@ -111,6 +127,7 @@ void main() {
     await tester.pumpWidget(
       CaptureApp(
         dependencies: AppDependencies(
+          operations: FakeOperationsGateway(),
           capture: coordinator,
           authenticator: await _signedIn(),
         ),
@@ -123,10 +140,7 @@ void main() {
     await tester.tap(find.byKey(const Key('record-button')));
     await tester.pump();
     expect(find.byKey(const Key('gnss-warning')), findsOneWidget);
-    expect(
-      find.textContaining('não gera um trecho medível'),
-      findsOneWidget,
-    );
+    expect(find.textContaining('não gera um trecho medível'), findsOneWidget);
     expect(find.textContaining('± 50000.0 m de erro'), findsOneWidget);
 
     // The screen repaints on its own second tick, which is what carries a recovered signal.
@@ -143,7 +157,11 @@ void main() {
 
     await tester.pumpWidget(
       CaptureApp(
-        dependencies: AppDependencies(capture: coordinator, authenticator: _authenticator()),
+        dependencies: AppDependencies(
+          operations: FakeOperationsGateway(),
+          capture: coordinator,
+          authenticator: _authenticator(),
+        ),
         initialPage: MotivaPage.splash,
       ),
     );
@@ -166,6 +184,7 @@ void main() {
     await tester.pumpWidget(
       CaptureApp(
         dependencies: AppDependencies(
+          operations: FakeOperationsGateway(),
           capture: coordinator,
           authenticator: await _signedIn(),
         ),
@@ -198,6 +217,7 @@ void main() {
     await tester.pumpWidget(
       CaptureApp(
         dependencies: AppDependencies(
+          operations: FakeOperationsGateway(),
           capture: coordinator,
           authenticator: await _signedIn(),
         ),
@@ -217,7 +237,10 @@ void main() {
   });
 }
 
-CaptureCoordinator _coordinator({FakeTelemetry? telemetry, MemoryCaptureQueue? queue}) {
+CaptureCoordinator _coordinator({
+  FakeTelemetry? telemetry,
+  MemoryCaptureQueue? queue,
+}) {
   queue ??= MemoryCaptureQueue();
   return CaptureCoordinator(
     deviceId: 'phone-1',

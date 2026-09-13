@@ -69,8 +69,26 @@ export const sessions = {
     return getJson(`/v2/capture-sessions/${sessionId}`)
   },
 
-  segments(sessionId) {
-    return getJson(`/v2/capture-sessions/${sessionId}/segments`)
+  /**
+   * Uma página dos trechos da sessão, em ordem de captura.
+   *
+   * Já devolveu a sessão inteira, e a tela buscava os quadros de cada trecho em seguida — uma
+   * requisição por trecho. Uma hora de campo são trezentos e sessenta deles, então isso era
+   * trezentas e sessenta chamadas antes de desenhar qualquer coisa.
+   */
+  segments(sessionId, { level, limit = 25, offset = 0 } = {}) {
+    const query = new URLSearchParams({ limit, offset })
+    if (level != null) query.set('level', level)
+    return getJson(`/v2/capture-sessions/${sessionId}/segments?${query}`)
+  },
+
+  /** Quantos trechos da sessão caem em cada nível, para os chips acima da lista. */
+  segmentsSummary(sessionId) {
+    return getJson(`/v2/capture-sessions/${sessionId}/segments/summary`)
+  },
+
+  segment(sessionId, segmentIndex) {
+    return getJson(`/v2/capture-sessions/${sessionId}/segments/${segmentIndex}`)
   },
 
   /** O desenho da sessão: a trilha e a faixa medida, já em GeoJSON. */
@@ -82,15 +100,98 @@ export const sessions = {
     return getJson(`/v2/capture-sessions/${sessionId}/segments/${segmentIndex}/frames`)
   },
 
+  /**
+   * O que um quadro contribuiu para a medição.
+   *
+   * Separado dos bytes do JPEG porque custa outra coisa: a foto sai direto do armazenamento, e
+   * isto percorre todas as células do assessment atrás dos votos daquele quadro.
+   */
+  frameReadings(sessionId, segmentIndex, fileName) {
+    return getJson(
+      `/v2/capture-sessions/${sessionId}/segments/${segmentIndex}/frames/${fileName}/readings`)
+  },
+
   /** O pacote inteiro, para quem quiser a grade de células e a proveniência. */
   measurement(sessionId, segmentIndex) {
     return getJson(`/v2/capture-sessions/${sessionId}/segments/${segmentIndex}/measurement`)
   },
 }
 
+/**
+ * As leituras, ordenadas e filtradas pela API.
+ *
+ * Isto já foi uma chamada só, pedindo duzentas linhas para ordenar no navegador. Funcionava
+ * enquanto tudo coubesse numa resposta: passando disso, a primeira página vira a mais alta de
+ * um recorte qualquer e fica igualzinha à mais alta que existe. Agora a ordem, o filtro e a
+ * página são da consulta, e os contadores vêm de uma rota própria porque não mudam quando
+ * alguém rola a lista.
+ */
+function measurementParams({ level, capturedFrom, capturedTo, search }) {
+  const query = new URLSearchParams()
+  if (level != null) query.set('level', level)
+  if (capturedFrom) query.set('capturedFrom', capturedFrom)
+  if (capturedTo) query.set('capturedTo', capturedTo)
+  if (search) query.set('q', search)
+  return query
+}
+
 export const measurements = {
-  list({ limit = 100, offset = 0 } = {}) {
-    return getJson(`/v2/measurements?limit=${limit}&offset=${offset}`)
+  list({ sort = 'HEIGHT_DESC', limit = 25, offset = 0, ...filters } = {}) {
+    const query = measurementParams(filters)
+    query.set('sort', sort)
+    query.set('limit', limit)
+    query.set('offset', offset)
+    return getJson(`/v2/measurements?${query}`)
+  },
+  summary(filters = {}) {
+    // O nível não vai: os contadores respondem por todos eles, senão o chip escolhido seria o
+    // único com número e os outros zerariam por estarem fora do próprio filtro.
+    const { level, ...rest } = filters
+    return getJson(`/v2/measurements/summary?${measurementParams(rest)}`)
+  },
+}
+
+export const teams = {
+  list() {
+    return getJson('/v2/teams')
+  },
+}
+
+export const serviceOrders = {
+  list({ status, priority, teamId, search, limit = 50, offset = 0 } = {}) {
+    const query = new URLSearchParams({ limit, offset })
+    if (status) query.set('status', status)
+    if (priority) query.set('priority', priority)
+    if (teamId) query.set('teamId', teamId)
+    if (search) query.set('search', search)
+    return getJson(`/v2/service-orders?${query}`)
+  },
+
+  get(orderId) {
+    return getJson(`/v2/service-orders/${orderId}`)
+  },
+
+  /**
+   * Abre uma ordem contra trechos medidos.
+   *
+   * Só os alvos e o plano vão no corpo. A área, o nível e o centro são lidos dos trechos pela
+   * API: uma ordem precisa poder dizer que evidência a justificou, e um cliente que pudesse
+   * enviar esses números poderia abrir uma ordem alegando uma altura que ninguém mediu.
+   */
+  open({ priority, teamId, scheduledFor, notes, targets }) {
+    return sendJson('/v2/service-orders', 'POST', {
+      priority, teamId: teamId || null, scheduledFor: scheduledFor || null,
+      notes: notes || null, targets,
+    })
+  },
+
+  amend(orderId, changes) {
+    return sendJson(`/v2/service-orders/${orderId}`, 'PATCH', changes)
+  },
+
+  /** Cancela. A linha permanece: uma ordem aberta é uma decisão que alguém tomou. */
+  cancel(orderId) {
+    return sendJson(`/v2/service-orders/${orderId}`, 'DELETE')
   },
 }
 

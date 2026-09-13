@@ -479,18 +479,43 @@ paths:
   /v2/capture-sessions/{sessionId}/segments:
     get:
       operationId: listCaptureSegments
-      summary: Every segment of one session, in capture order
+      summary: One page of a session's segments, in capture order
+      description: >-
+        Ordered by segment index always: a session is a sequence, and reading
+        it in any other order would be reading a different thing. This answered
+        with the whole session once, on the reasoning that a session is finite.
+        It is, and an hour in the field is three hundred and sixty ten-second
+        segments; finite is not bounded.
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - $ref: '#/components/parameters/MeasurementLevel'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: One page of the session's segments
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaptureSegmentPage'
+        '404':
+          description: Session not found
+  /v2/capture-sessions/{sessionId}/segments/summary:
+    get:
+      operationId: summariseCaptureSegments
+      summary: How many of this session's segments fall in each level
+      description: >-
+        The counters for the filter above a paged list. Counts the session, not
+        the page, for the same reason the readings feed needs its own summary.
       parameters:
         - $ref: '#/components/parameters/SessionId'
       responses:
         '200':
-          description: The session's segments
+          description: Counters for the session
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/CaptureSegment'
+                $ref: '#/components/schemas/MeasurementSummary'
         '404':
           description: Session not found
   /v2/capture-sessions/{sessionId}/track:
@@ -658,6 +683,41 @@ paths:
                 format: binary
         '404':
           description: This segment published no such frame
+  /v2/capture-sessions/{sessionId}/segments/{segmentIndex}/frames/{fileName}/readings:
+    get:
+      operationId: getFrameReadings
+      summary: What this photograph contributed to the measurement
+      description: >-
+        Verge Studio measures a cell by letting every frame that saw it vote.
+        This returns, for one frame, the cells it voted in and what it said.
+        Heights are extent95, above each cell's own local ground; the
+        plane-relative figures travel alongside and are null on a cell that
+        never established its ground. Derived once when the measurement is
+        recorded and read from a row, so this costs a row lookup and not a
+        walk of the assessment. A frame with no votes answers with zero cells
+        rather than an error.
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - $ref: '#/components/parameters/SegmentIndex'
+        - name: fileName
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^frame-[0-9]{4}\.jpg$'
+      responses:
+        '200':
+          description: The frame's contribution
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FrameReadings'
+        '404':
+          description: This segment published no such frame
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /v2/capture-sessions/{sessionId}/segments/{segmentIndex}/manifest:
     get:
       operationId: getCaptureSegmentManifest
@@ -677,21 +737,51 @@ paths:
   /v2/measurements:
     get:
       operationId: listMeasurements
-      summary: Measured segments across every session, newest first
+      summary: One page of readings across every session
       description: >-
-        The map's feed. Carries the projected summary only; the packet itself is
-        at the segment's measurement route. Every reading reports
-        operationalStatus "not-ready".
+        The dashboard's feed, ordered and filtered here rather than in the
+        client. A caller that fetches everything and sorts it locally is right
+        only until there is more than one page of it, and then shows the tallest
+        of an arbitrary slice as though it were the tallest there is. Carries
+        the projected summary only; the packet itself is at the segment's
+        measurement route. Every reading reports operationalStatus "not-ready".
       parameters:
+        - $ref: '#/components/parameters/MeasurementSort'
+        - $ref: '#/components/parameters/MeasurementLevel'
+        - $ref: '#/components/parameters/CapturedFrom'
+        - $ref: '#/components/parameters/CapturedTo'
+        - $ref: '#/components/parameters/MeasurementSearch'
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Offset'
       responses:
         '200':
-          description: One page of measured segments
+          description: One page of readings
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/CaptureSegmentPage'
+  /v2/measurements/summary:
+    get:
+      operationId: summariseMeasurements
+      summary: How many readings the same filter selects, by level
+      description: >-
+        The counters above the list. Its own route because the answer is the
+        same for every page of one filter, and because a count describing only
+        the page would be an answer about the request rather than about the
+        data. The level filter is ignored here: the counters answer for every
+        level so the chips can show what choosing one would give.
+      parameters:
+        - $ref: '#/components/parameters/MeasurementLevel'
+        - $ref: '#/components/parameters/CapturedFrom'
+        - $ref: '#/components/parameters/CapturedTo'
+        - $ref: '#/components/parameters/MeasurementSearch'
+      responses:
+        '200':
+          description: Counters for the filtered set
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeasurementSummary'
   /v2/capture-sessions/{sessionId}/segments/{segmentIndex}/measurement:
     get:
       operationId: getCaptureSegmentMeasurement
@@ -714,6 +804,134 @@ paths:
           description: Segment not found
         '409':
           description: The segment has not been measured
+  /v2/teams:
+    get:
+      operationId: listTeams
+      summary: The field teams, each with the work it is carrying
+      description: >-
+        Read-only. Teams are administered outside the dashboard, and the three
+        counters travel with the row because the screen that lists teams always
+        shows both.
+      responses:
+        '200':
+          description: Every team
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Team'
+  /v2/service-orders:
+    get:
+      operationId: listServiceOrders
+      summary: Service orders, newest first
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pendente, em_andamento, concluida, cancelada]
+        - name: priority
+          in: query
+          schema:
+            type: string
+            enum: [baixa, media, alta, urgente]
+        - name: teamId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: search
+          in: query
+          description: Matched against the reference and the notes, case-insensitively
+          schema:
+            type: string
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: One page of service orders
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceOrderPage'
+    post:
+      operationId: openServiceOrder
+      summary: Open an order against measured segments
+      description: >-
+        The area, the level and the centre are derived from the segments rather
+        than supplied, so an order can always say what evidence justified it. A
+        segment with no measurement is refused with 409.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateServiceOrder'
+      responses:
+        '201':
+          description: The order as opened
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceOrder'
+        '409':
+          description: A target segment has no measurement
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /v2/service-orders/{orderId}:
+    get:
+      operationId: getServiceOrder
+      summary: One order, with its targets and its whole history
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      responses:
+        '200':
+          description: The order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceOrder'
+        '404':
+          description: No such order
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+    patch:
+      operationId: amendServiceOrder
+      summary: Change what a person may change
+      description: >-
+        Every field is optional and a null one is left alone. A change of status
+        appends to the history; nothing else does.
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateServiceOrder'
+      responses:
+        '200':
+          description: The amended order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceOrder'
+    delete:
+      operationId: cancelServiceOrder
+      summary: Cancel the order
+      description: >-
+        Sets the status to cancelada and appends to the history. The row is not
+        removed, because an order that was opened is a decision someone took.
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      responses:
+        '204':
+          description: Cancelled
 components:
   securitySchemes:
     bearerAuth:
@@ -741,6 +959,13 @@ components:
         token lifted from a log is useless without it. State-changing requests must also carry
         `X-CSRF-Token` matching the readable `greenv_csrf` cookie.
   parameters:
+    OrderId:
+      name: orderId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     Limit:
       name: limit
       in: query
@@ -757,6 +982,60 @@ components:
       schema:
         type: integer
         minimum: 0
+    MeasurementSort:
+      name: sort
+      in: query
+      required: false
+      description: >-
+        Order of the page. Defaults to HEIGHT_DESC, which is the order the list
+        is read in: the tallest grass decides where a crew goes first. Every
+        order carries the primary key behind it so paging is stable, and a
+        reading with no measurable height sorts last in both directions rather
+        than as zero. An unrecognised value falls back to the default.
+      schema:
+        type: string
+        enum: [HEIGHT_DESC, HEIGHT_ASC, CAPTURED_DESC, CAPTURED_ASC, MEASURED_DESC]
+    MeasurementLevel:
+      name: level
+      in: query
+      required: false
+      description: >-
+        Keep only readings at this level. 0 gathers everything that was not
+        classified, which is not the same as low.
+      schema:
+        type: integer
+        minimum: 0
+        maximum: 3
+    CapturedFrom:
+      name: capturedFrom
+      in: query
+      required: false
+      description: >-
+        Inclusive lower bound on capture time. A day is a local idea and this
+        service does not guess whose, so a caller filtering by day sends the two
+        instants that bound it in its own timezone.
+      schema:
+        type: string
+        format: date-time
+    CapturedTo:
+      name: capturedTo
+      in: query
+      required: false
+      description: >-
+        Exclusive upper bound on capture time, so two adjacent days never share
+        the reading recorded exactly at midnight.
+      schema:
+        type: string
+        format: date-time
+    MeasurementSearch:
+      name: q
+      in: query
+      required: false
+      description: >-
+        Case-insensitive match against the resolved place: street, detail or
+        highway designation. The same fields a client composes its label from.
+      schema:
+        type: string
     JobId:
       name: jobId
       in: path
@@ -809,6 +1088,215 @@ components:
         minimum: 1
         maximum: 30000
   schemas:
+    FrameReadings:
+      type: object
+      required: [schemaVersion, canonicalFrame, cellsVoted, sampleCount, evidenceForCells]
+      properties:
+        schemaVersion:
+          const: 1
+        canonicalFrame:
+          type: integer
+        cellsVoted:
+          type: integer
+          description: Cells this frame reached the voxel floor in
+        sampleCount:
+          type: integer
+        extent95MedianM:
+          type: [number, 'null']
+        extent95MaxM:
+          type: [number, 'null']
+        largestDisagreementM:
+          type: [number, 'null']
+          description: >-
+            The widest gap between what this frame said and what its cell
+            settled on across every frame.
+        evidenceForCells:
+          type: integer
+          description: Cells that named this frame as one to look at
+    Team:
+      type: object
+      required: [schemaVersion, teamId, slug, name, shortName, colour, initials, status]
+      properties:
+        schemaVersion:
+          const: 1
+        teamId:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        name:
+          type: string
+        shortName:
+          type: string
+        region:
+          type: string
+          nullable: true
+        colour:
+          type: string
+        initials:
+          type: string
+        status:
+          type: string
+          enum: [em_campo, disponivel, fora_servico]
+        pendingOrders:
+          type: integer
+        inProgressOrders:
+          type: integer
+        completedOrders:
+          type: integer
+        totalOrders:
+          type: integer
+    ServiceOrder:
+      type: object
+      required: [schemaVersion, orderId, reference, status, priority, createdAt, updatedAt, targets, history]
+      properties:
+        schemaVersion:
+          const: 1
+        orderId:
+          type: string
+          format: uuid
+        reference:
+          type: string
+          description: What a crew reads out on the radio
+        status:
+          type: string
+          enum: [pendente, em_andamento, concluida, cancelada]
+        priority:
+          type: string
+          enum: [baixa, media, alta, urgente]
+        teamId:
+          type: string
+          format: uuid
+          nullable: true
+        scheduledFor:
+          type: string
+          format: date
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        equipment:
+          type: string
+          nullable: true
+          description: Derived from the measured level, not read off a parcel record
+        areaSquareMetres:
+          type: number
+          nullable: true
+          description: >-
+            Estimated from the five-metre measured band, not surveyed. This
+            system has no parcel geometry.
+        vegetationLevel:
+          type: integer
+          nullable: true
+        centreLat:
+          type: number
+          nullable: true
+        centreLon:
+          type: number
+          nullable: true
+        createdBy:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        targets:
+          type: array
+          items:
+            type: object
+            required: [sessionId, segmentIndex]
+            properties:
+              sessionId:
+                type: string
+                format: uuid
+              segmentIndex:
+                type: integer
+        history:
+          type: array
+          items:
+            type: object
+            required: [status, recordedAt]
+            properties:
+              status:
+                type: string
+                enum: [pendente, em_andamento, concluida, cancelada]
+              note:
+                type: string
+                nullable: true
+              recordedBy:
+                type: string
+                nullable: true
+              recordedAt:
+                type: string
+                format: date-time
+    ServiceOrderPage:
+      type: object
+      required: [schemaVersion, items, total, limit, offset, hasMore]
+      properties:
+        schemaVersion:
+          const: 1
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServiceOrder'
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+        hasMore:
+          type: boolean
+    CreateServiceOrder:
+      type: object
+      required: [priority, targets]
+      properties:
+        priority:
+          type: string
+          enum: [baixa, media, alta, urgente]
+        teamId:
+          type: string
+          format: uuid
+          nullable: true
+        scheduledFor:
+          type: string
+          format: date
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        targets:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [sessionId, segmentIndex]
+            properties:
+              sessionId:
+                type: string
+                format: uuid
+              segmentIndex:
+                type: integer
+    UpdateServiceOrder:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [pendente, em_andamento, concluida, cancelada]
+        priority:
+          type: string
+          enum: [baixa, media, alta, urgente]
+        teamId:
+          type: string
+          format: uuid
+        scheduledFor:
+          type: string
+          format: date
+        notes:
+          type: string
     CreateCaptureSessionRequest:
       type: object
       required: [deviceId]
@@ -976,6 +1464,29 @@ components:
         trackLocationQuality:
           type: [string, 'null']
           enum: [good, degraded, unavailable, null]
+        placeLabel:
+          type: [string, 'null']
+          description: The street, or the neighbourhood when no street is mapped there
+        placeDetail:
+          type: [string, 'null']
+        placeHouseNumber:
+          type: [string, 'null']
+          description: >-
+            Approximate. Reverse geocoding answers with the nearest addressable
+            point, which on a verge is the building across the road.
+        placeRoad:
+          type: [string, 'null']
+        placeKm:
+          type: [integer, 'null']
+          description: >-
+            The nearest kilometre post. The posts average 1066 m apart, so this names
+            a stretch of road and never a position.
+        placeKmOffsetM:
+          type: [number, 'null']
+          description: How far that post was, so a reader can see how loose the km is
+        placeSource:
+          type: [string, 'null']
+          enum: [openstreetmap, reference-markers, none, null]
         framesUrl:
           type: [string, 'null']
           format: uri
@@ -1015,6 +1526,27 @@ components:
           type: integer
         hasMore:
           type: boolean
+    MeasurementSummary:
+      type: object
+      required: [schemaVersion, total, countsByLevel]
+      description: >-
+        Counters over every reading the filter selects, not over the page. The
+        tallest is absent when nothing in the set carried a measurable height.
+      properties:
+        schemaVersion:
+          const: 1
+        total:
+          type: integer
+        countsByLevel:
+          type: object
+          description: >-
+            Keyed by level as text, "0" to "3". A level with no readings is
+            present as zero rather than missing.
+          additionalProperties:
+            type: integer
+        tallestExtent95M:
+          type: number
+          nullable: true
     SampledFrame:
       type: object
       required: [fileName, canonicalFrame, imageUrl]

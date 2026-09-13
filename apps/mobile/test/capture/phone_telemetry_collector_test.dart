@@ -30,28 +30,31 @@ void main() {
     return platform.fixes.close();
   });
 
-  test('asks for a position on every tick while the stream says nothing', () async {
-    final scheduler = FakeScheduler();
-    final probe = _CountingProbe();
-    final collector = _collector(probe: probe.next, poller: scheduler);
-    addTearDown(collector.dispose);
+  test(
+    'asks for a position on every tick while the stream says nothing',
+    () async {
+      final scheduler = FakeScheduler();
+      final probe = _CountingProbe();
+      final collector = _collector(probe: probe.next, poller: scheduler);
+      addTearDown(collector.dispose);
 
-    await _begin(collector);
-    expect(scheduler.duration, const Duration(seconds: 1));
+      await _begin(collector);
+      expect(scheduler.duration, const Duration(seconds: 1));
 
-    for (var tick = 0; tick < 3; tick++) {
-      await scheduler.fire();
-    }
-    final document = await collector.finishSegment();
+      for (var tick = 0; tick < 3; tick++) {
+        await scheduler.fire();
+      }
+      final document = await collector.finishSegment();
 
-    expect(probe.calls, 3);
-    expect(document.json['locations'], hasLength(3));
-    expect(
-      scheduler.duration,
-      isNull,
-      reason: 'the poll stops with the segment it was collecting for',
-    );
-  });
+      expect(probe.calls, 3);
+      expect(document.json['locations'], hasLength(3));
+      expect(
+        scheduler.duration,
+        isNull,
+        reason: 'the poll stops with the segment it was collecting for',
+      );
+    },
+  );
 
   test('records the same reading once when the stream and the poll both deliver it', () async {
     final scheduler = FakeScheduler();
@@ -86,12 +89,13 @@ PhoneTelemetryCollector _collector({
   );
 }
 
-Future<void> _begin(PhoneTelemetryCollector collector) => collector.beginSegment(
-  sessionId: 'session-1',
-  segmentIndex: 0,
-  capturedAtUtc: DateTime.utc(2026, 9, 8, 12),
-  monotonicStartNanos: 0,
-);
+Future<void> _begin(PhoneTelemetryCollector collector) =>
+    collector.beginSegment(
+      sessionId: 'session-1',
+      segmentIndex: 0,
+      capturedAtUtc: DateTime.utc(2026, 9, 8, 12),
+      monotonicStartNanos: 0,
+    );
 
 /// A probe that answers with a later fix every time, the way a receiver in motion would.
 final class _CountingProbe {
@@ -119,14 +123,17 @@ Position _position(DateTime timestamp) => Position(
 /// Grants location and hands out a stream the test drives, so the collector's own permission gate
 /// runs instead of being stubbed out around.
 final class _StubGeolocator extends GeolocatorPlatform {
-  final StreamController<Position> fixes = StreamController<Position>.broadcast();
+  final StreamController<Position> fixes =
+      StreamController<Position>.broadcast();
 
   @override
   Future<bool> isLocationServiceEnabled() async => true;
 
   @override
-  Future<LocationPermission> checkPermission() async => LocationPermission.whileInUse;
+  Future<LocationPermission> checkPermission() async =>
+      LocationPermission.whileInUse;
 
   @override
-  Stream<Position> getPositionStream({LocationSettings? locationSettings}) => fixes.stream;
+  Stream<Position> getPositionStream({LocationSettings? locationSettings}) =>
+      fixes.stream;
 }

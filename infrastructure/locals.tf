@@ -145,7 +145,16 @@ locals {
   }
 
   api_environment = merge(local.common_environment, {
-    AZURE_CLIENT_ID                            = azurerm_user_assigned_identity.api.client_id
+    AZURE_CLIENT_ID = azurerm_user_assigned_identity.api.client_id
+
+    # Nominatim's usage policy asks every caller to identify itself and to be reachable. A
+    # deployment that will not do that should set GREENV_PLACES_ENABLED to false and get
+    # kilometre markers only, rather than send an anonymous request a second.
+    # `coalesce`, not a bare interpolation: `api_hostname` is optional and null by default,
+    # and a null inside a template is a plan error rather than an empty string. Ten of the
+    # sixteen `terraform test` runs leave it unset, which is how this broke CI once.
+    GREENV_PLACES_USER_AGENT = "GreenV/${var.environment} (${coalesce(var.api_hostname, var.project_name)})"
+
     GREENV_RABBITMQ_DYNAMIC                    = "false"
     PORT                                       = "8080"
     SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE = "5"
@@ -186,6 +195,12 @@ locals {
     # Lax is right while the dashboard and the API share a registrable domain. None would make the
     # session a third-party cookie, which Safari and Firefox already block outright.
     GREENV_COOKIE_SAME_SITE = var.cookie_same_site
+
+    # The dashboard is served from a different subdomain than the API, and the CSRF cookie is
+    # the one the page has to read back. Host-only, it is invisible there, and every write is
+    # answered 401 — a login problem the login is not having. The session cookies keep the
+    # __Host- prefix and take no domain.
+    GREENV_COOKIE_CSRF_DOMAIN = var.cookie_csrf_domain
 
     # GREENV_JWT_EPHEMERAL_KEY is deliberately absent and asserted absent in tests/mvp.tftest.hcl.
     # A deployment must never fall back to a key that dies with the process.

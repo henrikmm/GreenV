@@ -62,6 +62,7 @@ public class JacksonMeasurementProjectionAdapter implements MeasurementProjectio
                     track.centreLat(),
                     track.centreLon(),
                     track.geoJson(),
+                    track.lengthM(),
                     track.quality());
         } catch (RuntimeException failure) {
             log.warn("Could not project the measurement packet: {}", failure.getMessage());
@@ -102,7 +103,7 @@ public class JacksonMeasurementProjectionAdapter implements MeasurementProjectio
             }
         }
         if (points.isEmpty()) {
-            return new Track(null, null, null, quality(worst));
+            return new Track(null, null, null, null, quality(worst));
         }
         int located = 0;
         for (JsonNode position : positions) {
@@ -121,7 +122,8 @@ public class JacksonMeasurementProjectionAdapter implements MeasurementProjectio
         // A single distinct point is a position, not a path, and GeoJSON requires two vertices in
         // a LineString. The centre still answers "where", which is what a pin needs.
         String geoJson = points.size() >= 2 ? coordinates.toString() : null;
-        return new Track(latitudeSum / located, longitudeSum / located, geoJson, quality(worst));
+        return new Track(
+                latitudeSum / located, longitudeSum / located, geoJson, lengthOf(points), quality(worst));
     }
 
     /** Every measured cell's height above its own local ground, ascending. */
@@ -163,7 +165,44 @@ public class JacksonMeasurementProjectionAdapter implements MeasurementProjectio
         return value.isNumber() ? value.asInt() : null;
     }
 
-    private record Track(Double centreLat, Double centreLon, String geoJson, String quality) {
-        static final Track EMPTY = new Track(null, null, null, null);
+    private record Track(
+            Double centreLat, Double centreLon, String geoJson, Double lengthM, String quality) {
+        static final Track EMPTY = new Track(null, null, null, null, null);
+    }
+
+    private static final double EARTH_RADIUS_METRES = 6_371_000;
+
+    /**
+     * The length of the path on the ground, walked vertex to vertex.
+     *
+     * <p>The only length this system has. The order's area used to assume 150 metres a segment;
+     * against the tracks on file that is fifteen times a walking capture and about right for a
+     * car, which is to say it was a number rather than a measurement.
+     *
+     * <p>Haversine rather than a planar approximation. It is four trigonometric calls on a
+     * handful of vertices, and it stays right at any latitude instead of only near the equator.
+     *
+     * <p>Under-reports a curve when the fixes are sparse, and that is the safe direction: the
+     * straight line between two fixes is the shortest road that could join them.
+     */
+    private static Double lengthOf(List<double[]> points) {
+        if (points.size() < 2) {
+            return null;
+        }
+        double metres = 0;
+        for (int i = 1; i < points.size(); i++) {
+            metres += distance(points.get(i - 1), points.get(i));
+        }
+        return metres;
+    }
+
+    private static double distance(double[] from, double[] to) {
+        double lat1 = Math.toRadians(from[1]);
+        double lat2 = Math.toRadians(to[1]);
+        double dLat = lat2 - lat1;
+        double dLon = Math.toRadians(to[0] - from[0]);
+        double a = Math.pow(Math.sin(dLat / 2), 2)
+                + Math.cos(lat1) * Math.cos(lat2) * Math.pow(Math.sin(dLon / 2), 2);
+        return 2 * EARTH_RADIUS_METRES * Math.asin(Math.min(1, Math.sqrt(a)));
     }
 }

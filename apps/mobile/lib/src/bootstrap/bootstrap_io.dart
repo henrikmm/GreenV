@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:greenv_capture/src/api/session_authenticator.dart';
 import 'package:greenv_capture/src/api/http_capture_backend.dart';
+import 'package:greenv_capture/src/api/http_operations_gateway.dart';
 import 'package:greenv_capture/src/bootstrap/app_dependencies.dart';
 import 'package:greenv_capture/src/bootstrap/capture_configuration.dart';
 import 'package:greenv_capture/src/capture/camera_segment_recorder.dart';
@@ -64,7 +65,16 @@ Future<AppDependencies> createAppDependencies() async {
     monotonicNanos: monotonicClock.nowNanos,
   );
   uploader.syncSoon();
-  return AppDependencies(capture: coordinator, authenticator: authenticator);
+  return AppDependencies(
+    capture: coordinator,
+    authenticator: authenticator,
+    // The same token the uploads carry, so what the phone reads back is what this person may
+    // see. Capture never waits on it: a phone with no signal still records and queues.
+    operations: HttpOperationsGateway(
+      baseUri: CaptureConfiguration.apiUri,
+      auth: authenticator,
+    ),
+  );
 }
 
 Future<String> _deviceId(

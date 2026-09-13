@@ -5,7 +5,12 @@ import br.com.greenv.videoapi.domain.CaptureSessionDocument;
 import br.com.greenv.videoapi.domain.CaptureSessionQuery;
 import br.com.greenv.videoapi.domain.CaptureSessionSummary;
 import br.com.greenv.videoapi.domain.MeasurementProjection;
+import br.com.greenv.videoapi.domain.MeasurementQuery;
+import br.com.greenv.videoapi.domain.MeasurementSummary;
+import br.com.greenv.videoapi.domain.FrameReadings;
 import br.com.greenv.videoapi.domain.Page;
+import br.com.greenv.videoapi.domain.SegmentPlace;
+import br.com.greenv.videoapi.domain.SegmentQuery;
 import br.com.greenv.videoapi.domain.Sentido;
 import br.com.greenv.videoapi.port.CaptureSessionStore;
 import br.com.greenv.videoapi.service.ApplicationException;
@@ -16,6 +21,8 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.dao.DuplicateKeyException;
@@ -204,7 +211,7 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                     measurement_level = ?, measurement_cells_measured = ?,
                     measurement_cells_abstained = ?, measurement_coverage = ?,
                     track_center_lat = ?, track_center_lon = ?, track_geojson = ?,
-                    track_location_quality = ?
+                    measurement_track_length_m = ?, track_location_quality = ?
                 WHERE session_id = ? AND segment_index = ?
                 """,
                 objectKey,
@@ -221,6 +228,7 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                 projection.trackCenterLat(),
                 projection.trackCenterLon(),
                 projection.trackGeoJson(),
+                projection.trackLengthM(),
                 projection.trackLocationQuality(),
                 sessionId,
                 segmentIndex);
@@ -309,7 +317,13 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
         return new Page<>(items, total == null ? 0 : total, query.limit(), query.offset());
     }
 
-    /** Every segment of one session, in capture order. Unbounded on purpose: a session is finite. */
+    /**
+     * Every segment of one session, in capture order.
+     *
+     * <p>Unbounded, and that is a decision for its callers rather than a claim that the list is
+     * short: an hour of capture is three hundred and sixty segments. The route a dashboard reads
+     * takes the paged overload below.
+     */
     @Override
     public List<CaptureSegmentDocument> findSegments(UUID sessionId) {
         return jdbcTemplate.query(
@@ -318,23 +332,196 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                 sessionId);
     }
 
-    /** Measured segments across every session, newest measurement first. The map's feed. */
+    /** One page of them. Ordered by index because a session is a sequence, not a ranking. */
     @Override
-    public Page<CaptureSegmentDocument> findMeasuredSegments(CaptureSessionQuery query) {
+    public Page<CaptureSegmentDocument> findSegments(SegmentQuery query) {
+        List<Object> arguments = new ArrayList<>();
+        arguments.add(query.sessionId());
+        String where = " WHERE session_id = ?";
+        if (query.level() != null) {
+            where += query.level() == 0
+                    ? " AND (measurement_level IS NULL OR measurement_level NOT IN (1, 2, 3))"
+                    : " AND measurement_level = ?";
+            if (query.level() != 0) {
+                arguments.add(query.level());
+            }
+        }
+
         Long total = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM capture_segments WHERE measurement_state IS NOT NULL", Long.class);
+                "SELECT COUNT(*) FROM capture_segments" + where, Long.class, arguments.toArray());
+
+        List<Object> paged = new ArrayList<>(arguments);
+        paged.add(query.limit());
+        paged.add(query.offset());
         List<CaptureSegmentDocument> items = jdbcTemplate.query(
-                """
-                SELECT * FROM capture_segments
-                 WHERE measurement_state IS NOT NULL
-                 ORDER BY measured_at DESC, session_id DESC, segment_index
-                 LIMIT ? OFFSET ?
-                """,
+                "SELECT * FROM capture_segments" + where + " ORDER BY segment_index LIMIT ? OFFSET ?",
                 JdbcCaptureSessionStoreAdapter::mapSegment,
-                query.limit(),
-                query.offset());
+                paged.toArray());
         return new Page<>(items, total == null ? 0 : total, query.limit(), query.offset());
     }
+
+    /**
+     * The level tally for one session, in one pass.
+     *
+     * <p>The chips above a paged list have to count the session and not the page, for the same
+     * reason the readings list needed its own summary: a count of what is on screen is a fact
+     * about the request.
+     */
+    @Override
+    public MeasurementSummary summariseSegments(UUID sessionId) {
+        return jdbcTemplate.query(
+                """
+                SELECT COUNT(*) AS total,
+                       SUM(CASE WHEN measurement_level = 1 THEN 1 ELSE 0 END) AS level_1,
+                       SUM(CASE WHEN measurement_level = 2 THEN 1 ELSE 0 END) AS level_2,
+                       SUM(CASE WHEN measurement_level = 3 THEN 1 ELSE 0 END) AS level_3,
+                       SUM(CASE WHEN measurement_level IN (1, 2, 3) THEN 0 ELSE 1 END) AS level_0,
+                       MAX(measurement_extent95_p95_m) AS tallest
+                  FROM capture_segments
+                 WHERE session_id = ?
+                """,
+                result -> {
+                    if (!result.next()) {
+                        return MeasurementSummary.empty();
+                    }
+                    double tallest = result.getDouble("tallest");
+                    return new MeasurementSummary(
+                            result.getLong("total"),
+                            Map.of(
+                                    0, result.getLong("level_0"),
+                                    1, result.getLong("level_1"),
+                                    2, result.getLong("level_2"),
+                                    3, result.getLong("level_3")),
+                            result.wasNull() ? null : tallest);
+                },
+                sessionId);
+    }
+
+    /**
+     * One page of readings, ordered and filtered in SQL.
+     *
+     * <p>This used to hand out two hundred rows in whatever order they were measured and let the
+     * browser sort them. That is only the right answer while everything fits in one request: past
+     * that, the first page is the tallest of an arbitrary two hundred instead of the tallest there
+     * is, and nothing on screen admits it. V13 adds the two indexes these orders read.
+     */
+    @Override
+    public Page<CaptureSegmentDocument> findMeasurements(MeasurementQuery query) {
+        List<Object> arguments = new ArrayList<>();
+        String where = whereFor(query, arguments);
+
+        Long total = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM capture_segments" + where, Long.class, arguments.toArray());
+
+        List<Object> paged = new ArrayList<>(arguments);
+        paged.add(query.limit());
+        paged.add(query.offset());
+        List<CaptureSegmentDocument> items = jdbcTemplate.query(
+                "SELECT * FROM capture_segments" + where
+                        + " ORDER BY " + query.sort().orderBy() + " LIMIT ? OFFSET ?",
+                JdbcCaptureSessionStoreAdapter::mapSegment,
+                paged.toArray());
+        return new Page<>(items, total == null ? 0 : total, query.limit(), query.offset());
+    }
+
+    /**
+     * The counters, in one pass over the same filter.
+     *
+     * <p>Four separate counts would be four scans of the same rows to draw four cards. The level
+     * is bucketed in SQL with the same rule the rest of the system uses: anything that is not 1, 2
+     * or 3 — null included — is level 0, which is "not classified" and not "low".
+     */
+    @Override
+    public MeasurementSummary summariseMeasurements(MeasurementQuery query) {
+        List<Object> arguments = new ArrayList<>();
+        String where = whereFor(query.withoutLevel(), arguments);
+
+        return jdbcTemplate.query(
+                """
+                SELECT COUNT(*) AS total,
+                       SUM(CASE WHEN measurement_level = 1 THEN 1 ELSE 0 END) AS level_1,
+                       SUM(CASE WHEN measurement_level = 2 THEN 1 ELSE 0 END) AS level_2,
+                       SUM(CASE WHEN measurement_level = 3 THEN 1 ELSE 0 END) AS level_3,
+                       SUM(CASE WHEN measurement_level IN (1, 2, 3) THEN 0 ELSE 1 END) AS level_0,
+                       MAX(measurement_extent95_p95_m) AS tallest
+                  FROM capture_segments
+                """
+                        + where,
+                result -> {
+                    if (!result.next()) {
+                        return MeasurementSummary.empty();
+                    }
+                    double tallest = result.getDouble("tallest");
+                    return new MeasurementSummary(
+                            result.getLong("total"),
+                            Map.of(
+                                    0, result.getLong("level_0"),
+                                    1, result.getLong("level_1"),
+                                    2, result.getLong("level_2"),
+                                    3, result.getLong("level_3")),
+                            result.wasNull() ? null : tallest);
+                },
+                arguments.toArray());
+    }
+
+    /**
+     * The filter both of the above share, so a count can never disagree with the page it labels.
+     *
+     * <p>The capture window is half-open. Two adjacent days sharing the row recorded exactly at
+     * midnight would put it on both screens and in neither total.
+     */
+    private static String whereFor(MeasurementQuery query, List<Object> arguments) {
+        List<String> clauses = new ArrayList<>();
+        clauses.add("measurement_state IS NOT NULL");
+
+        if (query.level() != null) {
+            if (query.level() == 0) {
+                clauses.add("(measurement_level IS NULL OR measurement_level NOT IN (1, 2, 3))");
+            } else {
+                clauses.add("measurement_level = ?");
+                arguments.add(query.level());
+            }
+        }
+        if (query.capturedFrom() != null) {
+            clauses.add("captured_at >= ?");
+            arguments.add(Timestamp.from(query.capturedFrom()));
+        }
+        if (query.capturedTo() != null) {
+            clauses.add("captured_at < ?");
+            arguments.add(Timestamp.from(query.capturedTo()));
+        }
+        if (query.search() != null) {
+            // The same three fields the dashboard composes its label from, so what a person types
+            // is matched against what they read on the row. Both sides are folded: the term by
+            // MeasurementQuery, the column here, so "paraiso" finds Rua do Paraíso.
+            clauses.add("""
+                    (%s LIKE ? OR %s LIKE ? OR %s LIKE ?)
+                    """
+                    .formatted(folded("place_label"), folded("place_detail"), folded("place_road")));
+            String pattern = "%" + query.search().toLowerCase(Locale.ROOT) + "%";
+            arguments.add(pattern);
+            arguments.add(pattern);
+            arguments.add(pattern);
+        }
+        return " WHERE " + String.join(" AND ", clauses);
+    }
+
+    /**
+     * A place column lowered and stripped of accents, in a form both databases accept.
+     *
+     * <p>PostgreSQL has {@code unaccent}, but it is an extension and the test database is H2.
+     * TRANSLATE is in both, and the alphabet below is the one Brazilian place names use. The two
+     * strings must stay the same length, which is what makes this a constant and not a loop.
+     *
+     * <p>The column name is written here in source, never taken from a caller. The term itself
+     * goes in as a parameter.
+     */
+    private static String folded(String column) {
+        return "TRANSLATE(LOWER(COALESCE(%s, '')), '%s', '%s')".formatted(column, ACCENTED, PLAIN);
+    }
+
+    private static final String ACCENTED = "áàâãäéèêëíìîïóòôõöúùûüçñ";
+    private static final String PLAIN = "aaaaaeeeeiiiiooooouuuucn";
 
     @Override
     public long segmentCount(UUID sessionId) {
@@ -376,6 +563,79 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                 Sentido.of(result.getString("sentido")));
     }
 
+    @Override
+    @Transactional
+    public void replaceFrameReadings(UUID sessionId, int segmentIndex, List<FrameReadings> readings) {
+        jdbcTemplate.update(
+                "DELETE FROM segment_frame_readings WHERE session_id = ? AND segment_index = ?",
+                sessionId,
+                segmentIndex);
+        Timestamp now = Timestamp.from(Instant.now());
+        for (FrameReadings reading : readings) {
+            jdbcTemplate.update(
+                    """
+                    INSERT INTO segment_frame_readings (session_id, segment_index,
+                        canonical_frame, cells_voted, sample_count, extent95_median_m,
+                        extent95_max_m, largest_disagreement_m, evidence_for_cells, recorded_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    sessionId,
+                    segmentIndex,
+                    reading.canonicalFrame(),
+                    reading.cellsVoted(),
+                    reading.sampleCount(),
+                    reading.extent95MedianM(),
+                    reading.extent95MaxM(),
+                    reading.largestDisagreementM(),
+                    reading.evidenceForCells(),
+                    now);
+        }
+    }
+
+    @Override
+    public Optional<FrameReadings> findFrameReadings(
+            UUID sessionId, int segmentIndex, int canonicalFrame) {
+        return jdbcTemplate
+                .query(
+                        """
+                        SELECT * FROM segment_frame_readings
+                         WHERE session_id = ? AND segment_index = ? AND canonical_frame = ?
+                        """,
+                        JdbcCaptureSessionStoreAdapter::mapFrameReadings,
+                        sessionId,
+                        segmentIndex,
+                        canonicalFrame)
+                .stream()
+                .findFirst();
+    }
+
+    @Override
+    public List<CaptureSegmentDocument> findSegmentsAwaitingFrameReadings(int limit) {
+        return jdbcTemplate.query(
+                """
+                SELECT g.* FROM capture_segments g
+                 WHERE g.measurement_state IS NOT NULL
+                   AND NOT EXISTS (SELECT 1 FROM segment_frame_readings r
+                                    WHERE r.session_id = g.session_id
+                                      AND r.segment_index = g.segment_index)
+                 ORDER BY g.measured_at DESC NULLS LAST, g.segment_index
+                 LIMIT ?
+                """,
+                JdbcCaptureSessionStoreAdapter::mapSegment,
+                limit);
+    }
+
+    private static FrameReadings mapFrameReadings(ResultSet result, int row) throws SQLException {
+        return new FrameReadings(
+                result.getInt("canonical_frame"),
+                result.getInt("cells_voted"),
+                result.getLong("sample_count"),
+                result.getObject("extent95_median_m", Double.class),
+                result.getObject("extent95_max_m", Double.class),
+                result.getObject("largest_disagreement_m", Double.class),
+                result.getInt("evidence_for_cells"));
+    }
+
     private static CaptureSegmentDocument mapSegment(ResultSet result, int row) throws SQLException {
         return new CaptureSegmentDocument(
                 result.getObject("session_id", UUID.class),
@@ -400,8 +660,66 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                 result.getObject("measurement_is_mock", Boolean.class),
                 instant(result, "measured_at"),
                 mapProjection(result),
+                mapPlace(result),
                 instant(result, "created_at"),
                 instant(result, "updated_at"));
+    }
+
+    /**
+     * Null until the resolver has been round, so a caller can tell "not asked yet" from
+     * "asked and there is nothing there". The second reads as a row with a timestamp and no
+     * label.
+     */
+    private static SegmentPlace mapPlace(ResultSet result) throws SQLException {
+        Instant resolvedAt = instant(result, "place_resolved_at");
+        if (resolvedAt == null) {
+            return null;
+        }
+        return new SegmentPlace(
+                result.getString("place_label"),
+                result.getString("place_detail"),
+                result.getString("place_house_number"),
+                result.getString("place_road"),
+                result.getObject("place_km", Integer.class),
+                result.getObject("place_km_offset_m", Double.class),
+                result.getString("place_source"),
+                resolvedAt);
+    }
+
+    @Override
+    public List<CaptureSegmentDocument> findSegmentsAwaitingPlace(int limit) {
+        return jdbcTemplate.query(
+                """
+                SELECT * FROM capture_segments
+                 WHERE track_center_lat IS NOT NULL
+                   AND place_resolved_at IS NULL
+                 ORDER BY measured_at DESC NULLS LAST, segment_index
+                 LIMIT ?
+                """,
+                JdbcCaptureSessionStoreAdapter::mapSegment,
+                limit);
+    }
+
+    @Override
+    public void recordPlace(UUID sessionId, int segmentIndex, SegmentPlace place) {
+        jdbcTemplate.update(
+                """
+                UPDATE capture_segments
+                   SET place_label = ?, place_detail = ?, place_house_number = ?,
+                       place_road = ?, place_km = ?, place_km_offset_m = ?,
+                       place_source = ?, place_resolved_at = ?
+                 WHERE session_id = ? AND segment_index = ?
+                """,
+                place.label(),
+                place.detail(),
+                place.houseNumber(),
+                place.road(),
+                place.km(),
+                place.kmOffsetMetres(),
+                place.source(),
+                Timestamp.from(place.resolvedAt()),
+                sessionId,
+                segmentIndex);
     }
 
     private static MeasurementProjection mapProjection(ResultSet result) throws SQLException {
@@ -415,6 +733,7 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                 result.getObject("track_center_lat", Double.class),
                 result.getObject("track_center_lon", Double.class),
                 result.getString("track_geojson"),
+                result.getObject("measurement_track_length_m", Double.class),
                 result.getString("track_location_quality"));
     }
 

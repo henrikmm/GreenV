@@ -124,13 +124,22 @@ final class JwtAuthenticationFilter extends OncePerRequestFilter {
         return SAFE_METHODS.contains(request.getMethod());
     }
 
+    /**
+     * Any cookie under the name, not the first one found.
+     *
+     * <p>A browser can hold two {@code greenv_csrf} cookies at once — one host-only, one on the
+     * registrable domain — and it sends both. Comparing only the first turned a harmless
+     * duplicate into a 401 on every write, with the page echoing one value and this comparing
+     * the other. The question the check asks is whether the caller could read the cookie, and
+     * one match answers it.
+     */
     private static boolean csrfTokenMatches(HttpServletRequest request) {
         String header = request.getHeader(AuthCookies.CSRF_HEADER);
-        Optional<String> cookie = AuthCookies.read(request, AuthCookies.CSRF);
-        return header != null
-                && !header.isBlank()
-                && cookie.isPresent()
-                && TokenDigest.digestsMatch(header, cookie.get());
+        if (header == null || header.isBlank()) {
+            return false;
+        }
+        return AuthCookies.readAll(request, AuthCookies.CSRF).stream()
+                .anyMatch(cookie -> TokenDigest.digestsMatch(header, cookie));
     }
 
     private static void authenticate(TokenPrincipal principal, boolean fromCookie) {

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { MapContainer, TileLayer, GeoJSON, CircleMarker, Popup, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import { LEVELS, vegetationLevel } from '@greenv/web-core'
+import SessionRoute from './SessionRoute'
 
 /**
  * O caminho de uma sessão, onde quer que ela tenha sido feita.
@@ -33,7 +34,7 @@ export default function SessionMap({ track, frames = [], onFrameClick, height = 
   if (!track || !track.features?.length) {
     return (
       <div style={{
-        height, display: 'grid', placeItems: 'center', borderRadius: 'var(--radius-md)',
+        height, minHeight: 220, display: 'grid', placeItems: 'center', borderRadius: 'var(--radius-md)',
         border: '1px dashed var(--border)', color: 'var(--text-muted)', fontSize: 14,
       }}>
         Esta sessão ainda não tem trilha desenhável.
@@ -44,14 +45,18 @@ export default function SessionMap({ track, frames = [], onFrameClick, height = 
   return (
     <MapContainer
       center={[-23.55, -46.7]} zoom={13}
-      style={{ height, width: '100%', borderRadius: 'var(--radius-md)' }}
+      style={{ height, minHeight: 220, width: '100%', borderRadius: 'var(--radius-md)' }}
       scrollWheelZoom
+      // A mesma base cinza da demonstração, para que a cor na tela seja a do nível e não a do mapa.
+      className="map-mono"
     >
       <TileLayer
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         attribution="&copy; OpenStreetMap"
       />
+      <KeepSized />
       <FitToTrack track={track} />
+      <SessionRoute track={track} />
       <GeoJSON key={JSON.stringify(track).length} data={track} style={styleFor} />
 
       {frames.filter(frame => frame.latitude != null).map(frame => (
@@ -70,21 +75,52 @@ export default function SessionMap({ track, frames = [], onFrameClick, height = 
             click: () => { setActive(frame.fileName); onFrameClick?.(frame) },
           }}
         >
+          {/* Uma miniatura, não a foto. A versão em tamanho real já esteve aqui e enchia a
+              tela de imagem onde o que se procura é o ponto; sem imagem nenhuma o balão
+              obrigava a conferir no painel ao lado se o ponto clicado era o certo. Cento e
+              vinte pixels respondem essa pergunta e param aí — o resto continua no painel. */}
           <Popup>
             <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+              <img
+                src={frame.imageUrl}
+                alt={frame.fileName}
+                loading="lazy"
+                style={{
+                  width: 120, maxHeight: 120, objectFit: 'cover', display: 'block',
+                  borderRadius: 4, marginBottom: 6, background: '#ececf2',
+                }}
+              />
               <strong>{frame.fileName}</strong>
               <br />
               {frame.capturedAtUtc ? new Date(frame.capturedAtUtc).toLocaleString('pt-BR') : 'sem horário'}
               <br />
               precisão {frame.horizontalAccuracyMeters?.toFixed(1) ?? '?'} m · {frame.locationQuality}
-              <br />
-              <img src={frame.imageUrl} alt={frame.fileName} style={{ width: 220, marginTop: 6, borderRadius: 4 }} />
             </div>
           </Popup>
         </CircleMarker>
       ))}
     </MapContainer>
   )
+}
+
+/**
+ * Leaflet mede o contêiner uma vez, na montagem.
+ *
+ * Quando o mapa preenche uma coluna em vez de ter altura fixa, essa altura só existe depois que
+ * o irmão ao lado decidiu a dele, e a medida da montagem fica velha — as peças ficam cortadas e
+ * o enquadramento sai errado. Observar o contêiner custa nada e vale também para a janela
+ * mudando de tamanho.
+ */
+function KeepSized() {
+  const map = useMap()
+
+  useEffect(() => {
+    const observer = new ResizeObserver(() => map.invalidateSize())
+    observer.observe(map.getContainer())
+    return () => observer.disconnect()
+  }, [map])
+
+  return null
 }
 
 /** Cada sessão está num lugar diferente, então o enquadramento não pode ser fixo. */

@@ -30,14 +30,24 @@ const s = {
   roadTag: { fontSize: 11, color: 'rgba(255,255,255,0.5)', fontFamily: 'var(--font-mono)' },
 }
 
-const TABS = [
+/** As abas da demonstração. A versão que lê a API passa as suas, que são outras. */
+export const DEMO_TABS = [
   { key: 'dashboard', label: 'Visão Geral', path: '/', icon: LayoutDashboard },
   { key: 'map', label: 'Mapa', path: '/mapa', icon: Map },
   { key: 'orders', label: 'Ordens de Serviço', path: '/ordens', icon: ClipboardList },
   { key: 'teams', label: 'Equipes', path: '/equipes', icon: Users },
 ]
 
-export default function NavBar({ currentPage }) {
+export { LayoutDashboard, Map, ClipboardList, Users }
+
+/**
+ * A barra do topo.
+ *
+ * As abas e o rótulo da via vêm por propriedade porque as duas aplicações não têm as mesmas
+ * telas nem falam da mesma via: a demonstração é sempre o Rodoanel, e a versão real mostra
+ * qualquer sessão onde ela tenha sido capturada.
+ */
+export default function NavBar({ currentPage, tabs = DEMO_TABS, roadTag = 'SP-021 · RODOANEL OESTE' }) {
   const navigate = useNavigate()
 
   return (
@@ -49,7 +59,7 @@ export default function NavBar({ currentPage }) {
         </div>
 
         <div style={s.tabs}>
-          {TABS.map(t => {
+          {tabs.map(t => {
             const Icon = t.icon
             const active = currentPage === t.key
             return (
@@ -67,7 +77,7 @@ export default function NavBar({ currentPage }) {
       </div>
 
       <div style={s.right}>
-        <span style={s.roadTag}>SP-021 · RODOANEL OESTE</span>
+        {roadTag && <span style={s.roadTag}>{roadTag}</span>}
         <UserMenu />
       </div>
     </nav>

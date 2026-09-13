@@ -6,7 +6,11 @@ import br.com.greenv.videoapi.domain.CaptureObjectKeys;
 import br.com.greenv.videoapi.domain.CaptureSessionDocument;
 import br.com.greenv.videoapi.domain.CaptureSessionQuery;
 import br.com.greenv.videoapi.domain.CaptureSessionSummary;
+import br.com.greenv.videoapi.domain.FrameReadings;
 import br.com.greenv.videoapi.domain.MeasurementProjection;
+import br.com.greenv.videoapi.domain.MeasurementQuery;
+import br.com.greenv.videoapi.domain.SegmentQuery;
+import br.com.greenv.videoapi.domain.MeasurementSummary;
 import br.com.greenv.videoapi.domain.Page;
 import br.com.greenv.videoapi.domain.SegmentExtractionRequest;
 import br.com.greenv.videoapi.domain.SampledFrame;
@@ -14,6 +18,7 @@ import br.com.greenv.videoapi.domain.SegmentMeasurementAnnouncement;
 import br.com.greenv.videoapi.domain.Sentido;
 import br.com.greenv.videoapi.port.CaptureObjectStorage;
 import br.com.greenv.videoapi.port.CaptureSessionStore;
+import br.com.greenv.videoapi.port.FrameReadingsReader;
 import br.com.greenv.videoapi.port.CaptureSessionUseCase;
 import br.com.greenv.videoapi.port.IdentifierGenerator;
 import br.com.greenv.videoapi.port.MeasurementProjectionReader;
@@ -25,12 +30,16 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Map;
 import java.util.Locale;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 
 @Service
 public class CaptureSessionService implements CaptureSessionUseCase {
+
+    private static final org.slf4j.Logger log =
+            org.slf4j.LoggerFactory.getLogger(CaptureSessionService.class);
 
     private static final long MAXIMUM_MANIFEST_BYTES = 4 * 1024 * 1024;
 
@@ -57,6 +66,7 @@ public class CaptureSessionService implements CaptureSessionUseCase {
     private final IdentifierGenerator identifierGenerator;
     private final MeasurementProjectionReader projectionReader;
     private final SampledFrameReader frameReader;
+    private final FrameReadingsReader frameReadingsReader;
     private final SegmentTrackWriter trackWriter;
     private final Clock clock;
 
@@ -68,6 +78,7 @@ public class CaptureSessionService implements CaptureSessionUseCase {
             IdentifierGenerator identifierGenerator,
             MeasurementProjectionReader projectionReader,
             SampledFrameReader frameReader,
+            FrameReadingsReader frameReadingsReader,
             SegmentTrackWriter trackWriter,
             Clock clock) {
         this.captureSessionStore = captureSessionStore;
@@ -77,6 +88,7 @@ public class CaptureSessionService implements CaptureSessionUseCase {
         this.identifierGenerator = identifierGenerator;
         this.projectionReader = projectionReader;
         this.frameReader = frameReader;
+        this.frameReadingsReader = frameReadingsReader;
         this.trackWriter = trackWriter;
         this.clock = clock;
     }
@@ -314,6 +326,30 @@ public class CaptureSessionService implements CaptureSessionUseCase {
                 announcement.measuredAt(),
                 projectionOf(announcement.sessionId(), announcement.segmentIndex(), packetKey),
                 clock.instant());
+        deriveFrameReadings(announcement.sessionId(), announcement.segmentIndex());
+    }
+
+    /**
+     * Turns the assessment into one row per photograph, once.
+     *
+     * <p>Here rather than on every request because the assessment is organised by cell: asking
+     * what one frame saw costs the same walk as asking for all of them, and the answer never
+     * changes after the run is published. A failure costs the rows and not the measurement —
+     * the segment is still recorded, and the backfill picks the segment up on its next pass.
+     */
+    private void deriveFrameReadings(UUID sessionId, int segmentIndex) {
+        byte[] assessment =
+                readIfPresent(CaptureObjectKeys.measurementArtifact(sessionId, segmentIndex, "assessment.json"));
+        List<FrameReadings> readings = frameReadingsReader.readAll(assessment);
+        if (readings.isEmpty()) {
+            return;
+        }
+        captureSessionStore.replaceFrameReadings(sessionId, segmentIndex, readings);
+    }
+
+    @Override
+    public void deriveFrameReadingsFor(UUID sessionId, int segmentIndex) {
+        deriveFrameReadings(sessionId, segmentIndex);
     }
 
     /**
@@ -348,7 +384,11 @@ public class CaptureSessionService implements CaptureSessionUseCase {
      */
     @Override
     public byte[] track(UUID sessionId) {
-        return trackWriter.featureCollection(listSegments(sessionId));
+        // The whole session on purpose. A drawing of a route with a page of it missing is not a
+        // shorter drawing, it is a wrong one, and this is one document rather than a list a
+        // reader scrolls.
+        captureSessionStore.getSession(sessionId);
+        return trackWriter.featureCollection(captureSessionStore.findSegments(sessionId));
     }
 
     @Override
@@ -383,22 +423,61 @@ public class CaptureSessionService implements CaptureSessionUseCase {
                 CaptureObjectKeys.sampledFrame(sessionId, segmentIndex, fileName), MAXIMUM_FRAME_BYTES);
     }
 
+    /**
+     * One frame's votes, out of the assessment rather than the result envelope.
+     *
+     * <p>The name is checked against the manifest first, for the same reason the bytes
+     * route checks it: a caller that can name any object can read any object. The canonical
+     * frame number comes from the manifest entry and not from parsing the string again.
+     *
+     * <p>A missing or unreadable assessment answers with an empty reading, not an error. The
+     * photograph exists either way, and the screen that asks this question is already
+     * showing it.
+     */
+    @Override
+    public FrameReadings frameReadings(UUID sessionId, int segmentIndex, String fileName) {
+        var published = frames(sessionId, segmentIndex).stream()
+                .filter(frame -> frame.fileName().equals(fileName))
+                .findFirst()
+                .orElseThrow(() -> new ApplicationException(
+                        FailureKind.NOT_FOUND,
+                        "sampled_frame_absent",
+                        "this segment published no such frame"));
+        return captureSessionStore
+                .findFrameReadings(sessionId, segmentIndex, published.canonicalFrame())
+                // No row means the assessment named no vote for this frame, or the backfill has
+                // not reached this segment yet. Both read as a frame that measured nothing, which
+                // is visible on screen rather than silent.
+                .orElseGet(() -> FrameReadings.empty(published.canonicalFrame()));
+    }
+
     @Override
     public Page<CaptureSessionSummary> listSessions(CaptureSessionQuery query) {
         return captureSessionStore.findSessions(query);
     }
 
     @Override
-    public List<CaptureSegmentDocument> listSegments(UUID sessionId) {
+    public Page<CaptureSegmentDocument> listSegments(SegmentQuery query) {
         // Rejects an unknown session rather than answering an empty list, so a mistyped id reads
         // as 404 and not as a session that exists and recorded nothing.
-        captureSessionStore.getSession(sessionId);
-        return captureSessionStore.findSegments(sessionId);
+        captureSessionStore.getSession(query.sessionId());
+        return captureSessionStore.findSegments(query);
     }
 
     @Override
-    public Page<CaptureSegmentDocument> listMeasurements(CaptureSessionQuery query) {
-        return captureSessionStore.findMeasuredSegments(query);
+    public MeasurementSummary summariseSegments(UUID sessionId) {
+        captureSessionStore.getSession(sessionId);
+        return captureSessionStore.summariseSegments(sessionId);
+    }
+
+    @Override
+    public Page<CaptureSegmentDocument> listMeasurements(MeasurementQuery query) {
+        return captureSessionStore.findMeasurements(query);
+    }
+
+    @Override
+    public MeasurementSummary summariseMeasurements(MeasurementQuery query) {
+        return captureSessionStore.summariseMeasurements(query);
     }
 
     @Override

@@ -5,7 +5,12 @@ import br.com.greenv.videoapi.domain.CaptureSessionDocument;
 import br.com.greenv.videoapi.domain.CaptureSessionQuery;
 import br.com.greenv.videoapi.domain.CaptureSessionSummary;
 import br.com.greenv.videoapi.domain.MeasurementProjection;
+import br.com.greenv.videoapi.domain.MeasurementQuery;
+import br.com.greenv.videoapi.domain.MeasurementSummary;
+import br.com.greenv.videoapi.domain.FrameReadings;
 import br.com.greenv.videoapi.domain.Page;
+import br.com.greenv.videoapi.domain.SegmentPlace;
+import br.com.greenv.videoapi.domain.SegmentQuery;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -66,15 +71,48 @@ public interface CaptureSessionStore {
     /** One page of sessions, newest first, filtered by {@code query}. */
     Page<CaptureSessionSummary> findSessions(CaptureSessionQuery query);
 
-    /** Every segment of one session, in capture order. */
+    /** Every segment of one session, in capture order. Callers that need the whole sequence. */
     List<CaptureSegmentDocument> findSegments(UUID sessionId);
 
-    /** Measured segments across every session, newest measurement first. */
-    Page<CaptureSegmentDocument> findMeasuredSegments(CaptureSessionQuery query);
+    /** One page of a session's segments, in capture order. */
+    Page<CaptureSegmentDocument> findSegments(SegmentQuery query);
+
+    /** How many of a session's segments fall in each level, so a filter can show its own size. */
+    MeasurementSummary summariseSegments(UUID sessionId);
+
+    /** One page of readings across every session, ordered and filtered by {@code query}. */
+    Page<CaptureSegmentDocument> findMeasurements(MeasurementQuery query);
+
+    /** The counters for the whole filtered set, which a page of it cannot answer. */
+    MeasurementSummary summariseMeasurements(MeasurementQuery query);
 
     long segmentCount(UUID sessionId);
 
     long readySegmentCount(UUID sessionId);
 
     long measuredSegmentCount(UUID sessionId);
+
+    /**
+     * Measured stretches that carry a position and were never asked about.
+     *
+     * <p>Ordered newest first, so a fresh measurement gets its street name before an old one that
+     * nobody is looking at.
+     */
+    List<CaptureSegmentDocument> findSegmentsAwaitingPlace(int limit);
+
+    /** Caches the place on the row. A row is written even when nothing was found. */
+    void recordPlace(UUID sessionId, int segmentIndex, SegmentPlace place);
+
+    /**
+     * Replaces every frame reading of a segment, in one transaction.
+     *
+     * <p>Replace and not merge: the readings are derived wholesale from one assessment, and
+     * a partial overwrite would leave rows from a previous run beside rows from this one.
+     */
+    void replaceFrameReadings(UUID sessionId, int segmentIndex, List<FrameReadings> readings);
+
+    Optional<FrameReadings> findFrameReadings(UUID sessionId, int segmentIndex, int canonicalFrame);
+
+    /** Measured segments whose frame readings were never derived. Newest measurement first. */
+    List<CaptureSegmentDocument> findSegmentsAwaitingFrameReadings(int limit);
 }

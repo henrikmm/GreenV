@@ -62,6 +62,8 @@ class IdentityIntegrationTest {
         assertThat(cookieNamed(cookies, AuthCookies.FINGERPRINT)).contains("HttpOnly");
         // The CSRF cookie is the one the page has to read, so it must NOT be HttpOnly.
         assertThat(cookieNamed(cookies, AuthCookies.CSRF)).doesNotContain("HttpOnly");
+        // Unset by default, which is right when the dashboard and the API share a host.
+        assertThat(cookieNamed(cookies, AuthCookies.CSRF)).doesNotContain("Domain");
 
         String jar = jar(cookies);
         HttpResponse<String> me = get("/v2/auth/me", jar);

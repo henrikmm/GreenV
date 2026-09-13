@@ -86,11 +86,73 @@ que a raiz e os nomes dos arquivos carregam um hash que muda a cada build.
 `public/_redirects` manda todo caminho para `index.html` com status 200. Sem isso, qualquer link
 aberto direto ou recarregado devolve 404 e só a raiz funciona.
 
-## O que o painel mostra, e o que ele não afirma
+## As telas
 
-Toda tela que mostra altura mostra também que nenhuma leitura automática foi conferida contra fita
-métrica, e que os limiares de 10 e 30 cm ainda não foram aprovados pela Motiva. Não é enfeite: é a
-diferença entre evidência para olhar e instrução para mandar uma equipe.
+| Rota | O que é |
+|---|---|
+| `/login` | Entrar. Sem botões de acesso rápido: nenhuma senha vive no cliente |
+| `/sessoes` | A lista de capturas, com quantos trechos cada uma tem e quantos foram medidos |
+| `/sessoes/:id` | Uma sessão: a trilha no mapa, a tabela de trechos, e o quadro do ponto clicado |
+| `/trechos` | Toda leitura, a mais alta primeiro, cada uma com a própria rua |
+| `/mapa` | Todas as sessões no mesmo mapa, com a lista ao lado enquadrando cada uma |
+| `/ordens` | Ordens de serviço abertas contra trechos medidos |
+| `/equipes` | As equipes de campo e quantas ordens cada uma carrega |
+
+As quatro abas são as mesmas da demonstração. O que muda é o alvo de uma ordem: lá é um polígono
+do KMZ, aqui é um trecho medido, que é a única coisa neste sistema que carrega uma altura e uma
+posição reais. A API recusa com 409 uma ordem aberta contra um trecho sem medição.
+
+**A visão por trecho existe porque a visão por sessão engana.** Uma volta de carro produz oito
+trechos e recebe um rótulo só: o pior nível, um lugar médio. Se sete estão limpos e um está com
+três metros de mato, a sessão diz "nível 3" e não diz onde. Em `/trechos` a linha é a leitura —
+altura, rua, células e qualidade de GPS próprias — ordenada pela altura, que é como se decide
+para onde a equipe vai primeiro.
+
+**Uma ordem nasce em qualquer das duas telas.** Marque um ou mais trechos medidos e clique em "Criar OS".
+Na tela da sessão um trecho sem medição não pode ser marcado; em `/trechos` só há trechos
+medidos. Uma ordem aberta da lista de críticos atravessa sessões sem cerimônia, porque os dois
+piores trechos do dia raramente foram gravados na mesma volta, e combiná-los é o que economiza
+deslocamento. O formulário envia só a decisão — os
+alvos, a prioridade, a equipe, a data e a observação — e a API deriva a área, o nível, o centro e
+o equipamento das próprias medições. A referência aparece depois da resposta, porque quem a emite
+é o servidor: mostrar um número antes seria mostrar algo que pode não ser o que foi gravado.
+
+Duas honestidades sobre a tela de ordens:
+
+- **A área é estimada, não levantada.** Não existe geometria de parcela em lugar nenhum deste
+  sistema. O número vem da faixa de cinco metros que a grade mediu, multiplicada por um
+  comprimento de trecho presumido. Está documentado assim em `OperationsService` e no contrato.
+- **As quatro equipes vieram semeadas** pela migração `V9`, com os nomes da lista de exemplo da
+  demonstração, para que uma ordem tenha a quem ser atribuída no primeiro dia. Não são o quadro da
+  concessionária. São configuração, e trocá-las é um `UPDATE`.
+
+## Como uma sessão é nomeada
+
+Pelo lugar, nunca pelo campo de via. Aquele campo era texto livre que o operador preenchia à mão,
+então chega vazio, ou com a palavra que alguém usou testando. O que existe de confiável é a
+posição: cada trecho medido carrega o centro da própria trilha, calculado pela API a partir da
+telemetria.
+
+O nome da rua vem do **Nominatim**, o serviço de geocodificação reversa do OpenStreetMap, em
+`src/api/places.js`. Três cuidados, que são o que a política de uso dele pede: uma consulta por
+vez com um segundo de intervalo, resultado em cache no `localStorage` por coordenada arredondada
+a quatro casas, e falha silenciosa — sem resposta, a tela volta para a coordenada e a distância
+até a SP-021, que `web-core/src/utils/place.js` calcula sem sair do navegador.
+
+Isto não acrescenta exposição: o painel já carrega as telhas do OpenStreetMap centradas
+exatamente nessas coordenadas, então o mesmo servidor já sabe onde a captura foi.
+
+**O lugar definitivo disto é a API**, resolvendo uma vez por sessão e guardando na linha. Aqui
+resolve uma vez por navegador, o que é barato para um punhado de sessões e caro se um dia forem
+centenas.
+
+## O que o painel não afirma
+
+O aviso de "leituras não validadas" que ficava no topo de cada tela foi retirado a pedido, em 12 de
+setembro de 2026. O que ele dizia continua verdadeiro e continua no dado: cada `Feature` do GeoJSON
+sai com `operationalStatus: "not-ready"`, e [`docs/AUTOMATIC-HEIGHT.md`](../../docs/AUTOMATIC-HEIGHT.md)
+lista os bloqueadores. Nenhuma altura automática foi conferida contra fita métrica e os limiares de
+10 e 30 cm não foram aprovados pela Motiva — a tela simplesmente não diz mais isso em voz alta.
 
 Três coisas que o formato dos dados impõe e que a tela respeita:
 
@@ -105,6 +167,13 @@ Três coisas que o formato dos dados impõe e que a tela respeita:
 
 ## Estado
 
-Construído e verificado com `npm run build`. Não há teste nem lint neste app, como também não há
-no `web-mock`. As telas de ordens, equipes e tendências ainda não existem aqui: elas dependem de
-tabelas e rotas que a API não tem.
+Construído com `npm run build` e olhado no navegador em 12 de setembro de 2026: as quatro telas
+foram abertas no Edge contra um servidor de mentira com o formato real da API, e o clique num ponto
+da trilha abriu o quadro correspondente. Não há teste nem lint neste app, como também não há no
+`web-mock`.
+
+Uma armadilha que já quebrou este painel uma vez: `global.css` põe `overflow: hidden` em `html`,
+`body` e `#root`, então **toda tela precisa do seu próprio casco de rolagem**. É o que
+`components/PageShell.jsx` faz. Uma página que só empilha conteúdo com padding parece funcionar
+até o conteúdo passar da dobra, e então o resto fica inalcançável — sem barra de rolagem e sem
+erro nenhum no console.

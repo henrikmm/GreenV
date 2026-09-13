@@ -639,6 +639,18 @@ variable "cookie_same_site" {
   }
 }
 
+variable "cookie_csrf_domain" {
+  description = <<-EOT
+    Registrable domain for the CSRF cookie, and for that one alone. The dashboard has to read it
+    back into X-CSRF-Token on every write; served from a different subdomain than the API, a
+    host-only cookie is invisible to its script and every write answers 401. Leave empty when the
+    dashboard and the API share a host. The session cookies keep the __Host- prefix, which forbids
+    a domain outright, and are never widened by this.
+  EOT
+  type        = string
+  default     = ""
+}
+
 variable "runpod_api_key" {
   description = <<-EOT
     RunPod account key, used to create and read the depth endpoint. Set it as

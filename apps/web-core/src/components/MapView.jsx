@@ -4,6 +4,7 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { getPolygonStyle, EQUIPMENT_TYPES, LEVELS, vegetationLevel, formatArea, getFeatureId } from '../utils/classification'
 import FitBounds from './FitBounds'
+import BasemapTone from './BasemapTone'
 
 function routeIcon(n, { isStart, isEnd } = {}) {
   const cls = `route-pin-wrap${isStart ? ' is-start' : ''}${isEnd ? ' is-end' : ''}`
@@ -171,8 +172,8 @@ export default function MapView({
   return (
     <MapContainer
       center={center} zoom={13} style={{ height: '100%', width: '100%' }} zoomControl={true}
-      className={satellite ? '' : 'map-mono'}
     >
+      <BasemapTone mono={!satellite} />
       {satellite ? (
         <TileLayer
           attribution="Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics"
