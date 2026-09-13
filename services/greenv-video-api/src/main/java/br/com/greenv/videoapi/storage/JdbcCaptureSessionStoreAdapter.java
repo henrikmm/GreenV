@@ -419,12 +419,12 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
         }
         if (query.search() != null) {
             // The same three fields the dashboard composes its label from, so what a person types
-            // is matched against what they read on the row.
+            // is matched against what they read on the row. Both sides are folded: the term by
+            // MeasurementQuery, the column here, so "paraiso" finds Rua do Paraíso.
             clauses.add("""
-                    (LOWER(COALESCE(place_label, '')) LIKE ?
-                      OR LOWER(COALESCE(place_detail, '')) LIKE ?
-                      OR LOWER(COALESCE(place_road, '')) LIKE ?)
-                    """);
+                    (%s LIKE ? OR %s LIKE ? OR %s LIKE ?)
+                    """
+                    .formatted(folded("place_label"), folded("place_detail"), folded("place_road")));
             String pattern = "%" + query.search().toLowerCase(Locale.ROOT) + "%";
             arguments.add(pattern);
             arguments.add(pattern);
@@ -432,6 +432,23 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
         }
         return " WHERE " + String.join(" AND ", clauses);
     }
+
+    /**
+     * A place column lowered and stripped of accents, in a form both databases accept.
+     *
+     * <p>PostgreSQL has {@code unaccent}, but it is an extension and the test database is H2.
+     * TRANSLATE is in both, and the alphabet below is the one Brazilian place names use. The two
+     * strings must stay the same length, which is what makes this a constant and not a loop.
+     *
+     * <p>The column name is written here in source, never taken from a caller. The term itself
+     * goes in as a parameter.
+     */
+    private static String folded(String column) {
+        return "TRANSLATE(LOWER(COALESCE(%s, '')), '%s', '%s')".formatted(column, ACCENTED, PLAIN);
+    }
+
+    private static final String ACCENTED = "áàâãäéèêëíìîïóòôõöúùûüçñ";
+    private static final String PLAIN = "aaaaaeeeeiiiiooooouuuucn";
 
     @Override
     public long segmentCount(UUID sessionId) {

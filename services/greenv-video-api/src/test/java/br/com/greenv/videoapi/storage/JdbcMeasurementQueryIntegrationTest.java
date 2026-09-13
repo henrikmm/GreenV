@@ -74,7 +74,7 @@ class JdbcMeasurementQueryIntegrationTest {
         // Heights on purpose: two equal at 0.40 in different sessions, to see whether a tie is
         // stable, and one measured segment with no height at all.
         insertSegment(session, 0, NOON, 3, 0.90, "Avenida Armando Ferrentini");
-        insertSegment(session, 1, LATER, 2, 0.40, "Rua do Paraiso");
+        insertSegment(session, 1, LATER, 2, 0.40, "Rua do Paraíso");
         insertSegment(otherSession, 0, LATER, 2, 0.40, "Rua Topazio");
         insertSegment(otherSession, 1, YESTERDAY, 1, 0.05, "Jardim dos Estados");
         insertSegment(otherSession, 2, YESTERDAY, null, null, "Rua Braz Cubas");
@@ -154,10 +154,24 @@ class JdbcMeasurementQueryIntegrationTest {
                 .containsExactly((Double) null);
     }
 
+    /**
+     * Shipped wrong once, and invisibly: the column held "Rua do Paraíso" and a reader typing
+     * "paraiso" got nothing back, which reads as "that street was never measured" rather than as
+     * a search that cannot spell. Half the street names in the register carry an accent and
+     * nobody types them.
+     */
     @Test
-    void matchesThePlaceWithoutCaringAboutCase() {
+    void findsAnAccentedStreetFromAnUnaccentedSearch() {
         assertThat(heightsOf(store.findMeasurements(new MeasurementQuery(
                                 MeasurementSort.HEIGHT_DESC, null, null, null, "paraiso", 10, 0))
+                        .items()))
+                .containsExactly(0.40);
+    }
+
+    @Test
+    void stillFindsItWhenTheAccentIsTypedAndTheCaseIsWrong() {
+        assertThat(heightsOf(store.findMeasurements(new MeasurementQuery(
+                                MeasurementSort.HEIGHT_DESC, null, null, null, "PARAÍSO", 10, 0))
                         .items()))
                 .containsExactly(0.40);
     }

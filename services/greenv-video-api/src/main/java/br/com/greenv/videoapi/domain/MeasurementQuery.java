@@ -1,6 +1,8 @@
 package br.com.greenv.videoapi.domain;
 
+import java.text.Normalizer;
 import java.time.Instant;
+import java.util.Locale;
 
 /**
  * What a caller is asking for when it lists readings.
@@ -18,7 +20,7 @@ import java.time.Instant;
  * @param level 0 to 3, where 0 gathers everything that was not classified; null means every level
  * @param capturedFrom inclusive lower bound on capture time
  * @param capturedTo exclusive upper bound, so two adjacent days never share a row
- * @param search matched against the resolved place, case-insensitively; null means no text filter
+ * @param search matched against the resolved place, ignoring case and accents; null means none
  * @param limit page size, bounded by {@link #MAXIMUM_LIMIT}
  * @param offset rows to skip; the ordering carries a tie-break so paging is stable
  */
@@ -41,7 +43,24 @@ public record MeasurementQuery(
         limit = limit <= 0 ? DEFAULT_LIMIT : Math.min(limit, MAXIMUM_LIMIT);
         offset = Math.max(offset, 0);
         level = level == null || level < 0 || level > 3 ? null : level;
-        search = search == null || search.isBlank() ? null : search.trim();
+        search = foldAccents(search);
+    }
+
+    /**
+     * Lower case with the accents taken off, because nobody types them into a search box.
+     *
+     * <p>Half the street names in the register carry one — Paraíso, Ipiranga do Norte, Cônego
+     * Vicente — and a reader searching for "paraiso" means the street, not a different one. The
+     * column is folded the same way in the query, so both sides meet without accents rather than
+     * one side hoping the other guessed right.
+     */
+    private static String foldAccents(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return Normalizer.normalize(value.trim(), Normalizer.Form.NFD)
+                .replaceAll("\\p{M}+", "")
+                .toLowerCase(Locale.ROOT);
     }
 
     public static MeasurementQuery tallestFirst() {
