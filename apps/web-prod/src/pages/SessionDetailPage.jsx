@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { AnimatePresence } from 'framer-motion'
 import { ArrowLeft, ClipboardList, ChevronRight, ChevronDown } from 'lucide-react'
@@ -28,7 +28,7 @@ const s = {
   header: { marginBottom: 18 },
   title: { fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' },
   subtitle: { fontSize: 13, color: 'var(--text-secondary)', marginTop: 3 },
-  list: { marginTop: 12 },
+  list: { marginTop: 12, scrollMarginTop: 12 },
   chipsRow: { display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' },
   focusBar: {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
@@ -110,6 +110,7 @@ export default function SessionDetailPage() {
   const [offset, setOffset] = useState(0)
   const [summary, setSummary] = useState(null)
   const [focusSegment, setFocusSegment] = useState(null)
+  const listRef = useRef(null)
   const [chosen, setChosen] = useState([])
   const [ordering, setOrdering] = useState(false)
 
@@ -166,6 +167,28 @@ export default function SessionDetailPage() {
   // Trocar de filtro volta para a primeira página, senão a lista abre vazia num deslocamento
   // que o novo filtro não alcança.
   useEffect(() => { setOffset(0) }, [filterLevel])
+
+  // O mapa ocupa a dobra inteira, então escolher um ponto nele deixava a resposta fora da tela
+  // e a pessoa rolando atrás da foto que acabou de pedir. Escolher é perguntar; levar até a
+  // resposta faz parte.
+  useEffect(() => {
+    if (focusIndex === null) return undefined
+    const node = listRef.current
+    if (!node) return undefined
+
+    const trazer = () => node.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    trazer()
+
+    // O detalhe do trecho chega depois, com o mapa e a foto, e é ele que dá à página altura
+    // para rolar. Uma rolagem só, disparada na hora do clique, para no limite de uma página que
+    // ainda era curta e deixa a foto meio palmo abaixo da borda. Observar o crescimento é o que
+    // faz a rolagem terminar onde a resposta está, e não onde ela ainda não estava.
+    const observador = new ResizeObserver(trazer)
+    observador.observe(node)
+    // E para de insistir, senão disputa a rolagem com quem já está lendo.
+    const fim = setTimeout(() => observador.disconnect(), 4000)
+    return () => { observador.disconnect(); clearTimeout(fim) }
+  }, [focusIndex, focusFrame])
 
   // O lugar vem dos trechos medidos, não do campo de via: aquele era texto livre digitado em
   // campo e não identifica lugar nenhum. A API resolve a rua de cada trecho; uma sessão que
@@ -246,7 +269,7 @@ export default function SessionDetailPage() {
         </div>
       </Card>
 
-      <div style={s.list}>
+      <div style={s.list} ref={listRef}>
         <Card delay={0.05} style={{ padding: '18px 18px 4px' }}>
           <div style={s.cardHead}>
             <div>
