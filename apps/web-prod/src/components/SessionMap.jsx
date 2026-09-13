@@ -75,11 +75,21 @@ export default function SessionMap({ track, frames = [], onFrameClick, height = 
             click: () => { setActive(frame.fileName); onFrameClick?.(frame) },
           }}
         >
-          {/* Sem a foto aqui. Ela já está no painel ao lado, e repeti-la numa bolha sobre o
-              mapa enche a tela de imagem onde o que se procura é o ponto. O balão fica com o
-              que só ele pode dizer: qual quadro é este e quanto se confia na posição dele. */}
+          {/* Uma miniatura, não a foto. A versão em tamanho real já esteve aqui e enchia a
+              tela de imagem onde o que se procura é o ponto; sem imagem nenhuma o balão
+              obrigava a conferir no painel ao lado se o ponto clicado era o certo. Cento e
+              vinte pixels respondem essa pergunta e param aí — o resto continua no painel. */}
           <Popup>
             <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+              <img
+                src={frame.imageUrl}
+                alt={frame.fileName}
+                loading="lazy"
+                style={{
+                  width: 120, maxHeight: 120, objectFit: 'cover', display: 'block',
+                  borderRadius: 4, marginBottom: 6, background: '#ececf2',
+                }}
+              />
               <strong>{frame.fileName}</strong>
               <br />
               {frame.capturedAtUtc ? new Date(frame.capturedAtUtc).toLocaleString('pt-BR') : 'sem horário'}

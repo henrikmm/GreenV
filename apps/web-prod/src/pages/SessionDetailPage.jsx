@@ -1,13 +1,15 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { AnimatePresence } from 'framer-motion'
-import { ArrowLeft, ClipboardList } from 'lucide-react'
+import { ArrowLeft, ClipboardList, ChevronRight, ChevronDown } from 'lucide-react'
 import { LEVELS, vegetationLevel, Card } from '@greenv/web-core'
 import { sessions, teams as teamsApi } from '../api/greenv'
 import { placeOfSegment, placeOfSession } from '../api/place'
 import { readingOf } from '../api/reading'
 import NewOrderModal from '../components/NewOrderModal'
 import SessionMap from '../components/SessionMap'
+import SegmentDetail from '../components/SegmentDetail'
+import FramePanel from '../components/FramePanel'
 import PageShell from '../components/PageShell'
 
 /**
@@ -32,6 +34,9 @@ const s = {
   cardTitle: { fontSize: 13, fontWeight: 700, marginBottom: 2 },
   cardHint: { fontSize: 11, color: 'var(--text-muted)', marginBottom: 14 },
   table: { width: '100%', borderCollapse: 'separate', borderSpacing: 0 },
+  clickable: (open) => ({ cursor: 'pointer', background: open ? 'var(--motiva-subtle)' : 'transparent' }),
+  chevron: { color: 'var(--text-muted)', width: 30, textAlign: 'center', lineHeight: 0 },
+  detailCell: { padding: '0 10px', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border)' },
   th: {
     padding: '9px 10px', textAlign: 'left', fontSize: 10, fontWeight: 700,
     color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em',
@@ -44,7 +49,6 @@ const s = {
     color: reading.colour, background: reading.background, lineHeight: 1.35,
   }),
   hint: { fontSize: 12.5, color: 'var(--text-muted)', lineHeight: 1.6 },
-  frameMeta: { fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.8, marginTop: 10 },
   cardHead: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
   orderBtn: (enabled) => ({
     display: 'flex', alignItems: 'center', gap: 6, padding: '8px 13px', fontSize: 12.5,
@@ -61,6 +65,8 @@ export default function SessionDetailPage() {
   const navigate = useNavigate()
   const [state, setState] = useState({ loading: true })
   const [selected, setSelected] = useState(null)
+  // Um trecho aberto por vez, como na lista de trechos.
+  const [openIndex, setOpenIndex] = useState(null)
   const [chosen, setChosen] = useState([])
   const [ordering, setOrdering] = useState(false)
 
@@ -150,18 +156,23 @@ export default function SessionDetailPage() {
               <tr>
                 <th style={s.th} /><th style={s.th}>#</th><th style={s.th}>Nível</th>
                 <th style={s.th}>Altura p95</th><th style={s.th}>Células</th><th style={s.th}>GPS</th>
+                <th style={s.th} />
               </tr>
             </thead>
             <tbody>
               {segments.map(segment => {
                 const level = vegetationLevel(segment.measurementLevel)
+                const open = openIndex === segment.segmentIndex
                 return (
-                  <tr key={segment.segmentIndex}>
+                  <Fragment key={segment.segmentIndex}>
+                  <tr style={s.clickable(open)}
+                    onClick={() => setOpenIndex(open ? null : segment.segmentIndex)}>
                     <td style={s.td}>
                       {/* Só um trecho medido pode justificar uma ordem, e a API recusa o resto
                           com 409. Desabilitar aqui diz isso antes de alguém tentar. */}
                       <input type="checkbox" disabled={segment.measurementState == null}
                         checked={chosen.includes(segment.segmentIndex)}
+                        onClick={(event) => event.stopPropagation()}
                         onChange={() => setChosen(previous => previous.includes(segment.segmentIndex)
                           ? previous.filter(index => index !== segment.segmentIndex)
                           : [...previous, segment.segmentIndex])} />
@@ -183,7 +194,20 @@ export default function SessionDetailPage() {
                         : '—'}
                     </td>
                     <td style={s.td}>{segment.trackLocationQuality ?? '—'}</td>
+                    <td style={{ ...s.td, ...s.chevron }}>
+                      {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                    </td>
                   </tr>
+                  {open && (
+                    <tr>
+                      <td style={s.detailCell} colSpan={7}>
+                        {/* O mesmo componente da lista de trechos, para que abrir um trecho
+                            daqui responda exatamente o que abrir de lá responde. */}
+                        <SegmentDetail segment={{ ...segment, sessionId }} />
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 )
               })}
             </tbody>
@@ -194,18 +218,7 @@ export default function SessionDetailPage() {
           <div style={s.cardTitle}>Quadro</div>
           <div style={s.cardHint}>A foto tirada no ponto que você clicar no mapa.</div>
           {selected ? (
-            <div>
-              <img src={selected.imageUrl} alt={selected.fileName}
-                style={{ width: '100%', borderRadius: 'var(--radius-sm)', display: 'block' }} />
-              <div style={s.frameMeta}>
-                <strong style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>
-                  {selected.fileName}
-                </strong><br />
-                trecho {selected.segmentIndex}<br />
-                {selected.capturedAtUtc && new Date(selected.capturedAtUtc).toLocaleString('pt-BR')}<br />
-                precisão {selected.horizontalAccuracyMeters?.toFixed(1) ?? '?'} m · {selected.locationQuality}
-              </div>
-            </div>
+            <FramePanel frame={selected} sessionId={sessionId} showSegment />
           ) : (
             <div style={s.hint}>Nenhum ponto selecionado ainda.</div>
           )}
