@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:greenv_capture/src/capture/capture_ports.dart';
 import 'package:greenv_capture/src/domain/capture_models.dart';
+import 'package:greenv_capture/src/domain/operations_models.dart';
 
 final class FakeIdentifierGenerator implements IdentifierGenerator {
   FakeIdentifierGenerator(this.identifier);
@@ -153,4 +154,90 @@ final class SocketExceptionForTest implements Exception {
 
   @override
   String toString() => 'offline';
+}
+
+/// The read side, scripted. A test sets what the API would answer and watches what was asked.
+final class FakeOperationsGateway implements OperationsGateway {
+  ReadingsSummary summary = ReadingsSummary.empty;
+  List<MeasuredStretch> stretchRows = const [];
+  List<CaptureSessionSummary> sessionRows = const [];
+  List<Team> teamRows = const [];
+  List<ServiceOrder> orderRows = const [];
+
+  /// Thrown by every call when set, so a screen's failure path can be exercised.
+  Object? failure;
+
+  /// Every draft handed to [openOrder], in order.
+  final List<OrderDraft> opened = [];
+
+  int? lastLevelFilter;
+
+  void _maybeFail() {
+    if (failure != null) throw failure!;
+  }
+
+  @override
+  Future<ReadingsSummary> readingsSummary() async {
+    _maybeFail();
+    return summary;
+  }
+
+  @override
+  Future<PageOf<MeasuredStretch>> stretches({
+    int? level,
+    int limit = 25,
+    int offset = 0,
+  }) async {
+    _maybeFail();
+    lastLevelFilter = level;
+    final rows = level == null
+        ? stretchRows
+        : stretchRows.where((s) => s.vegetationLevel.number == level).toList();
+    final page = rows.skip(offset).take(limit).toList();
+    return PageOf(
+      items: page,
+      total: rows.length,
+      hasMore: offset + page.length < rows.length,
+    );
+  }
+
+  @override
+  Future<PageOf<CaptureSessionSummary>> sessions({int limit = 10}) async {
+    _maybeFail();
+    final page = sessionRows.take(limit).toList();
+    return PageOf(
+      items: page,
+      total: sessionRows.length,
+      hasMore: page.length < sessionRows.length,
+    );
+  }
+
+  @override
+  Future<List<Team>> teams() async {
+    _maybeFail();
+    return teamRows;
+  }
+
+  @override
+  Future<PageOf<ServiceOrder>> orders({int limit = 50}) async {
+    _maybeFail();
+    return PageOf(items: orderRows, total: orderRows.length, hasMore: false);
+  }
+
+  @override
+  Future<ServiceOrder> openOrder(OrderDraft draft) async {
+    _maybeFail();
+    opened.add(draft);
+    final order = ServiceOrder(
+      orderId: 'order-${opened.length}',
+      reference: 'OS-ROÇ-202609-${1000 + opened.length}',
+      status: OrderStatus.pending,
+      priority: draft.priority,
+      teamId: draft.teamId,
+      createdAt: DateTime.utc(2026, 9, 13),
+      targetCount: draft.targets.length,
+    );
+    orderRows = [order, ...orderRows];
+    return order;
+  }
 }

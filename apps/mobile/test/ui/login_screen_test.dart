@@ -26,12 +26,22 @@ void main() {
 
     await tester.pumpWidget(
       CaptureApp(
-        dependencies: AppDependencies(capture: coordinator, authenticator: auth),
+        dependencies: AppDependencies(
+          operations: FakeOperationsGateway(),
+          capture: coordinator,
+          authenticator: auth,
+        ),
       ),
     );
 
-    await tester.enterText(find.byKey(const Key('email-field')), 'operador@motiva.com.br');
-    await tester.enterText(find.byKey(const Key('password-field')), 'uma-senha-bem-longa-123');
+    await tester.enterText(
+      find.byKey(const Key('email-field')),
+      'operador@motiva.com.br',
+    );
+    await tester.enterText(
+      find.byKey(const Key('password-field')),
+      'uma-senha-bem-longa-123',
+    );
     await tester.tap(find.byKey(const Key('login-button')));
     await tester.pumpAndSettle();
 
@@ -41,19 +51,30 @@ void main() {
     expect(find.text('Olá, equipe de campo'), findsOneWidget);
   });
 
-  testWidgets('stays on the login screen and explains a refusal', (tester) async {
+  testWidgets('stays on the login screen and explains a refusal', (
+    tester,
+  ) async {
     final coordinator = _coordinator();
     addTearDown(coordinator.dispose);
 
-    final auth = _authenticator((_) => http.Response('{"error":"invalid_client"}', 401));
+    final auth = _authenticator(
+      (_) => http.Response('{"error":"invalid_client"}', 401),
+    );
 
     await tester.pumpWidget(
       CaptureApp(
-        dependencies: AppDependencies(capture: coordinator, authenticator: auth),
+        dependencies: AppDependencies(
+          operations: FakeOperationsGateway(),
+          capture: coordinator,
+          authenticator: auth,
+        ),
       ),
     );
 
-    await tester.enterText(find.byKey(const Key('email-field')), 'operador@motiva.com.br');
+    await tester.enterText(
+      find.byKey(const Key('email-field')),
+      'operador@motiva.com.br',
+    );
     await tester.enterText(find.byKey(const Key('password-field')), 'errada');
     await tester.tap(find.byKey(const Key('login-button')));
     await tester.pumpAndSettle();
@@ -78,7 +99,11 @@ void main() {
 
     await tester.pumpWidget(
       CaptureApp(
-        dependencies: AppDependencies(capture: coordinator, authenticator: auth),
+        dependencies: AppDependencies(
+          operations: FakeOperationsGateway(),
+          capture: coordinator,
+          authenticator: auth,
+        ),
       ),
     );
     await tester.pumpAndSettle();
@@ -95,7 +120,11 @@ void main() {
 
     await tester.pumpWidget(
       CaptureApp(
-        dependencies: AppDependencies(capture: coordinator, authenticator: auth),
+        dependencies: AppDependencies(
+          operations: FakeOperationsGateway(),
+          capture: coordinator,
+          authenticator: auth,
+        ),
         initialPage: MotivaPage.home,
       ),
     );
@@ -110,33 +139,52 @@ void main() {
   /// The login screen is a guard, not a starting point. Picking the first screen is not enough:
   /// in the browser `?screen=upload` chooses one directly, and before this it opened the capture
   /// screen with no session at all.
-  testWidgets('refuses to open a screen behind the guard without a session', (tester) async {
+  testWidgets('refuses to open a screen behind the guard without a session', (
+    tester,
+  ) async {
     final coordinator = _coordinator();
     addTearDown(coordinator.dispose);
 
     final auth = _authenticator((_) => http.Response(_tokens, 200));
 
-    for (final page in [MotivaPage.home, MotivaPage.upload, MotivaPage.network, MotivaPage.map]) {
+    for (final page in [
+      MotivaPage.home,
+      MotivaPage.upload,
+      MotivaPage.stretches,
+      MotivaPage.map,
+      MotivaPage.orders,
+    ]) {
       await tester.pumpWidget(
         CaptureApp(
-          dependencies: AppDependencies(capture: coordinator, authenticator: auth),
+          dependencies: AppDependencies(
+            operations: FakeOperationsGateway(),
+            capture: coordinator,
+            authenticator: auth,
+          ),
           initialPage: page,
         ),
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Bem-vindo'), findsOneWidget, reason: '$page opened without a session');
+      expect(
+        find.text('Bem-vindo'),
+        findsOneWidget,
+        reason: '$page opened without a session',
+      );
     }
   });
 
   /// The design preview is the one build where that is allowed, because nothing behind it is real.
-  testWidgets('the mocked preview opens any screen without signing in', (tester) async {
+  testWidgets('the mocked preview opens any screen without signing in', (
+    tester,
+  ) async {
     final coordinator = _coordinator();
     addTearDown(coordinator.dispose);
 
     await tester.pumpWidget(
       CaptureApp(
         dependencies: AppDependencies(
+          operations: FakeOperationsGateway(),
           capture: coordinator,
           authenticator: _authenticator((_) => http.Response(_tokens, 200)),
           mockedPreview: true,
@@ -151,20 +199,28 @@ void main() {
 
   /// A session that dies while the app is open - expired, or revoked because its refresh token was
   /// replayed - must not leave someone on a screen whose every upload returns 401.
-  testWidgets('a lost session sends the person back to sign in', (tester) async {
+  testWidgets('a lost session sends the person back to sign in', (
+    tester,
+  ) async {
     final coordinator = _coordinator();
     addTearDown(coordinator.dispose);
 
     var calls = 0;
     final auth = _authenticator((_) {
       calls++;
-      return calls == 1 ? http.Response(_tokens, 200) : http.Response('{}', 401);
+      return calls == 1
+          ? http.Response(_tokens, 200)
+          : http.Response('{}', 401);
     });
     await auth.signIn('operador@motiva.com.br', 'uma-senha-bem-longa-123');
 
     await tester.pumpWidget(
       CaptureApp(
-        dependencies: AppDependencies(capture: coordinator, authenticator: auth),
+        dependencies: AppDependencies(
+          operations: FakeOperationsGateway(),
+          capture: coordinator,
+          authenticator: auth,
+        ),
         initialPage: MotivaPage.home,
       ),
     );
@@ -180,12 +236,13 @@ void main() {
 const _tokens =
     '{"access_token":"tok","token_type":"Bearer","expires_in":900,"refresh_token":"ref"}';
 
-SessionAuthenticator _authenticator(http.Response Function(http.Request request) respond) =>
-    SessionAuthenticator(
-      tokenUri: Uri.parse('https://api.example/v2/oauth/token'),
-      store: MemorySessionStore(),
-      client: MockClient((request) async => respond(request)),
-    );
+SessionAuthenticator _authenticator(
+  http.Response Function(http.Request request) respond,
+) => SessionAuthenticator(
+  tokenUri: Uri.parse('https://api.example/v2/oauth/token'),
+  store: MemorySessionStore(),
+  client: MockClient((request) async => respond(request)),
+);
 
 CaptureCoordinator _coordinator() {
   final queue = MemoryCaptureQueue();
@@ -194,7 +251,10 @@ CaptureCoordinator _coordinator() {
     recorder: FakeRecorder(),
     telemetry: FakeTelemetry(),
     queue: queue,
-    uploader: QueueUploader(queue: queue, backend: FakeBackend()..online = false),
+    uploader: QueueUploader(
+      queue: queue,
+      backend: FakeBackend()..online = false,
+    ),
     foregroundLease: FakeLease(),
     scheduler: FakeScheduler(),
     identifierGenerator: FakeIdentifierGenerator('session-1'),

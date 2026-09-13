@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:greenv_capture/src/domain/capture_models.dart';
+import 'package:greenv_capture/src/domain/operations_models.dart';
 
 abstract interface class IdentifierGenerator {
   String next();
@@ -119,4 +120,32 @@ abstract interface class CaptureBackend {
   /// segment.
   Future<void> uploadSegment(QueuedSegment segment);
   Future<void> completeSession(QueuedSession session);
+}
+
+/// The read side, and the one write a field worker makes from the phone.
+///
+/// Kept apart from [CaptureBackend] on purpose. Capture must never depend on this: a phone with
+/// no signal still records and queues, and a screen that cannot list stretches is a screen that
+/// says so, not a capture that stops. Everything here is a question about what was already
+/// uploaded, plus opening an order against it.
+abstract interface class OperationsGateway {
+  /// The counters over every measured stretch: how many at each level, and the tallest.
+  Future<ReadingsSummary> readingsSummary();
+
+  /// One page of stretches, tallest first, optionally at one level only.
+  Future<PageOf<MeasuredStretch>> stretches({
+    int? level,
+    int limit = 25,
+    int offset = 0,
+  });
+
+  /// The most recent capture sessions, newest first.
+  Future<PageOf<CaptureSessionSummary>> sessions({int limit = 10});
+
+  Future<List<Team>> teams();
+
+  Future<PageOf<ServiceOrder>> orders({int limit = 50});
+
+  /// Opens an order. The API derives the area, the level and the position from the targets.
+  Future<ServiceOrder> openOrder(OrderDraft draft);
 }
