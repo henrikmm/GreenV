@@ -4,6 +4,8 @@ import br.com.greenv.videoapi.config.AuthProperties;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.http.ResponseCookie;
 
@@ -46,16 +48,52 @@ public final class AuthCookies {
     }
 
     public static Optional<String> read(HttpServletRequest request, String name) {
+        return readAll(request, name).stream().findFirst();
+    }
+
+    /**
+     * Every cookie under this name, because a browser can be holding more than one.
+     *
+     * <p>Cookies are keyed by name, domain and path, so {@code greenv_csrf} host-only and
+     * {@code greenv_csrf} on the registrable domain are two cookies with one name, and the
+     * browser sends both. Widening this cookie so the dashboard could read it therefore left
+     * every browser that had logged in before holding a stale twin: the page echoed one value,
+     * the server compared the other, and every write answered 401 exactly as it had before.
+     *
+     * <p>Reading only the first is what made that a silent mismatch. The double-submit check
+     * asks whether the caller could read the cookie, and any one of them answers that.
+     */
+    public static List<String> readAll(HttpServletRequest request, String name) {
         Cookie[] cookies = request.getCookies();
         if (cookies == null) {
-            return Optional.empty();
+            return List.of();
         }
+        List<String> values = new ArrayList<>(2);
         for (Cookie cookie : cookies) {
             if (name.equals(cookie.getName()) && cookie.getValue() != null && !cookie.getValue().isBlank()) {
-                return Optional.of(cookie.getValue());
+                values.add(cookie.getValue());
             }
         }
-        return Optional.empty();
+        return List.copyOf(values);
+    }
+
+    /**
+     * Kills the host-only twin of the CSRF cookie, once the real one carries a domain.
+     *
+     * <p>Without this the duplicate outlives every login: {@link #clear} now writes the domain
+     * too, and a cookie with a domain cannot expire one without. It would sit there until
+     * somebody cleared their site data.
+     */
+    public static Optional<ResponseCookie> clearHostOnlyCsrfTwin(AuthProperties properties) {
+        if (properties.cookie().csrfDomain() == null) {
+            return Optional.empty();
+        }
+        return Optional.of(ResponseCookie.from(CSRF, "")
+                .secure(true)
+                .path("/")
+                .sameSite(properties.cookie().sameSite())
+                .maxAge(Duration.ZERO)
+                .build());
     }
 
     private static ResponseCookie.ResponseCookieBuilder builder(
