@@ -10,7 +10,6 @@ import br.com.greenv.videoapi.domain.FrameReadings;
 import br.com.greenv.videoapi.domain.MeasurementProjection;
 import br.com.greenv.videoapi.domain.MeasurementQuery;
 import br.com.greenv.videoapi.domain.SegmentQuery;
-import br.com.greenv.videoapi.domain.SegmentTravel;
 import br.com.greenv.videoapi.domain.MeasurementSummary;
 import br.com.greenv.videoapi.domain.Page;
 import br.com.greenv.videoapi.domain.SegmentExtractionRequest;
@@ -328,36 +327,6 @@ public class CaptureSessionService implements CaptureSessionUseCase {
                 projectionOf(announcement.sessionId(), announcement.segmentIndex(), packetKey),
                 clock.instant());
         deriveFrameReadings(announcement.sessionId(), announcement.segmentIndex());
-        deriveTravelLengths(announcement.sessionId());
-    }
-
-    /**
-     * How far each segment of this session actually went, recomputed for the whole session.
-     *
-     * <p>Not per segment, because the distance is not inside one. The phone emits a handful of
-     * clustered fixes in ten seconds, so a segment's own track spans a tenth of what it covered;
-     * the honest measure is between consecutive segments, and every new measurement gives the one
-     * before it a neighbour it did not have. Cheap: a handful of rows and no storage reads.
-     */
-    private void deriveTravelLengths(UUID sessionId) {
-        try {
-            List<SegmentTravel.Fix> fixes = captureSessionStore.findSegments(sessionId).stream()
-                    .map(segment -> new SegmentTravel.Fix(
-                            segment.segmentIndex(),
-                            segment.measurement().trackCenterLat(),
-                            segment.measurement().trackCenterLon(),
-                            segment.capturedAt(),
-                            segment.durationMillis()))
-                    .toList();
-            Map<Integer, Double> lengths = SegmentTravel.lengths(fixes);
-            if (!lengths.isEmpty()) {
-                captureSessionStore.recordTrackLengths(sessionId, lengths);
-            }
-        } catch (RuntimeException failure) {
-            // An area estimate is worth less than the measurement it decorates: a session that
-            // cannot be measured for length still records its heights.
-            log.warn("Could not derive travelled lengths for {}: {}", sessionId, failure.getMessage());
-        }
     }
 
     /**

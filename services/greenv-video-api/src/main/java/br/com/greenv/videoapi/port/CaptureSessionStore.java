@@ -77,9 +77,6 @@ public interface CaptureSessionStore {
     /** One page of a session's segments, in capture order. */
     Page<CaptureSegmentDocument> findSegments(SegmentQuery query);
 
-    /** Writes the travelled length of each segment of one session, from {@link SegmentTravel}. */
-    void recordTrackLengths(UUID sessionId, java.util.Map<Integer, Double> metresBySegment);
-
     /** How many of a session's segments fall in each level, so a filter can show its own size. */
     MeasurementSummary summariseSegments(UUID sessionId);
 

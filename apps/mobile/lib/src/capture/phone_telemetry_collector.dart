@@ -41,6 +41,8 @@ final class PhoneTelemetryCollector implements TelemetryCollector {
   final List<Map<String, Object?>> _locations = [];
   final List<Map<String, Object?>> _motions = [];
   final List<StreamSubscription<dynamic>> _subscriptions = [];
+  /// Kept apart from the rest because it must outlive a segment; see [beginSegment].
+  StreamSubscription<Position>? _locationSubscription;
   AccelerometerEvent? _gravity;
   UserAccelerometerEvent? _userAcceleration;
   Position? _previousPosition;
@@ -60,6 +62,17 @@ final class PhoneTelemetryCollector implements TelemetryCollector {
   @override
   double? latestHorizontalAccuracyMeters;
 
+  /// Starts a segment without disturbing the GNSS receiver.
+  ///
+  /// The location subscription used to be torn down and rebuilt here with everything else, once
+  /// every ten seconds. A receiver does not resume where it left off: a new subscription means a
+  /// new location request, and the platform takes seconds to deliver its first fix. The captures
+  /// on record show the cost — two to four distinct fixes in a ten-second segment where the
+  /// stream is asked for one a second — and the measurement downstream reads the gap as a
+  /// vehicle that barely moved.
+  ///
+  /// Motion sensors are restarted freely: they deliver on the first sample and have no
+  /// acquisition to lose.
   @override
   Future<void> beginSegment({
     required String sessionId,
@@ -67,7 +80,7 @@ final class PhoneTelemetryCollector implements TelemetryCollector {
     required DateTime capturedAtUtc,
     required int monotonicStartNanos,
   }) async {
-    await _cancelSubscriptions();
+    await _cancelSegmentSubscriptions();
     _locations.clear();
     _motions.clear();
     if (_sessionId != sessionId) {
@@ -83,6 +96,7 @@ final class PhoneTelemetryCollector implements TelemetryCollector {
     _lastFixAt = null;
 
     _startMotion();
+    // Only the first segment of a session opens the stream; the rest inherit a warm one.
     await _startLocation();
   }
 
@@ -112,6 +126,13 @@ final class PhoneTelemetryCollector implements TelemetryCollector {
 
   Future<void> _startLocation() async {
     try {
+      // Already running from an earlier segment: the permission checks below cost a round trip
+      // each and the answer cannot have changed mid-session.
+      if (_locationSubscription != null) {
+        _polling = true;
+        _schedulePoll();
+        return;
+      }
       if (!await Geolocator.isLocationServiceEnabled()) return;
       var permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
@@ -121,11 +142,9 @@ final class PhoneTelemetryCollector implements TelemetryCollector {
           permission == LocationPermission.deniedForever) {
         return;
       }
-      _subscriptions.add(
-        Geolocator.getPositionStream(
-          locationSettings: _streamSettings,
-        ).listen(_recordLocation, onError: (_) {}),
-      );
+      _locationSubscription ??= Geolocator.getPositionStream(
+        locationSettings: _streamSettings,
+      ).listen(_recordLocation, onError: (_) {});
       // The stream is `watchPosition` on the web, and a network-derived provider fires it only
       // when the position CHANGES: a workstation delivered two fixes 19 ms apart and then nothing
       // for the remaining 9.9 s of the segment, so 61% of its frames carried no position at all.
@@ -220,7 +239,9 @@ final class PhoneTelemetryCollector implements TelemetryCollector {
 
   @override
   Future<SegmentTelemetryDocument> finishSegment() async {
-    await _cancelSubscriptions();
+    // The receiver keeps running between segments on purpose: the next one starts with a fix
+    // already in hand instead of waiting for acquisition all over again.
+    await _cancelSegmentSubscriptions();
     return SegmentTelemetryDocument({
       'schemaVersion': 1,
       'sessionId': _sessionId,
@@ -233,7 +254,8 @@ final class PhoneTelemetryCollector implements TelemetryCollector {
     });
   }
 
-  Future<void> _cancelSubscriptions() async {
+  /// Ends a segment. The GNSS subscription deliberately survives this.
+  Future<void> _cancelSegmentSubscriptions() async {
     _polling = false;
     _poller.cancel();
     for (final subscription in _subscriptions) {
@@ -243,5 +265,9 @@ final class PhoneTelemetryCollector implements TelemetryCollector {
   }
 
   @override
-  Future<void> dispose() => _cancelSubscriptions();
+  Future<void> dispose() async {
+    await _cancelSegmentSubscriptions();
+    await _locationSubscription?.cancel();
+    _locationSubscription = null;
+  }
 }
