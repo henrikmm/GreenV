@@ -211,7 +211,7 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                     measurement_level = ?, measurement_cells_measured = ?,
                     measurement_cells_abstained = ?, measurement_coverage = ?,
                     track_center_lat = ?, track_center_lon = ?, track_geojson = ?,
-                    track_location_quality = ?
+                    measurement_track_length_m = ?, track_location_quality = ?
                 WHERE session_id = ? AND segment_index = ?
                 """,
                 objectKey,
@@ -228,6 +228,7 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                 projection.trackCenterLat(),
                 projection.trackCenterLon(),
                 projection.trackGeoJson(),
+                projection.trackLengthM(),
                 projection.trackLocationQuality(),
                 sessionId,
                 segmentIndex);
@@ -732,6 +733,7 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                 result.getObject("track_center_lat", Double.class),
                 result.getObject("track_center_lon", Double.class),
                 result.getString("track_geojson"),
+                result.getObject("measurement_track_length_m", Double.class),
                 result.getString("track_location_quality"));
     }
 

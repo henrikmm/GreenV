@@ -15,6 +15,9 @@ package br.com.greenv.videoapi.domain;
  * @param cellsAbstained cells the cameras saw but could not measure
  * @param coverage measured over observed, never over the verge — nothing knows the verge's area
  * @param trackGeoJson the camera path as a GeoJSON {@code LineString}, or null without fixes
+ * @param trackLengthM how far that path runs on the ground, which is the only length this system
+ *     knows. Null when there are fewer than two distinct fixes, and then no length was measured
+ *     rather than the length being zero
  * @param trackLocationQuality the worst fix quality along the track
  */
 public record MeasurementProjection(
@@ -27,10 +30,11 @@ public record MeasurementProjection(
         Double trackCenterLat,
         Double trackCenterLon,
         String trackGeoJson,
+        Double trackLengthM,
         String trackLocationQuality) {
 
     public static final MeasurementProjection EMPTY =
-            new MeasurementProjection(null, null, null, null, null, null, null, null, null, null);
+            new MeasurementProjection(null, null, null, null, null, null, null, null, null, null, null);
 
     /** Below this a verge reads as mown. */
     public static final double LEVEL_2_FLOOR_M = 0.10;

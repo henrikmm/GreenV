@@ -44,7 +44,14 @@ public class OperationsService implements OperationsUseCase {
     /** The five metres either side of the track that the grid actually measures. */
     private static final double BAND_WIDTH_METRES = 10.0;
 
-    /** What a segment covers along the road when its own length was not recorded. */
+    /**
+     * The fallback when a segment produced no drawable track, and nothing better than a guess.
+     *
+     * <p>It used to be the whole calculation, and it is wrong by more than an order of magnitude
+     * for what has been captured: measured from the tracks on file, a ten-second walking segment
+     * covers 7.7 to 11.7 metres and the one car segment covers 83.2. Every order came out a
+     * multiple of 1500 m² because of it.
+     */
     private static final double ASSUMED_SEGMENT_LENGTH_METRES = 150.0;
 
     private static final DateTimeFormatter REFERENCE_MONTH =
@@ -219,14 +226,25 @@ public class OperationsService implements OperationsUseCase {
     }
 
     /**
-     * The area a crew will cut, from the band the grid measured rather than from a polygon.
+     * The area a crew will cut: the band the grid measured, run along the distance the camera
+     * actually travelled.
      *
-     * <p>This system has no parcel geometry: the only footprint it knows is the five metres either
-     * side of the track. Segment length is not recorded, so this is an estimate and is documented
-     * as one rather than dressed up as a survey.
+     * <p>This system still has no parcel geometry, and this is still an estimate. What changed is
+     * that the length is now measured rather than assumed — the track is the path the phone
+     * recorded, and its length is how far that stretch runs. Each segment is counted on its own,
+     * so a combined order over a walk and a drive no longer pretends the two are the same size.
+     *
+     * <p>A segment with fewer than two distinct fixes has no length, and only those fall back to
+     * the assumption. Mixing the two is honest as long as nothing here claims it is a survey; the
+     * screen calls it an estimate and this returns one number, not a false precision.
      */
     private static Double areaOf(List<CaptureSegmentDocument> segments) {
-        return segments.size() * BAND_WIDTH_METRES * ASSUMED_SEGMENT_LENGTH_METRES;
+        double metres = 0;
+        for (CaptureSegmentDocument segment : segments) {
+            Double length = projection(segment).trackLengthM();
+            metres += length == null || length <= 0 ? ASSUMED_SEGMENT_LENGTH_METRES : length;
+        }
+        return metres * BAND_WIDTH_METRES;
     }
 
     private static Integer worstLevel(List<CaptureSegmentDocument> segments) {

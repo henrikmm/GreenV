@@ -106,6 +106,39 @@ class JacksonMeasurementProjectionAdapterTest {
      * cells. A LineString needs two vertices, so one repeated coordinate is a place and not a
      * path.
      */
+    /**
+     * The length that replaced an assumption.
+     *
+     * <p>The area on a service order was segments times ten metres times a flat hundred and
+     * fifty, so every stretch came out 1500 m². Measured against the tracks on file, a
+     * ten-second walking segment covers between seven and twelve metres.
+     *
+     * <p>The fixture steps one ten-thousandth of a degree in each direction at latitude -23.6,
+     * which is 11.06 metres south and 10.20 east — 15.06 by Pythagoras, and haversine agrees to
+     * the centimetre at this size.
+     */
+    @Test
+    void measuresHowFarTheCameraTravelled() {
+        var projection = adapter.project(bytes(PACKET), bytes(assessment(measured(0.2))));
+
+        assertThat(projection.trackLengthM()).isCloseTo(15.06, org.assertj.core.data.Offset.offset(0.05));
+    }
+
+    /** No path, no length. Zero would read as a stretch that runs nowhere, which is different. */
+    @Test
+    void reportsNoLengthWhenThereIsNoPath() {
+        String stationary =
+                """
+                {"positions":[
+                  {"canonicalFrame":1,"latitude":-23.6,"longitude":-46.6,"locationQuality":"good"},
+                  {"canonicalFrame":2,"latitude":-23.6,"longitude":-46.6,"locationQuality":"good"}],
+                 "measurement":{"quality":{"measuredCells":1,"abstainedCells":0}}}
+                """;
+
+        assertThat(adapter.project(bytes(stationary), bytes(assessment(measured(0.2)))).trackLengthM())
+                .isNull();
+    }
+
     @Test
     void aCameraThatNeverMovedHasAPlaceAndNoPath() {
         String stationary =
