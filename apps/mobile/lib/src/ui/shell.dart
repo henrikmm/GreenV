@@ -286,6 +286,7 @@ final class MetricCard extends StatelessWidget {
     required this.detail,
     this.danger = false,
     this.green = false,
+    this.icon,
     super.key,
   });
 
@@ -294,6 +295,7 @@ final class MetricCard extends StatelessWidget {
   final String detail;
   final bool danger;
   final bool green;
+  final IconData? icon;
 
   @override
   Widget build(BuildContext context) {
@@ -341,7 +343,8 @@ final class MetricCard extends StatelessWidget {
               ),
               const SizedBox(width: 6),
               Icon(
-                danger ? Icons.warning_rounded : Icons.groups_outlined,
+                icon ??
+                    (danger ? Icons.warning_rounded : Icons.groups_outlined),
                 color: foreground,
                 size: 20,
               ),

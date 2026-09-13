@@ -325,6 +325,7 @@ final class HomeScreen extends StatelessWidget {
                     Expanded(
                       child: MetricCard(
                         label: 'ACIMA DE 30 CM',
+                        icon: Icons.warning_rounded,
                         value:
                             '${overview.summary.count(VegetationLevel.high)}',
                         detail: 'trechos críticos',
@@ -336,6 +337,7 @@ final class HomeScreen extends StatelessWidget {
                     Expanded(
                       child: MetricCard(
                         label: 'MEDIDOS',
+                        icon: Icons.straighten_rounded,
                         value: '${overview.summary.total}',
                         detail: 'trechos com leitura',
                         green: true,
@@ -349,6 +351,7 @@ final class HomeScreen extends StatelessWidget {
                     Expanded(
                       child: MetricCard(
                         label: 'MAIOR ALTURA',
+                        icon: Icons.height_rounded,
                         value: centimetres(overview.summary.tallestM),
                         detail: 'percentil 95',
                       ),
@@ -357,6 +360,7 @@ final class HomeScreen extends StatelessWidget {
                     Expanded(
                       child: MetricCard(
                         label: 'SESSÕES',
+                        icon: Icons.videocam_rounded,
                         value: '${overview.sessions.total}',
                         detail: 'capturas enviadas',
                       ),
