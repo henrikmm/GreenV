@@ -118,7 +118,36 @@ have been graded against a tape.** The packets say so themselves — `operationa
 This is not a documentation gap; the documentation is honest about it. It is on this list because
 it is the gap that decides whether the product works, and no amount of plumbing closes it.
 
-### 5. The default stretch is now shorter than the graded band
+### 5. A driven segment measures its first 30 m, and the first driven day measured almost nothing
+
+The extractor's `distance-groups` sampling spends its 112-frame budget on the first groups of
+consecutive frames — 102 frames at 59 fps is 1.7 s of video. At the 63–90 km/h the seven sessions
+of 13 September 2026 were driven, a ten-second segment covers 170–250 m and its measurement
+covers the first 30–40 m. **Roughly four fifths of the road is never seen by the depth model.**
+The extractor says so in every manifest (`groups[].published`); nothing downstream reported it.
+Closing it is a decision, not a parameter: shorter segments in the app, more than one depth run
+per segment at proportional GPU cost, or sparser sampling with a baseline DA3 has not been graded
+at. Nothing has been chosen.
+
+What the 41 measured segments of that day did contain was wrong for three separate reasons, all
+found on a local bench that re-measures from the `scene.glb` and `result.npz` the RunPod handler
+keeps beside the frames, with no GPU (`docs/AUTOMATIC-HEIGHT.md`, "Driving, not walking", and
+`measurement/docs/evidence/2026-09-13-car-mount.md`):
+
+- the band lay on the road side of the camera track in every usable segment, so twelve of them
+  measured no cell at all although every frame carried a vegetation mask;
+- DA3's per-clip scale ran from 0.78× to 1.86× against the GPS path length of the very frames it
+  reconstructed, which the manifest already records per frame;
+- four segments whose camera track collapsed to under 2 m — a phone still being mounted, a
+  stopped car — were reported as 1.1 to 3.9 m of vegetation.
+
+The pipeline and the worker now place the band from the masks, anchor the scale to the manifest's
+path length, and refuse a collapsed track, all recorded in the packet; the worker can re-measure
+a segment from the kept reconstruction (`reuseDepth`). Those 41 packets in the bucket and the
+rows projected from them are the old ones until the new worker image is deployed and the
+segments re-measured.
+
+### 6. The default stretch is now shorter than the graded band
 
 As of 10 September 2026, `GroupPlanner.DEFAULT_GROUP_METERS` is **10.0 m**, lowered from 20 m so
 that a person walking can exercise the pipeline without a car. Verge Studio's graded evidence
@@ -128,7 +157,7 @@ speed**. The code says this and the envelope flag reports it, and
 default and what it costs. The four segments measured that day confirm it: every packet reports
 `operationalStatus: "not-ready"` with the graded-envelope blocker among its seven.
 
-### 6. Five cloud vendors, one MVP, and no record of which combination is real
+### 7. Five cloud vendors, one MVP, and no record of which combination is real
 
 The API and worker 1 between them ship three object-storage adapters (`local`, `s3`, `azure-blob`)
 and four queue adapters (`rabbitmq`, `sqs`, `azure-queue`, `azure-service-bus`). Add Neon for
@@ -147,13 +176,13 @@ What remains is that the other adapters — `azure-blob`, `sqs`, `azure-service-
 the repository there is still no way to tell a path someone operates from a path someone wrote,
 except by that one document.
 
-### 7. The API does not authenticate a capture device
+### 8. The API does not authenticate a capture device
 
 `infrastructure/README.md` states it and it belongs on this list: Terraform provisions TLS and
 cloud identity between services, not application authentication. No external pilot user should be
 invited until the API authorizes each device and each capture session.
 
-### 8. The depth model's licence has no answer
+### 9. The depth model's licence has no answer
 
 Personal and research use only. Fine for a pilot, not fine for a concessionaire, and it needs an
 answer before this chain carries operational traffic. Unchanged, and unresolved, since it was first

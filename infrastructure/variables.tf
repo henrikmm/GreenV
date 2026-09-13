@@ -325,6 +325,72 @@ variable "measurement_classes" {
   }
 }
 
+variable "measurement_offset_side" {
+  description = <<-EOT
+    Which side of the camera track the measured band goes to. `auto` reads it off the vegetation
+    masks of each run; `given` keeps the sign of the worker's fixed offset, which is Verge Studio's
+    own behaviour. Every driven segment of 2026-09-13 had the verge on the side `given` never
+    reached, and twelve of them measured nothing (measurement/scripts/grass-anchor.mjs).
+  EOT
+  type        = string
+  default     = "auto"
+
+  validation {
+    condition     = contains(["given", "auto"], var.measurement_offset_side)
+    error_message = "measurement_offset_side must be \"given\" or \"auto\"."
+  }
+}
+
+variable "measurement_min_track_m" {
+  description = <<-EOT
+    A run whose camera track on the road plane is shorter than this, in metres, is not measured:
+    the reconstruction did not see the vehicle move, and whatever lies in the band is a door
+    handle or a tree rather than a verge. Four such segments on 2026-09-13 were reported as 1.1
+    to 3.9 m of vegetation. 0 disables the gate.
+  EOT
+  type        = number
+  default     = 3
+
+  validation {
+    condition     = var.measurement_min_track_m >= 0
+    error_message = "measurement_min_track_m must be zero or a positive number of metres."
+  }
+}
+
+variable "measurement_scale_anchor" {
+  description = <<-EOT
+    Where the worker takes the reconstruction's metric scale from. `telemetry` hands Verge Studio
+    the GPS path length of the sampled frames, which the frame extractor writes into every
+    manifest, and each run is stretched or shrunk until its camera track is that long. DA3 fixes
+    its scale once per clip and it ran from 0.78x to 1.86x against that length on neighbouring
+    segments of one drive (2026-09-13). `none` leaves the model's scale alone. A configured
+    camera height wins over either.
+  EOT
+  type        = string
+  default     = "telemetry"
+
+  validation {
+    condition     = contains(["telemetry", "none"], var.measurement_scale_anchor)
+    error_message = "measurement_scale_anchor must be \"telemetry\" or \"none\"."
+  }
+}
+
+variable "measurement_camera_height_m" {
+  description = <<-EOT
+    The lens's height above the road for the mount in use, in metres, measured with a tape. DA3
+    fixes its metric scale once per clip and it varied more than two to one between neighbouring
+    segments of one drive; with this set, each run is rescaled so the camera sits where it
+    physically was, and the packet records the factor. Null leaves the model's own scale alone.
+  EOT
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.measurement_camera_height_m == null || (var.measurement_camera_height_m > 0 && var.measurement_camera_height_m < 10)
+    error_message = "measurement_camera_height_m must be a height in metres, or null."
+  }
+}
+
 variable "depth_max_frames" {
   description = <<-EOT
     Frames sent to the depth service in one run. 112 is Verge Studio's best graded setting and the

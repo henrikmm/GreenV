@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildFrameContext, canonicalFrameNumber, segmentContext } from "../src/frame-context.mjs";
+import { buildFrameContext, canonicalFrameNumber, segmentContext, sampledTrackLength } from "../src/frame-context.mjs";
 
 // The extractor writes frame-%04d.jpg starting at 1, and Verge Studio parses the first integer
 // out of that name. Off by one here misattributes every position in the packet.
@@ -88,4 +88,14 @@ test("the segment timestamp is the first frame that actually carries one", () =>
   const positions = [{ capturedAtUtc: null }, { capturedAtUtc: "2026-09-08T10:00:00.500Z" }];
   assert.equal(segmentContext(positions).capturado_em, "2026-09-08T10:00:00.500Z");
   assert.equal(segmentContext([]).capturado_em, null);
+});
+
+test("the sampled track length is the odometer span, and null when the manifest cannot say", () => {
+  const frames = (distances) => distances.map((distanceMeters, index) => ({ index, fileName: `frame-${index + 1}.jpg`, distanceMeters }));
+  assert.equal(sampledTrackLength({ samplingStrategy: "distance-groups", sampledFrames: frames([0, 9.9, 19.8, 29.76]) }), 29.76);
+  assert.equal(sampledTrackLength({ samplingStrategy: "distance-groups", sampledFrames: frames([12, 22.5]) }), 10.5);
+  assert.equal(sampledTrackLength({ samplingStrategy: "uniform-fps", sampledFrames: frames([0, 10]) }), null, "a uniform sample carries no odometer");
+  assert.equal(sampledTrackLength({ samplingStrategy: "distance-groups", sampledFrames: [{ index: 0 }, { index: 1 }] }), null);
+  assert.equal(sampledTrackLength({ samplingStrategy: "distance-groups", sampledFrames: frames([30, 20]) }), null, "an odometer that runs backwards is not a length");
+  assert.equal(sampledTrackLength(null), null);
 });

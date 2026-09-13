@@ -221,6 +221,33 @@ read as `fence` against a pale wall, which is exactly what pulls a P95 down.
 Evidence: [`2026-09-05-class-fit.md`](../measurement/docs/evidence/2026-09-05-class-fit.md) and
 [`2026-09-05-extent-vs-percentile.md`](../measurement/docs/evidence/2026-09-05-extent-vs-percentile.md).
 
+## Driving, not walking
+
+Everything Verge Studio graded was walked: a person beside a garden bed, the camera a metre or
+two from the plant. The first day of driving (13 September 2026, seven sessions at 63–90 km/h)
+measured 41 segments and got twelve with no cell at all and readings of 2–15 cm on verges that
+were not that short. Re-measured on a local bench from the reconstructions the RunPod handler
+keeps beside the frames — no GPU — the causes were three, and none of them was the mask
+(`measurement/docs/evidence/2026-09-13-car-mount.md`):
+
+| What a walk assumes | What a car does | What the worker asks for now |
+|---|---|---|
+| The verge is 2 m to one fixed side of the camera track (`GREENV_MEASUREMENT_OFFSET_M`) | It is 5–9 m out, behind a shoulder and a guardrail, on the *other* side in 37 of 37 usable segments | `GREENV_MEASUREMENT_OFFSET_SIDE=auto`: the band's side, distance and width come from the run's own masks, and the packet records them under `corridor.band` |
+| DA3's metric scale is right, as it was on the graded walk | It ran from 0.78× to 1.86× against the GPS path of the very frames it reconstructed | `GREENV_MEASUREMENT_SCALE_ANCHOR=telemetry`: the manifest's `distanceMeters` span becomes the track's expected length; one factor per run, recorded under `scale`, refused outside 0.5–2× |
+| The camera moved | Four segments had a camera track under 2 m — a phone still being mounted, a stopped car — and reported a door handle and a tree as 1.1–3.9 m of vegetation | `GREENV_MEASUREMENT_MIN_TRACK_M=3`: a shorter track is refused with the blocker `camera-track-too-short` |
+
+All three are off in Verge Studio's own defaults and on in the deployment's Terraform. A packet
+built without them from a driven capture is unreliable, and the worker can rebuild it from the
+kept reconstruction rather than paying for depth again: a queue message or `POST /measurements`
+body carrying `force: true, reuseDepth: true` skips the GPU when `depth/<runId>/scene.glb` and
+`result.npz` are still beside the frames.
+
+**What driving has not fixed.** The extractor's `distance-groups` sampling spends its 112-frame
+budget on the first groups of consecutive frames, and at highway speed that is 30–40 m of a
+170–250 m segment. The rest of the road is never seen by the depth model. That is a decision
+about segments, frames and GPU runs, recorded as a gap in `STATE-OF-THE-SYSTEM.md`, not a setting
+here.
+
 ## Limitations
 
 Ordered by how likely each is to mislead someone reading a dashboard.
@@ -281,6 +308,11 @@ chain carries operational traffic.
 | Accept mock packets | `GREENV_MEASUREMENT_ALLOW_MOCK` | `false` |
 | Cityscapes classes | `GREENV_MEASUREMENT_CLASSES` | `terrain,vegetation` |
 | Corridor offset, metres | `GREENV_MEASUREMENT_OFFSET_M` | `2` |
+| Which side of the camera track the band goes to | `GREENV_MEASUREMENT_OFFSET_SIDE` | `given` (or `auto`, which reads it off the masks — see [Driving, not walking](#driving-not-walking)) |
+| Shortest camera track worth measuring, metres | `GREENV_MEASUREMENT_MIN_TRACK_M` | `0`, off. The deployment sets 3 |
+| Where the metric scale comes from | `GREENV_MEASUREMENT_SCALE_ANCHOR` | `none`. The deployment sets `telemetry`: the GPS path length of the sampled frames, from the manifest |
+| The lens's height above the road, metres | `GREENV_MEASUREMENT_CAMERA_HEIGHT_M` | unset. A taped height wins over the telemetry anchor when given |
+| Re-measure from the reconstruction already in the bucket | `GREENV_MEASUREMENT_REUSE_DEPTH` | `false`; a request can also ask per segment with `reuseDepth: true` |
 | Object storage | `GREENV_OBJECT_STORAGE_ADAPTER` | `local` (or `s3`) |
 | Trigger queue | `GREENV_MEASUREMENT_QUEUE` | `greenv.segment.measure.v1` |
 | Announce from the extractor | `GREENV_MEASUREMENT_ENABLED` | `false` |

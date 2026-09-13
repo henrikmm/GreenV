@@ -178,6 +178,32 @@ function build() {
       // here is validated; this one is the one whose failure mode is visible rather than silent.
       classes: text("GREENV_MEASUREMENT_CLASSES", "terrain,vegetation"),
       offsetM: number("GREENV_MEASUREMENT_OFFSET_M", 2),
+      // The three settings a vehicle-mounted capture needs and a walked one does not, all
+      // defaulting to Verge Studio's own behaviour (measurement/scripts/grass-anchor.mjs):
+      //
+      //   - `auto` lets the assessment choose the SIGN of offsetM from where the vegetation mask
+      //     lies relative to the camera track. On 2026-09-13 every one of 37 usable segments had
+      //     the verge on the side the fixed +2 m never reached, and 12 of them measured nothing.
+      //   - a camera track shorter than minTrackM on the road plane means the reconstruction did
+      //     not see the car move — a phone still being mounted, a stopped car — and four such
+      //     segments were reported that day as 1.1 to 3.9 m of vegetation. 0 disables the gate.
+      //   - cameraHeightM is the lens's height above the road for this mount, the one length a
+      //     car keeps constant all day. DA3 fixes its scale once per clip and it varied more than
+      //     two to one between neighbouring segments; the anchor rescales each run to put the
+      //     camera where it physically was. Null leaves the model's scale alone.
+      offsetSide: text("GREENV_MEASUREMENT_OFFSET_SIDE", "given"),
+      minTrackM: number("GREENV_MEASUREMENT_MIN_TRACK_M", 0),
+      cameraHeightM: number("GREENV_MEASUREMENT_CAMERA_HEIGHT_M", null),
+      // Where the scale anchor comes from. `telemetry` hands Verge Studio the GPS path length of
+      // the sampled frames, which the frame extractor writes into the manifest as each frame's
+      // `distanceMeters`; the reconstruction is then stretched or shrunk until its camera track
+      // is that long. `none` leaves DA3's per-clip scale alone. A configured camera height wins
+      // over either, because a taped length beats an inferred one.
+      scaleAnchor: text("GREENV_MEASUREMENT_SCALE_ANCHOR", "none"),
+      // Start a re-measure from the reconstruction the depth handler left beside the frames when
+      // it is there, instead of waking a GPU for geometry that has not changed. A request can
+      // also ask for it per segment (`reuseDepth: true`), which is what a backfill does.
+      reuseDepth: flag("GREENV_MEASUREMENT_REUSE_DEPTH", false),
       timeoutMs: number("GREENV_MEASUREMENT_TIMEOUT_MS", 30 * 60 * 1000),
       // A packet built on the fixture-backed mock describes the fixture's scene, not the
       // uploaded video. It is worth producing — it exercises every seam — and it must never be
@@ -224,6 +250,18 @@ function build() {
       "GREENV_AWS_ACCESS_KEY and GREENV_AWS_SECRET_KEY must be set together, or both left unset " +
         "to use the AWS default credential chain",
     );
+  }
+  if (!["given", "auto"].includes(config.measurement.offsetSide)) {
+    throw new Error(`GREENV_MEASUREMENT_OFFSET_SIDE must be "given" or "auto", got "${config.measurement.offsetSide}"`);
+  }
+  if (!["telemetry", "none"].includes(config.measurement.scaleAnchor)) {
+    throw new Error(`GREENV_MEASUREMENT_SCALE_ANCHOR must be "telemetry" or "none", got "${config.measurement.scaleAnchor}"`);
+  }
+  if (!(config.measurement.minTrackM >= 0)) {
+    throw new Error(`GREENV_MEASUREMENT_MIN_TRACK_M must be zero or a positive number of metres, got ${config.measurement.minTrackM}`);
+  }
+  if (config.measurement.cameraHeightM !== null && !(config.measurement.cameraHeightM > 0)) {
+    throw new Error(`GREENV_MEASUREMENT_CAMERA_HEIGHT_M must be a positive number of metres, got ${config.measurement.cameraHeightM}`);
   }
   if (!["http", "runpod"].includes(config.infer.adapter)) {
     throw new Error(`GREENV_INFER_ADAPTER must be "http" or "runpod", got "${config.infer.adapter}"`);

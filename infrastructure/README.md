@@ -284,6 +284,10 @@ absence. A deployment must never fall back to a signing key that dies with the p
 | `GREENV_MEASUREMENT_RESULT_ROUTING_KEY` | `greenv-segment-measured-v1` | Azure Queue has no exchange, so the routing key is the queue name |
 | `GREENV_MEASUREMENT_ALLOW_MOCK` | `false`, and **not a variable** | without a reachable depth service the worker falls back to Verge Studio's fixture mock, which answers every request with the same reconstruction of an unrelated scene. A packet built that way pairs this road's frames with someone else's geometry. A mock run was mistaken for a real one on 2026-08-05 |
 | `GREENV_MEASUREMENT_CLASSES` | `terrain,vegetation` | which Cityscapes labels count. `terrain` alone reads 0.000 m on a plant taped at 0.980 m |
+| `GREENV_MEASUREMENT_OFFSET_SIDE` | `measurement_offset_side`, default `auto` | which side of the camera track the band goes to. Verge Studio's fixed side was the road's on every driven segment of 2026-09-13, and twelve of them measured nothing |
+| `GREENV_MEASUREMENT_MIN_TRACK_M` | `measurement_min_track_m`, default 3 | a run whose camera moved less than this on the road plane is not measured: a phone still being mounted, a stopped car |
+| `GREENV_MEASUREMENT_SCALE_ANCHOR` | `measurement_scale_anchor`, default `telemetry` | where the metric scale comes from: the GPS path length of the sampled frames, which the extractor writes into every manifest. DA3's per-clip scale ran from 0.78x to 1.86x against it on neighbouring segments of one drive |
+| `GREENV_MEASUREMENT_CAMERA_HEIGHT_M` | `measurement_camera_height_m`, default unset | the lens's height above the road for the mount in use, when someone has taped it. Wins over the telemetry anchor |
 | `GREENV_INFER_ADAPTER` | `http` or `runpod` | which depth dialect |
 | `GREENV_INFER_BASE_URL` | set only for `http` | the FastAPI service |
 | `GREENV_INFER_RUNPOD_ENDPOINT_ID` | set only for `runpod` | the endpoint id, not a URL |

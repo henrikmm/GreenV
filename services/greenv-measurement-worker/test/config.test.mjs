@@ -108,3 +108,23 @@ test("the runpod adapter reads the names the deployment actually sets", () => {
     /needs GREENV_OBJECT_STORAGE_ADAPTER=s3/,
   );
 });
+
+// Three settings a car needs and a walk does not. Each defaults to Verge Studio's own behaviour,
+// and a misspelt value is refused at startup rather than measured with.
+test("the vehicle-mount settings default to off and refuse nonsense", () => {
+  const off = loadConfig({}).measurement;
+  assert.deepEqual([off.offsetSide, off.minTrackM, off.cameraHeightM, off.scaleAnchor, off.reuseDepth], ["given", 0, null, "none", false]);
+
+  const car = loadConfig({
+    GREENV_MEASUREMENT_OFFSET_SIDE: "auto",
+    GREENV_MEASUREMENT_MIN_TRACK_M: "3",
+    GREENV_MEASUREMENT_CAMERA_HEIGHT_M: "1.25",
+    GREENV_MEASUREMENT_REUSE_DEPTH: "true",
+  }).measurement;
+  assert.deepEqual([car.offsetSide, car.minTrackM, car.cameraHeightM, car.reuseDepth], ["auto", 3, 1.25, true]);
+
+  assert.throws(() => loadConfig({ GREENV_MEASUREMENT_OFFSET_SIDE: "left" }), /given.*auto/);
+  assert.throws(() => loadConfig({ GREENV_MEASUREMENT_SCALE_ANCHOR: "gps" }), /telemetry.*none/);
+  assert.throws(() => loadConfig({ GREENV_MEASUREMENT_MIN_TRACK_M: "-1" }), /MIN_TRACK_M/);
+  assert.throws(() => loadConfig({ GREENV_MEASUREMENT_CAMERA_HEIGHT_M: "0" }), /CAMERA_HEIGHT_M/);
+});

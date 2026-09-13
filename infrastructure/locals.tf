@@ -303,6 +303,16 @@ locals {
     GREENV_INFER_ADAPTER       = var.depth_service_adapter
     GREENV_INFER_MAX_FRAMES    = tostring(var.depth_max_frames)
 
+    # The capture is a phone mounted in a car, and Verge Studio's defaults were tuned on a walk:
+    # the band went to a fixed side of the camera track (the road's, on every driven segment of
+    # 2026-09-13), a camera that never moved still produced cells, and DA3's per-clip scale went
+    # unchecked. Each of these is a worker setting so the deployment says what it measures with.
+    # An empty camera height is "unset" to the worker, which then keeps the model's own scale.
+    GREENV_MEASUREMENT_OFFSET_SIDE     = var.measurement_offset_side
+    GREENV_MEASUREMENT_MIN_TRACK_M     = tostring(var.measurement_min_track_m)
+    GREENV_MEASUREMENT_SCALE_ANCHOR    = var.measurement_scale_anchor
+    GREENV_MEASUREMENT_CAMERA_HEIGHT_M = var.measurement_camera_height_m == null ? "" : tostring(var.measurement_camera_height_m)
+
     PORT = "8090"
   })
 
