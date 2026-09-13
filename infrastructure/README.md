@@ -288,6 +288,8 @@ absence. A deployment must never fall back to a signing key that dies with the p
 | `GREENV_MEASUREMENT_MIN_TRACK_M` | `measurement_min_track_m`, default 3 | a run whose camera moved less than this on the road plane is not measured: a phone still being mounted, a stopped car |
 | `GREENV_MEASUREMENT_SCALE_ANCHOR` | `measurement_scale_anchor`, default `telemetry` | where the metric scale comes from: the GPS path length of the sampled frames, which the extractor writes into every manifest. DA3's per-clip scale ran from 0.78x to 1.86x against it on neighbouring segments of one drive |
 | `GREENV_MEASUREMENT_CAMERA_HEIGHT_M` | `measurement_camera_height_m`, default unset | the lens's height above the road for the mount in use, when someone has taped it. Wins over the telemetry anchor |
+| `GREENV_MEASUREMENT_MAX_HEIGHT_M` | `measurement_max_height_m`, default 3 | a point higher than this above the road is a crown, a wall top or a cut face and never enters a cell. `vegetation` captures trees with the tall grass; their height is what tells them apart |
+| `GREENV_MEASUREMENT_CANOPY_EXTENT_M` | `measurement_canopy_extent_m`, default 2 | a cell whose extent above its own ground still exceeds this is reported as `canopy` with its numbers and counted in no aggregate |
 | `GREENV_INFER_ADAPTER` | `http` or `runpod` | which depth dialect |
 | `GREENV_INFER_BASE_URL` | set only for `http` | the FastAPI service |
 | `GREENV_INFER_RUNPOD_ENDPOINT_ID` | set only for `runpod` | the endpoint id, not a URL |

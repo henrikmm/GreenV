@@ -155,6 +155,11 @@ export function measurementPipeline({ config, storage, infer, runner, log = () =
     const { frameContext, positions } = buildFrameContext(sampledFrames, telemetry, request);
     const context = segmentContext(positions, request);
     const trackLengthM = config.measurement.scaleAnchor === "telemetry" ? sampledTrackLength(manifest) : null;
+    // Only the ceilings the deployment named; an absent one leaves Verge Studio's own default.
+    const gridOptions = {
+      ...(config.measurement.maxHeightM === null ? {} : { maxHeightM: config.measurement.maxHeightM }),
+      ...(config.measurement.canopyExtentM === null ? {} : { canopyExtentM: config.measurement.canopyExtentM }),
+    };
 
     const output = await mkdtemp(join(tmpdir(), "greenv-measurement-"));
     try {
@@ -166,6 +171,7 @@ export function measurementPipeline({ config, storage, infer, runner, log = () =
         minTrackM: config.measurement.minTrackM,
         cameraHeightM: config.measurement.cameraHeightM,
         trackLengthM,
+        ...(Object.keys(gridOptions).length ? { gridOptions } : {}),
         classes: config.measurement.classes,
         context,
         frameContext,
@@ -201,6 +207,8 @@ export function measurementPipeline({ config, storage, infer, runner, log = () =
           cameraHeightM: config.measurement.cameraHeightM,
           scaleAnchor: config.measurement.scaleAnchor,
           trackLengthM,
+          maxHeightM: config.measurement.maxHeightM,
+          canopyExtentM: config.measurement.canopyExtentM,
           contentSha256: summary.contentSha256,
           quality: summary.quality,
           timing: summary.timing,

@@ -200,6 +200,15 @@ function build() {
       // is that long. `none` leaves DA3's per-clip scale alone. A configured camera height wins
       // over either, because a taped length beats an inferred one.
       scaleAnchor: text("GREENV_MEASUREMENT_SCALE_ANCHOR", "none"),
+      // Trees. The `vegetation` class is the only one that captures the tall grass and brush a
+      // mowing decision is about, and it captures crowns with them; nothing in a mask tells a
+      // clump at 1 m from a crown at 6 m, their height does. A back-projected point higher than
+      // maxHeightM above the road plane is canopy and never enters a cell; a cell whose extent
+      // still exceeds canopyExtentM — a trunk with low branches, a cut face — is reported as
+      // `canopy` with its numbers and counted in no aggregate. Unset leaves every height in,
+      // which is how every graded fixture was measured. The deployment sets 3 and 2.
+      maxHeightM: number("GREENV_MEASUREMENT_MAX_HEIGHT_M", null),
+      canopyExtentM: number("GREENV_MEASUREMENT_CANOPY_EXTENT_M", null),
       // Start a re-measure from the reconstruction the depth handler left beside the frames when
       // it is there, instead of waking a GPU for geometry that has not changed. A request can
       // also ask for it per segment (`reuseDepth: true`), which is what a backfill does.
@@ -256,6 +265,11 @@ function build() {
   }
   if (!["telemetry", "none"].includes(config.measurement.scaleAnchor)) {
     throw new Error(`GREENV_MEASUREMENT_SCALE_ANCHOR must be "telemetry" or "none", got "${config.measurement.scaleAnchor}"`);
+  }
+  for (const [name, value] of [["GREENV_MEASUREMENT_MAX_HEIGHT_M", config.measurement.maxHeightM], ["GREENV_MEASUREMENT_CANOPY_EXTENT_M", config.measurement.canopyExtentM]]) {
+    if (value !== null && !(value > 0)) {
+      throw new Error(`${name} must be a positive number of metres, got ${value}`);
+    }
   }
   if (!(config.measurement.minTrackM >= 0)) {
     throw new Error(`GREENV_MEASUREMENT_MIN_TRACK_M must be zero or a positive number of metres, got ${config.measurement.minTrackM}`);

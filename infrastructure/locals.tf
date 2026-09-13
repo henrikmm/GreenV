@@ -312,6 +312,11 @@ locals {
     GREENV_MEASUREMENT_MIN_TRACK_M     = tostring(var.measurement_min_track_m)
     GREENV_MEASUREMENT_SCALE_ANCHOR    = var.measurement_scale_anchor
     GREENV_MEASUREMENT_CAMERA_HEIGHT_M = var.measurement_camera_height_m == null ? "" : tostring(var.measurement_camera_height_m)
+    # Trees: a point higher than this above the road is a crown and never enters a cell; a cell
+    # whose extent still exceeds the second value is reported as canopy and counted in no
+    # aggregate. Empty leaves every height in, which is how every graded fixture was measured.
+    GREENV_MEASUREMENT_MAX_HEIGHT_M    = var.measurement_max_height_m == null ? "" : tostring(var.measurement_max_height_m)
+    GREENV_MEASUREMENT_CANOPY_EXTENT_M = var.measurement_canopy_extent_m == null ? "" : tostring(var.measurement_canopy_extent_m)
 
     PORT = "8090"
   })

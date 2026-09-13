@@ -375,6 +375,37 @@ variable "measurement_scale_anchor" {
   }
 }
 
+variable "measurement_max_height_m" {
+  description = <<-EOT
+    A back-projected point higher than this above the road plane, in metres, is a tree crown, a
+    wall top or a cut face and never enters a measurement cell. The `vegetation` class is the
+    only one that captures the tall grass and brush a mowing decision is about, and it captures
+    trees with them; their height is what tells them apart. Null keeps every point.
+  EOT
+  type        = number
+  default     = 3
+
+  validation {
+    condition     = var.measurement_max_height_m == null || var.measurement_max_height_m > 0
+    error_message = "measurement_max_height_m must be a positive number of metres, or null."
+  }
+}
+
+variable "measurement_canopy_extent_m" {
+  description = <<-EOT
+    A cell whose vegetation extent above its own ground exceeds this, in metres, is reported as
+    `canopy` — a trunk with low branches, a hedge line — with every number it computed, and is
+    counted in no aggregate. Null reports every measured cell as measured.
+  EOT
+  type        = number
+  default     = 2
+
+  validation {
+    condition     = var.measurement_canopy_extent_m == null || var.measurement_canopy_extent_m > 0
+    error_message = "measurement_canopy_extent_m must be a positive number of metres, or null."
+  }
+}
+
 variable "measurement_camera_height_m" {
   description = <<-EOT
     The lens's height above the road for the mount in use, in metres, measured with a tape. DA3

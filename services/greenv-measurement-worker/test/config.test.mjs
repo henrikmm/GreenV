@@ -125,6 +125,11 @@ test("the vehicle-mount settings default to off and refuse nonsense", () => {
 
   assert.throws(() => loadConfig({ GREENV_MEASUREMENT_OFFSET_SIDE: "left" }), /given.*auto/);
   assert.throws(() => loadConfig({ GREENV_MEASUREMENT_SCALE_ANCHOR: "gps" }), /telemetry.*none/);
+  assert.throws(() => loadConfig({ GREENV_MEASUREMENT_MAX_HEIGHT_M: "0" }), /MAX_HEIGHT_M/);
+  assert.deepEqual(
+    [loadConfig({}).measurement.maxHeightM, loadConfig({ GREENV_MEASUREMENT_CANOPY_EXTENT_M: "2" }).measurement.canopyExtentM],
+    [null, 2],
+  );
   assert.throws(() => loadConfig({ GREENV_MEASUREMENT_MIN_TRACK_M: "-1" }), /MIN_TRACK_M/);
   assert.throws(() => loadConfig({ GREENV_MEASUREMENT_CAMERA_HEIGHT_M: "0" }), /CAMERA_HEIGHT_M/);
 });
