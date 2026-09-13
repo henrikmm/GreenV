@@ -28,6 +28,18 @@ const s = {
   subtitle: { fontSize: 13, color: 'var(--text-secondary)', marginTop: 3 },
   list: { marginTop: 12 },
   chipsRow: { display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' },
+  focusBar: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+    padding: '8px 12px', marginBottom: 10, borderRadius: 'var(--radius-sm)',
+    background: 'var(--motiva-subtle)', fontSize: 11.5, color: 'var(--text-secondary)',
+    flexWrap: 'wrap',
+  },
+  focusIndex: { fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' },
+  focusBack: {
+    padding: '5px 11px', fontSize: 11.5, fontWeight: 600, fontFamily: 'inherit',
+    cursor: 'pointer', borderRadius: 'var(--radius-sm)', background: 'white',
+    border: '1px solid var(--border)', color: 'var(--motiva)',
+  },
   chip: (active, colour) => ({
     display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 11px', borderRadius: 20,
     fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
@@ -73,6 +85,10 @@ export default function SessionDetailPage() {
   // Um trecho aberto por vez, como na lista de trechos, e o quadro que o abriu.
   const [openIndex, setOpenIndex] = useState(null)
   const [focusFrame, setFocusFrame] = useState(null)
+  // Clicar num ponto é uma pergunta sobre um trecho. Deixar os outros oito na tela obriga a
+  // procurar de novo, no meio deles, aquele que acabou de ser apontado. O mapa de cima continua
+  // inteiro, porque é por ele que se troca de trecho.
+  const [focusIndex, setFocusIndex] = useState(null)
   // A sessão é finita e já veio inteira, então o filtro é local. Na lista de trechos ele teve
   // de ir para o servidor porque lá a lista é paginada e o navegador só tem uma página.
   const [filterLevel, setFilterLevel] = useState(null)
@@ -84,6 +100,7 @@ export default function SessionDetailPage() {
     setState({ loading: true })
     setOpenIndex(null)
     setFocusFrame(null)
+    setFocusIndex(null)
     setChosen([])
     Promise.all([
       sessions.get(sessionId), sessions.segments(sessionId), sessions.track(sessionId),
@@ -132,9 +149,11 @@ export default function SessionDetailPage() {
     countsByLevel[level] = (countsByLevel[level] ?? 0) + 1
   }
 
-  const visibleSegments = filterLevel === null
-    ? segments
-    : segments.filter(segment => vegetationLevel(segment.measurementLevel) === filterLevel)
+  const visibleSegments = focusIndex !== null
+    ? segments.filter(segment => segment.segmentIndex === focusIndex)
+    : filterLevel === null
+      ? segments
+      : segments.filter(segment => vegetationLevel(segment.measurementLevel) === filterLevel)
 
   const chosenSegments = measured.filter(segment => chosen.includes(segment.segmentIndex))
   const road = place ? place.label.toUpperCase() : 'SEM POSIÇÃO REGISTRADA'
@@ -161,6 +180,7 @@ export default function SessionDetailPage() {
           onFrameClick={(frame) => {
             setOpenIndex(frame.segmentIndex)
             setFocusFrame(frame.fileName)
+            setFocusIndex(frame.segmentIndex)
           }} />
       </Card>
 
@@ -186,19 +206,35 @@ export default function SessionDetailPage() {
               iguais os chips seriam quatro botões que não mudam nada. */}
           {Object.keys(countsByLevel).length > 1 && (
             <div style={s.chipsRow}>
-              <button style={s.chip(filterLevel === null, 'var(--motiva)')}
-                onClick={() => setFilterLevel(null)}>
+              <button style={s.chip(filterLevel === null && focusIndex === null, 'var(--motiva)')}
+                onClick={() => { setFilterLevel(null); setFocusIndex(null) }}>
                 Todos <span style={s.chipCount}>{segments.length}</span>
               </button>
               {[3, 2, 1, 0].filter(level => countsByLevel[level]).map(level => (
-                <button key={level} style={s.chip(filterLevel === level, LEVELS[level].color)}
-                  onClick={() => setFilterLevel(filterLevel === level ? null : level)}>
+                <button key={level} style={s.chip(filterLevel === level && focusIndex === null, LEVELS[level].color)}
+                  onClick={() => {
+                    setFocusIndex(null)
+                    setFilterLevel(filterLevel === level ? null : level)
+                  }}>
                   <span style={s.dot(LEVELS[level].color)} />{LEVELS[level].desc}
                   <span style={s.chipCount}>{countsByLevel[level]}</span>
                 </button>
               ))}
             </div>
           )}
+          {focusIndex !== null && (
+            <div style={s.focusBar}>
+              <span>
+                Mostrando só o trecho <strong style={s.focusIndex}>{focusIndex}</strong>, o do
+                ponto que você clicou no mapa.
+              </span>
+              <button style={s.focusBack}
+                onClick={() => { setFocusIndex(null); setOpenIndex(null); setFocusFrame(null) }}>
+                ver todos os trechos
+              </button>
+            </div>
+          )}
+
           <table style={s.table}>
             <thead>
               <tr>
@@ -214,7 +250,11 @@ export default function SessionDetailPage() {
                 return (
                   <Fragment key={segment.segmentIndex}>
                   <tr style={s.clickable(open)}
-                    onClick={() => setOpenIndex(open ? null : segment.segmentIndex)}>
+                    onClick={() => {
+                      setOpenIndex(open ? null : segment.segmentIndex)
+                      if (open) setFocusIndex(null)
+                      setFocusFrame(null)
+                    }}>
                     <td style={s.td}>
                       {/* Só um trecho medido pode justificar uma ordem, e a API recusa o resto
                           com 409. Desabilitar aqui diz isso antes de alguém tentar. */}
