@@ -11,6 +11,7 @@ import br.com.greenv.videoapi.domain.FrameReadings;
 import br.com.greenv.videoapi.domain.Page;
 import br.com.greenv.videoapi.domain.SegmentPlace;
 import br.com.greenv.videoapi.domain.SegmentQuery;
+import br.com.greenv.videoapi.domain.SegmentTravel;
 import br.com.greenv.videoapi.domain.Sentido;
 import br.com.greenv.videoapi.port.CaptureSessionStore;
 import br.com.greenv.videoapi.service.ApplicationException;
@@ -330,6 +331,19 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                 "SELECT * FROM capture_segments WHERE session_id = ? ORDER BY segment_index",
                 JdbcCaptureSessionStoreAdapter::mapSegment,
                 sessionId);
+    }
+
+    @Transactional
+    @Override
+    public void recordTrackLengths(UUID sessionId, Map<Integer, Double> metresBySegment) {
+        for (Map.Entry<Integer, Double> entry : metresBySegment.entrySet()) {
+            jdbcTemplate.update(
+                    "UPDATE capture_segments SET measurement_track_length_m = ?"
+                            + " WHERE session_id = ? AND segment_index = ?",
+                    entry.getValue(),
+                    sessionId,
+                    entry.getKey());
+        }
     }
 
     /** One page of them. Ordered by index because a session is a sequence, not a ranking. */
