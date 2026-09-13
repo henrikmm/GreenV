@@ -1024,3 +1024,77 @@ describe("provenance", () => {
     }
   });
 });
+
+describe("canopy", () => {
+  /** Grass at 0.25 m everywhere, and a crown 4 m up over the cell at 1.75 m along the road. */
+  const crownOver = (x: number): boolean => x >= 1.5 && x < 2.0;
+  function crownScene(options: GrassHeightGridInput["options"]): GrassHeightGridInput {
+    const surface = patternedSurface((x) => (crownOver(x) ? 4.0 : 0.25));
+    const frames = [0, 1, 2].map((frameIndex) =>
+      nadirFrame({ frameIndex, xMin: 0.5 + HALF_VOXEL, zMin: HALF_VOXEL, columns: 125, rows: 75, surfaceYAt: surface }),
+    );
+    return { ...threeFrameScene(), frames, options };
+  }
+
+  it("keeps every height when no ceiling is asked for, as every graded fixture was measured", () => {
+    const assessment = measureGrassHeightGrid(crownScene(undefined));
+    expect(cellAt(assessment, 1.75, 0.75)?.status).toBe("measured");
+    expect(cellAt(assessment, 1.75, 0.75)?.h95M).toBeCloseTo(4.0 + EXPECTED_H95, 6);
+    expect(assessment.band.maxHeightM).toBeNull();
+    expect(assessment.reviewEvidence.canopyCellCount).toBe(0);
+  });
+
+  it("drops observations above maxHeightM before they can reach a cell, and says how many", () => {
+    const steps: GrassHeightProgress[] = [];
+    const generator = measureGrassHeightGridStaged(crownScene({ maxHeightM: 2.5 }));
+    let step = generator.next();
+    while (!step.done) { steps.push(step.value); step = generator.next(); }
+    const assessment = step.value;
+    // The crown's cell never receives a point: it is absent, not measured at 4 m.
+    expect(cellAt(assessment, 1.75, 0.75)).toBeUndefined();
+    expect(cellAt(assessment, 1.25, 0.75)?.status).toBe("measured");
+    expect(cellAt(assessment, 1.25, 0.75)?.h95M).toBeCloseTo(0.25 + EXPECTED_H95, 6);
+    expect(steps.at(-1)?.canopyObservations).toBeGreaterThan(0);
+    expect(assessment.band.maxHeightM).toBe(2.5);
+  });
+
+  it("hides a crown behind its own datum when only the extent is asked for", () => {
+    // The whole cell is crown, so its own ground is the crown's underside: the extent is the
+    // pattern's spread and the 4 m pedestal is visible only in the plane-relative h95. This is
+    // why the point ceiling exists and the cell rule alone would not do.
+    const assessment = measureGrassHeightGrid(crownScene({ canopyExtentM: 2.0 }));
+    const crown = cellAt(assessment, 1.75, 0.75);
+    expect(crown?.status).toBe("measured");
+    expect(crown?.extent95M).toBeLessThan(0.5);
+    expect(crown?.h95M).toBeCloseTo(4.0 + EXPECTED_H95, 6);
+  });
+
+  it("reports a cell that reaches from the ground past canopyExtentM as canopy, with its numbers, outside every aggregate", () => {
+    // A trunk with low branches: half the cell's voxel columns are ground, half are 3 m up, so
+    // the cell's own datum is the ground and its extent is the tree's.
+    const trunk = patternedSurface((x, z) => (crownOver(x) ? (voxelColumn(x, z)[0] % 2 === 0 ? 0.25 : 3.0) : 0.25));
+    const frames = [0, 1, 2].map((frameIndex) =>
+      nadirFrame({ frameIndex, xMin: 0.5 + HALF_VOXEL, zMin: HALF_VOXEL, columns: 125, rows: 75, surfaceYAt: trunk }),
+    );
+    const assessment = measureGrassHeightGrid({ ...threeFrameScene(), frames, options: { canopyExtentM: 2.0 } });
+    const tree = cellAt(assessment, 1.75, 0.75);
+    expect(tree?.status).toBe("canopy");
+    expect(tree?.reason).toBe("above-canopy-extent");
+    expect(tree?.extent95M as number).toBeGreaterThan(2.5);
+    expect(tree?.frameCount).toBe(3);
+    expect(cellAt(assessment, 1.25, 0.75)?.status).toBe("measured");
+    // The trunk spans the band's three distance cells at 1.75 m along the road.
+    expect(assessment.reviewEvidence.canopyCellCount).toBe(3);
+    expect(assessment.reviewEvidence.abstainedCellCount).toBe(
+      assessment.measurements.filter((cell) => cell.status === "insufficient-support").length,
+    );
+    expect(assessment.reviewEvidence.extent95RangeM?.max as number).toBeLessThan(1.0);
+    expect(assessment.reviewEvidence.samples.some((sample) => sample.coordinate.alongRoadM === 1.75 && sample.reason === "highest-h95")).toBe(false);
+    expect(assessment.band.canopyExtentM).toBe(2.0);
+  });
+
+  it("refuses a ceiling that is not a positive height", () => {
+    expect(() => measureGrassHeightGrid(crownScene({ maxHeightM: 0 }))).toThrow(GrassHeightInputError);
+    expect(() => measureGrassHeightGrid(crownScene({ canopyExtentM: -1 }))).toThrow(GrassHeightInputError);
+  });
+});

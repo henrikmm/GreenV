@@ -111,6 +111,25 @@ export interface GrassHeightGridOptions {
   minFrames?: number;
   /** A frame contributing fewer unique voxels than this to a cell does not vote on it. */
   minVoxelsPerFrame?: number;
+  /**
+   * An observation higher than this above the fitted plane, along gravity, is canopy and is
+   * not an observation of the verge.
+   *
+   * The `vegetation` class is the only one that captures vertically growing plants — the tall
+   * grass and brush that a mowing decision is about — and it captures trees with them. Nothing
+   * in a mask separates a clump at 1 m from a crown at 6 m; their height does. Infinity, the
+   * default, keeps every point, which is how every graded fixture was measured.
+   */
+  maxHeightM?: number;
+  /**
+   * A cell whose `extent95M` exceeds this is reported as `canopy` rather than `measured`.
+   *
+   * The ceiling above removes crowns; what it leaves under a tree is the trunk and the low
+   * branches, which read as vegetation of two or three metres standing on the ground beneath
+   * them. That is not a verge either. The cell keeps every number it computed so a reviewer can
+   * see what was excluded, and it counts in neither the measured nor the abstained tallies.
+   */
+  canopyExtentM?: number;
 }
 
 const DEFAULTS: Required<GrassHeightGridOptions> = {
@@ -119,6 +138,8 @@ const DEFAULTS: Required<GrassHeightGridOptions> = {
   voxelSizeM: 0.02,
   minFrames: 3,
   minVoxelsPerFrame: 20,
+  maxHeightM: Infinity,
+  canopyExtentM: Infinity,
 };
 
 export interface GrassHeightFrameInput {
@@ -204,8 +225,8 @@ export interface GrassCellMeasurement {
    * there is "why was there not enough evidence", and that is what those frames show.
    */
   evidenceFrameIndices: number[];
-  status: "measured" | "insufficient-support";
-  reason?: "too-few-frames" | "too-few-samples";
+  status: "measured" | "insufficient-support" | "canopy";
+  reason?: "too-few-frames" | "too-few-samples" | "above-canopy-extent";
 }
 
 export type GrassReviewSampleReason =
@@ -231,11 +252,16 @@ export interface GrassHeightAssessmentV1 {
     minDistanceFromRoadM: 0;
     maxDistanceFromRoadM: number;
     cellSizeM: number;
+    /** The canopy ceilings in force, or null when every height was kept. */
+    maxHeightM: number | null;
+    canopyExtentM: number | null;
   };
   measurements: GrassCellMeasurement[];
   reviewEvidence: {
     measuredCellCount: number;
     abstainedCellCount: number;
+    /** Cells that measured more than `canopyExtentM` of extent: trees, not verge. */
+    canopyCellCount: number;
     /**
      * Measured cells over OBSERVED cells — not over the band's area.
      *
@@ -475,6 +501,7 @@ function observationsFor(
   options: Required<GrassHeightGridOptions>,
   verticalScale: number,
   collectPixelIndices: boolean,
+  canopy: { observations: number },
 ): Observation[] {
   const { plane, planeRmseM } = { plane: input.ground.plane, planeRmseM: input.ground.planeRmseM };
   const onGrid = maskOnDepthGrid(frame);
@@ -504,6 +531,11 @@ function observationsFor(
     // and are flattened rather than dropped, which keeps a sparse cell's support.
     if (heightM < belowGroundLimit) continue;
     const height = heightM < 0 ? 0 : heightM;
+    // Above the canopy ceiling is a crown, a wall top or a cut face: counted, never measured.
+    if (height > options.maxHeightM) {
+      canopy.observations += 1;
+      continue;
+    }
 
     const flat = projectOntoPlane(point, plane);
     const station = stationOf(dot(flat, road.e1), dot(flat, road.e2), road);
@@ -616,6 +648,12 @@ function resolveOptions(options: GrassHeightGridOptions | undefined): Required<G
       throw new GrassHeightInputError(`${name} must be a positive finite number, got ${value}`);
     }
   }
+  // The two ceilings may be infinite, which is how "no ceiling" is spelled.
+  for (const [name, value] of [["maxHeightM", resolved.maxHeightM], ["canopyExtentM", resolved.canopyExtentM]] as const) {
+    if (!(value > 0)) {
+      throw new GrassHeightInputError(`${name} must be a positive number of metres or Infinity, got ${value}`);
+    }
+  }
   return resolved;
 }
 
@@ -659,6 +697,8 @@ export interface GrassHeightProgress {
   /** Observations that frame contributed, and the running total across frames. */
   frameObservations: number;
   observationsRetained: number;
+  /** Observations dropped above `maxHeightM` so far: crowns, not verge. */
+  canopyObservations: number;
   /** Distinct cells touched so far. Rises as coverage grows, never falls. */
   cellsTouched: number;
   /** Present only on the `done` step. */
@@ -726,9 +766,10 @@ export function* measureGrassHeightGridStaged(
   const frameTotal = input.frames.length;
   let framesDone = 0;
   let observationsRetained = 0;
+  const canopy = { observations: 0 };
 
   for (const frame of input.frames) {
-    const observations = observationsFor(frame, input, road, options, verticalScale, collectProvenance);
+    const observations = observationsFor(frame, input, road, options, verticalScale, collectProvenance, canopy);
     for (const observation of observations) {
       const key = `${observation.alongIndex},${observation.distIndex}`;
       let cell = cells.get(key);
@@ -766,6 +807,7 @@ export function* measureGrassHeightGridStaged(
       frameIndex: frame.frameIndex,
       frameObservations: observations.length,
       observationsRetained,
+      canopyObservations: canopy.observations,
       cellsTouched: cells.size,
       assessment: null,
       provenance: null,
@@ -779,6 +821,7 @@ export function* measureGrassHeightGridStaged(
     frameIndex: null,
     frameObservations: 0,
     observationsRetained,
+    canopyObservations: canopy.observations,
     cellsTouched: cells.size,
     assessment: null,
     provenance: null,
@@ -792,6 +835,7 @@ export function* measureGrassHeightGridStaged(
     frameIndex: null,
     frameObservations: 0,
     observationsRetained,
+    canopyObservations: canopy.observations,
     cellsTouched: cells.size,
     assessment,
     provenance: pixelTrail ? freezeProvenance(pixelTrail, cells, options) : null,
@@ -911,13 +955,18 @@ function reduceCells(
       ...byAgreement.map((v) => v.frameIndex),
     ])].slice(0, 3);
 
+    // Taller than a verge can be is a tree standing in the band: kept, with every number it
+    // computed, under a status the aggregates do not count.
+    const extent95M = above(groundM, h95M);
+    const isCanopy = extent95M > options.canopyExtentM;
+
     measurements.push({
       coordinate,
       localGroundM: groundM,
       groundContactVoxels: contactVoxels,
       extent50M: above(groundM, h50M),
       extent90M: above(groundM, h90M),
-      extent95M: above(groundM, h95M),
+      extent95M,
       h50M,
       h90M,
       h95M,
@@ -927,7 +976,8 @@ function reduceCells(
       frameVotes: votes.map((v) => ({ frameIndex: v.frameIndex, sampleCount: v.voxelCount,
         h50M: v.percentiles[0], h90M: v.percentiles[1], h95M: v.percentiles[2] })),
       evidenceFrameIndices,
-      status: "measured",
+      status: isCanopy ? "canopy" : "measured",
+      ...(isCanopy ? { reason: "above-canopy-extent" as const } : {}),
     });
   }
 
@@ -946,6 +996,8 @@ function reduceCells(
       minDistanceFromRoadM: 0,
       maxDistanceFromRoadM: options.maxDistanceFromRoadM,
       cellSizeM: options.cellSizeM,
+      maxHeightM: Number.isFinite(options.maxHeightM) ? options.maxHeightM : null,
+      canopyExtentM: Number.isFinite(options.canopyExtentM) ? options.canopyExtentM : null,
     },
     measurements,
     reviewEvidence: buildReviewEvidence(measurements),
@@ -973,6 +1025,7 @@ function reduceCells(
 function buildReviewEvidence(measurements: GrassCellMeasurement[]): GrassHeightAssessmentV1["reviewEvidence"] {
   const measured = measurements.filter((cell) => cell.status === "measured");
   const abstained = measurements.filter((cell) => cell.status === "insufficient-support");
+  const canopy = measurements.filter((cell) => cell.status === "canopy");
   const total = measurements.length;
 
   // Folded rather than spread: a kilometre of verge is tens of thousands of cells, and
@@ -1026,6 +1079,7 @@ function buildReviewEvidence(measurements: GrassCellMeasurement[]): GrassHeightA
   return {
     measuredCellCount: measured.length,
     abstainedCellCount: abstained.length,
+    canopyCellCount: canopy.length,
     coverageFraction: total > 0 ? measured.length / total : 0,
     h95RangeM,
     extent95RangeM,

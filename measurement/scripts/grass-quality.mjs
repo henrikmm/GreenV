@@ -50,6 +50,8 @@ export function qualitySummary(assessment, frames, context, ground, corridor, sc
     frames: { total: frames.length, processed: frames.length - errors, empty, failed: errors },
     measuredCells: measured.length,
     abstainedCells: assessment?.reviewEvidence.abstainedCellCount ?? 0,
+    // Cells taller than a verge can be, kept in the packet with their numbers and counted here.
+    canopyCells: assessment?.reviewEvidence.canopyCellCount ?? 0,
     observedCellCoverage: assessment?.reviewEvidence.coverageFraction ?? 0,
     intendedAreaCoverage: null,
     missingAreaMeaning: "unknown: unobserved, occluded, excluded or no grass; not short grass",

@@ -816,8 +816,15 @@ over the track anchor. All decisions and the model's own numbers travel under `c
 24,603, the twenty empty segments to four (three refused, one without a ground plane), and the
 median usable segment from 2 cells to 614. **The far end of a 10 m band reaches the tree line:**
 in 9 runs 10–25% of cells read over 2 m from 5–10 m out on ground 0.5–5.4 m above the road.
-Which aggregate a mowing policy takes is still the open question of `GRASS-QUALITY.md`. No
-reading here is graded against a tape.
+Two grid ceilings take them out and nothing else: `maxHeightM` (a point higher than that above
+the plane is a crown and never enters a cell) and `canopyExtentM` (a cell still taller than that
+above its own ground is `status: "canopy"`, kept with its numbers, counted in no aggregate).
+Both default to Infinity; at 3 m and 2 m on the 43 runs they set 87 cells aside and emptied
+1,395 more, brought those nine p95 values from 1.07–8.65 m to 0.39–1.58 m, and left 31 of 39
+banded runs without a single cell changed. The class stays `terrain,vegetation`: `terrain`
+alone reads 0.000 m on a plant taped at 0.980 m (2026-09-05), so trees are removed by height,
+not by class. Which aggregate a mowing policy takes is still the open question of
+`GRASS-QUALITY.md`. No reading here is graded against a tape.
 
 Three things the same day established about the capture rather than the pipeline: the frame
 extractor's distance grouping publishes the first 30–40 m of a 170–250 m segment at highway

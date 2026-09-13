@@ -14,7 +14,8 @@ const require = createRequire(new URL("../app/package.json", import.meta.url));
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const fitOptions = { maxTiltDeg: 30, inlierDistance: 0.035, iterations: 1200, stride: 16,
   minInliers: 100, minInlierFraction: 0.01, proposalFractions: [1, 0.35], maxBelowFraction: 0.2, seed: 7 };
-const gridDefaults = { cellSizeM: 0.5, voxelSizeM: 0.02, minFrames: 3, minVoxelsPerFrame: 20, maxDistanceFromRoadM: 5 };
+const gridDefaults = { cellSizeM: 0.5, voxelSizeM: 0.02, minFrames: 3, minVoxelsPerFrame: 20, maxDistanceFromRoadM: 5,
+  maxHeightM: Infinity, canopyExtentM: Infinity };
 
 /**
  * The request fields a vehicle-mounted capture adds, validated and defaulted to "do nothing".
@@ -36,7 +37,8 @@ export function vehicleOptions(request) {
   const gridOptions = { ...gridDefaults };
   for (const [key, value] of Object.entries(request.gridOptions ?? {})) {
     if (!(key in gridDefaults)) throw new Error(`unknown grid option ${key}; known: ${Object.keys(gridDefaults).join(", ")}`);
-    if (!Number.isFinite(value) || value <= 0) throw new Error(`grid option ${key} must be a positive number`);
+    const ceiling = key === "maxHeightM" || key === "canopyExtentM";
+    if (!(value > 0) || (!ceiling && !Number.isFinite(value))) throw new Error(`grid option ${key} must be a positive number`);
     gridOptions[key] = value;
   }
   const widthPinned = request.gridOptions?.maxDistanceFromRoadM !== undefined;
