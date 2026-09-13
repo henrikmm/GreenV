@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:greenv_capture/src/api/session_authenticator.dart';
@@ -324,6 +325,27 @@ final class _PreviewOperationsGateway implements OperationsGateway {
         total: 1,
         hasMore: false,
       );
+
+  @override
+  Future<List<MeasuredStretch>> sessionStretches(String sessionId) async =>
+      _stretches.where((s) => s.sessionId == sessionId).toList();
+
+  // No photographs in the design preview: the frames live behind the API, and this build has
+  // none. The sheet says so rather than showing a placeholder that looks like a capture.
+  @override
+  Future<List<SampledFrame>> frames(String sessionId, int segmentIndex) async =>
+      const [];
+
+  @override
+  Future<FrameReadings?> frameReadings(
+    String sessionId,
+    int segmentIndex,
+    String fileName,
+  ) async => null;
+
+  @override
+  Future<Uint8List> frameImage(String imageUrl) async =>
+      throw UnsupportedError('a prévia de design não carrega fotos');
 
   @override
   Future<List<Team>> teams() async => _teams;

@@ -1,6 +1,7 @@
 // ignore_for_file: prefer_initializing_formals
 
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:greenv_capture/src/capture/capture_ports.dart';
 import 'package:greenv_capture/src/domain/operations_models.dart';
@@ -87,6 +88,73 @@ final class HttpOperationsGateway implements OperationsGateway {
     await _getObject('/v2/service-orders', {'limit': '$limit'}),
     ServiceOrder.fromJson,
   );
+
+  @override
+  Future<List<MeasuredStretch>> sessionStretches(String sessionId) async {
+    // A session is finite and a map wants all of it at once; the ceiling is the API's own.
+    final body = await _getObject('/v2/capture-sessions/$sessionId/segments', {
+      'limit': '200',
+    });
+    return _page(
+      body,
+      MeasuredStretch.fromJson,
+    ).items.where((stretch) => stretch.located).toList();
+  }
+
+  @override
+  Future<List<SampledFrame>> frames(String sessionId, int segmentIndex) async {
+    final body = await _get(
+      '/v2/capture-sessions/$sessionId/segments/$segmentIndex/frames',
+    );
+    final decoded = jsonDecode(body);
+    final items = decoded is List
+        ? decoded
+        : (decoded as Map<String, Object?>)['items'] as List;
+    return [
+      for (final item in items)
+        SampledFrame.fromJson(item as Map<String, Object?>),
+    ];
+  }
+
+  @override
+  Future<FrameReadings?> frameReadings(
+    String sessionId,
+    int segmentIndex,
+    String fileName,
+  ) async {
+    final request = http.Request(
+      'GET',
+      _resolve(
+        '/v2/capture-sessions/$sessionId/segments/$segmentIndex/frames/$fileName/readings',
+      ),
+    )..headers['accept'] = 'application/json';
+    final response = await _send(request);
+    // A packet from before these rows existed answers 404, and that is an answer: the photograph
+    // is still worth showing without what it measured.
+    if (response.statusCode == 404) {
+      return null;
+    }
+    if (response.statusCode != 200) {
+      throw _failure(response);
+    }
+    return FrameReadings.fromJson(
+      jsonDecode(response.body) as Map<String, Object?>,
+    );
+  }
+
+  @override
+  Future<Uint8List> frameImage(String imageUrl) async {
+    final request = http.Request('GET', Uri.parse(imageUrl))
+      ..headers['accept'] = 'image/jpeg';
+    request.headers['authorization'] = 'Bearer ${await _auth.accessToken()}';
+    final response = await http.Response.fromStream(
+      await _client.send(request),
+    );
+    if (response.statusCode != 200) {
+      throw _failure(response);
+    }
+    return response.bodyBytes;
+  }
 
   @override
   Future<ServiceOrder> openOrder(OrderDraft draft) async {

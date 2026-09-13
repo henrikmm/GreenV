@@ -189,7 +189,15 @@ final class _MotivaFlowState extends State<_MotivaFlow>
     super.dispose();
   }
 
+  /// The session the map is framed on, or null for every measured stretch.
+  String? _focusedSession;
+
   void _go(MotivaPage page) => setState(() => _page = page);
+
+  void _openSessionOnMap(String sessionId) => setState(() {
+    _focusedSession = sessionId;
+    _page = MotivaPage.map;
+  });
 
   /// The screens anyone may open. Everything else needs a token, because everything else either
   /// uploads or shows what was uploaded.
@@ -225,6 +233,7 @@ final class _MotivaFlowState extends State<_MotivaFlow>
         operations: widget.operations,
         capture: widget.controller,
         onNavigate: _go,
+        onOpenSession: _openSessionOnMap,
         onSignOut: () async {
           await widget.authenticator.signOut();
           if (mounted) {
@@ -243,6 +252,8 @@ final class _MotivaFlowState extends State<_MotivaFlow>
       MotivaPage.map => MapScreen(
         operations: widget.operations,
         onNavigate: _go,
+        sessionId: _focusedSession,
+        onClearSession: () => setState(() => _focusedSession = null),
       ),
       MotivaPage.orders => OrdersScreen(
         operations: widget.operations,
@@ -731,32 +742,6 @@ final class _CaptureScreenState extends State<CaptureScreen> {
               const SizedBox(height: 12),
               _RecordControl(controller: widget.controller),
             ],
-            const SizedBox(height: 26),
-            const SectionTitle(title: 'Análises recentes'),
-            const SizedBox(height: 12),
-            const _AnalysisItem(
-              id: 'IV-8839',
-              title: 'BR-101 · sentido norte',
-              detail: 'km 82 · capturado hoje, 09:42',
-              status: 'BAIXO',
-              tone: Color(0xFF47A45B),
-            ),
-            const SizedBox(height: 10),
-            const _AnalysisItem(
-              id: 'IV-8830',
-              title: 'BR-116 · sentido sul',
-              detail: 'km 214 · processando imagens',
-              status: 'MÉDIO',
-              tone: Color(0xFFD7A21C),
-            ),
-            const SizedBox(height: 10),
-            const _AnalysisItem(
-              id: 'IV-8831',
-              title: 'BR-040 · sentido norte',
-              detail: 'km 37 · requer nova coleta',
-              status: 'REVISAR',
-              tone: Color(0xFFD74D52),
-            ),
           ],
         ),
       ),
@@ -1334,100 +1319,6 @@ final class _GnssWarningCard extends StatelessWidget {
                       '${_usableAccuracyMeters.toStringAsFixed(0)} m. Nesta '
                       'precisão a coleta não gera um trecho medível.',
             style: const TextStyle(fontSize: 12, height: 1.35),
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
-final class _AnalysisItem extends StatelessWidget {
-  const _AnalysisItem({
-    required this.id,
-    required this.title,
-    required this.detail,
-    required this.status,
-    required this.tone,
-  });
-
-  final String id;
-  final String title;
-  final String detail;
-  final String status;
-  final Color tone;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(13),
-    decoration: cardDecoration(radius: 17),
-    child: Row(
-      children: [
-        Container(
-          width: 48,
-          height: 48,
-          decoration: BoxDecoration(
-            color: tone.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: Center(
-            child: Icon(
-              status == 'REVISAR'
-                  ? Icons.error_outline_rounded
-                  : status == 'MÉDIO'
-                  ? Icons.hourglass_top_rounded
-                  : Icons.eco_outlined,
-              color: tone,
-              size: 23,
-            ),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                detail,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 11,
-                  height: 1.3,
-                  color: motivaMuted,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'ID $id',
-                style: const TextStyle(fontSize: 9, color: motivaMuted),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 8),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-          decoration: BoxDecoration(
-            color: tone.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(99),
-          ),
-          child: Text(
-            status,
-            style: TextStyle(
-              fontSize: 8,
-              color: tone,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 0.4,
-            ),
           ),
         ),
       ],

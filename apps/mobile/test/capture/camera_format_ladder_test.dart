@@ -31,8 +31,14 @@ void main() {
 
   test('never asks for more resolution than the worker keeps', () {
     // 4K would discard 93% of its pixels before inference and cost the 64 MB upload budget.
-    expect(ladder.map((f) => f.resolution), everyElement(isNot(ResolutionPreset.ultraHigh)));
-    expect(ladder.map((f) => f.resolution), everyElement(isNot(ResolutionPreset.max)));
+    expect(
+      ladder.map((f) => f.resolution),
+      everyElement(isNot(ResolutionPreset.ultraHigh)),
+    );
+    expect(
+      ladder.map((f) => f.resolution),
+      everyElement(isNot(ResolutionPreset.max)),
+    );
   });
 
   test('ends with a rung that asks for no rate, so a plain 30 fps phone still records', () {
@@ -41,12 +47,9 @@ void main() {
   });
 }
 
-Matcher get isSortedDescending => predicate<List<int>>(
-      (values) {
-        for (var i = 1; i < values.length; i++) {
-          if (values[i] > values[i - 1]) return false;
-        }
-        return true;
-      },
-      'is sorted from highest to lowest',
-    );
+Matcher get isSortedDescending => predicate<List<int>>((values) {
+  for (var i = 1; i < values.length; i++) {
+    if (values[i] > values[i - 1]) return false;
+  }
+  return true;
+}, 'is sorted from highest to lowest');

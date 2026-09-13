@@ -146,6 +146,27 @@ abstract interface class OperationsGateway {
 
   Future<PageOf<ServiceOrder>> orders({int limit = 50});
 
+  /// Every measured stretch of one session, for the map opened from that session.
+  ///
+  /// Not the readings feed with a filter: that one is ranked by height across every session and
+  /// has no session parameter. This reads the session's own segments, which is the route that
+  /// knows what belongs to it.
+  Future<List<MeasuredStretch>> sessionStretches(String sessionId);
+
+  /// The photographs one segment published, in capture order.
+  Future<List<SampledFrame>> frames(String sessionId, int segmentIndex);
+
+  /// What one photograph contributed to the measurement. Null when the packet kept no detail.
+  Future<FrameReadings?> frameReadings(
+    String sessionId,
+    int segmentIndex,
+    String fileName,
+  );
+
+  /// The bytes of one photograph. The route is behind the same bearer as everything else, so a
+  /// plain image widget cannot fetch it and the gateway hands back the bytes instead.
+  Future<Uint8List> frameImage(String imageUrl);
+
   /// Opens an order. The API derives the area, the level and the position from the targets.
   Future<ServiceOrder> openOrder(OrderDraft draft);
 }

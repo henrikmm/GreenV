@@ -54,6 +54,12 @@ void main() {
 
     await tester.tap(find.byType(StretchTile).first);
     await tester.pumpAndSettle();
+    await tester.dragUntilVisible(
+      find.byKey(const Key('open-order-button')),
+      _sheetList,
+      const Offset(0, -120),
+    );
+    await tester.pumpAndSettle();
     expect(find.text('Abrir ordem de serviço'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('open-order-button')));
@@ -87,6 +93,12 @@ void main() {
     await tester.ensureVisible(find.byType(StretchTile).last);
     await tester.pumpAndSettle();
     await tester.tap(find.byType(StretchTile).last);
+    await tester.pumpAndSettle();
+    await tester.dragUntilVisible(
+      find.byKey(const Key('open-order-button')),
+      _sheetList,
+      const Offset(0, -120),
+    );
     await tester.pumpAndSettle();
 
     expect(
@@ -122,7 +134,87 @@ void main() {
     expect(find.text('Sessões recentes'), findsOneWidget);
     expect(find.textContaining('7 de 8'), findsOneWidget);
   });
+  testWidgets(
+    'opens a stretch into its photographs and what one of them measured',
+    (tester) async {
+      final gateway = _seeded();
+      await _open(tester, gateway, MotivaPage.stretches);
+
+      await tester.tap(find.byType(StretchTile).first);
+      await tester.pumpAndSettle();
+
+      // The first frame is chosen for you, and its bytes come through the gateway rather than
+      // through a plain image widget, which could not send the bearer.
+      expect(
+        gateway.imagesFetched,
+        contains('https://api.example/frames/frame-0001.jpg'),
+      );
+      expect(find.byType(FramePhoto), findsOneWidget);
+      expect(find.byType(FrameThumb), findsNWidgets(2));
+      expect(find.textContaining('frame-0001.jpg'), findsOneWidget);
+      expect(find.text('O QUE ESTE QUADRO MEDIU'), findsOneWidget);
+      expect(find.text('58 cm'), findsOneWidget);
+      expect(
+        find.text('Escolhido como evidência em 2 células.'),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets('choosing another photograph asks for that one\'s reading', (
+    tester,
+  ) async {
+    final gateway = _seeded();
+    await _open(tester, gateway, MotivaPage.stretches);
+
+    await tester.tap(find.byType(StretchTile).first);
+    await tester.pumpAndSettle();
+    // The photograph is 260 px tall, so the strip under it starts below the fold in a 600 px
+    // test viewport, exactly as it does on a short phone.
+    await tester.dragUntilVisible(
+      find.byType(FrameThumb).last,
+      _sheetList,
+      const Offset(0, -100),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(FrameThumb).last);
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('frame-0002.jpg'), findsOneWidget);
+    // Nothing was scripted for the second frame, so the sheet says what that means rather
+    // than leaving the first frame's numbers under a different photograph.
+    expect(find.textContaining('não votou em nenhuma célula'), findsOneWidget);
+  });
+
+  testWidgets('opening a session frames the map on that session alone', (
+    tester,
+  ) async {
+    final gateway = _seeded();
+    await _open(tester, gateway, MotivaPage.home);
+
+    await tester.ensureVisible(find.byKey(const Key('session-s1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('session-s1')));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('desta sessão'), findsOneWidget);
+    expect(find.byKey(const Key('clear-session-focus')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('clear-session-focus')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('desta sessão'), findsNothing);
+    expect(find.textContaining('no mapa · toque num ponto'), findsOneWidget);
+  });
 }
+
+/// The sheet's own scrollable. The frame strip inside it is a ListView too, and dragging that
+/// one vertically scrolls nothing at all.
+Finder get _sheetList => find
+    .descendant(
+      of: find.byType(DraggableScrollableSheet),
+      matching: find.byType(ListView),
+    )
+    .first;
 
 FakeOperationsGateway _seeded() => FakeOperationsGateway()
   ..summary = const ReadingsSummary(
@@ -145,6 +237,34 @@ FakeOperationsGateway _seeded() => FakeOperationsGateway()
       placeLabel: 'Rua Braz Cubas',
     ),
   ]
+  ..frameRows = {
+    0: const [
+      SampledFrame(
+        fileName: 'frame-0001.jpg',
+        canonicalFrame: 1,
+        imageUrl: 'https://api.example/frames/frame-0001.jpg',
+        horizontalAccuracyMeters: 5.2,
+        locationQuality: 'good',
+      ),
+      SampledFrame(
+        fileName: 'frame-0002.jpg',
+        canonicalFrame: 2,
+        imageUrl: 'https://api.example/frames/frame-0002.jpg',
+        horizontalAccuracyMeters: 5.4,
+        locationQuality: 'good',
+      ),
+    ],
+  }
+  ..readingRows = const {
+    'frame-0001.jpg': FrameReadings(
+      canonicalFrame: 1,
+      cellsVoted: 4,
+      evidenceForCells: 2,
+      extent95MedianM: 0.58,
+      extent95MaxM: 0.72,
+      largestDisagreementM: 0.22,
+    ),
+  }
   ..sessionRows = [
     CaptureSessionSummary(
       sessionId: 's1',

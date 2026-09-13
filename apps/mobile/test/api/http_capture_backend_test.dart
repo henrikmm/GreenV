@@ -50,7 +50,8 @@ void main() {
       expect(
         request.headers['authorization'],
         'Bearer greenv-test-token',
-        reason: '${request.method} ${request.url.path} was sent unauthenticated',
+        reason:
+            '${request.method} ${request.url.path} was sent unauthenticated',
       );
     }
   });
@@ -203,7 +204,9 @@ HttpCaptureBackend _backend(
 final class _FakeContent implements SegmentContentStore {
   static final Map<String, Uint8List> _bytes = {
     'memory://video': Uint8List.fromList(utf8.encode('video-bytes')),
-    'memory://telemetry': Uint8List.fromList(utf8.encode('{"schemaVersion":1}')),
+    'memory://telemetry': Uint8List.fromList(
+      utf8.encode('{"schemaVersion":1}'),
+    ),
   };
 
   @override

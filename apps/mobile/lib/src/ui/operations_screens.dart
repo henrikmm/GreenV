@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -260,6 +261,7 @@ final class HomeScreen extends StatelessWidget {
     required this.operations,
     required this.capture,
     required this.onNavigate,
+    required this.onOpenSession,
     required this.onSignOut,
     super.key,
   });
@@ -267,6 +269,11 @@ final class HomeScreen extends StatelessWidget {
   final OperationsGateway operations;
   final CaptureCoordinator capture;
   final ValueChanged<MotivaPage> onNavigate;
+
+  /// Opens the map framed on one session. A recorded outing is the unit a field worker thinks
+  /// in, and until now tapping one did nothing at all.
+  final ValueChanged<String> onOpenSession;
+
   final Future<void> Function() onSignOut;
 
   Future<_Overview> _load() async {
@@ -384,15 +391,21 @@ final class HomeScreen extends StatelessWidget {
                     style: TextStyle(fontSize: 12.5, color: motivaMuted),
                   ),
                 for (final session in overview.sessions.items) ...[
-                  RecentUpload(
-                    name:
-                        '${formatDateTime(session.startedAt)} · '
-                        '${session.rodovia ?? '${session.segmentCount} trechos'}',
-                    status: session.measuredSegmentCount == session.segmentCount
-                        ? 'Medida'
-                        : '${session.measuredSegmentCount} de ${session.segmentCount}',
-                    complete:
-                        session.measuredSegmentCount == session.segmentCount,
+                  InkWell(
+                    key: Key('session-${session.sessionId}'),
+                    borderRadius: BorderRadius.circular(16),
+                    onTap: () => onOpenSession(session.sessionId),
+                    child: RecentUpload(
+                      name:
+                          '${formatDateTime(session.startedAt)} · '
+                          '${session.rodovia ?? '${session.segmentCount} trechos'}',
+                      status:
+                          session.measuredSegmentCount == session.segmentCount
+                          ? 'Medida'
+                          : '${session.measuredSegmentCount} de ${session.segmentCount}',
+                      complete:
+                          session.measuredSegmentCount == session.segmentCount,
+                    ),
                   ),
                   const SizedBox(height: 10),
                 ],
@@ -761,7 +774,14 @@ Future<void> showStretchSheet(
       StretchSheet(stretch: stretch, operations: operations),
 );
 
-final class StretchSheet extends StatelessWidget {
+/// One stretch: its photographs, what each of them measured, the facts, and the button that
+/// turns it into work.
+///
+/// The photographs are the point. The dashboard opens a stretch into a strip of frames and a
+/// panel saying what the chosen one contributed, and a field worker standing at the verge has
+/// more use for that than anyone at a desk: the picture is how they know the row is the stretch
+/// in front of them. This is that, laid down a phone instead of across a screen.
+final class StretchSheet extends StatefulWidget {
   const StretchSheet({
     required this.stretch,
     required this.operations,
@@ -772,20 +792,34 @@ final class StretchSheet extends StatelessWidget {
   final OperationsGateway operations;
 
   @override
+  State<StretchSheet> createState() => _StretchSheetState();
+}
+
+final class _StretchSheetState extends State<StretchSheet> {
+  late final Future<List<SampledFrame>> _frames = widget.operations.frames(
+    widget.stretch.sessionId,
+    widget.stretch.segmentIndex,
+  );
+  SampledFrame? _selected;
+
+  @override
   Widget build(BuildContext context) {
+    final stretch = widget.stretch;
     final reading = stretch.reading;
     final place = stretch.place;
     final canOrder = stretch.vegetationLevel != VegetationLevel.unknown;
-    return Padding(
-      padding: EdgeInsets.fromLTRB(
-        20,
-        14,
-        20,
-        20 + MediaQuery.viewInsetsOf(context).bottom,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+
+    // A sheet, not a screen: it opens at seven tenths of the phone so the map stays visible
+    // behind it, drags to almost full, and scrolls inside rather than pushing the button off
+    // the bottom. The old one was a fixed column that ran past the edge on a real handset.
+    return DraggableScrollableSheet(
+      initialChildSize: 0.72,
+      minChildSize: 0.4,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (context, scrollController) => ListView(
+        controller: scrollController,
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
         children: [
           Center(
             child: Container(
@@ -800,24 +834,31 @@ final class StretchSheet extends StatelessWidget {
           const SizedBox(height: 16),
           Row(
             children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-                decoration: BoxDecoration(
-                  color: levelBackground(reading.level),
-                  borderRadius: BorderRadius.circular(99),
-                ),
-                child: Text(
-                  reading.label,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                    color: levelColour(reading.level),
+              Flexible(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 9,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: levelBackground(reading.level),
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                  child: Text(
+                    reading.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      color: levelColour(reading.level),
+                    ),
                   ),
                 ),
               ),
-              const Spacer(),
+              const SizedBox(width: 10),
               Text(
-                stretch.heightCm == null ? '—' : '${stretch.heightCm} cm',
+                stretch.heightCm == null ? '-' : '${stretch.heightCm} cm',
                 style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.w900,
@@ -833,7 +874,79 @@ final class StretchSheet extends StatelessWidget {
               place.detail,
               style: const TextStyle(fontSize: 12.5, color: motivaMuted),
             ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 16),
+          FutureBuilder<List<SampledFrame>>(
+            future: _frames,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState != ConnectionState.done) {
+                return const SizedBox(
+                  height: 78,
+                  child: Center(
+                    child: SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.2,
+                        color: greenvForest,
+                      ),
+                    ),
+                  ),
+                );
+              }
+              // A segment with no manifest answers 409, which is an answer and not a failure:
+              // the rest of the sheet is still worth reading.
+              final frames = snapshot.hasError
+                  ? const <SampledFrame>[]
+                  : snapshot.data!;
+              if (frames.isEmpty) {
+                return const Text(
+                  'Este trecho não publicou quadros.',
+                  style: TextStyle(fontSize: 12, color: motivaMuted),
+                );
+              }
+              final selected = _selected ?? frames.first;
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  FramePhoto(
+                    key: ValueKey(selected.fileName),
+                    frame: selected,
+                    operations: widget.operations,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '${selected.fileName} · '
+                    '${selected.capturedAtUtc == null ? 'sem horário' : formatDateTime(selected.capturedAtUtc!)}'
+                    ' · precisão ${selected.horizontalAccuracyMeters?.toStringAsFixed(1) ?? '?'} m',
+                    style: const TextStyle(fontSize: 11, color: motivaMuted),
+                  ),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    height: 58,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: frames.length,
+                      separatorBuilder: (_, _) => const SizedBox(width: 6),
+                      itemBuilder: (context, index) => FrameThumb(
+                        frame: frames[index],
+                        operations: widget.operations,
+                        active: frames[index].fileName == selected.fileName,
+                        onTap: () => setState(() => _selected = frames[index]),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  FrameMeasurement(
+                    key: ValueKey('leitura-${selected.fileName}'),
+                    stretch: stretch,
+                    frame: selected,
+                    operations: widget.operations,
+                  ),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 16),
           _Facts(
             rows: [
               ('Capturado em', formatDateTime(stretch.capturedAt)),
@@ -843,7 +956,7 @@ final class StretchSheet extends StatelessWidget {
               (
                 'Células',
                 stretch.cellsMeasured == null
-                    ? '—'
+                    ? '-'
                     : '${stretch.cellsMeasured} medidas · ${stretch.cellsAbstained ?? 0} sem evidência',
               ),
               if (stretch.coverage != null)
@@ -861,7 +974,7 @@ final class StretchSheet extends StatelessWidget {
             onPressed: canOrder
                 ? () async {
                     Navigator.of(context).pop();
-                    await showOrderForm(context, [stretch], operations);
+                    await showOrderForm(context, [stretch], widget.operations);
                   }
                 : null,
             icon: const Icon(Icons.assignment_add, size: 18),
@@ -880,6 +993,205 @@ final class StretchSheet extends StatelessWidget {
       ),
     );
   }
+}
+
+/// A photograph from behind the bearer, fetched as bytes and held while the sheet is open.
+///
+/// `Image.network` cannot do this: the route needs an Authorization header, and without one the
+/// API answers 401 and the widget shows a broken icon with no way to say why.
+final class FramePhoto extends StatefulWidget {
+  const FramePhoto({required this.frame, required this.operations, super.key});
+
+  final SampledFrame frame;
+  final OperationsGateway operations;
+
+  @override
+  State<FramePhoto> createState() => _FramePhotoState();
+}
+
+final class _FramePhotoState extends State<FramePhoto> {
+  late final Future<Uint8List> _bytes = widget.operations.frameImage(
+    widget.frame.imageUrl,
+  );
+
+  @override
+  Widget build(BuildContext context) => ClipRRect(
+    borderRadius: BorderRadius.circular(14),
+    child: ColoredBox(
+      color: motivaCanvas,
+      child: SizedBox(
+        height: 260,
+        width: double.infinity,
+        child: FutureBuilder<Uint8List>(
+          future: _bytes,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) {
+              return const Center(
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.2,
+                    color: greenvForest,
+                  ),
+                ),
+              );
+            }
+            if (snapshot.hasError) {
+              return const Center(
+                child: Text(
+                  'Não foi possível carregar a foto.',
+                  style: TextStyle(fontSize: 12, color: motivaMuted),
+                ),
+              );
+            }
+            // Contained, not cropped: the frames come out of the camera upright, 576 by 1024,
+            // and cropping one into a wide box throws away the verge it was taken for.
+            return Image.memory(snapshot.data!, fit: BoxFit.contain);
+          },
+        ),
+      ),
+    ),
+  );
+}
+
+final class FrameThumb extends StatefulWidget {
+  const FrameThumb({
+    required this.frame,
+    required this.operations,
+    required this.active,
+    required this.onTap,
+    super.key,
+  });
+
+  final SampledFrame frame;
+  final OperationsGateway operations;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  State<FrameThumb> createState() => _FrameThumbState();
+}
+
+final class _FrameThumbState extends State<FrameThumb> {
+  late final Future<Uint8List> _bytes = widget.operations.frameImage(
+    widget.frame.imageUrl,
+  );
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: widget.onTap,
+    child: Container(
+      width: 52,
+      height: 58,
+      decoration: BoxDecoration(
+        color: motivaCanvas,
+        borderRadius: BorderRadius.circular(9),
+        border: Border.all(
+          color: widget.active ? greenvForest : Colors.transparent,
+          width: 2.2,
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: FutureBuilder<Uint8List>(
+        future: _bytes,
+        builder: (context, snapshot) => snapshot.hasData
+            ? Image.memory(snapshot.data!, fit: BoxFit.cover)
+            : const SizedBox.shrink(),
+      ),
+    ),
+  );
+}
+
+/// What this photograph contributed, in the same words the dashboard uses.
+final class FrameMeasurement extends StatefulWidget {
+  const FrameMeasurement({
+    required this.stretch,
+    required this.frame,
+    required this.operations,
+    super.key,
+  });
+
+  final MeasuredStretch stretch;
+  final SampledFrame frame;
+  final OperationsGateway operations;
+
+  @override
+  State<FrameMeasurement> createState() => _FrameMeasurementState();
+}
+
+final class _FrameMeasurementState extends State<FrameMeasurement> {
+  late final Future<FrameReadings?> _readings = widget.operations.frameReadings(
+    widget.stretch.sessionId,
+    widget.stretch.segmentIndex,
+    widget.frame.fileName,
+  );
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<FrameReadings?>(
+    future: _readings,
+    builder: (context, snapshot) {
+      if (snapshot.connectionState != ConnectionState.done) {
+        return const SizedBox(height: 20);
+      }
+      final readings = snapshot.hasError ? null : snapshot.data;
+      if (readings == null || readings.cellsVoted == 0) {
+        return const Text(
+          'Este quadro não votou em nenhuma célula. Ou não alcançou o piso de voxels em lugar '
+          'nenhum da faixa, ou o pacote desta medição não guardou o detalhe.',
+          style: TextStyle(fontSize: 11, color: motivaMuted, height: 1.45),
+        );
+      }
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            'O QUE ESTE QUADRO MEDIU',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.6,
+              color: motivaMuted,
+            ),
+          ),
+          const SizedBox(height: 6),
+          _Facts(
+            rows: [
+              ('Células votadas', '${readings.cellsVoted}'),
+              ('Altura mediana', centimetres(readings.extent95MedianM)),
+              ('Maior altura', centimetres(readings.extent95MaxM)),
+              if (readings.largestDisagreementM != null)
+                (
+                  'Maior discordância',
+                  centimetres(readings.largestDisagreementM),
+                ),
+            ],
+          ),
+          if (readings.evidenceForCells > 0)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                'Escolhido como evidência em ${readings.evidenceForCells} '
+                '${readings.evidenceForCells == 1 ? 'célula' : 'células'}.',
+                style: const TextStyle(fontSize: 10.5, color: motivaMuted),
+              ),
+            ),
+          const Padding(
+            padding: EdgeInsets.only(top: 4),
+            child: Text(
+              'Altura acima do solo local de cada célula. A discordância é a diferença entre o '
+              'que este quadro votou e o que a célula concluiu com todos os quadros.',
+              style: TextStyle(
+                fontSize: 10.5,
+                color: motivaMuted,
+                height: 1.45,
+              ),
+            ),
+          ),
+        ],
+      );
+    },
+  );
 }
 
 final class _Facts extends StatelessWidget {
@@ -1147,11 +1459,19 @@ final class MapScreen extends StatefulWidget {
   const MapScreen({
     required this.operations,
     required this.onNavigate,
+    this.sessionId,
+    this.onClearSession,
     super.key,
   });
 
   final OperationsGateway operations;
   final ValueChanged<MotivaPage> onNavigate;
+
+  /// When set, the map holds one session and frames itself on it. Opening a session is a
+  /// question about that outing, and every other pin is an answer to a different one.
+  final String? sessionId;
+
+  final VoidCallback? onClearSession;
 
   @override
   State<MapScreen> createState() => _MapScreenState();
@@ -1170,14 +1490,19 @@ final class _MapScreenState extends State<MapScreen> {
   Widget build(BuildContext context) => MainScaffold(
     page: MotivaPage.map,
     onNavigate: widget.onNavigate,
-    body: RemoteData<PageOf<MeasuredStretch>>(
+    body: RemoteData<List<MeasuredStretch>>(
       // One request for the pins. Each stretch is a point at its centre; the full track of a
       // session is the dashboard's job, and two hundred polylines on a phone is not a map.
-      load: () => widget.operations.stretches(limit: 200),
-      emptyWhen: (page) => page.items.where((s) => s.located).isEmpty,
-      emptyMessage: 'Nenhum trecho medido com posição ainda.',
-      builder: (context, page, _) {
-        final located = page.items.where((s) => s.located).toList();
+      key: ValueKey(widget.sessionId ?? 'todas'),
+      load: () async => widget.sessionId == null
+          ? (await widget.operations.stretches(limit: 200)).items
+          : await widget.operations.sessionStretches(widget.sessionId!),
+      emptyWhen: (rows) => rows.where((s) => s.located).isEmpty,
+      emptyMessage: widget.sessionId == null
+          ? 'Nenhum trecho medido com posição ainda.'
+          : 'Esta sessão não tem trecho com posição.',
+      builder: (context, rows, _) {
+        final located = rows.where((s) => s.located).toList();
         final points = [
           for (final s in located) LatLng(s.centreLat!, s.centreLon!),
         ];
@@ -1188,7 +1513,7 @@ final class _MapScreenState extends State<MapScreen> {
                 mapController: _controller,
                 options: MapOptions(
                   initialCenter: points.first,
-                  initialZoom: 14,
+                  initialZoom: widget.sessionId == null ? 14 : 16,
                   onMapReady: () => _controller.fitCamera(
                     CameraFit.coordinates(
                       coordinates: points,
@@ -1252,12 +1577,31 @@ final class _MapScreenState extends State<MapScreen> {
                   vertical: 10,
                 ),
                 decoration: cardDecoration(radius: 14),
-                child: Text(
-                  '${located.length} trecho${located.length == 1 ? '' : 's'} no mapa · toque num ponto',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
-                  ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        widget.sessionId == null
+                            ? '${located.length} trecho${located.length == 1 ? '' : 's'} no mapa · toque num ponto'
+                            : '${located.length} trecho${located.length == 1 ? '' : 's'} desta sessão',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    // Without a way back, a map framed on one session is a map with no exit.
+                    if (widget.sessionId != null)
+                      TextButton(
+                        key: const Key('clear-session-focus'),
+                        onPressed: widget.onClearSession,
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          minimumSize: const Size(0, 32),
+                        ),
+                        child: const Text('ver todos'),
+                      ),
+                  ],
                 ),
               ),
             ),

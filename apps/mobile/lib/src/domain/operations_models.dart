@@ -178,6 +178,69 @@ final class Reading {
   final VegetationLevel level;
 }
 
+/// One photograph a segment published, with where and when it was taken.
+final class SampledFrame {
+  const SampledFrame({
+    required this.fileName,
+    required this.canonicalFrame,
+    required this.imageUrl,
+    this.capturedAtUtc,
+    this.horizontalAccuracyMeters,
+    this.locationQuality,
+  });
+
+  factory SampledFrame.fromJson(Map<String, Object?> json) => SampledFrame(
+    fileName: json['fileName'] as String,
+    canonicalFrame: (json['canonicalFrame'] as num).toInt(),
+    imageUrl: json['imageUrl'] as String,
+    capturedAtUtc: _instant(json['capturedAtUtc']),
+    horizontalAccuracyMeters: _decimal(json['horizontalAccuracyMeters']),
+    locationQuality: json['locationQuality'] as String?,
+  );
+
+  final String fileName;
+  final int canonicalFrame;
+
+  /// Absolute, and behind the same bearer the rest of the API is behind — so it is fetched with
+  /// headers rather than handed to a plain image widget.
+  final String imageUrl;
+
+  final DateTime? capturedAtUtc;
+  final double? horizontalAccuracyMeters;
+  final String? locationQuality;
+}
+
+/// What one photograph contributed to its segment's measurement.
+///
+/// Heights are above each cell's own local ground, which is the tape-comparable figure, never
+/// above the fitted plane — that one reads higher and would inflate what a crew is told.
+final class FrameReadings {
+  const FrameReadings({
+    required this.canonicalFrame,
+    required this.cellsVoted,
+    required this.evidenceForCells,
+    this.extent95MedianM,
+    this.extent95MaxM,
+    this.largestDisagreementM,
+  });
+
+  factory FrameReadings.fromJson(Map<String, Object?> json) => FrameReadings(
+    canonicalFrame: (json['canonicalFrame'] as num).toInt(),
+    cellsVoted: (json['cellsVoted'] as num).toInt(),
+    evidenceForCells: (json['evidenceForCells'] as num? ?? 0).toInt(),
+    extent95MedianM: _decimal(json['extent95MedianM']),
+    extent95MaxM: _decimal(json['extent95MaxM']),
+    largestDisagreementM: _decimal(json['largestDisagreementM']),
+  );
+
+  final int canonicalFrame;
+  final int cellsVoted;
+  final int evidenceForCells;
+  final double? extent95MedianM;
+  final double? extent95MaxM;
+  final double? largestDisagreementM;
+}
+
 /// The counters above a list, over everything the filter selected and not over the page.
 final class ReadingsSummary {
   const ReadingsSummary({
