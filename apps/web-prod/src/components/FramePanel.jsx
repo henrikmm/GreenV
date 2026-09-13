@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react'
+import { AnimatePresence } from 'framer-motion'
+import { Maximize2 } from 'lucide-react'
 import { sessions } from '../api/greenv'
+import Lightbox from './Lightbox'
 
 /**
  * Um quadro, e o que ele mediu.
@@ -19,8 +22,18 @@ const s = {
     display: 'grid', placeItems: 'center', padding: 8, flex: '0 0 auto',
   },
   // Os quadros saem da câmera em pé, 576 por 1024. O teto é a altura e não a largura, para que
-  // um quadro em pé estreite em vez de ganhar tarjas.
-  image: { maxWidth: '100%', maxHeight: 340, borderRadius: 'var(--radius-sm)', display: 'block' },
+  // um quadro em pé estreite em vez de ganhar tarjas. Trezentos e quarenta pixels é um terço da
+  // foto, o que basta para reconhecer o trecho e não para julgar o mato: daí o clique que amplia.
+  image: {
+    maxWidth: '100%', maxHeight: 340, borderRadius: 'var(--radius-sm)', display: 'block',
+    cursor: 'zoom-in',
+  },
+  plateWrap: { position: 'relative', flex: '0 0 auto' },
+  zoomHint: {
+    position: 'absolute', right: 14, bottom: 14, width: 28, height: 28,
+    display: 'grid', placeItems: 'center', borderRadius: 8, pointerEvents: 'none',
+    background: 'rgba(16, 24, 20, 0.62)', color: 'white',
+  },
   side: { flex: '1 1 190px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 8 },
   meta: { fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.7 },
   name: { color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' },
@@ -44,6 +57,7 @@ const centimetres = (metres) => (metres != null ? `${(metres * 100).toFixed(0)} 
 
 export default function FramePanel({ frame, sessionId, segmentIndex, showSegment = false }) {
   const [readings, setReadings] = useState(null)
+  const [zoomed, setZoomed] = useState(false)
 
   // Na sessão o quadro traz o próprio trecho, porque a lista atravessa todos eles; no trecho
   // aberto o índice é fixo e vem por propriedade.
@@ -53,6 +67,7 @@ export default function FramePanel({ frame, sessionId, segmentIndex, showSegment
     if (!frame) return undefined
     let live = true
     setReadings(null)
+    setZoomed(false)
     sessions.frameReadings(sessionId, index, frame.fileName)
       .then(answer => { if (live) setReadings(answer) })
       .catch(() => { if (live) setReadings({ cellsVoted: 0 }) })
@@ -63,8 +78,17 @@ export default function FramePanel({ frame, sessionId, segmentIndex, showSegment
 
   return (
     <div style={s.head}>
-      <div style={s.plate}>
-        <img src={frame.imageUrl} alt={frame.fileName} style={s.image} />
+      <div style={s.plateWrap}>
+        <div style={s.plate}>
+          <img
+            src={frame.imageUrl}
+            alt={frame.fileName}
+            style={s.image}
+            title="Clique para ampliar"
+            onClick={() => setZoomed(true)}
+          />
+        </div>
+        <div style={s.zoomHint}><Maximize2 size={14} /></div>
       </div>
       <div style={s.side}>
         <div style={s.meta}>
@@ -118,6 +142,16 @@ export default function FramePanel({ frame, sessionId, segmentIndex, showSegment
           )}
         </div>
       </div>
+
+      <AnimatePresence>
+        {zoomed && (
+          <Lightbox
+            src={frame.imageUrl}
+            caption={`${frame.fileName}${showSegment ? ` · trecho ${index}` : ''}`}
+            onClose={() => setZoomed(false)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   )
 }
