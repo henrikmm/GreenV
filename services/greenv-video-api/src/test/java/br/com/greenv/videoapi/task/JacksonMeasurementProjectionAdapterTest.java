@@ -76,6 +76,24 @@ class JacksonMeasurementProjectionAdapterTest {
         assertThat(projection.level()).isEqualTo(3);
     }
 
+    /**
+     * The top twentieth of a mown corridor's cells is its last half metre against the guardrail,
+     * and on the first driven captures that alone held twenty of forty stretches at level 3. The
+     * stretch now stands for its 90th percentile: one tall cell in eleven no longer colours it.
+     */
+    @Test
+    void oneTallCellInElevenDoesNotColourTheStretch() {
+        String tenLowAndOneTall = assessment(
+                measured(0.05), measured(0.06), measured(0.04), measured(0.07), measured(0.05),
+                measured(0.08), measured(0.06), measured(0.05), measured(0.07), measured(0.09), measured(0.55));
+
+        var projection = adapter.project(bytes(PACKET), bytes(tenLowAndOneTall));
+
+        assertThat(projection.extent95MaxM()).isEqualTo(0.55);
+        assertThat(projection.extent95P95M()).isEqualTo(0.09);
+        assertThat(projection.level()).isEqualTo(1);
+    }
+
     @Test
     void abstainedCellsContributeNoHeight() {
         String mixed = "{\"assessment\":{\"measurements\":["
