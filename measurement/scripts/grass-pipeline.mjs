@@ -18,6 +18,19 @@ const gridDefaults = { cellSizeM: 0.5, voxelSizeM: 0.02, minFrames: 3, minVoxels
   maxHeightM: Infinity, canopyExtentM: Infinity };
 
 /**
+ * The second, coarser ground fit a caller may allow when the first finds no floor.
+ *
+ * A wet road reflects the sky, and the depth model reads the reflection as depth scattered
+ * below the surface: the true ground is then a thin layer no 3.5 cm plane can gather 1% of.
+ * On 2026-09-13 one segment's best plane held 0.80% of the cloud against that floor and the
+ * segment measured nothing, though its verge is in every frame. Twice the inlier distance and
+ * half the support floor recover a plane there at 5 degrees of tilt; the packet says the fit
+ * was relaxed, and the camera must still stand a plausible height above the result.
+ */
+const relaxedFit = { inlierDistance: 0.07, minInlierFraction: 0.005 };
+const CAMERA_ABOVE_RELAXED_PLANE_M = [0.3, 6];
+
+/**
  * The request fields a vehicle-mounted capture adds, validated and defaulted to "do nothing".
  *
  * Every default here reproduces the pipeline as it was before 2026-09-13, so a walked fixture
@@ -42,7 +55,9 @@ export function vehicleOptions(request) {
     gridOptions[key] = value;
   }
   const widthPinned = request.gridOptions?.maxDistanceFromRoadM !== undefined;
-  return { offsetSide, minTrackM, cameraHeightM, trackLengthM, minProbability, gridOptions, widthPinned };
+  const groundFallback = request.groundFallback ?? false;
+  if (typeof groundFallback !== "boolean") throw new Error("groundFallback must be true or false");
+  return { offsetSide, minTrackM, cameraHeightM, trackLengthM, minProbability, gridOptions, widthPinned, groundFallback };
 }
 
 /**
@@ -98,8 +113,21 @@ export async function runGrassPipeline(request, onProgress = () => {}, signal) {
     requested: vehicle.cameraHeightM !== null || vehicle.trackLengthM !== null,
     anchorCameraHeightM: vehicle.cameraHeightM, expectedTrackLengthM: vehicle.trackLengthM,
     measuredCameraHeightM: null, measuredTrackLengthM: null, factor: 1, applied: false, reason: "no-anchor" };
+  let relaxed = null;
   try {
-    fit = T.fitGroundPlaneRobust(cloud.points, { ...fitOptions, up: gravityUp });
+    try {
+      fit = T.fitGroundPlaneRobust(cloud.points, { ...fitOptions, up: gravityUp });
+    } catch (strict) {
+      if (!vehicle.groundFallback) throw strict;
+      // One coarser attempt, and only one: a plane the camera does not stand above is a wall or
+      // a reflection, and the first refusal stands.
+      const candidate = T.fitGroundPlaneRobust(cloud.points, { ...fitOptions, ...relaxedFit, up: gravityUp });
+      const centres = T.cameraCentres(arrays.extrinsics.data).map((p) => apply4x4(m, p));
+      const cameraAbove = T.median(centres.map((p) => T.signedHeight(candidate.plane, p)));
+      if (!(cameraAbove >= CAMERA_ABOVE_RELAXED_PLANE_M[0] && cameraAbove <= CAMERA_ABOVE_RELAXED_PLANE_M[1])) throw strict;
+      fit = candidate;
+      relaxed = { ...relaxedFit, strictError: strict.message, cameraAbovePlaneM: cameraAbove };
+    }
     positions = T.cameraCentres(arrays.extrinsics.data).map((p) => apply4x4(m, p));
     scale.measuredCameraHeightM = T.median(positions.map((p) => T.signedHeight(fit.plane, p)));
     scale.measuredTrackLengthM = polylineLength(positions.map((p) => ontoPlane(p, fit.plane))).lengthM;
@@ -121,7 +149,9 @@ export async function runGrassPipeline(request, onProgress = () => {}, signal) {
   const ground = { available: !!fit, source: "global-plane-from-recorded-glb", status: "unvalidated",
     error: groundError, plane: fit?.plane ?? null, gravityUp, gravityCoherence: rawGravity.coherence,
     rmseM: fit?.rmse ?? null, inlierFraction: fit?.inlierFraction ?? null,
-    belowFraction: fit?.belowFraction ?? null, tiltDeg: fit?.tiltDeg ?? null, fitOptions,
+    belowFraction: fit?.belowFraction ?? null, tiltDeg: fit?.tiltDeg ?? null, fitOptions: relaxed ? { ...fitOptions, ...relaxedFit } : fitOptions,
+    // Null when the first fit held; otherwise what was relaxed, why, and where the camera stands.
+    relaxedFit: relaxed,
     limitation: "A global plane cannot establish soil beneath a crowned shoulder, ditch or hidden ground." };
   const frames = [], inputs = [], images = [];
   const sharp = require("sharp");

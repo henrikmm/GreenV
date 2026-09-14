@@ -37,6 +37,8 @@ export function qualitySummary(assessment, frames, context, ground, corridor, sc
   if (Object.values(context).some((v) => v === null)) blockers.push("road-metadata-missing");
   if (corridor.source !== "surveyed") blockers.push("road-boundary-assumed");
   if (!ground.available) blockers.push("ground-unavailable");
+  // The floor was found only at twice the tolerance: a wet road, a thin ground. Say so.
+  if (ground.relaxedFit) blockers.push("ground-fit-relaxed");
   // The reconstruction never saw the vehicle move: nothing in the band is a verge.
   if (corridor.status === "degenerate") blockers.push("camera-track-too-short");
   // A scale anchor was asked for and could not be honoured, so the metres are the model's own.

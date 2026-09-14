@@ -823,8 +823,12 @@ Both default to Infinity; at 3 m and 2 m on the 43 runs they set 87 cells aside 
 1,395 more, brought those nine p95 values from 1.07–8.65 m to 0.39–1.58 m, and left 31 of 39
 banded runs without a single cell changed. The class stays `terrain,vegetation`: `terrain`
 alone reads 0.000 m on a plant taped at 0.980 m (2026-09-05), so trees are removed by height,
-not by class. Which aggregate a mowing policy takes is still the open question of
-`GRASS-QUALITY.md`. No reading here is graded against a tape.
+not by class. **A wet road hides the floor:** one segment found no ground plane (0.80% support
+against the 1% floor) because the road's reflection reads as depth scattered below the surface;
+`groundFallback` allows one coarser fit (0.07 m, 0.5%), kept only if the camera stands 0.3–6 m
+above it and named `ground-fit-relaxed`, and that segment then measures 601 cells at a p50 of
+0.28 m. Which aggregate a mowing policy takes is still the open question of `GRASS-QUALITY.md`.
+No reading here is graded against a tape.
 
 Three things the same day established about the capture rather than the pipeline: the frame
 extractor's distance grouping publishes the first 30–40 m of a 170–250 m segment at highway
