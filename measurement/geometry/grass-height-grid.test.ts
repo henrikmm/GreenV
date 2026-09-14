@@ -23,6 +23,7 @@ import {
   measureGrassHeightGrid,
   measureGrassHeightGridStaged,
   recordGrassHeightReview,
+  type GrassCellMeasurement,
   type GrassHeightAssessmentV1,
   type GrassHeightFrameInput,
   type GrassHeightGridInput,
@@ -1193,7 +1194,7 @@ describe("a one-sided band", () => {
 
 describe("the slope's foot", () => {
   // A mown 0.25 m verge out to z = 1.0 m, then an embankment climbing 0.5 m per half metre.
-  const bank = patternedSurface((x, z) => (z < 1.0 ? 0.25 : 0.25 + (z - 1.0) * 1.0));
+  const bank = patternedSurface((_x, z) => (z < 1.0 ? 0.25 : 0.25 + (z - 1.0) * 1.0));
   function bankScene(options: GrassHeightGridInput["options"]): GrassHeightGridInput {
     const frames = [0, 1, 2].map((frameIndex) =>
       nadirFrame({ frameIndex, xMin: 0.5 + HALF_VOXEL, zMin: HALF_VOXEL, columns: 125, rows: 150, surfaceYAt: bank }),
@@ -1226,5 +1227,127 @@ describe("the slope's foot", () => {
     expect(cellAt(assessment, 1.25, 1.75)?.status).toBe("measured");
     expect(assessment.reviewEvidence.slopeCellCount).toBe(0);
     expect(assessment.band.slopeRiseM).toBeNull();
+  });
+});
+
+describe("a structure standing in a cell", () => {
+  // The three-frame scene, with a fence painted over the cell at 1.75 m along, 0.75 m out — the
+  // same pixels the grass mask holds there. The cell is grass to one mask and a structure to the
+  // other, which is what a wet guardrail is to the segmentation from one frame to the next.
+  function fencedScene(options?: GrassHeightGridInput["options"], fencedFrames = [0, 1, 2]): GrassHeightGridInput {
+    const scene = threeFrameScene();
+    for (const frame of scene.frames) {
+      if (!fencedFrames.includes(frame.frameIndex)) continue;
+      const { width, height } = frame.geometryFrame;
+      const structureMask = new Uint8Array(width * height);
+      for (let v = 0; v < height; v++) {
+        for (let u = 0; u < width; u++) {
+          const x = 0.5 + HALF_VOXEL + u * PIXEL_M;
+          const z = HALF_VOXEL + v * PIXEL_M;
+          if (x >= 1.5 && x < 2.0 && z >= 0.5 && z < 1.0) structureMask[v * width + u] = 1;
+        }
+      }
+      frame.structureMask = structureMask;
+    }
+    return { ...scene, options };
+  }
+
+  it("refuses the cell enough frames saw a structure in, keeps its numbers, and leaves its neighbours measured", () => {
+    const assessment = measureGrassHeightGrid(fencedScene({ structureFrames: 3 }));
+    const fenced = cellAt(assessment, 1.75, 0.75);
+    expect(fenced?.status).toBe("structure");
+    expect(fenced?.reason).toBe("structure-stands-here");
+    expect(fenced?.structureFrames).toBe(3);
+    expect(fenced?.extent95M).not.toBeNull();
+    expect(cellAt(assessment, 1.25, 0.75)?.status).toBe("measured");
+    expect(cellAt(assessment, 1.75, 0.25)?.status).toBe("measured");
+    expect(cellAt(assessment, 1.75, 0.25)?.structureFrames).toBe(0);
+    expect(assessment.reviewEvidence.structureCellCount).toBe(1);
+    const unfenced = measureGrassHeightGrid(fencedScene());
+    expect(assessment.reviewEvidence.measuredCellCount).toBe(unfenced.reviewEvidence.measuredCellCount - 1);
+    expect(assessment.band.structureFrames).toBe(3);
+  });
+
+  it("needs as many frames as asked", () => {
+    const twoOfThree = measureGrassHeightGrid(fencedScene({ structureFrames: 3 }, [0, 1]));
+    expect(cellAt(twoOfThree, 1.75, 0.75)?.status).toBe("measured");
+    expect(cellAt(twoOfThree, 1.75, 0.75)?.structureFrames).toBe(2);
+    const twoOfTwo = measureGrassHeightGrid(fencedScene({ structureFrames: 2 }, [0, 1]));
+    expect(cellAt(twoOfTwo, 1.75, 0.75)?.status).toBe("structure");
+  });
+
+  it("never looks unless asked, and refuses a count that is not whole", () => {
+    const assessment = measureGrassHeightGrid(fencedScene());
+    expect(cellAt(assessment, 1.75, 0.75)?.status).toBe("measured");
+    expect(cellAt(assessment, 1.75, 0.75)?.structureFrames).toBeUndefined();
+    expect(assessment.reviewEvidence.structureCellCount).toBe(0);
+    expect(assessment.band.structureFrames).toBeNull();
+    expect(() => measureGrassHeightGrid(fencedScene({ structureFrames: 0.5 }))).toThrow(GrassHeightInputError);
+    expect(() => measureGrassHeightGrid(fencedScene({ structureFrames: 0 }))).toThrow(GrassHeightInputError);
+  });
+
+  it("does not let a structure's foot pass for a slope's", () => {
+    // The bank scene's foot is one cell out from a fence standing on the verge; the fence's own
+    // ground would be a step of its own, so it is left out of the climb and the foot stays put.
+    const bank = patternedSurface((_x, z) => (z < 1.0 ? 0.25 : 0.25 + (z - 1.0) * 1.0));
+    const frames = [0, 1, 2].map((frameIndex) =>
+      nadirFrame({ frameIndex, xMin: 0.5 + HALF_VOXEL, zMin: HALF_VOXEL, columns: 125, rows: 150, surfaceYAt: bank }),
+    );
+    for (const frame of frames) {
+      const { width, height } = frame.geometryFrame;
+      const structureMask = new Uint8Array(width * height);
+      for (let v = 0; v < height; v++) {
+        for (let u = 0; u < width; u++) {
+          const x = 0.5 + HALF_VOXEL + u * PIXEL_M;
+          const z = HALF_VOXEL + v * PIXEL_M;
+          if (x >= 1.0 && x < 1.5 && z >= 0.5 && z < 1.0) structureMask[v * width + u] = 1;
+        }
+      }
+      frame.structureMask = structureMask;
+    }
+    const scene = { ...threeFrameScene(), frames, options: { maxDistanceFromRoadM: 3.0, slopeRiseM: 0.1, structureFrames: 3 } };
+    const assessment = measureGrassHeightGrid(scene);
+    expect(cellAt(assessment, 1.25, 0.75)?.status).toBe("structure");
+    expect(cellAt(assessment, 1.25, 1.25)?.status).toBe("measured");
+    expect(cellAt(assessment, 1.25, 1.75)?.status).toBe("slope");
+    expect(cellAt(assessment, 1.25, 2.25)?.status).toBe("slope");
+  });
+});
+
+describe("past the road edge's ends", () => {
+  // The three-frame scene spans x in [0.5, 3.0) beside a road edge cut short to x in [1, 2]:
+  // half a metre of grass lies before its start and a metre beyond its end.
+  const SHORT_EDGE: Vec3[] = [
+    [1, 0, 0],
+    [2, 0, 0],
+  ];
+
+  it("folds a point past an end onto that end by default, and drops it when asked", () => {
+    const folded = measureGrassHeightGrid(threeFrameScene({ roadEdgeWorld: SHORT_EDGE }));
+    const dropped = measureGrassHeightGrid(threeFrameScene({ roadEdgeWorld: SHORT_EDGE, options: { pastEnds: "drop" } }));
+    expect(folded.band.pastEnds).toBe("fold");
+    expect(dropped.band.pastEnds).toBe("drop");
+    // Folded, the overshoot becomes distance and the end cells reach out past the 1.5 m of grass
+    // the scene actually holds. Dropped, nothing lies further out than the scene does.
+    const farthest = (a: GrassHeightAssessmentV1) => Math.max(...a.measurements.map((c) => c.coordinate.distanceFromRoadM));
+    expect(farthest(folded)).toBeGreaterThan(1.5);
+    expect(farthest(dropped)).toBeLessThanOrEqual(1.25);
+    // Every cell the drop keeps, the fold had; the end cells held more when they took the overshoot.
+    const key = (c: GrassCellMeasurement) => `${c.coordinate.alongRoadM},${c.coordinate.distanceFromRoadM}`;
+    const foldedKeys = new Set(folded.measurements.map(key));
+    for (const cell of dropped.measurements) expect(foldedKeys.has(key(cell))).toBe(true);
+    expect(cellAt(folded, 0.75, 0.25)!.sampleCount).toBeGreaterThan(cellAt(dropped, 0.75, 0.25)!.sampleCount);
+    expect(cellAt(folded, 0.25, 0.25)!.sampleCount).toBeGreaterThan(cellAt(dropped, 0.25, 0.25)!.sampleCount);
+  });
+
+  it("changes nothing when the edge spans the scene", () => {
+    const folded = measureGrassHeightGrid(threeFrameScene());
+    const dropped = measureGrassHeightGrid(threeFrameScene({ options: { pastEnds: "drop" } }));
+    expect(dropped.measurements).toEqual(folded.measurements);
+  });
+
+  it("refuses a treatment it does not know", () => {
+    // @ts-expect-error a treatment the grid does not know
+    expect(() => measureGrassHeightGrid(threeFrameScene({ options: { pastEnds: "clamp" } }))).toThrow(GrassHeightInputError);
   });
 });

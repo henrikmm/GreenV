@@ -15,7 +15,8 @@ const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const fitOptions = { maxTiltDeg: 30, inlierDistance: 0.035, iterations: 1200, stride: 16,
   minInliers: 100, minInlierFraction: 0.01, proposalFractions: [1, 0.35], maxBelowFraction: 0.2, seed: 7 };
 const gridDefaults = { cellSizeM: 0.5, voxelSizeM: 0.02, minFrames: 3, minVoxelsPerFrame: 20, maxDistanceFromRoadM: 5,
-  maxHeightM: Infinity, canopyExtentM: Infinity, canopyGapM: Infinity, datum: "pooled", bandSide: "both", slopeRiseM: Infinity };
+  maxHeightM: Infinity, canopyExtentM: Infinity, canopyGapM: Infinity, datum: "pooled", bandSide: "both", slopeRiseM: Infinity,
+  structureFrames: Infinity, pastEnds: "fold" };
 
 /**
  * The second, coarser ground fit a caller may allow when the first finds no floor.
@@ -58,6 +59,16 @@ export function vehicleOptions(request) {
     if (key === "bandSide") {
       if (!["both", "positive", "negative"].includes(value)) throw new Error(`grid option bandSide must be "both", "positive" or "negative"`);
       gridOptions.bandSide = value;
+      continue;
+    }
+    if (key === "pastEnds") {
+      if (value !== "fold" && value !== "drop") throw new Error(`grid option pastEnds must be "fold" or "drop"`);
+      gridOptions.pastEnds = value;
+      continue;
+    }
+    if (key === "structureFrames") {
+      if (!(value === Infinity || (Number.isInteger(value) && value >= 1))) throw new Error("grid option structureFrames must be a whole number of frames, at least 1");
+      gridOptions.structureFrames = value;
       continue;
     }
     const ceiling = key === "maxHeightM" || key === "canopyExtentM" || key === "canopyGapM" || key === "slopeRiseM";
@@ -195,11 +206,15 @@ export async function runGrassPipeline(request, onProgress = () => {}, signal) {
       frame.sourceWidth = result.frame.width; frame.sourceHeight = result.frame.height;
       const mask = T.grassMaskFromLogits(result.logits, { roles, ...(vehicle.minProbability === null ? {} : { minProbability: vehicle.minProbability }) });
       let droppedNearStructure = 0;
+      // Where the excluded classes stand on the logit grid: taken out of the grass mask with a
+      // margin here, and handed to the grid whole so a cell one stands in can be refused even in
+      // the frames that called it grass.
+      let structure = null;
       if (excludeNearIds.size) {
         // The excluded classes, grown by `excludeNearPx` on the logit grid, taken out of the mask.
         const map = T.classMapFromLogits(result.logits);
         const w = map.width, h = map.height, r = vehicle.excludeNearPx;
-        const structure = new Uint8Array(w * h);
+        structure = new Uint8Array(w * h);
         for (let p = 0; p < w * h; p++) if (excludeNearIds.has(map.classIds[p])) structure[p] = 1;
         for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
           const p = y * w + x;
@@ -217,9 +232,11 @@ export async function runGrassPipeline(request, onProgress = () => {}, signal) {
       frame.mask = { width: mask.width, height: mask.height, runs: encodeRuns(mask.mask), sha256: hash(mask.mask) };
       frame.semantic = { kind: "semantic", modelId: DEFAULT_MODEL.id, modelRevision: DEFAULT_MODEL.revision,
         runtime: DEFAULT_MODEL.runtime, device: "cpu", probabilityFloor: mask.minProbability, classes: semanticClasses,
-        excludedNear: excludeNearIds.size ? { classes: vehicle.excludeNear, radiusPx: vehicle.excludeNearPx, dropped: droppedNearStructure } : null,
+        excludedNear: excludeNearIds.size ? { classes: vehicle.excludeNear, radiusPx: vehicle.excludeNearPx, dropped: droppedNearStructure,
+          structurePixels: structure.reduce((n, v) => n + v, 0) } : null,
         counts: mask.counts, inferenceMs: result.timing.inferMs, modelLoadMs: result.timing.loadMs };
-      inputs.push({ frameIndex: i, geometryFrame: geometryFrames[i], grassMask: mask.mask, maskWidth: mask.width, maskHeight: mask.height });
+      inputs.push({ frameIndex: i, geometryFrame: geometryFrames[i], grassMask: mask.mask, maskWidth: mask.width, maskHeight: mask.height,
+        ...(structure ? { structureMask: structure } : {}) });
     } catch (error) { check(); frame.status = "failed"; frame.error = error.message; }
     const thumbnail = await sharp(bytes).resize({ width: 480, height: 480, fit: "inside", withoutEnlargement: true }).jpeg({ quality: 78 }).toBuffer();
     images.push(`data:image/jpeg;base64,${thumbnail.toString("base64")}`);

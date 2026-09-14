@@ -56,6 +56,8 @@ export function qualitySummary(assessment, frames, context, ground, corridor, sc
     canopyCells: assessment?.reviewEvidence.canopyCellCount ?? 0,
     // Cells from a slope's foot outward: the embankment, kept with their numbers, aggregated nowhere.
     slopeCells: assessment?.reviewEvidence.slopeCellCount ?? 0,
+    // Cells enough frames saw a fence, a wall, a pole or a building standing in: the same.
+    structureCells: assessment?.reviewEvidence.structureCellCount ?? 0,
     observedCellCoverage: assessment?.reviewEvidence.coverageFraction ?? 0,
     intendedAreaCoverage: null,
     missingAreaMeaning: "unknown: unobserved, occluded, excluded or no grass; not short grass",

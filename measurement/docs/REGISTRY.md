@@ -860,6 +860,22 @@ p95 0.82 → 0.17 m, the flat run untouched. GreenV's own aggregate moved from t
 gave 6/14/20. Which aggregate a mowing policy takes is still the open question of
 `GRASS-QUALITY.md`. No reading here is graded against a tape.
 
+**A cell a structure stands in is refused, whatever the frames that missed it say, and nothing
+past the track's ends is measured.** A wet guardrail or a concrete barrier is `fence` or `wall`
+to the segmentation in some frames and `terrain` in the rest — Cityscapes' *guard rail* label is
+not among the nineteen classes the model predicts — and the frames that call it grass measure
+it, 0.7–0.8 m agreed across twenty frames, because that is its height. `structureFrames`
+back-projects each frame's structure pixels whole into the same cells as its grass; a cell that
+many frames landed `minVoxelsPerFrame` structure voxels in is `status: "structure"`, kept,
+aggregated nowhere, out of the slope search. Three frames, the measurement's own bar: on
+`11/10` 55 of 78 tall cells, at one frame 22 short cells would go for 14 tall. `pastEnds:
+"drop"` discards a point past either end of the road edge instead of folding it onto the end,
+where the overshoot became distance and a rail one metre out filled the last column at every
+distance. `11/10` p90 0.59 → 0.20 m; `7e/2` 0.55 → 0.55, because its second half is a guardrail
+no frame calls anything but terrain — the model's confidence, a stacking metric, a ground step
+and a 1024 input were each tried there and none separates a 0.6 m rail from a 0.6 m stand
+([evidence/2026-09-13-car-mount.md](evidence/2026-09-13-car-mount.md), last two sections).
+
 Three things the same day established about the capture rather than the pipeline: the frame
 extractor's distance grouping publishes the first 30–40 m of a 170–250 m segment at highway
 speed, so four fifths of the road never reaches the model; the manifest's per-frame
