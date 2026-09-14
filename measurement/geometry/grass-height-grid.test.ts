@@ -1171,3 +1171,22 @@ describe("a crown floats, a plant does not", () => {
     expect(measureGrassHeightGrid(scene(crown, undefined)).band.canopyGapM).toBeNull();
   });
 });
+
+describe("a one-sided band", () => {
+  // The three-frame scene lies at z in [0, 1.5) beside an edge along +x at z = 0. Travel is +x,
+  // the plane normal +y, so cross(normal, travel) = (0,0,-1): the scene is on the NEGATIVE side.
+  it("keeps the vegetation's side and drops the other, and folds both by default", () => {
+    const both = measureGrassHeightGrid(threeFrameScene());
+    const negative = measureGrassHeightGrid(threeFrameScene({ options: { bandSide: "negative" } }));
+    const positive = measureGrassHeightGrid(threeFrameScene({ options: { bandSide: "positive" } }));
+    expect(both.measurements.filter((c) => c.status === "measured").length).toBeGreaterThan(4);
+    expect(negative.measurements.map((c) => c.coordinate)).toEqual(both.measurements.map((c) => c.coordinate));
+    expect(positive.measurements.length).toBe(0);
+    expect(both.band.bandSide).toBe("both");
+    expect(negative.band.bandSide).toBe("negative");
+  });
+  it("refuses a side it does not know", () => {
+    // @ts-expect-error a side the grid does not know
+    expect(() => measureGrassHeightGrid(threeFrameScene({ options: { bandSide: "left" } }))).toThrow(GrassHeightInputError);
+  });
+});

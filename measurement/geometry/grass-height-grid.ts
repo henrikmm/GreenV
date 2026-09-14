@@ -156,6 +156,18 @@ export interface GrassHeightGridOptions {
    * Infinity, the default, never looks.
    */
   canopyGapM?: number;
+  /**
+   * Which side of the road edge the band lies on.
+   *
+   * `both`, the default, folds the two sides together: a distance from the edge is unsigned,
+   * which is how every graded fixture was measured and what a walk beside a garden bed needs.
+   * A vehicle knows its side — the edge was placed on the vegetation's side of the camera
+   * track — and the other side is the road, which in rain the segmentation calls vegetation
+   * (a wet surface reflects the trees). Sides are signed along `cross(normal, travel)`, the
+   * direction a positive offset moves the edge, so an edge offset outward by a negative amount
+   * has its verge on the `negative` side.
+   */
+  bandSide?: "both" | "positive" | "negative";
 }
 
 const DEFAULTS: Required<GrassHeightGridOptions> = {
@@ -168,6 +180,7 @@ const DEFAULTS: Required<GrassHeightGridOptions> = {
   canopyExtentM: Infinity,
   datum: "pooled",
   canopyGapM: Infinity,
+  bandSide: "both",
 };
 
 export interface GrassHeightFrameInput {
@@ -288,6 +301,8 @@ export interface GrassHeightAssessmentV1 {
     canopyGapM: number | null;
     /** Whether each cell's ground came from all its frames together or from each frame alone. */
     datum: "pooled" | "per-frame";
+    /** Whether the band folds both sides of the edge together or keeps one. */
+    bandSide: "both" | "positive" | "negative";
   };
   measurements: GrassCellMeasurement[];
   reviewEvidence: {
@@ -349,6 +364,8 @@ export class GrassHeightInputError extends Error {
 interface RoadStation {
   alongRoadM: number;
   distanceFromRoadM: number;
+  /** +1 on the side a positive offset moves the edge to, -1 on the other, 0 on the line. */
+  side: -1 | 0 | 1;
 }
 
 /**
@@ -425,6 +442,7 @@ function buildRoadFrame(roadEdgeWorld: Vec3[], plane: Plane): RoadFrame {
 function stationOf(u: number, v: number, road: RoadFrame): RoadStation {
   let bestDistance = Infinity;
   let bestAlong = 0;
+  let bestSide: -1 | 0 | 1 = 0;
   for (let i = 1; i < road.vertices.length; i++) {
     const [ax, ay] = road.vertices[i - 1];
     const [bx, by] = road.vertices[i];
@@ -442,9 +460,13 @@ function stationOf(u: number, v: number, road: RoadFrame): RoadStation {
     if (distance < bestDistance) {
       bestDistance = distance;
       bestAlong = road.station[i - 1] + Math.hypot(cx - ax, cy - ay);
+      // The perpendicular (-dy, dx) is cross(normal, travel) in the plane's own basis, so this
+      // sign is the sign `roadEdgeFromCameraTrack` gives a positive offset.
+      const lateral = (u - ax) * -dy + (v - ay) * dx;
+      bestSide = lateral > 0 ? 1 : lateral < 0 ? -1 : 0;
     }
   }
-  return { alongRoadM: bestAlong, distanceFromRoadM: bestDistance };
+  return { alongRoadM: bestAlong, distanceFromRoadM: bestDistance, side: bestSide };
 }
 
 /**
@@ -573,6 +595,7 @@ function observationsFor(
     const flat = projectOntoPlane(point, plane);
     const station = stationOf(dot(flat, road.e1), dot(flat, road.e2), road);
     if (station.distanceFromRoadM > options.maxDistanceFromRoadM) continue;
+    if (options.bandSide !== "both" && station.side !== (options.bandSide === "positive" ? 1 : -1)) continue;
 
     // Voxels are quantised in ROAD-LOCAL space, not world space. A world-space grid is
     // pinned to the origin, so translating the scene slides points across voxel walls and
@@ -709,6 +732,9 @@ function resolveOptions(options: GrassHeightGridOptions | undefined): Required<G
   }
   if (resolved.datum !== "pooled" && resolved.datum !== "per-frame") {
     throw new GrassHeightInputError(`datum must be "pooled" or "per-frame", got ${JSON.stringify(resolved.datum)}`);
+  }
+  if (!["both", "positive", "negative"].includes(resolved.bandSide)) {
+    throw new GrassHeightInputError(`bandSide must be "both", "positive" or "negative", got ${JSON.stringify(resolved.bandSide)}`);
   }
   return resolved;
 }
@@ -1068,6 +1094,7 @@ function reduceCells(
       canopyExtentM: Number.isFinite(options.canopyExtentM) ? options.canopyExtentM : null,
       canopyGapM: Number.isFinite(options.canopyGapM) ? options.canopyGapM : null,
       datum: options.datum,
+      bandSide: options.bandSide,
     },
     measurements,
     reviewEvidence: buildReviewEvidence(measurements),

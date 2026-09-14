@@ -15,7 +15,7 @@ const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const fitOptions = { maxTiltDeg: 30, inlierDistance: 0.035, iterations: 1200, stride: 16,
   minInliers: 100, minInlierFraction: 0.01, proposalFractions: [1, 0.35], maxBelowFraction: 0.2, seed: 7 };
 const gridDefaults = { cellSizeM: 0.5, voxelSizeM: 0.02, minFrames: 3, minVoxelsPerFrame: 20, maxDistanceFromRoadM: 5,
-  maxHeightM: Infinity, canopyExtentM: Infinity, canopyGapM: Infinity, datum: "pooled" };
+  maxHeightM: Infinity, canopyExtentM: Infinity, canopyGapM: Infinity, datum: "pooled", bandSide: "both" };
 
 /**
  * The second, coarser ground fit a caller may allow when the first finds no floor.
@@ -55,6 +55,11 @@ export function vehicleOptions(request) {
       gridOptions.datum = value;
       continue;
     }
+    if (key === "bandSide") {
+      if (!["both", "positive", "negative"].includes(value)) throw new Error(`grid option bandSide must be "both", "positive" or "negative"`);
+      gridOptions.bandSide = value;
+      continue;
+    }
     const ceiling = key === "maxHeightM" || key === "canopyExtentM" || key === "canopyGapM";
     if (!(value > 0) || (!ceiling && !Number.isFinite(value))) throw new Error(`grid option ${key} must be a positive number`);
     gridOptions[key] = value;
@@ -62,7 +67,16 @@ export function vehicleOptions(request) {
   const widthPinned = request.gridOptions?.maxDistanceFromRoadM !== undefined;
   const groundFallback = request.groundFallback ?? false;
   if (typeof groundFallback !== "boolean") throw new Error("groundFallback must be true or false");
-  return { offsetSide, minTrackM, cameraHeightM, trackLengthM, minProbability, gridOptions, widthPinned, groundFallback };
+  // Pixels next to a fence, a wall, a pole or a building are not measured. At 128x128 logits
+  // one class pixel is 4.5 by 8 photograph pixels, and the grass beside a guardrail carries the
+  // rail's lower edge with it: on 2026-09-13 the tallest cells of a mown strip were the strip's
+  // last half metre against the rail, 40-57 cm where the strip read 3-9. Empty, the default,
+  // excludes nothing.
+  const excludeNear = [...new Set(String(request.excludeNearClasses ?? "").split(",").map((v) => v.trim()).filter(Boolean))];
+  const excludeNearPx = request.excludeNearPx ?? 1;
+  if (!Number.isInteger(excludeNearPx) || excludeNearPx < 0 || excludeNearPx > 8) throw new Error("excludeNearPx must be a whole number of logit pixels, 0 to 8");
+  const bandSidePinned = request.gridOptions?.bandSide !== undefined;
+  return { offsetSide, minTrackM, cameraHeightM, trackLengthM, minProbability, gridOptions, widthPinned, groundFallback, excludeNear, excludeNearPx, bandSidePinned };
 }
 
 /**
@@ -98,6 +112,9 @@ export async function runGrassPipeline(request, onProgress = () => {}, signal) {
   const run = resolveRun(request.runId);
   const T = await typed();
   const { wanted: semanticClasses, roles } = rolesFor(request.classes ?? ["terrain"], T.CITYSCAPES_LABELS);
+  const unknownNear = vehicle.excludeNear.filter((label) => !T.CITYSCAPES_LABELS.includes(label));
+  if (unknownNear.length) throw new Error(`unknown Cityscapes label(s) in excludeNearClasses: ${unknownNear.join(", ")}`);
+  const excludeNearIds = new Set(vehicle.excludeNear.map((label) => T.CITYSCAPES_LABELS.indexOf(label)));
   progress("reading", 0, 0);
   const arrays = await readArrays(run);
   const geometryFrames = T.framesFromArrays(arrays);
@@ -177,10 +194,30 @@ export async function runGrassPipeline(request, onProgress = () => {}, signal) {
       check();
       frame.sourceWidth = result.frame.width; frame.sourceHeight = result.frame.height;
       const mask = T.grassMaskFromLogits(result.logits, { roles, ...(vehicle.minProbability === null ? {} : { minProbability: vehicle.minProbability }) });
+      let droppedNearStructure = 0;
+      if (excludeNearIds.size) {
+        // The excluded classes, grown by `excludeNearPx` on the logit grid, taken out of the mask.
+        const map = T.classMapFromLogits(result.logits);
+        const w = map.width, h = map.height, r = vehicle.excludeNearPx;
+        const structure = new Uint8Array(w * h);
+        for (let p = 0; p < w * h; p++) if (excludeNearIds.has(map.classIds[p])) structure[p] = 1;
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+          const p = y * w + x;
+          if (!mask.mask[p]) continue;
+          let near = false;
+          for (let dy = -r; dy <= r && !near; dy++) for (let dx = -r; dx <= r && !near; dx++) {
+            const yy = y + dy, xx = x + dx;
+            if (yy >= 0 && yy < h && xx >= 0 && xx < w && structure[yy * w + xx]) near = true;
+          }
+          if (near) { mask.mask[p] = 0; droppedNearStructure += 1; }
+        }
+        mask.counts.kept -= droppedNearStructure;
+      }
       frame.status = mask.counts.kept ? "segmented" : "no-grass-detected";
       frame.mask = { width: mask.width, height: mask.height, runs: encodeRuns(mask.mask), sha256: hash(mask.mask) };
       frame.semantic = { kind: "semantic", modelId: DEFAULT_MODEL.id, modelRevision: DEFAULT_MODEL.revision,
         runtime: DEFAULT_MODEL.runtime, device: "cpu", probabilityFloor: mask.minProbability, classes: semanticClasses,
+        excludedNear: excludeNearIds.size ? { classes: vehicle.excludeNear, radiusPx: vehicle.excludeNearPx, dropped: droppedNearStructure } : null,
         counts: mask.counts, inferenceMs: result.timing.inferMs, modelLoadMs: result.timing.loadMs };
       inputs.push({ frameIndex: i, geometryFrame: geometryFrames[i], grassMask: mask.mask, maskWidth: mask.width, maskHeight: mask.height });
     } catch (error) { check(); frame.status = "failed"; frame.error = error.message; }
@@ -213,6 +250,9 @@ export async function runGrassPipeline(request, onProgress = () => {}, signal) {
       const profile = lateralProfile(sample, track, fit.plane.normal, fit.plane);
       Object.assign(band, chooseBand(profile, { offsetM: request.offsetM ?? 2, widthM: vehicle.gridOptions.maxDistanceFromRoadM }));
       if (band.side !== "given" && !vehicle.widthPinned) vehicle.gridOptions.maxDistanceFromRoadM = band.widthM;
+      // The edge was placed on the vegetation's side of the track, so the band need not fold the
+      // road in with it: the verge continues outward from the edge, on the offset's own sign.
+      if (band.side !== "given" && !vehicle.bandSidePinned) vehicle.gridOptions.bandSide = band.offsetM > 0 ? "positive" : "negative";
     }
     try {
       edge = T.roadEdgeFromCameraTrack(positions, fit.plane, band.offsetM);

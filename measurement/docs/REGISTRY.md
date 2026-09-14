@@ -841,9 +841,16 @@ through. `maxDistanceFromRoadM: 5.5` from the auto-placed edge holds the band to
 mowing corridor instead of the slope behind it. All three off by default. On the 43 runs
 together: 40 measured, 17,699 cells, p50 2–18 cm on 37 of them, dashboard levels 7/11/22 where
 the previous round had 34 at level 3. The guardrail top in `0f/1`, 0.51 m in the model against
-a 0.70–0.75 m standard, agrees with the GPS anchor's ×1.28; scale was not the inflation. Which
-aggregate a mowing policy takes is still the open question of `GRASS-QUALITY.md`. No reading
-here is graded against a tape.
+a 0.70–0.75 m standard, agrees with the GPS anchor's ×1.28; scale was not the inflation. Two
+more, the same day: the tallest cells of a mown strip were its last half metre against the
+guardrail, the rail's lower edge carried by the `terrain` beside it at 128×128 logits, so
+`excludeNearClasses` drops mask pixels within a radius of a named class (one pixel of
+`fence,wall,pole,building` takes `11/7` from 31 to 29 cm, three would take it to 24 but eats
+vegetation beside any wall); and a wet road reads as `vegetation` (a fifth of a frame), which a
+band folding both sides of the edge counted as 0 cm cells, so `bandSide` keeps the vegetation's
+side alone — 17,699 cells to 17,060, four segments just past 30 cm down to level 2, levels
+6/14/20. Which aggregate a mowing policy takes is still the open question of
+`GRASS-QUALITY.md`. No reading here is graded against a tape.
 
 Three things the same day established about the capture rather than the pipeline: the frame
 extractor's distance grouping publishes the first 30–40 m of a 170–250 m segment at highway
