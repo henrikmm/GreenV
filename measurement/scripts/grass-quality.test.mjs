@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { encodeRuns, decodeRuns, roadContext, qualitySummary, compareAssessments } from './grass-quality.mjs';
 import { renderGrassReport } from './grass-report.mjs';
 import { scoreSemanticMask } from '../geometry/semantic-mask';
-import { rolesFor } from './grass-pipeline.mjs';
+import { rolesFor, vehicleOptions } from './grass-pipeline.mjs';
 describe('quality evidence',()=>{
   it('keeps missing grass in the denominator and cannot promote a plausible result',()=>{
     const q=qualitySummary({measurements:[{status:'measured',h95M:.35,h95SpreadM:.1}],reviewEvidence:{coverageFraction:1,abstainedCellCount:0}},[{status:'no-grass-detected'},{status:'failed'}],roadContext(),{available:true},{source:'camera-track-offset'});
@@ -51,5 +51,22 @@ describe('semantic class policy',()=>{
     expect(()=>rolesFor(['grass'],LABELS)).toThrow('unknown Cityscapes label(s) grass');
     expect(()=>rolesFor([],LABELS)).toThrow('at least one');
     expect(()=>rolesFor(' , ',LABELS)).toThrow('at least one');
+  });
+});
+
+describe('a second model asked what is not grass', () => {
+  it('is off by default, needs its classes, and must be a registered model', () => {
+    const off = vehicleOptions({});
+    expect([off.structureModel, off.structureClasses]).toEqual([null, []]);
+    const on = vehicleOptions({ structureModel: 'ade20k-b4', structureClasses: 'fence, railing,wall,fence' });
+    expect([on.structureModel, on.structureClasses]).toEqual(['ade20k-b4', ['fence', 'railing', 'wall']]);
+    expect(() => vehicleOptions({ structureModel: 'ade20k-b4' })).toThrow(/structureClasses/);
+    expect(() => vehicleOptions({ structureClasses: 'fence' })).toThrow(/structureModel/);
+    expect(() => vehicleOptions({ structureModel: 'nope', structureClasses: 'fence' })).toThrow(/unknown model/);
+    expect(on.structureFloor).toBe(0.5);
+    expect(() => vehicleOptions({ structureFloor: 1.5 })).toThrow(/structureFloor/);
+    expect(() => vehicleOptions({ gridOptions: { structureFrames: 0.5 } })).toThrow(/structureFrames/);
+    expect(() => vehicleOptions({ gridOptions: { pastEnds: 'clamp' } })).toThrow(/pastEnds/);
+    expect(vehicleOptions({ gridOptions: { structureFrames: 3, pastEnds: 'drop' } }).gridOptions).toMatchObject({ structureFrames: 3, pastEnds: 'drop' });
   });
 });

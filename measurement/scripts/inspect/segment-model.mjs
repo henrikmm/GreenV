@@ -27,6 +27,15 @@ export const MODEL_CACHE = process.env.VERGE_MODEL_CACHE ?? join(REPO, ".models"
  * on run `20260814-174814-b245bc` frame 80 (2026-09-04) B2 labelled 9.74% of a garden frame
  * `road` and what it was looking at was a wall, where B0 gave the same class 0.05%. B2 is kept
  * here so that finding can be reproduced, not because anything should use it.
+ *
+ * The ADE20K models are not grass models: they are the second opinion on what is NOT grass.
+ * Cityscapes leaves its guard-rail label out of the nineteen classes its models predict, so a
+ * highway W-beam or a concrete barrier is `terrain` to the Cityscapes B0 in many frames. ADE20K
+ * has 150 classes, `fence`, `railing`, `wall` and `bannister` among them, and on 2026-09-14 its
+ * B2 and B4 painted the rail of `20260913-161156-40b383` frame 60 `fence` and the barrier of
+ * frame 23 `wall` where the Cityscapes model said grass. B4 (246 MB) runs no slower than B2
+ * (106 MB) on this CPU — 869 against 886 ms a frame over five frames, the decoder is the cost —
+ * and finds a little more of the rail, so B4 is the one the pipeline is pointed at.
  */
 export const SEGMENTATION_MODELS = [
   {
@@ -40,6 +49,20 @@ export const SEGMENTATION_MODELS = [
     key: "cityscapes-b2",
     id: "Xenova/segformer-b2-finetuned-cityscapes-1024-1024",
     revision: "178592c2b7cd2025e0d5e8c32a5356f36fbde311",
+    runtime: "@huggingface/transformers@3.8.1",
+    default: false,
+  },
+  {
+    key: "ade20k-b2",
+    id: "Xenova/segformer-b2-finetuned-ade-512-512",
+    revision: "df795789e70f4089c8658907679c6fd2367c89a5",
+    runtime: "@huggingface/transformers@3.8.1",
+    default: false,
+  },
+  {
+    key: "ade20k-b4",
+    id: "Xenova/segformer-b4-finetuned-ade-512-512",
+    revision: "0f92f0b465567a1a1f004ec33110992b6158edbc",
     runtime: "@huggingface/transformers@3.8.1",
     default: false,
   },
@@ -69,16 +92,17 @@ export function findModel(key) {
   return model;
 }
 
-let loaded = null;
+/** Every model loaded so far, by key: a pipeline running two of them per frame keeps both warm. */
+const loaded = new Map();
 
 /**
- * Load the model once per process, from the cache only.
+ * Load a model once per process, from the cache only.
  *
  * `allowRemoteModels = false` is the whole point: it turns a missing download into an error
  * naming the fix, instead of a silent network call from a tool that promises never to make one.
  */
 async function load(model) {
-  if (loaded?.key === model.key) return loaded;
+  if (loaded.has(model.key)) return loaded.get(model.key);
 
   if (!existsSync(model.cachedAt(MODEL_CACHE))) {
     throw new Error(`${model.id} is not cached — run \`node scripts/fetch-model.mjs\` once (free, ~15 MB)`);
@@ -98,8 +122,18 @@ async function load(model) {
   const started = Date.now();
   const runner = await AutoModelForSemanticSegmentation.from_pretrained(model.id, { revision: model.revision });
   const processor = await AutoProcessor.from_pretrained(model.id, { revision: model.revision });
-  loaded = { key: model.key, model, runner, processor, RawImage, loadMs: Date.now() - started };
-  return loaded;
+  // The checkpoint's own class names, by id. ADE20K spells a class with its synonyms
+  // ("building, edifice"); the first name is the one a request can ask for.
+  const count = Object.keys(runner.config.id2label ?? {}).length;
+  const labels = Array.from({ length: count }, (_, id) => String(runner.config.id2label[id]).split(",")[0].trim());
+  const entry = { key: model.key, model, runner, processor, RawImage, labels, loadMs: Date.now() - started };
+  loaded.set(model.key, entry);
+  return entry;
+}
+
+/** The class names a model predicts, in id order, read from its own config. Loads it if needed. */
+export async function modelLabels(model = DEFAULT_MODEL) {
+  return (await load(model)).labels;
 }
 
 /**
@@ -112,7 +146,7 @@ async function load(model) {
  * covers roughly 4.5 by 8 source pixels, and that is the honest resolution of this instrument.
  */
 export async function segmentFrame(framePath, model = DEFAULT_MODEL) {
-  const { runner, processor, RawImage, loadMs } = await load(model);
+  const { runner, processor, RawImage, labels, loadMs } = await load(model);
   const image = await RawImage.read(framePath);
   const inputs = await processor(image);
   const started = Date.now();
@@ -125,5 +159,6 @@ export async function segmentFrame(framePath, model = DEFAULT_MODEL) {
     frame: { width: image.width, height: image.height },
     timing: { loadMs, inferMs },
     model,
+    labels,
   };
 }

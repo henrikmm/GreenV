@@ -876,6 +876,18 @@ no frame calls anything but terrain — the model's confidence, a stacking metri
 and a 1024 input were each tried there and none separates a 0.6 m rail from a 0.6 m stand
 ([evidence/2026-09-13-car-mount.md](evidence/2026-09-13-car-mount.md), last two sections).
 
+**A second segmentation, trained on ADE20K, is asked only what is not grass.** ADE20K's 150
+classes include `fence`, `railing`, `wall` and `bannister`, and its guardrails are annotated
+`fence` (MSeg relabelled them out of that class). `structureModel: "ade20k-b4"` runs
+`Xenova/segformer-b4-finetuned-ade-512-512` (pinned, 246 MB, 0.9 s a frame on CPU, no slower
+than B2) beside the Cityscapes B0, which still decides what is grass; the pixels whose summed
+probability over `structureClasses` reaches `structureFloor` (0.5) join the structure map, out
+of the mask with the margin and into the cells `structureFrames` counts. `7e/2` p90 0.55 →
+0.05 m, its barrier-and-rail line `structure` end to end; `11/10` 0.20 → 0.16, the rail in fog
+still grass to both models in two of the frames that see it. Recorded per frame in
+`frame.semantic.structureModel`. At 1024 input the same model takes 12.8 s a frame: not taken.
+Evidence: the section "A second model that knows a fence" of the same file.
+
 Three things the same day established about the capture rather than the pipeline: the frame
 extractor's distance grouping publishes the first 30–40 m of a 170–250 m segment at highway
 speed, so four fifths of the road never reaches the model; the manifest's per-frame

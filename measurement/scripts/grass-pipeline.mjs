@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 import { basename } from "node:path";
 import { typed } from "./inspect/typed.mjs";
 import { resolveRun, readArrays, readCloud, frameFiles, readManifest, readMeasurementEvidence } from "./inspect/source.mjs";
-import { segmentFrame, DEFAULT_MODEL, MODEL_CACHE } from "./inspect/segment-model.mjs";
+import { segmentFrame, findModel, modelLabels, DEFAULT_MODEL, MODEL_CACHE } from "./inspect/segment-model.mjs";
 import { apply4x4, invert4x4, projectToPixel } from "./inspect/render.mjs";
 import { QUALITY_SCHEMA, encodeRuns, decodeRuns, roadContext, qualitySummary, compareAssessments } from "./grass-quality.mjs";
 import { lateralProfile, chooseBand, trackLengthScale, cameraHeightScale, scaleAffine, polylineLength, ontoPlane } from "./grass-anchor.mjs";
@@ -87,7 +87,24 @@ export function vehicleOptions(request) {
   const excludeNearPx = request.excludeNearPx ?? 1;
   if (!Number.isInteger(excludeNearPx) || excludeNearPx < 0 || excludeNearPx > 8) throw new Error("excludeNearPx must be a whole number of logit pixels, 0 to 8");
   const bandSidePinned = request.gridOptions?.bandSide !== undefined;
-  return { offsetSide, minTrackM, cameraHeightM, trackLengthM, minProbability, gridOptions, widthPinned, groundFallback, excludeNear, excludeNearPx, bandSidePinned };
+  // A second segmentation, asked only what is NOT grass. The grass model is Cityscapes-trained
+  // and Cityscapes never taught it a guardrail, so a wet W-beam or a concrete barrier is
+  // `terrain` to it in many frames; ADE20K knows `fence`, `railing`, `wall` and `bannister`.
+  // Its named classes join the structure map: taken out of the grass mask with the same margin,
+  // and handed to the grid so a cell one stands in can be refused. Null runs one model only.
+  const structureModel = request.structureModel ?? null;
+  if (structureModel !== null && typeof structureModel !== "string") throw new Error("structureModel must be the key of a registered segmentation model, or null");
+  if (structureModel !== null) findModel(structureModel);
+  const structureClasses = [...new Set(String(request.structureClasses ?? "").split(",").map((v) => v.trim()).filter(Boolean))];
+  if (structureModel !== null && !structureClasses.length) throw new Error("structureClasses must name at least one class of the structure model");
+  if (structureModel === null && structureClasses.length) throw new Error("structureClasses needs a structureModel to read them from");
+  // The second model spreads a guardrail over `fence`, `railing`, `wall` and `bannister`, so no
+  // one class need win a pixel: it is a structure when the probability it gives its structure
+  // classes, summed, reaches this floor. 0.5 is a majority of the probability.
+  const structureFloor = request.structureFloor ?? 0.5;
+  if (!(structureFloor > 0 && structureFloor <= 1)) throw new Error("structureFloor must be a probability above 0 and at most 1");
+  return { offsetSide, minTrackM, cameraHeightM, trackLengthM, minProbability, gridOptions, widthPinned, groundFallback, excludeNear, excludeNearPx, bandSidePinned,
+    structureModel, structureClasses, structureFloor };
 }
 
 /**
@@ -126,6 +143,16 @@ export async function runGrassPipeline(request, onProgress = () => {}, signal) {
   const unknownNear = vehicle.excludeNear.filter((label) => !T.CITYSCAPES_LABELS.includes(label));
   if (unknownNear.length) throw new Error(`unknown Cityscapes label(s) in excludeNearClasses: ${unknownNear.join(", ")}`);
   const excludeNearIds = new Set(vehicle.excludeNear.map((label) => T.CITYSCAPES_LABELS.indexOf(label)));
+  // The second model's classes are read from its own checkpoint, so a request is checked against
+  // what the model actually predicts rather than against a list kept here.
+  const secondModel = vehicle.structureModel === null ? null : findModel(vehicle.structureModel);
+  let secondIds = null;
+  if (secondModel) {
+    const labels = await modelLabels(secondModel);
+    const unknown = vehicle.structureClasses.filter((label) => !labels.includes(label));
+    if (unknown.length) throw new Error(`unknown ${secondModel.key} label(s) in structureClasses: ${unknown.join(", ")}`);
+    secondIds = new Set(vehicle.structureClasses.map((label) => labels.indexOf(label)));
+  }
   progress("reading", 0, 0);
   const arrays = await readArrays(run);
   const geometryFrames = T.framesFromArrays(arrays);
@@ -208,14 +235,42 @@ export async function runGrassPipeline(request, onProgress = () => {}, signal) {
       let droppedNearStructure = 0;
       // Where the excluded classes stand on the logit grid: taken out of the grass mask with a
       // margin here, and handed to the grid whole so a cell one stands in can be refused even in
-      // the frames that called it grass.
+      // the frames that called it grass. Two sources paint it: the grass model's own structure
+      // classes, and the second model's when one is asked for.
       let structure = null;
-      if (excludeNearIds.size) {
-        // The excluded classes, grown by `excludeNearPx` on the logit grid, taken out of the mask.
+      let second = null;
+      if (excludeNearIds.size || secondIds) {
         const map = T.classMapFromLogits(result.logits);
         const w = map.width, h = map.height, r = vehicle.excludeNearPx;
         structure = new Uint8Array(w * h);
         for (let p = 0; p < w * h; p++) if (excludeNearIds.has(map.classIds[p])) structure[p] = 1;
+        if (secondIds) {
+          const opinion = await segmentFrame(files[i], secondModel);
+          check();
+          // The probability the second model gives its structure classes, summed per pixel: a
+          // softmax over its logits, with the maximum subtracted first so the exponentials cannot
+          // overflow. No one class need win — a rail is spread over four of them.
+          const { data, classes, height: h2, width: w2 } = opinion.logits;
+          const stride2 = h2 * w2;
+          const structureMass = new Float32Array(stride2);
+          for (let p = 0; p < stride2; p++) {
+            let max = -Infinity;
+            for (let c = 0; c < classes; c++) { const v = data[c * stride2 + p]; if (v > max) max = v; }
+            let sum = 0, mass = 0;
+            for (let c = 0; c < classes; c++) { const e = Math.exp(data[c * stride2 + p] - max); sum += e; if (secondIds.has(c)) mass += e; }
+            structureMass[p] = mass / sum;
+          }
+          let pixels = 0;
+          // The two logit grids agree in size for the 512-input SegFormers; a different one is
+          // sampled nearest onto the grass model's grid, the same rule the grid applies to a mask.
+          for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+            const p2 = Math.floor(y * h2 / h) * w2 + Math.floor(x * w2 / w);
+            if (structureMass[p2] >= vehicle.structureFloor) { structure[y * w + x] = 1; pixels += 1; }
+          }
+          second = { modelId: secondModel.id, modelRevision: secondModel.revision, runtime: secondModel.runtime, classes: vehicle.structureClasses,
+            floor: vehicle.structureFloor, logitsWidth: w2, logitsHeight: h2, structurePixels: pixels, inferenceMs: opinion.timing.inferMs, modelLoadMs: opinion.timing.loadMs };
+        }
+        // Everything either model called a structure, grown by `excludeNearPx`, taken out of the mask.
         for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
           const p = y * w + x;
           if (!mask.mask[p]) continue;
@@ -232,8 +287,9 @@ export async function runGrassPipeline(request, onProgress = () => {}, signal) {
       frame.mask = { width: mask.width, height: mask.height, runs: encodeRuns(mask.mask), sha256: hash(mask.mask) };
       frame.semantic = { kind: "semantic", modelId: DEFAULT_MODEL.id, modelRevision: DEFAULT_MODEL.revision,
         runtime: DEFAULT_MODEL.runtime, device: "cpu", probabilityFloor: mask.minProbability, classes: semanticClasses,
-        excludedNear: excludeNearIds.size ? { classes: vehicle.excludeNear, radiusPx: vehicle.excludeNearPx, dropped: droppedNearStructure,
+        excludedNear: structure ? { classes: vehicle.excludeNear, radiusPx: vehicle.excludeNearPx, dropped: droppedNearStructure,
           structurePixels: structure.reduce((n, v) => n + v, 0) } : null,
+        structureModel: second,
         counts: mask.counts, inferenceMs: result.timing.inferMs, modelLoadMs: result.timing.loadMs };
       inputs.push({ frameIndex: i, geometryFrame: geometryFrames[i], grassMask: mask.mask, maskWidth: mask.width, maskHeight: mask.height,
         ...(structure ? { structureMask: structure } : {}) });
