@@ -15,7 +15,7 @@ const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const fitOptions = { maxTiltDeg: 30, inlierDistance: 0.035, iterations: 1200, stride: 16,
   minInliers: 100, minInlierFraction: 0.01, proposalFractions: [1, 0.35], maxBelowFraction: 0.2, seed: 7 };
 const gridDefaults = { cellSizeM: 0.5, voxelSizeM: 0.02, minFrames: 3, minVoxelsPerFrame: 20, maxDistanceFromRoadM: 5,
-  maxHeightM: Infinity, canopyExtentM: Infinity, canopyGapM: Infinity, datum: "pooled", bandSide: "both" };
+  maxHeightM: Infinity, canopyExtentM: Infinity, canopyGapM: Infinity, datum: "pooled", bandSide: "both", slopeRiseM: Infinity };
 
 /**
  * The second, coarser ground fit a caller may allow when the first finds no floor.
@@ -60,7 +60,7 @@ export function vehicleOptions(request) {
       gridOptions.bandSide = value;
       continue;
     }
-    const ceiling = key === "maxHeightM" || key === "canopyExtentM" || key === "canopyGapM";
+    const ceiling = key === "maxHeightM" || key === "canopyExtentM" || key === "canopyGapM" || key === "slopeRiseM";
     if (!(value > 0) || (!ceiling && !Number.isFinite(value))) throw new Error(`grid option ${key} must be a positive number`);
     gridOptions[key] = value;
   }

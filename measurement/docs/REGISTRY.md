@@ -849,7 +849,15 @@ guardrail, the rail's lower edge carried by the `terrain` beside it at 128×128 
 vegetation beside any wall); and a wet road reads as `vegetation` (a fifth of a frame), which a
 band folding both sides of the edge counted as 0 cm cells, so `bandSide` keeps the vegetation's
 side alone — 17,699 cells to 17,060, four segments just past 30 cm down to level 2, levels
-6/14/20. Which aggregate a mowing policy takes is still the open question of
+6/14/20. **The corridor ends where the ground starts to climb:** `slopeRiseM` walks each
+along-road column outward and calls the first cell whose ground rises by more than that from
+the cell before it, and whose next cell rises by more than that again, the slope's foot — two
+steps, because a kerb is one step and then level, and one step cost a mown strip 147 of 365
+cells — and every cell from the foot out is `status: "slope"`, kept, aggregated nowhere. At
+0.1 m per half-metre cell: 1,971 of 17,060 cells set aside on the 43 runs, `19/5`'s embankment
+p95 0.82 → 0.17 m, the flat run untouched. GreenV's own aggregate moved from the 95th to the
+90th percentile of the cells the same day, outside this pipeline: levels 9/21/10 where p95
+gave 6/14/20. Which aggregate a mowing policy takes is still the open question of
 `GRASS-QUALITY.md`. No reading here is graded against a tape.
 
 Three things the same day established about the capture rather than the pipeline: the frame

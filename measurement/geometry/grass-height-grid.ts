@@ -168,6 +168,19 @@ export interface GrassHeightGridOptions {
    * has its verge on the `negative` side.
    */
   bandSide?: "both" | "positive" | "negative";
+  /**
+   * The rise, in metres per cell outward from the road edge, at which the verge becomes a slope.
+   *
+   * A mowing corridor ends where the embankment begins, and the embankment is where each cell's
+   * own ground climbs away from the road plane. Walking outward along one along-road column of
+   * cells, the first cell whose ground rises by more than this from the cell before it AND whose
+   * next cell rises by more than this again is the slope's foot — one step is a kerb or a raised
+   * median, two in a row is a bank — and that cell and every cell beyond it are reported as
+   * `slope`, with their numbers, and counted in no aggregate. A cell on a slope also over-reads by construction,
+   * because ground falling across it is added to its extent as grass. Infinity, the default,
+   * never looks.
+   */
+  slopeRiseM?: number;
 }
 
 const DEFAULTS: Required<GrassHeightGridOptions> = {
@@ -181,6 +194,7 @@ const DEFAULTS: Required<GrassHeightGridOptions> = {
   datum: "pooled",
   canopyGapM: Infinity,
   bandSide: "both",
+  slopeRiseM: Infinity,
 };
 
 export interface GrassHeightFrameInput {
@@ -266,8 +280,8 @@ export interface GrassCellMeasurement {
    * there is "why was there not enough evidence", and that is what those frames show.
    */
   evidenceFrameIndices: number[];
-  status: "measured" | "insufficient-support" | "canopy";
-  reason?: "too-few-frames" | "too-few-samples" | "above-canopy-extent" | "floating-above-ground";
+  status: "measured" | "insufficient-support" | "canopy" | "slope";
+  reason?: "too-few-frames" | "too-few-samples" | "above-canopy-extent" | "floating-above-ground" | "beyond-slope-foot";
   /** The typical vertical gap a voting frame saw inside this cell, in metres. Tall for a crown. */
   gapM?: number;
 }
@@ -303,6 +317,8 @@ export interface GrassHeightAssessmentV1 {
     datum: "pooled" | "per-frame";
     /** Whether the band folds both sides of the edge together or keeps one. */
     bandSide: "both" | "positive" | "negative";
+    /** The rise per cell that marks a slope's foot, or null when no slope is looked for. */
+    slopeRiseM: number | null;
   };
   measurements: GrassCellMeasurement[];
   reviewEvidence: {
@@ -310,6 +326,8 @@ export interface GrassHeightAssessmentV1 {
     abstainedCellCount: number;
     /** Cells that measured more than `canopyExtentM` of extent: trees, not verge. */
     canopyCellCount: number;
+    /** Cells at or beyond a slope's foot: the embankment, not the corridor. */
+    slopeCellCount: number;
     /**
      * Measured cells over OBSERVED cells — not over the band's area.
      *
@@ -725,7 +743,7 @@ function resolveOptions(options: GrassHeightGridOptions | undefined): Required<G
     }
   }
   // The two ceilings may be infinite, which is how "no ceiling" is spelled.
-  for (const [name, value] of [["maxHeightM", resolved.maxHeightM], ["canopyExtentM", resolved.canopyExtentM], ["canopyGapM", resolved.canopyGapM]] as const) {
+  for (const [name, value] of [["maxHeightM", resolved.maxHeightM], ["canopyExtentM", resolved.canopyExtentM], ["canopyGapM", resolved.canopyGapM], ["slopeRiseM", resolved.slopeRiseM]] as const) {
     if (!(value > 0)) {
       throw new GrassHeightInputError(`${name} must be a positive number of metres or Infinity, got ${value}`);
     }
@@ -1080,6 +1098,7 @@ function reduceCells(
       a.coordinate.alongRoadM - b.coordinate.alongRoadM ||
       a.coordinate.distanceFromRoadM - b.coordinate.distanceFromRoadM,
   );
+  if (Number.isFinite(options.slopeRiseM)) markSlopes(measurements, options.slopeRiseM);
 
   return {
     schemaVersion: GRASS_HEIGHT_ASSESSMENT_SCHEMA,
@@ -1095,6 +1114,7 @@ function reduceCells(
       canopyGapM: Number.isFinite(options.canopyGapM) ? options.canopyGapM : null,
       datum: options.datum,
       bandSide: options.bandSide,
+      slopeRiseM: Number.isFinite(options.slopeRiseM) ? options.slopeRiseM : null,
     },
     measurements,
     reviewEvidence: buildReviewEvidence(measurements),
@@ -1106,6 +1126,45 @@ function reduceCells(
       note: null,
     },
   };
+}
+
+/**
+ * Where the verge becomes an embankment, column by column, and everything beyond it.
+ *
+ * Only measured and canopy cells carry a ground; an abstained cell in the column is skipped,
+ * not treated as level. Once the foot is found, every cell further out in that column is slope
+ * whatever its own ground does — a terrace above a bank is still not the corridor.
+ */
+function markSlopes(measurements: GrassCellMeasurement[], riseM: number): void {
+  const columns = new Map<number, GrassCellMeasurement[]>();
+  for (const cell of measurements) {
+    const list = columns.get(cell.coordinate.alongRoadM) ?? [];
+    list.push(cell);
+    columns.set(cell.coordinate.alongRoadM, list);
+  }
+  for (const column of columns.values()) {
+    column.sort((a, b) => a.coordinate.distanceFromRoadM - b.coordinate.distanceFromRoadM);
+    const grounded = column.filter((cell) => cell.localGroundM !== null);
+    if (grounded.length < 2) continue;
+    // Two rising steps in a row. A kerb or a raised median is one step and then level ground,
+    // and a mown strip behind a kerb is still the corridor; an embankment keeps climbing.
+    let foot: number | null = null;
+    for (let i = 1; i + 1 < grounded.length; i++) {
+      const before = grounded[i - 1].localGroundM as number;
+      const here = grounded[i].localGroundM as number;
+      const beyond = grounded[i + 1].localGroundM as number;
+      if (here - before > riseM && beyond - here > riseM) {
+        foot = grounded[i].coordinate.distanceFromRoadM;
+        break;
+      }
+    }
+    if (foot === null) continue;
+    for (const cell of column) {
+      if (cell.coordinate.distanceFromRoadM < foot || cell.status === "insufficient-support") continue;
+      cell.status = "slope";
+      cell.reason = "beyond-slope-foot";
+    }
+  }
 }
 
 /**
@@ -1123,6 +1182,7 @@ function buildReviewEvidence(measurements: GrassCellMeasurement[]): GrassHeightA
   const measured = measurements.filter((cell) => cell.status === "measured");
   const abstained = measurements.filter((cell) => cell.status === "insufficient-support");
   const canopy = measurements.filter((cell) => cell.status === "canopy");
+  const slope = measurements.filter((cell) => cell.status === "slope");
   const total = measurements.length;
 
   // Folded rather than spread: a kilometre of verge is tens of thousands of cells, and
@@ -1177,6 +1237,7 @@ function buildReviewEvidence(measurements: GrassCellMeasurement[]): GrassHeightA
     measuredCellCount: measured.length,
     abstainedCellCount: abstained.length,
     canopyCellCount: canopy.length,
+    slopeCellCount: slope.length,
     coverageFraction: total > 0 ? measured.length / total : 0,
     h95RangeM,
     extent95RangeM,

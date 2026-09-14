@@ -1190,3 +1190,41 @@ describe("a one-sided band", () => {
     expect(() => measureGrassHeightGrid(threeFrameScene({ options: { bandSide: "left" } }))).toThrow(GrassHeightInputError);
   });
 });
+
+describe("the slope's foot", () => {
+  // A mown 0.25 m verge out to z = 1.0 m, then an embankment climbing 0.5 m per half metre.
+  const bank = patternedSurface((x, z) => (z < 1.0 ? 0.25 : 0.25 + (z - 1.0) * 1.0));
+  function bankScene(options: GrassHeightGridInput["options"]): GrassHeightGridInput {
+    const frames = [0, 1, 2].map((frameIndex) =>
+      nadirFrame({ frameIndex, xMin: 0.5 + HALF_VOXEL, zMin: HALF_VOXEL, columns: 125, rows: 150, surfaceYAt: bank }),
+    );
+    return { ...threeFrameScene(), frames, options: { maxDistanceFromRoadM: 3.0, ...options } };
+  }
+
+  it("reports every cell from the foot outward as slope, and keeps the verge before it", () => {
+    const assessment = measureGrassHeightGrid(bankScene({ slopeRiseM: 0.1 }));
+    expect(cellAt(assessment, 1.25, 0.25)?.status).toBe("measured");
+    expect(cellAt(assessment, 1.25, 0.75)?.status).toBe("measured");
+    // A cell's ground is its own 2nd percentile, which on a bank is its near edge: the cell over
+    // z in [1.0, 1.5) still stands on the verge's level, and the climb shows one cell out.
+    expect(cellAt(assessment, 1.25, 1.25)?.status).toBe("measured");
+    const foot = cellAt(assessment, 1.25, 1.75);
+    expect(foot?.status).toBe("slope");
+    expect(foot?.reason).toBe("beyond-slope-foot");
+    expect(cellAt(assessment, 1.25, 2.25)?.status).toBe("slope");
+    expect(cellAt(assessment, 1.25, 2.75)?.status).toBe("slope");
+    expect(assessment.reviewEvidence.slopeCellCount).toBeGreaterThan(0);
+    // The bank's own cells read 0.5 m of "grass" per half metre of climb; none of them is in
+    // the range any more. The cell the foot falls across still is, and it reads its own rise.
+    expect(assessment.reviewEvidence.extent95RangeM?.max as number).toBeLessThan(0.8);
+    for (const cell of assessment.measurements) if (cell.status === "slope") expect(cell.coordinate.distanceFromRoadM).toBeGreaterThanOrEqual(1.75);
+    expect(assessment.band.slopeRiseM).toBe(0.1);
+  });
+
+  it("never looks for a slope unless asked", () => {
+    const assessment = measureGrassHeightGrid(bankScene(undefined));
+    expect(cellAt(assessment, 1.25, 1.75)?.status).toBe("measured");
+    expect(assessment.reviewEvidence.slopeCellCount).toBe(0);
+    expect(assessment.band.slopeRiseM).toBeNull();
+  });
+});

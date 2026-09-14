@@ -54,6 +54,8 @@ export function qualitySummary(assessment, frames, context, ground, corridor, sc
     abstainedCells: assessment?.reviewEvidence.abstainedCellCount ?? 0,
     // Cells taller than a verge can be, kept in the packet with their numbers and counted here.
     canopyCells: assessment?.reviewEvidence.canopyCellCount ?? 0,
+    // Cells from a slope's foot outward: the embankment, kept with their numbers, aggregated nowhere.
+    slopeCells: assessment?.reviewEvidence.slopeCellCount ?? 0,
     observedCellCoverage: assessment?.reviewEvidence.coverageFraction ?? 0,
     intendedAreaCoverage: null,
     missingAreaMeaning: "unknown: unobserved, occluded, excluded or no grass; not short grass",
