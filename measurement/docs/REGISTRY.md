@@ -892,7 +892,14 @@ measured the same way: a prompted one (`clipseg`, CLIPSeg asked "guardrail") and
 (`vistas-r50`, a MaskFormer on Mapillary Vistas with `Guard Rail` and `Barrier` classes). Each
 finds the rail where the SegFormers miss it and each refuses too much — 50 and 51 cells of
 317 on `11/10` against the ADE20K's 293 — because its mask fattens over the grass beside the
-rail. On the 43 runs: 10,069 measured cells, 4,634 `structure`, levels 18/21/0 by p90 where
+rail. **So the second model's pixels need not leave the grass mask at all:** `structureModelMask`
+is `always` (mask and votes), `band` (the pixels leave only a copy of the mask that places the
+band, so it starts where the grass starts) or `never` (votes only). The Mapillary model voting
+with `band`, floor 0.7, over the 43 runs against the deployed ADE20K: six stretches down by
+more than 2 cm (`11/1` 0.24 → 0.07 m, `11/4` 0.23 → 0.09, `11/8` 0.24 → 0.11), one up (`19/4`
+0.11 → 0.19, the foot of a shotcrete wall the ADE20K calls `wall` and refuses), no level up, four
+down, 91% of the cells. Against the class-veto-only run nothing rises. Not deployed; the
+choice between the two is the operator's, and both models together is untested. On the 43 runs: 10,069 measured cells, 4,634 `structure`, levels 18/21/0 by p90 where
 the class veto alone gave 15/21/3 and the slope round 9/21/10; the cloud worker reports the
 same 18/21/0 on the same segments. Evidence: the sections "A second model that knows a fence"
 and after, same file.
