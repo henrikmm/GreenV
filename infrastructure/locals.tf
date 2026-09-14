@@ -342,7 +342,7 @@ locals {
     GREENV_MEASUREMENT_STRUCTURE_MODEL      = var.measurement_structure_model
     GREENV_MEASUREMENT_STRUCTURE_CLASSES    = var.measurement_structure_classes
     GREENV_MEASUREMENT_STRUCTURE_FLOOR      = var.measurement_structure_floor == null ? "" : tostring(var.measurement_structure_floor)
-    GREENV_MEASUREMENT_STRUCTURE_MODEL_MASK = tostring(var.measurement_structure_model_mask)
+    GREENV_MEASUREMENT_STRUCTURE_MODEL_MASK = var.measurement_structure_model_mask
 
     PORT = "8090"
   })

@@ -580,14 +580,20 @@ variable "measurement_structure_floor" {
 
 variable "measurement_structure_model_mask" {
   description = <<-EOT
-    Whether the second model's structure pixels also leave the grass mask with the exclusion
-    margin (true) or only vote on cells (false). A query model's mask fades a metre onto the
-    grass beside a rail: out of the mask in every frame it starved a median strip of two thirds
-    of its points on 2026-09-14, while as votes alone it refused the rail's cells and left the
-    strip its evidence. True for the ADE20K SegFormer, whose masks do not fade.
+    What the second model's structure pixels do besides voting on cells. `always` also takes them
+    out of the grass mask with the exclusion margin; `band` takes them out of a copy of the mask
+    that only places the band, so the band starts where the grass starts while the measurement
+    keeps every point; `never` leaves the mask alone. A query model's mask fades a metre onto the
+    grass beside a rail: out of the mask in every frame it starved a median strip of two thirds of
+    its points on 2026-09-14. `always` for the ADE20K SegFormer, whose masks do not fade.
   EOT
-  type        = bool
-  default     = true
+  type        = string
+  default     = "always"
+
+  validation {
+    condition     = contains(["always", "band", "never"], var.measurement_structure_model_mask)
+    error_message = "measurement_structure_model_mask must be \"always\", \"band\" or \"never\"."
+  }
 }
 
 variable "measurement_past_ends" {

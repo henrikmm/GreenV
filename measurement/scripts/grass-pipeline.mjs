@@ -107,8 +107,9 @@ export function vehicleOptions(request) {
   // only vote on cells. A query model's mask fades a metre onto the grass beside a rail; taken
   // out of the mask in every frame that starves the strip of points, while as votes alone it
   // refuses the rail's cells and leaves the strip its evidence.
-  const structureModelMask = request.structureModelMask ?? true;
-  if (typeof structureModelMask !== "boolean") throw new Error("structureModelMask must be true or false");
+  const structureModelMask = request.structureModelMask === true || request.structureModelMask === undefined ? "always"
+    : request.structureModelMask === false ? "never" : request.structureModelMask;
+  if (!["always", "band", "never"].includes(structureModelMask)) throw new Error(`structureModelMask must be "always", "band" or "never", got ${JSON.stringify(request.structureModelMask)}`);
   return { offsetSide, minTrackM, cameraHeightM, trackLengthM, minProbability, gridOptions, widthPinned, groundFallback, excludeNear, excludeNearPx, bandSidePinned,
     structureModel, structureClasses, structureFloor, structureModelMask };
 }
@@ -134,6 +135,22 @@ export function rolesFor(classes, labels) {
     throw new Error(`unknown Cityscapes label(s) ${unknown.join(", ")}; valid labels are ${labels.join(", ")}`);
   }
   return { wanted, roles: labels.map((label) => wanted.includes(label) ? "grass" : "excluded") };
+}
+
+/** Zero every set pixel of `mask` within `r` of a set pixel of `structure`; returns how many. */
+function dropNear(mask, structure, w, h, r) {
+  let dropped = 0;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const p = y * w + x;
+    if (!mask[p]) continue;
+    let near = false;
+    for (let dy = -r; dy <= r && !near; dy++) for (let dx = -r; dx <= r && !near; dx++) {
+      const yy = y + dy, xx = x + dx;
+      if (yy >= 0 && yy < h && xx >= 0 && xx < w && structure[yy * w + xx]) near = true;
+    }
+    if (near) { mask[p] = 0; dropped += 1; }
+  }
+  return dropped;
 }
 
 export async function runGrassPipeline(request, onProgress = () => {}, signal) {
@@ -247,6 +264,7 @@ export async function runGrassPipeline(request, onProgress = () => {}, signal) {
       // What the grid is told stands in a cell. The same map as the margin's unless the second
       // model is asked to vote without touching the mask, in which case it gets its own copy.
       let votes = null;
+      let bandMask = null;
       let second = null;
       if (excludeNearIds.size || secondModel) {
         const map = T.classMapFromLogits(result.logits);
@@ -299,7 +317,7 @@ export async function runGrassPipeline(request, onProgress = () => {}, signal) {
             }
           }
           let pixels = 0;
-          const target = vehicle.structureModelMask ? structure : (votes = new Uint8Array(structure));
+          const target = vehicle.structureModelMask === "always" ? structure : (votes = new Uint8Array(structure));
           // The two logit grids agree in size for the 512-input SegFormers; a different one is
           // sampled nearest onto the grass model's grid, the same rule the grid applies to a mask.
           for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
@@ -311,18 +329,16 @@ export async function runGrassPipeline(request, onProgress = () => {}, signal) {
             floor: vehicle.structureFloor, maskedGrass: vehicle.structureModelMask, logitsWidth: w2, logitsHeight: h2, structurePixels: pixels,
             inferenceMs: opinion.timing.inferMs, modelLoadMs: opinion.timing.loadMs };
         }
-        // Everything either model called a structure, grown by `excludeNearPx`, taken out of the mask.
-        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-          const p = y * w + x;
-          if (!mask.mask[p]) continue;
-          let near = false;
-          for (let dy = -r; dy <= r && !near; dy++) for (let dx = -r; dx <= r && !near; dx++) {
-            const yy = y + dy, xx = x + dx;
-            if (yy >= 0 && yy < h && xx >= 0 && xx < w && structure[yy * w + xx]) near = true;
-          }
-          if (near) { mask.mask[p] = 0; droppedNearStructure += 1; }
-        }
+        // Everything the mask's own structure map holds, grown by `excludeNearPx`, taken out of it.
+        droppedNearStructure = dropNear(mask.mask, structure, w, h, r);
         mask.counts.kept -= droppedNearStructure;
+        // `band`: the second model's pixels leave a copy of the mask that only places the band, so
+        // the band starts where the grass starts rather than at a barrier the grass model called
+        // grass, while the measurement keeps every point the grass model gave it.
+        if (vehicle.structureModelMask === "band" && votes !== structure) {
+          bandMask = new Uint8Array(mask.mask);
+          dropNear(bandMask, votes, w, h, r);
+        }
       }
       frame.status = mask.counts.kept ? "segmented" : "no-grass-detected";
       frame.mask = { width: mask.width, height: mask.height, runs: encodeRuns(mask.mask), sha256: hash(mask.mask) };
@@ -333,7 +349,7 @@ export async function runGrassPipeline(request, onProgress = () => {}, signal) {
         structureModel: second,
         counts: mask.counts, inferenceMs: result.timing.inferMs, modelLoadMs: result.timing.loadMs };
       inputs.push({ frameIndex: i, geometryFrame: geometryFrames[i], grassMask: mask.mask, maskWidth: mask.width, maskHeight: mask.height,
-        ...(votes ? { structureMask: votes } : {}) });
+        ...(votes ? { structureMask: votes } : {}), ...(bandMask ? { bandMask } : {}) });
     } catch (error) { check(); frame.status = "failed"; frame.error = error.message; }
     const thumbnail = await sharp(bytes).resize({ width: 480, height: 480, fit: "inside", withoutEnlargement: true }).jpeg({ quality: 78 }).toBuffer();
     images.push(`data:image/jpeg;base64,${thumbnail.toString("base64")}`);
@@ -355,7 +371,7 @@ export async function runGrassPipeline(request, onProgress = () => {}, signal) {
       const step = Math.max(1, Math.floor(inputs.length / 12));
       for (let n = 0; n < inputs.length; n += step) {
         const f = inputs[n];
-        const onGrid = T.resampleMaskNearest(f.grassMask, f.maskWidth, f.maskHeight, f.geometryFrame.width, f.geometryFrame.height);
+        const onGrid = T.resampleMaskNearest(f.bandMask ?? f.grassMask, f.maskWidth, f.maskHeight, f.geometryFrame.width, f.geometryFrame.height);
         const back = T.backprojectMask(f.geometryFrame, onGrid, { erodeRadius: 2, maxRelativeDepthStep: 0.05 });
         const world = T.transformPoints(back.points, worldFromDa3);
         for (let k = 0; k + 2 < world.length; k += 3 * 4) sample.push(world[k], world[k + 1], world[k + 2]);

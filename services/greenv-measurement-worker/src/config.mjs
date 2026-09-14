@@ -259,11 +259,12 @@ function build() {
       // summed, reaches this; a rail is spread over fence, railing, wall and bannister, so no
       // one class need win. Unset leaves Verge Studio's 0.5, a majority of the probability.
       structureFloor: number("GREENV_MEASUREMENT_STRUCTURE_FLOOR", null),
-      // Whether the second model's structure pixels also leave the grass mask with the margin
-      // (true, Verge Studio's default) or only vote on cells (false). A query model's mask fades
-      // a metre onto the grass beside a rail; out of the mask in every frame it starves the strip
-      // of points, as votes alone it refuses the rail's cells and leaves the strip its evidence.
-      structureModelMask: flag("GREENV_MEASUREMENT_STRUCTURE_MODEL_MASK", true),
+      // What the second model's structure pixels do besides voting on cells: `always` also takes
+      // them out of the grass mask with the margin (Verge Studio's default), `band` takes them out
+      // of a copy that only places the band, `never` leaves the mask alone. A query model's mask
+      // fades a metre onto the grass beside a rail; out of the mask in every frame it starves the
+      // strip of points, while the band still has to start where the grass starts.
+      structureModelMask: text("GREENV_MEASUREMENT_STRUCTURE_MODEL_MASK", "always"),
       excludeNear: text("GREENV_MEASUREMENT_EXCLUDE_NEAR", ""),
       excludeNearPx: number("GREENV_MEASUREMENT_EXCLUDE_NEAR_PX", 1),
       // Start a re-measure from the reconstruction the depth handler left beside the frames when
@@ -348,6 +349,9 @@ function build() {
   }
   if (!config.measurement.structureModel && config.measurement.structureClasses) {
     throw new Error("GREENV_MEASUREMENT_STRUCTURE_CLASSES needs GREENV_MEASUREMENT_STRUCTURE_MODEL to read them from");
+  }
+  if (!["always", "band", "never"].includes(config.measurement.structureModelMask)) {
+    throw new Error(`GREENV_MEASUREMENT_STRUCTURE_MODEL_MASK must be "always", "band" or "never", got "${config.measurement.structureModelMask}"`);
   }
   if (config.measurement.structureFloor !== null && !(config.measurement.structureFloor > 0 && config.measurement.structureFloor <= 1)) {
     throw new Error(`GREENV_MEASUREMENT_STRUCTURE_FLOOR must be a probability above 0 and at most 1, got ${config.measurement.structureFloor}`);

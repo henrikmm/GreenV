@@ -181,7 +181,7 @@ export function measurementPipeline({ config, storage, infer, runner, log = () =
         ...(config.measurement.excludeNear ? { excludeNearClasses: config.measurement.excludeNear, excludeNearPx: config.measurement.excludeNearPx } : {}),
         ...(config.measurement.structureModel ? { structureModel: config.measurement.structureModel, structureClasses: config.measurement.structureClasses,
           ...(config.measurement.structureFloor === null ? {} : { structureFloor: config.measurement.structureFloor }),
-          ...(config.measurement.structureModelMask ? {} : { structureModelMask: false }) } : {}),
+          ...(config.measurement.structureModelMask === "always" ? {} : { structureModelMask: config.measurement.structureModelMask }) } : {}),
         ...(Object.keys(gridOptions).length ? { gridOptions } : {}),
         classes: config.measurement.classes,
         context,
