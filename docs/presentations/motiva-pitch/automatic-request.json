@@ -1,0 +1,23 @@
+{
+  "runId": "20260914-150840-e3efe7",
+  "offsetM": 2,
+  "offsetSide": "auto",
+  "minTrackM": 3,
+  "groundFallback": true,
+  "classes": "terrain,vegetation",
+  "excludeNearClasses": "fence,wall,pole,building",
+  "excludeNearPx": 1,
+  "structureModel": "ade20k-b4",
+  "structureClasses": "fence,railing,wall,bannister,pole,column,signboard,building,house,streetlight,step",
+  "structureFloor": 0.4,
+  "gridOptions": {
+    "maxHeightM": 3,
+    "canopyExtentM": 2,
+    "canopyGapM": 0.5,
+    "maxDistanceFromRoadM": 5.5,
+    "slopeRiseM": 0.1,
+    "structureFrames": 3,
+    "pastEnds": "drop",
+    "datum": "per-frame"
+  }
+}

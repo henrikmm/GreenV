@@ -103,7 +103,8 @@ Final SHA-256: `a0c52184f3ba3487918d868748ebe2a14baab0c378671053624a903c423ec5b0
 
 The review corrected the capture slide, rebuilt the cost slide around two capture paths, and put
 the whole tape-graded record on the accuracy slide: **32 trials, 12 targets, 6 clips, mean absolute
-error 2.11 cm**, with the roadside figure of 0.91 cm still the headline.
+error 2.11 cm**, with the roadside figure of 0.91 cm still the headline. A second pass replaced the
+automatic-processing slide with an animation of the deployed pipeline measuring a driven clip.
 
 Branch: `feat/docs-motiva-pitch-final`, from `main` at `777b390`.
 Output: `output/motiva-pitch/GreenV-Motiva-Pitch-Final.pptx` (local, ignored), 13 visible slides and
@@ -111,22 +112,86 @@ Output: `output/motiva-pitch/GreenV-Motiva-Pitch-Final.pptx` (local, ignored), 1
 Build: `docs/presentations/motiva-pitch/build_final_deck.py`, run with any Python that has `lxml`.
 It recomputes every accuracy figure from its source and stops if a rounded value on a slide no
 longer matches. Icons in `docs/presentations/motiva-pitch/icons/` are Lucide 0.544.0 (ISC).
-SHA-256: `864ca0516457ef988a16b9cd5a3e2df826f691f6942c42d1a3c35e8e9af9abfa`.
+SHA-256: `27d50c101f33885a14f5e03a7b1de672ee78c6a4398f8771142566ac9a2520c6`.
 
 | # | Slide | Change |
 |---|---|---|
 | 2 | Captura em campo | Car photo removed. Phone video, "10 s" per segment, and four facts from `apps/mobile/README.md`: Android and iOS in Flutter; GPS and sensors; offline queue; a file leaves the phone only after the API accepts it |
-| 4 | Gestão da operação | `greenv.matomomitsu.com` drawn as an address bar with a live badge, and the four deployed pieces from `docs/STATE-OF-THE-SYSTEM.md`: Cloudflare Pages, Azure Container Apps, RunPod, Neon and R2. The login page answered on 14 Sep; nobody signed in |
-| 5 | Do vídeo ao 3D | New. `projecao_2d3d.gif` on a background sampled from the GIF (`#0D0C12`). Animation confirmed by playing it in Keynote |
-| 6 | GreenV | Renamed from "A evolução da prova". Timeline quarto → jardim → rodovia, echoing the pitch's own lines |
+| 3 | Gestão da operação | `greenv.matomomitsu.com` drawn as an address bar with a live badge, and the four deployed pieces from `docs/STATE-OF-THE-SYSTEM.md`: Cloudflare Pages, Azure Container Apps, RunPod, Neon and R2. The login page answered on 14 Sep; nobody signed in |
+| 4 | Do vídeo ao 3D | New. `projecao_2d3d.gif` on a background sampled from the GIF (`#0D0C12`). Animation confirmed by playing it in Keynote |
+| 5 | GreenV | Renamed from "A evolução da prova". Timeline quarto → jardim → rodovia, echoing the pitch's own lines |
+| 8 | Sem ninguém descer do carro | New content for the old third slide, moved after the second roadside scene. See "Automatic measurement slide" below |
 | 9 | Erro medido contra a trena | Roadside chart kept; panel added with every tape-graded trial on record |
 | 10 | Quanto custa medir | Processing cost kept at US$ 0.62/km. Two capture paths: any phone, or a fixed roof installation with the user's car photo as reference |
 | 12 | Previsão | Model, data and next step from Ryan's branch, replacing the one-line summary |
 | 14 | Apoio · acurácia (hidden) | Rewritten to the 32-trial totals, which superseded the 15-trial aggregate |
 
-Speaker notes carry the narration from `~/Desktop/pitch-greenv-final.md` and the sources. Slides
+The old third slide ("Processamento automático", a CPU report screenshot) is gone. Speaker notes
+carry the narration from `~/Desktop/pitch-greenv-final.md` and the sources. Slides
 whose notes held minute ranges now name the pitch section instead, because the inserted slide
 made those ranges wrong.
+
+### Automatic measurement slide
+
+**On `carro_em_movimento2.mp4`, driven in rain past a guardrail, a viaduct and a concrete barrier,
+the deployed pipeline measured 360 half-metre cells over 238 m and refused 201 as structure and 528
+as slope, with nobody painting a mask.** The heights are at the depth model's own scale, because the
+clip has no telemetry to anchor it.
+
+Packet: run `20260914-150840-e3efe7` (97 frames at 8 fps, 504 px, depth from the `verge-lab` Cloud
+Run L4 on 14 Sep), measured on the local CPU the same day:
+
+```
+node measurement/scripts/assess-grass.mjs --stdin --out <packet> \
+  < docs/presentations/motiva-pitch/automatic-request.json
+```
+
+The request carries the deployment's measurement settings from `infrastructure/variables.tf`:
+`terrain,vegetation`, `ade20k-b4` at a floor of 0.4 with its eleven structure classes, automatic
+band of 5.5 m, per-frame datum, slope rise 0.1 m, structure seen in 3 frames, past ends dropped,
+exclusion next to `fence,wall,pole,building`, ground fallback, 3 m minimum track. It leaves out one
+setting, `trackLengthM`, because there is no GPS track to take it from. The ADE20K B4 weights,
+246 MB, were fetched with `node scripts/fetch-model.mjs ade20k-b4`. The run took 274 s.
+`check-grass-quality.mjs` passes on the packet: checksums, mask digests, and a report that matches
+the JSON. The packet is kept at `output/motiva-pitch/medicao-automatica-pacote/` and
+`assessment.json` has SHA-256 `4467aa17889c69e31d2bfd41f26004cea7a282332a52fc59be32ee154beb460f`.
+
+| Cells | Count |
+|---|---:|
+| Measured | 360 (`extent95M` p50 14.5 cm, p90 21.1 cm, max 47.0 cm) |
+| Structure | 201, all between 35 and 107 m along the edge |
+| Slope | 528 |
+| Too few frames or samples | 1,414 — observed-cell coverage 14.4% |
+
+**What limits those heights.** No scale anchor was applied. In the reconstruction the camera stands
+0.73 m above the fitted plane and drives 220 m in 12.2 s, which is 65 km/h. A phone held at a car
+window is usually higher than 0.73 m, so the heights may read low. An attempt to check the scale
+against the guardrail and the barrier did not converge. Heights rise steadily with lateral distance
+there, and the plane holds only 1.96% of the cloud, which is a wet road. No reading of this run has
+been compared with a tape. The packet says `operationalStatus: not-ready`.
+
+Frames drawn with each cell's own pixels show three things. The measured strip is the verge behind
+the barrier. The viaduct abutment is refused as structure and the embankment as slope. In rain, the
+grass model paints wet asphalt as vegetation, and that asphalt stays out of the band. Near the start,
+some cells sit on the strip of grass at the foot of the guardrail.
+
+Animation: `docs/presentations/motiva-pitch/render_automatic_measurement.py`, with Python, numpy and
+Pillow.
+
+- **Sources.** It reads only the packet and the saved run. It imports nothing from `measurement/`.
+- **Left panel.** Each frame shows the depth pixels every cell used in that frame (the packet's
+  `cells[].pixels`), coloured by the cell's verdict. Measured cells use the dashboard's level
+  colours from `apps/web-core/src/utils/classification.js`.
+- **Right panel.** Each cell's quad is placed by inverting the grid's `stationOf` on the packet's
+  own road edge and plane, lifted to its `localGroundM`.
+- **Timing.** A cell appears at its third voting frame. The backdrop is the run's GLB cloud, on the
+  verge side only.
+- **Order.** The animation opens on the finished stretch, so Keynote's still frame and the loop seam
+  are both the result.
+
+The output is 1600 × 716, 17.6 s, H.264 CRF 25, 8.3 MB (`output/motiva-pitch/Medicao-Automatica.mp4`,
+SHA-256 `20db9c60f1a9e42bdb92d54e759d66a848108042de0df6b863757ad77c7195fb`). It is embedded like the
+deck's other five videos, with `repeatCount="indefinite"` added.
 
 ### Accuracy totals
 
@@ -189,8 +254,10 @@ that does not exist yet.
 ### Checks
 
 - `scripts/office/validate.py` from the pptx skill passed, compared against the evidence deck.
-- Every visible slide was exported by Keynote and inspected.
+- Every visible slide was exported by Keynote and inspected, including the automatic slide's still.
 - The frustum GIF was seen on three different frames during Keynote playback.
 - All visible text is Arial. Keynote's font warning comes from the Calibri theme fonts that the
   evidence deck already carried.
-- Not checked: playback in Microsoft PowerPoint, which is not installed on this machine.
+- Not checked: playback in Microsoft PowerPoint, which is not installed on this machine. The
+  automatic slide's video was not played in a slideshow. A test slideshow was stopped, because it
+  took over the screen while the user was working in Keynote.

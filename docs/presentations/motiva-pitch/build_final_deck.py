@@ -42,6 +42,10 @@ CAR_PHOTO = Path(os.environ.get(
 VERGE_RUNS = Path(os.environ.get("VERGE_RUNS", HOME / "verge-runs"))
 EVIDENCE_SUMMARY = Path(os.environ.get(
     "EVIDENCE_SUMMARY", HOME / "dev/verge-studio/.inspect/evidence/SUMMARY.md"))
+# Written by render_automatic_measurement.py from the packet assess-grass.mjs produced.
+AUTOMATIC_VIDEO = REPO / "output/motiva-pitch/Medicao-Automatica.mp4"
+AUTOMATIC_POSTER = REPO / "output/motiva-pitch/Medicao-Automatica-capa.png"
+AUTOMATIC_PACKET = REPO / "output/motiva-pitch/medicao-automatica-pacote/assessment.json"
 
 A = "http://schemas.openxmlformats.org/drawingml/2006/main"
 P = "http://schemas.openxmlformats.org/presentationml/2006/main"
@@ -521,6 +525,84 @@ def frustum(pkg: Package) -> None:
     pkg.put("ppt/presentation.xml", presentation)
 
 
+def automatic(pkg: Package) -> None:
+    """The old automatic-processing slide, rebuilt around the rendered measurement of a driven clip."""
+    part = "ppt/slides/slide3.xml"
+    p14 = "http://schemas.microsoft.com/office/powerpoint/2010/main"
+    pkg.files[part] = (
+        f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sld xmlns:a="{A}" xmlns:r="{R}" xmlns:p="{P}">'
+        f'<p:cSld><p:bg><p:bgPr><a:solidFill><a:srgbClr val="{DARK}"/></a:solidFill><a:effectLst/></p:bgPr></p:bg>'
+        '<p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>'
+        '<p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/>'
+        '<a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr></p:spTree></p:cSld>'
+        '<p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>'
+    ).encode()
+    rels = pkg.xml(pkg.rels_name(part))
+    for rel in list(rels):
+        if rel.get("Type") not in (REL_LAYOUT, REL_NOTES):
+            rels.remove(rel)
+    pkg.put(pkg.rels_name(part), rels)
+    video = pkg.add_media("automatic-measurement.mp4", AUTOMATIC_VIDEO.read_bytes())
+    pkg.add_rel(part, R + "/video", video, "rIdAutoVideo")
+    pkg.add_rel(part, "http://schemas.microsoft.com/office/2007/relationships/media", video, "rIdAutoMedia")
+    pkg.add_rel(part, REL_IMAGE, pkg.add_media("automatic-measurement-poster.png", AUTOMATIC_POSTER.read_bytes()), "rIdAutoPoster")
+
+    s = Slide(pkg.xml(part))
+    kicker_and_title(s, "GREENV · MEDIÇÃO AUTOMÁTICA", "Sem ninguém descer do carro", dark=True)
+    s.text(80, 186, 1440, 44, "Um modelo acha a vegetação, outro reconhece guard-rail, muro, poste e placa, e a geometria "
+           "mede cada célula de 0,5 m", 24, DARK_TEXT, name="How")
+    video_id = s._id()
+    # 1920 x 860 rendered, drawn at 1360 x 609 so the caption fits beneath it.
+    s.tree.append(fragment(
+        f'<p:pic><p:nvPicPr><p:cNvPr id="{video_id}" name="Medicao-Automatica.mp4" '
+        'descr="Animação: o vídeo do carro com os pixels medidos e a reconstrução 3D com as células de 0,5 m">'
+        '<a:hlinkClick action="ppaction://media"/></p:cNvPr><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr>'
+        f'<p:nvPr><a:videoFile r:link="rIdAutoVideo"/><p:extLst><p:ext uri="{{DAA4B4D4-6D71-4841-9C94-3DE7FCFB9230}}">'
+        f'<p14:media xmlns:p14="{p14}" r:embed="rIdAutoMedia"/></p:ext></p:extLst></p:nvPr></p:nvPicPr>'
+        '<p:blipFill><a:blip r:embed="rIdAutoPoster"/><a:stretch><a:fillRect/></a:stretch></p:blipFill>'
+        f'<p:spPr>{xfrm(120, 238, 1360, 609)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>'))
+    s.text(80, 854, 1440, 36, "carro_em_movimento2 · 97 quadros · 12 s na chuva · parâmetros do deploy · escala do "
+           "próprio modelo (vídeo sem GPS) · ainda sem comparação com trena", 17, DARK_MUTED, name="Caption")
+    s.root.append(fragment(
+        '<p:timing><p:tnLst><p:par><p:cTn id="1" dur="indefinite" restart="never" nodeType="tmRoot"><p:childTnLst>'
+        '<p:video><p:cMediaNode vol="0"><p:cTn id="2" repeatCount="indefinite" fill="hold" display="0"><p:stCondLst>'
+        f'<p:cond delay="0"/></p:stCondLst></p:cTn><p:tgtEl><p:spTgt spid="{video_id}"/></p:tgtEl></p:cMediaNode>'
+        '</p:video></p:childTnLst></p:cTn></p:par></p:tnLst></p:timing>'))
+    pkg.put(part, s.root)
+
+    # After the second roadside scene (sldId 262), instead of third.
+    presentation = pkg.xml("ppt/presentation.xml")
+    slide_list = presentation.find("p:sldIdLst", NS)
+    entry = next(s_id for s_id in slide_list if s_id.get("id") == "258")
+    slide_list.remove(entry)
+    next(s_id for s_id in slide_list if s_id.get("id") == "262").addnext(entry)
+    pkg.put("ppt/presentation.xml", presentation)
+
+    totals = json.loads(AUTOMATIC_PACKET.read_text())
+    quality = totals["quality"]
+    set_notes(pkg, "ppt/notesSlides/notesSlide3.xml", [
+        "[3:05 · Camada 3: prova] Agora sem ninguém pintar máscara. Esse vídeo tem doze segundos, gravado do carro "
+        "em movimento e na chuva. Um modelo encontra a vegetação; um segundo modelo reconhece o que não é grama — "
+        "guard-rail, muro, poste, placa. A geometria divide a faixa de cinco metros e meio ao lado da pista em células de "
+        f"meio metro e mede a altura de cada uma contra o próprio chão: {quality['measuredCells']} células medidas em "
+        f"{totals['corridor']['lengthM']:.0f} metros, {quality['structureCells']} recusadas porque havia estrutura e "
+        f"{quality['slopeCells']} porque eram talude.",
+        f"Fonte: run {totals['runId']} (carro_em_movimento2.mp4, 97 quadros a 8 fps; profundidade DA3 no Cloud Run L4 "
+        "em 14/09/2026). Medida na CPU local em 14/09/2026 com measurement/scripts/assess-grass.mjs e os parâmetros do "
+        "deploy (docs/presentations/motiva-pitch/automatic-request.json, conforme infrastructure/variables.tf): classes "
+        "terrain,vegetation; segundo modelo ade20k-b4 com piso 0,4; faixa automática de 5,5 m; chão por quadro; "
+        "talude a 0,1 m por célula; estrutura vista em 3 quadros; nada além das pontas da trilha. 274 s. O pacote "
+        "passa em check-grass-quality.mjs (checksums, digests das máscaras, relatório igual ao JSON).",
+        "A animação é docs/presentations/motiva-pitch/render_automatic_measurement.py: redesenha as células, os "
+        "estados e os pixels exatos que cada célula usou, lidos do pacote; o fundo é a nuvem de pontos do GLB do "
+        "run. Mediana 14,5 cm e p90 21,1 cm nas 360 células medidas.",
+        "Limites: o vídeo não tem telemetria, então a escala é a do próprio modelo. Na reconstrução a câmera fica a "
+        "0,73 m do chão, baixo para um celular na janela, e as alturas podem estar subestimadas; no app, o GPS do "
+        f"trajeto ancora a escala. {quality['abstainedCells']} células vistas ficaram sem suporte suficiente. Nenhuma "
+        "leitura automática foi comparada com trena; operationalStatus not-ready.",
+    ])
+
+
 def recap(pkg: Package) -> None:
     part = "ppt/slides/slide5.xml"
     s = Slide(pkg.xml(part))
@@ -775,6 +857,7 @@ def main() -> None:
     capture(pkg)
     management(pkg)
     frustum(pkg)
+    automatic(pkg)
     recap(pkg)
     accuracy_slide(pkg, numbers)
     cost(pkg)
@@ -783,7 +866,6 @@ def main() -> None:
     # Sections of ~/Desktop/pitch-greenv-final.md; the old minute ranges no longer fit the order.
     for notes_part, label in [
         ("ppt/notesSlides/notesSlide1.xml", "[0:00 · Abertura e as três camadas]"),
-        ("ppt/notesSlides/notesSlide3.xml", "[0:45 · Camada 1: captura]"),
         ("ppt/notesSlides/notesSlide6.xml", "[3:05 · Camada 3: prova]"),
         ("ppt/notesSlides/notesSlide7.xml", "[3:05 · Camada 3: prova]"),
         ("ppt/notesSlides/notesSlide10.xml", "[4:20 · fecho: modularidade]"),
