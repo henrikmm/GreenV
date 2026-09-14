@@ -63,3 +63,6 @@ infrastructure/**/backend.r2.hcl
 .DS_Store
 .idea/
 *.swp
+
+# Local Motiva presentation deliverables contain embedded media; never stage them.
+/output/motiva-pitch/
