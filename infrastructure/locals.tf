@@ -330,6 +330,9 @@ locals {
     # resolution, so pixels next to these classes are not measured.
     GREENV_MEASUREMENT_EXCLUDE_NEAR    = var.measurement_exclude_near
     GREENV_MEASUREMENT_EXCLUDE_NEAR_PX = tostring(var.measurement_exclude_near_px)
+    # The corridor ends where the embankment begins: two consecutive rises of more than this
+    # per half-metre cell mark the slope's foot, and everything beyond it is not measured.
+    GREENV_MEASUREMENT_SLOPE_RISE_M = var.measurement_slope_rise_m == null ? "" : tostring(var.measurement_slope_rise_m)
 
     PORT = "8090"
   })

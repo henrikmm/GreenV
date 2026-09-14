@@ -161,6 +161,7 @@ export function measurementPipeline({ config, storage, infer, runner, log = () =
       ...(config.measurement.canopyExtentM === null ? {} : { canopyExtentM: config.measurement.canopyExtentM }),
       ...(config.measurement.canopyGapM === null ? {} : { canopyGapM: config.measurement.canopyGapM }),
       ...(config.measurement.bandWidthM === null ? {} : { maxDistanceFromRoadM: config.measurement.bandWidthM }),
+      ...(config.measurement.slopeRiseM === null ? {} : { slopeRiseM: config.measurement.slopeRiseM }),
       ...(config.measurement.datum === "pooled" ? {} : { datum: config.measurement.datum }),
     };
 
@@ -216,6 +217,7 @@ export function measurementPipeline({ config, storage, infer, runner, log = () =
           canopyExtentM: config.measurement.canopyExtentM,
           canopyGapM: config.measurement.canopyGapM,
           bandWidthM: config.measurement.bandWidthM,
+          slopeRiseM: config.measurement.slopeRiseM,
           datum: config.measurement.datum,
           groundFallback: config.measurement.groundFallback,
           excludeNear: config.measurement.excludeNear || null,

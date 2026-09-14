@@ -149,9 +149,13 @@ other, so each frame is now measured against its own ground; a tree's low branch
 a hedge by the air under it, not by its height; and the band is held to the five-metre mowing
 corridor rather than to wherever the vegetation ends. With all of it on, the 43 segments read a
 p50 of 2–18 cm on 37 of them, against the 16–28 cm the first pass gave a verge the photographs
-put at 10–15. What decides the dashboard level is still the top twentieth of the cells, which a
-hedge at the corridor's edge is enough to hold above 30 cm; the policy question in
-`measurement/docs/GRASS-QUALITY.md` is now the one that matters.
+put at 10–15. The corridor now ends where each cell's own ground starts to climb — two
+consecutive rises of more than 10 cm per half-metre cell mark the embankment's foot, and 1,971
+of 17,060 cells on that day were set aside as slope — and the stretch stands for the 90th
+percentile of its cells rather than the 95th, because the top twentieth was the last half metre
+against the guardrail: by p95 the day sat at 6 / 14 / 20 stretches on levels 1 / 2 / 3, by p90
+at 9 / 21 / 10. Which aggregate and which thresholds a mowing policy should use remains the
+question `measurement/docs/GRASS-QUALITY.md` leaves to Motiva; p90 is a draft.
 
 ### 6. The default stretch is now shorter than the graded band
 

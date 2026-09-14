@@ -232,6 +232,11 @@ function build() {
       // Cityscapes labels whose neighbourhood is not measured. At the model's 128x128 logits one
       // class pixel is 4.5 by 8 photograph pixels, so the grass against a guardrail carries the
       // rail's lower edge with it. Empty excludes nothing; the radius is in logit pixels.
+      // The mowing corridor ends where the embankment begins. Walking outward along a column of
+      // cells, two consecutive rises of more than this, in metres per half-metre cell, mark the
+      // slope's foot; that cell and everything beyond it is reported as `slope` and aggregated
+      // nowhere. 0.1 is a 20% grade. Unset never looks.
+      slopeRiseM: number("GREENV_MEASUREMENT_SLOPE_RISE_M", null),
       excludeNear: text("GREENV_MEASUREMENT_EXCLUDE_NEAR", ""),
       excludeNearPx: number("GREENV_MEASUREMENT_EXCLUDE_NEAR_PX", 1),
       // Start a re-measure from the reconstruction the depth handler left beside the frames when
@@ -297,7 +302,7 @@ function build() {
   if (!["pooled", "per-frame"].includes(config.measurement.datum)) {
     throw new Error(`GREENV_MEASUREMENT_DATUM must be "pooled" or "per-frame", got "${config.measurement.datum}"`);
   }
-  for (const [name, value] of [["GREENV_MEASUREMENT_MAX_HEIGHT_M", config.measurement.maxHeightM], ["GREENV_MEASUREMENT_CANOPY_EXTENT_M", config.measurement.canopyExtentM], ["GREENV_MEASUREMENT_CANOPY_GAP_M", config.measurement.canopyGapM], ["GREENV_MEASUREMENT_BAND_WIDTH_M", config.measurement.bandWidthM]]) {
+  for (const [name, value] of [["GREENV_MEASUREMENT_MAX_HEIGHT_M", config.measurement.maxHeightM], ["GREENV_MEASUREMENT_CANOPY_EXTENT_M", config.measurement.canopyExtentM], ["GREENV_MEASUREMENT_CANOPY_GAP_M", config.measurement.canopyGapM], ["GREENV_MEASUREMENT_BAND_WIDTH_M", config.measurement.bandWidthM], ["GREENV_MEASUREMENT_SLOPE_RISE_M", config.measurement.slopeRiseM]]) {
     if (value !== null && !(value > 0)) {
       throw new Error(`${name} must be a positive number of metres, got ${value}`);
     }

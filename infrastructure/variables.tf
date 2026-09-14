@@ -491,6 +491,24 @@ variable "measurement_exclude_near_px" {
   }
 }
 
+variable "measurement_slope_rise_m" {
+  description = <<-EOT
+    The mowing corridor ends where the embankment begins. Walking outward along a column of
+    measurement cells, two consecutive rises of each cell's own ground by more than this, in
+    metres per half-metre cell, mark the slope's foot; that cell and everything beyond it are
+    reported as `slope` with their numbers and counted in no aggregate. 0.1 is a 20% grade: on
+    2026-09-13 it set 460 cells of one segment's embankment aside and took its p95 from 0.82 m
+    to 0.17 m, while a flat verge lost none. Null never looks.
+  EOT
+  type        = number
+  default     = 0.1
+
+  validation {
+    condition     = var.measurement_slope_rise_m == null || var.measurement_slope_rise_m > 0
+    error_message = "measurement_slope_rise_m must be a positive number of metres, or null."
+  }
+}
+
 variable "measurement_camera_height_m" {
   description = <<-EOT
     The lens's height above the road for the mount in use, in metres, measured with a tape. DA3
