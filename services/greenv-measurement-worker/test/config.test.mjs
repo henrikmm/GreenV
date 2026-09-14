@@ -113,7 +113,8 @@ test("the runpod adapter reads the names the deployment actually sets", () => {
 // and a misspelt value is refused at startup rather than measured with.
 test("the vehicle-mount settings default to off and refuse nonsense", () => {
   const off = loadConfig({}).measurement;
-  assert.deepEqual([off.offsetSide, off.minTrackM, off.cameraHeightM, off.scaleAnchor, off.reuseDepth], ["given", 0, null, "none", false]);
+  assert.deepEqual([off.offsetSide, off.minTrackM, off.cameraHeightM, off.scaleAnchor, off.reuseDepth, off.groundFallback], ["given", 0, null, "none", false, false]);
+  assert.equal(loadConfig({ GREENV_MEASUREMENT_GROUND_FALLBACK: "true" }).measurement.groundFallback, true);
 
   const car = loadConfig({
     GREENV_MEASUREMENT_OFFSET_SIDE: "auto",

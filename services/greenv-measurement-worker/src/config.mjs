@@ -209,6 +209,12 @@ function build() {
       // which is how every graded fixture was measured. The deployment sets 3 and 2.
       maxHeightM: number("GREENV_MEASUREMENT_MAX_HEIGHT_M", null),
       canopyExtentM: number("GREENV_MEASUREMENT_CANOPY_EXTENT_M", null),
+      // A wet road reflects the sky and the depth model reads the reflection as depth scattered
+      // below the surface, so the true ground is a thin layer the strict plane fit refuses. With
+      // this on, Verge Studio makes one coarser attempt, keeps it only if the camera stands a
+      // plausible height above it, and names the relaxation in the packet's blockers. One
+      // segment of 2026-09-13 measured nothing without it and 601 cells with it.
+      groundFallback: flag("GREENV_MEASUREMENT_GROUND_FALLBACK", false),
       // Start a re-measure from the reconstruction the depth handler left beside the frames when
       // it is there, instead of waking a GPU for geometry that has not changed. A request can
       // also ask for it per segment (`reuseDepth: true`), which is what a backfill does.

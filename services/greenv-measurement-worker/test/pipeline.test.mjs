@@ -191,7 +191,7 @@ test("a re-measure starts from the reconstruction kept beside the frames and wak
       [`${PREFIX}/depth/${earlier.runId}/scene.glb`]: Buffer.from("GLB"),
       [`${PREFIX}/depth/${earlier.runId}/result.npz`]: Buffer.from("NPZ"),
     },
-    env: { GREENV_MEASUREMENT_OFFSET_SIDE: "auto", GREENV_MEASUREMENT_MIN_TRACK_M: "3", GREENV_MEASUREMENT_CAMERA_HEIGHT_M: "1.25", GREENV_MEASUREMENT_SCALE_ANCHOR: "telemetry", GREENV_MEASUREMENT_MAX_HEIGHT_M: "3", GREENV_MEASUREMENT_CANOPY_EXTENT_M: "2" },
+    env: { GREENV_MEASUREMENT_OFFSET_SIDE: "auto", GREENV_MEASUREMENT_MIN_TRACK_M: "3", GREENV_MEASUREMENT_CAMERA_HEIGHT_M: "1.25", GREENV_MEASUREMENT_SCALE_ANCHOR: "telemetry", GREENV_MEASUREMENT_MAX_HEIGHT_M: "3", GREENV_MEASUREMENT_CANOPY_EXTENT_M: "2", GREENV_MEASUREMENT_GROUND_FALLBACK: "true" },
   });
   const result = await measure({ sessionId: segmentManifest().sessionId, segmentIndex: 0, force: true, reuseDepth: true });
 
@@ -209,6 +209,8 @@ test("a re-measure starts from the reconstruction kept beside the frames and wak
   assert.equal(request().trackLengthM, null);
   assert.deepEqual(request().gridOptions, { maxHeightM: 3, canopyExtentM: 2 }, "the canopy ceilings travel as grid options");
   assert.deepEqual([result.measurement.maxHeightM, result.measurement.canopyExtentM], [3, 2]);
+  assert.equal(request().groundFallback, true);
+  assert.equal(result.measurement.groundFallback, true);
   assert.deepEqual(
     [result.measurement.offsetSide, result.measurement.minTrackM, result.measurement.cameraHeightM, result.measurement.scaleAnchor],
     ["auto", 3, 1.25, "telemetry"],
@@ -247,6 +249,7 @@ test("a kept reconstruction missing one artifact falls through to a fresh infere
   assert.equal(result.depth.reused, false);
   assert.equal(result.measurement.offsetSide, "given", "Verge Studio's own default unless the deployment says otherwise");
   assert.equal("gridOptions" in request(), false, "no ceiling is sent when none is configured");
+  assert.equal(request().groundFallback, false, "the strict fit alone unless the deployment says otherwise");
 });
 
 test("the 110 MB run directory does not survive the measurement", async () => {

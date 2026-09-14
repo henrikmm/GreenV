@@ -317,6 +317,9 @@ locals {
     # aggregate. Empty leaves every height in, which is how every graded fixture was measured.
     GREENV_MEASUREMENT_MAX_HEIGHT_M    = var.measurement_max_height_m == null ? "" : tostring(var.measurement_max_height_m)
     GREENV_MEASUREMENT_CANOPY_EXTENT_M = var.measurement_canopy_extent_m == null ? "" : tostring(var.measurement_canopy_extent_m)
+    # A wet road reads as depth scattered below the surface and the strict plane fit finds no
+    # floor; this allows one coarser attempt, named in the packet's blockers when it is used.
+    GREENV_MEASUREMENT_GROUND_FALLBACK = tostring(var.measurement_ground_fallback)
 
     PORT = "8090"
   })

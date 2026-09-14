@@ -406,6 +406,19 @@ variable "measurement_canopy_extent_m" {
   }
 }
 
+variable "measurement_ground_fallback" {
+  description = <<-EOT
+    When the strict ground-plane fit finds no floor, allow one coarser attempt (twice the inlier
+    distance, half the support floor), kept only if the camera stands a plausible height above
+    the result and named in the packet as `ground-fit-relaxed`. A wet road reflects the sky and
+    the depth model reads the reflection as depth scattered below the surface, so the true
+    ground is a thin layer: one segment of 2026-09-13 measured nothing without this and 601
+    cells with it.
+  EOT
+  type        = bool
+  default     = true
+}
+
 variable "measurement_camera_height_m" {
   description = <<-EOT
     The lens's height above the road for the mount in use, in metres, measured with a tape. DA3
