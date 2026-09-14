@@ -229,6 +229,11 @@ function build() {
       // mowing corridor Motiva cuts. Unset, the band widens to the vegetation's far edge (up to
       // 10 m) and the slope behind the corridor counts, which it must not.
       bandWidthM: number("GREENV_MEASUREMENT_BAND_WIDTH_M", null),
+      // Cityscapes labels whose neighbourhood is not measured. At the model's 128x128 logits one
+      // class pixel is 4.5 by 8 photograph pixels, so the grass against a guardrail carries the
+      // rail's lower edge with it. Empty excludes nothing; the radius is in logit pixels.
+      excludeNear: text("GREENV_MEASUREMENT_EXCLUDE_NEAR", ""),
+      excludeNearPx: number("GREENV_MEASUREMENT_EXCLUDE_NEAR_PX", 1),
       // Start a re-measure from the reconstruction the depth handler left beside the frames when
       // it is there, instead of waking a GPU for geometry that has not changed. A request can
       // also ask for it per segment (`reuseDepth: true`), which is what a backfill does.
@@ -285,6 +290,9 @@ function build() {
   }
   if (!["telemetry", "none"].includes(config.measurement.scaleAnchor)) {
     throw new Error(`GREENV_MEASUREMENT_SCALE_ANCHOR must be "telemetry" or "none", got "${config.measurement.scaleAnchor}"`);
+  }
+  if (!Number.isInteger(config.measurement.excludeNearPx) || config.measurement.excludeNearPx < 0 || config.measurement.excludeNearPx > 8) {
+    throw new Error(`GREENV_MEASUREMENT_EXCLUDE_NEAR_PX must be a whole number of logit pixels from 0 to 8, got ${config.measurement.excludeNearPx}`);
   }
   if (!["pooled", "per-frame"].includes(config.measurement.datum)) {
     throw new Error(`GREENV_MEASUREMENT_DATUM must be "pooled" or "per-frame", got "${config.measurement.datum}"`);

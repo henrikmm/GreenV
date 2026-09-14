@@ -294,6 +294,7 @@ absence. A deployment must never fall back to a signing key that dies with the p
 | `GREENV_MEASUREMENT_DATUM` | `measurement_datum`, default `per-frame` | each frame measured against its own ground, then the median. The frames of a driven capture float 24–52 cm against each other, and the pooled datum read half the float as grass |
 | `GREENV_MEASUREMENT_CANOPY_GAP_M` | `measurement_canopy_gap_m`, default 0.5 | a cell whose frames see that much empty air between the ground and the foliage is a crown, whatever its extent |
 | `GREENV_MEASUREMENT_BAND_WIDTH_M` | `measurement_band_width_m`, default 5.5 | the band reaches this far from the detected road edge: five metres of verge, the mowing corridor, not the slope behind it |
+| `GREENV_MEASUREMENT_EXCLUDE_NEAR` | `measurement_exclude_near`, default `fence,wall,pole,building` | pixels next to these classes are not measured: at the model's resolution the grass against a guardrail carries the rail's lower edge with it. `GREENV_MEASUREMENT_EXCLUDE_NEAR_PX` (default 1) is the radius in logit pixels |
 | `GREENV_INFER_ADAPTER` | `http` or `runpod` | which depth dialect |
 | `GREENV_INFER_BASE_URL` | set only for `http` | the FastAPI service |
 | `GREENV_INFER_RUNPOD_ENDPOINT_ID` | set only for `runpod` | the endpoint id, not a URL |

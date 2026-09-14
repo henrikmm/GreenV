@@ -326,6 +326,10 @@ locals {
     GREENV_MEASUREMENT_DATUM        = var.measurement_datum
     GREENV_MEASUREMENT_CANOPY_GAP_M = var.measurement_canopy_gap_m == null ? "" : tostring(var.measurement_canopy_gap_m)
     GREENV_MEASUREMENT_BAND_WIDTH_M = var.measurement_band_width_m == null ? "" : tostring(var.measurement_band_width_m)
+    # The grass against a guardrail carries the rail's lower edge with it at the model's
+    # resolution, so pixels next to these classes are not measured.
+    GREENV_MEASUREMENT_EXCLUDE_NEAR    = var.measurement_exclude_near
+    GREENV_MEASUREMENT_EXCLUDE_NEAR_PX = tostring(var.measurement_exclude_near_px)
 
     PORT = "8090"
   })

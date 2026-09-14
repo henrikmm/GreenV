@@ -469,6 +469,28 @@ variable "measurement_band_width_m" {
   }
 }
 
+variable "measurement_exclude_near" {
+  description = <<-EOT
+    Cityscapes labels whose neighbourhood is not measured, comma separated. At the model's
+    128x128 logits one class pixel is 4.5 by 8 photograph pixels, so the grass against a
+    guardrail carries the rail's lower edge with it: on 2026-09-13 the tallest cells of a mown
+    strip were its last half metre against the rail. Empty excludes nothing.
+  EOT
+  type        = string
+  default     = "fence,wall,pole,building"
+}
+
+variable "measurement_exclude_near_px" {
+  description = "How far from an excluded class a pixel is still excluded, in logit pixels."
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.measurement_exclude_near_px >= 0 && var.measurement_exclude_near_px <= 8 && floor(var.measurement_exclude_near_px) == var.measurement_exclude_near_px
+    error_message = "measurement_exclude_near_px must be a whole number from 0 to 8."
+  }
+}
+
 variable "measurement_camera_height_m" {
   description = <<-EOT
     The lens's height above the road for the mount in use, in metres, measured with a tape. DA3

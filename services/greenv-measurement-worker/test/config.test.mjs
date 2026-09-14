@@ -118,6 +118,8 @@ test("the vehicle-mount settings default to off and refuse nonsense", () => {
   assert.deepEqual([off.datum, off.canopyGapM, off.bandWidthM], ["pooled", null, null]);
   assert.throws(() => loadConfig({ GREENV_MEASUREMENT_DATUM: "average" }), /pooled.*per-frame/);
   assert.throws(() => loadConfig({ GREENV_MEASUREMENT_BAND_WIDTH_M: "-5" }), /BAND_WIDTH_M/);
+  assert.deepEqual([off.excludeNear, off.excludeNearPx], ["", 1]);
+  assert.throws(() => loadConfig({ GREENV_MEASUREMENT_EXCLUDE_NEAR_PX: "1.5" }), /EXCLUDE_NEAR_PX/);
 
   const car = loadConfig({
     GREENV_MEASUREMENT_OFFSET_SIDE: "auto",

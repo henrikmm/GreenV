@@ -191,7 +191,7 @@ test("a re-measure starts from the reconstruction kept beside the frames and wak
       [`${PREFIX}/depth/${earlier.runId}/scene.glb`]: Buffer.from("GLB"),
       [`${PREFIX}/depth/${earlier.runId}/result.npz`]: Buffer.from("NPZ"),
     },
-    env: { GREENV_MEASUREMENT_OFFSET_SIDE: "auto", GREENV_MEASUREMENT_MIN_TRACK_M: "3", GREENV_MEASUREMENT_CAMERA_HEIGHT_M: "1.25", GREENV_MEASUREMENT_SCALE_ANCHOR: "telemetry", GREENV_MEASUREMENT_MAX_HEIGHT_M: "3", GREENV_MEASUREMENT_CANOPY_EXTENT_M: "2", GREENV_MEASUREMENT_GROUND_FALLBACK: "true", GREENV_MEASUREMENT_CANOPY_GAP_M: "0.5", GREENV_MEASUREMENT_BAND_WIDTH_M: "5.5", GREENV_MEASUREMENT_DATUM: "per-frame" },
+    env: { GREENV_MEASUREMENT_OFFSET_SIDE: "auto", GREENV_MEASUREMENT_MIN_TRACK_M: "3", GREENV_MEASUREMENT_CAMERA_HEIGHT_M: "1.25", GREENV_MEASUREMENT_SCALE_ANCHOR: "telemetry", GREENV_MEASUREMENT_MAX_HEIGHT_M: "3", GREENV_MEASUREMENT_CANOPY_EXTENT_M: "2", GREENV_MEASUREMENT_GROUND_FALLBACK: "true", GREENV_MEASUREMENT_CANOPY_GAP_M: "0.5", GREENV_MEASUREMENT_BAND_WIDTH_M: "5.5", GREENV_MEASUREMENT_DATUM: "per-frame", GREENV_MEASUREMENT_EXCLUDE_NEAR: "fence,wall,pole,building" },
   });
   const result = await measure({ sessionId: segmentManifest().sessionId, segmentIndex: 0, force: true, reuseDepth: true });
 
@@ -211,6 +211,8 @@ test("a re-measure starts from the reconstruction kept beside the frames and wak
   assert.deepEqual([result.measurement.maxHeightM, result.measurement.canopyExtentM, result.measurement.canopyGapM, result.measurement.bandWidthM, result.measurement.datum], [3, 2, 0.5, 5.5, "per-frame"]);
   assert.equal(request().groundFallback, true);
   assert.equal(result.measurement.groundFallback, true);
+  assert.deepEqual([request().excludeNearClasses, request().excludeNearPx], ["fence,wall,pole,building", 1]);
+  assert.deepEqual([result.measurement.excludeNear, result.measurement.excludeNearPx], ["fence,wall,pole,building", 1]);
   assert.deepEqual(
     [result.measurement.offsetSide, result.measurement.minTrackM, result.measurement.cameraHeightM, result.measurement.scaleAnchor],
     ["auto", 3, 1.25, "telemetry"],
@@ -250,6 +252,7 @@ test("a kept reconstruction missing one artifact falls through to a fresh infere
   assert.equal(result.measurement.offsetSide, "given", "Verge Studio's own default unless the deployment says otherwise");
   assert.equal("gridOptions" in request(), false, "no ceiling is sent when none is configured");
   assert.equal(request().groundFallback, false, "the strict fit alone unless the deployment says otherwise");
+  assert.equal("excludeNearClasses" in request(), false, "nothing excluded unless the deployment names it");
 });
 
 test("the 110 MB run directory does not survive the measurement", async () => {
