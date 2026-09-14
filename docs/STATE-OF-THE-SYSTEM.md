@@ -157,6 +157,16 @@ against the guardrail: by p95 the day sat at 6 / 14 / 20 stretches on levels 1 /
 at 9 / 21 / 10. Which aggregate and which thresholds a mowing policy should use remains the
 question `measurement/docs/GRASS-QUALITY.md` leaves to Motiva; p90 is a draft.
 
+Two stretches still read 0.55–0.59 m over grass of 5–15 cm, and both turned out to be the
+guardrail or the concrete barrier itself: the segmentation never learned a guard rail
+(Cityscapes leaves that label out of its nineteen classes) and calls it `terrain` in the frames
+where it does not call it `fence` or `wall`. A cell that three frames saw a structure standing in
+is now refused whatever the other frames read there, and nothing beyond the camera track's ends
+is measured any more; that took one of the two from 0.59 m to 0.20 m. The other stays at
+0.55 m: its second half is a guardrail no frame calls anything but terrain, and nothing in the
+geometry of a packet tells a 0.6 m rail from a 0.6 m stand of grass. **A segmentation with a
+guard-rail class is the open item**, untested.
+
 ### 6. The default stretch is now shorter than the graded band
 
 As of 10 September 2026, `GroupPlanner.DEFAULT_GROUP_METERS` is **10.0 m**, lowered from 20 m so

@@ -237,6 +237,16 @@ function build() {
       // slope's foot; that cell and everything beyond it is reported as `slope` and aggregated
       // nowhere. 0.1 is a 20% grade. Unset never looks.
       slopeRiseM: number("GREENV_MEASUREMENT_SLOPE_RISE_M", null),
+      // A wet guardrail or a concrete barrier is grass to the segmentation in some frames and a
+      // structure in the rest, and the frames that call it grass measure it. A cell that this
+      // many frames saw one of the excluded classes standing in is reported as `structure` and
+      // aggregated nowhere, whatever the other frames read there. Unset never looks.
+      structureFrames: number("GREENV_MEASUREMENT_STRUCTURE_FRAMES", null),
+      // What becomes of a point past either end of the camera track. `fold` piles it onto the
+      // nearer end with the overshoot turned into distance (Verge Studio's default, right for a
+      // walked polyline that spans its stretch); `drop` leaves it out, which a driven capture
+      // needs because the depth reaches on down the road past the last pose.
+      pastEnds: text("GREENV_MEASUREMENT_PAST_ENDS", "fold"),
       excludeNear: text("GREENV_MEASUREMENT_EXCLUDE_NEAR", ""),
       excludeNearPx: number("GREENV_MEASUREMENT_EXCLUDE_NEAR_PX", 1),
       // Start a re-measure from the reconstruction the depth handler left beside the frames when
@@ -309,6 +319,12 @@ function build() {
   }
   if (!(config.measurement.minTrackM >= 0)) {
     throw new Error(`GREENV_MEASUREMENT_MIN_TRACK_M must be zero or a positive number of metres, got ${config.measurement.minTrackM}`);
+  }
+  if (config.measurement.structureFrames !== null && !(Number.isInteger(config.measurement.structureFrames) && config.measurement.structureFrames >= 1)) {
+    throw new Error(`GREENV_MEASUREMENT_STRUCTURE_FRAMES must be a whole number of frames, at least 1, got ${config.measurement.structureFrames}`);
+  }
+  if (!["fold", "drop"].includes(config.measurement.pastEnds)) {
+    throw new Error(`GREENV_MEASUREMENT_PAST_ENDS must be "fold" or "drop", got "${config.measurement.pastEnds}"`);
   }
   if (config.measurement.cameraHeightM !== null && !(config.measurement.cameraHeightM > 0)) {
     throw new Error(`GREENV_MEASUREMENT_CAMERA_HEIGHT_M must be a positive number of metres, got ${config.measurement.cameraHeightM}`);

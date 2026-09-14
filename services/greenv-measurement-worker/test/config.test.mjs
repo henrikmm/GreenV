@@ -121,6 +121,10 @@ test("the vehicle-mount settings default to off and refuse nonsense", () => {
   assert.deepEqual([off.excludeNear, off.excludeNearPx, off.slopeRiseM], ["", 1, null]);
   assert.throws(() => loadConfig({ GREENV_MEASUREMENT_SLOPE_RISE_M: "0" }), /SLOPE_RISE_M/);
   assert.throws(() => loadConfig({ GREENV_MEASUREMENT_EXCLUDE_NEAR_PX: "1.5" }), /EXCLUDE_NEAR_PX/);
+  assert.deepEqual([off.structureFrames, off.pastEnds], [null, "fold"]);
+  assert.throws(() => loadConfig({ GREENV_MEASUREMENT_STRUCTURE_FRAMES: "1.5" }), /STRUCTURE_FRAMES/);
+  assert.throws(() => loadConfig({ GREENV_MEASUREMENT_STRUCTURE_FRAMES: "0" }), /STRUCTURE_FRAMES/);
+  assert.throws(() => loadConfig({ GREENV_MEASUREMENT_PAST_ENDS: "clamp" }), /PAST_ENDS/);
 
   const car = loadConfig({
     GREENV_MEASUREMENT_OFFSET_SIDE: "auto",

@@ -509,6 +509,41 @@ variable "measurement_slope_rise_m" {
   }
 }
 
+variable "measurement_structure_frames" {
+  description = <<-EOT
+    How many frames must see one of `measurement_exclude_near`'s classes standing in a measurement
+    cell before the cell is reported as `structure` and counted in no aggregate. The segmentation
+    calls a wet guardrail or a concrete barrier grass in some frames and a structure in the rest,
+    and the frames that call it grass measure it: on 2026-09-13 a rail read 0.7-0.8 m of "grass"
+    agreed across twenty frames, because it is an object of that height. Three is the bar a cell
+    must clear to be measured at all. Null never looks.
+  EOT
+  type        = number
+  default     = 3
+
+  validation {
+    condition     = var.measurement_structure_frames == null || (var.measurement_structure_frames >= 1 && floor(var.measurement_structure_frames) == var.measurement_structure_frames)
+    error_message = "measurement_structure_frames must be a whole number of frames, at least 1, or null."
+  }
+}
+
+variable "measurement_past_ends" {
+  description = <<-EOT
+    What becomes of a point past either end of the camera track. `fold` piles it onto the nearer
+    end with the overshoot turned into distance from the road, Verge Studio's default for a walked
+    polyline that spans its stretch; `drop` leaves it out. A driven capture's track stops at the
+    last pose while the depth reaches on down the road, and on 2026-09-13 the fold put a guardrail
+    one metre out into the last along-road cell at every distance to the band's width.
+  EOT
+  type        = string
+  default     = "drop"
+
+  validation {
+    condition     = contains(["fold", "drop"], var.measurement_past_ends)
+    error_message = "measurement_past_ends must be \"fold\" or \"drop\"."
+  }
+}
+
 variable "measurement_camera_height_m" {
   description = <<-EOT
     The lens's height above the road for the mount in use, in metres, measured with a tape. DA3

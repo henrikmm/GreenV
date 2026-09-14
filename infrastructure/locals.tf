@@ -333,6 +333,10 @@ locals {
     # The corridor ends where the embankment begins: two consecutive rises of more than this
     # per half-metre cell mark the slope's foot, and everything beyond it is not measured.
     GREENV_MEASUREMENT_SLOPE_RISE_M = var.measurement_slope_rise_m == null ? "" : tostring(var.measurement_slope_rise_m)
+    # A cell enough frames saw a structure standing in is not measured, whatever the other frames
+    # called it; and nothing past the camera track's ends is measured at all.
+    GREENV_MEASUREMENT_STRUCTURE_FRAMES = var.measurement_structure_frames == null ? "" : tostring(var.measurement_structure_frames)
+    GREENV_MEASUREMENT_PAST_ENDS        = var.measurement_past_ends
 
     PORT = "8090"
   })
