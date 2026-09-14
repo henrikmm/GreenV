@@ -173,6 +173,10 @@ has four vCPU) on top of the grass model's, and a wet rail in fog is still grass
 in some frames. CLIPSeg and a Mapillary-Vistas MaskFormer, which name a guardrail outright,
 were wired the same way and refuse too much grass beside the rail; both stay registered
 (`measurement/docs/evidence/2026-09-13-car-mount.md`, "A second model that knows a fence").
+Re-measured in the cloud on 14 September with all of this on, the 43 segments sit at 18 / 21 / 0
+stretches on levels 1 / 2 / 3, from 9 / 21 / 10 the day before: what had held the top twentieth
+of the cells was the guardrail. Whether a rail-side strip of tall grass is now refused with the
+rail is the open question that a tape on a real verge has to answer.
 
 ### 6. The default stretch is now shorter than the graded band
 

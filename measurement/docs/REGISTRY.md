@@ -892,7 +892,10 @@ measured the same way: a prompted one (`clipseg`, CLIPSeg asked "guardrail") and
 (`vistas-r50`, a MaskFormer on Mapillary Vistas with `Guard Rail` and `Barrier` classes). Each
 finds the rail where the SegFormers miss it and each refuses too much — 50 and 51 cells of
 317 on `11/10` against the ADE20K's 293 — because its mask fattens over the grass beside the
-rail. Evidence: the sections "A second model that knows a fence" and after, same file.
+rail. On the 43 runs: 10,069 measured cells, 4,634 `structure`, levels 18/21/0 by p90 where
+the class veto alone gave 15/21/3 and the slope round 9/21/10; the cloud worker reports the
+same 18/21/0 on the same segments. Evidence: the sections "A second model that knows a fence"
+and after, same file.
 
 Three things the same day established about the capture rather than the pipeline: the frame
 extractor's distance grouping publishes the first 30–40 m of a 170–250 m segment at highway
