@@ -130,6 +130,32 @@ export interface GrassHeightGridOptions {
    * see what was excluded, and it counts in neither the measured nor the abstained tallies.
    */
   canopyExtentM?: number;
+  /**
+   * Where each cell's own ground is taken from.
+   *
+   * `pooled`, the default, takes the 2nd percentile of every voting frame's voxels together —
+   * the ground is a property of the place, not of the viewpoint — and it is how every graded
+   * fixture was measured. It assumes the frames agree about where that ground is. On the
+   * driven captures of 2026-09-13 they did not: within one frame a cell's heights spread 1–8 cm,
+   * between frames the same cell floated by 24–52 cm, so the pooled datum sat on the lowest
+   * floating frame while the canopy percentile sat on the middle one, and a mown verge read
+   * half the float as grass. `per-frame` takes each frame's extent against that frame's own
+   * 2nd percentile and reports the median of those, which no float between frames can move.
+   * `localGroundM` is then the median of the per-frame datums, and `h95M − localGroundM` no
+   * longer equals `extent95M` by construction.
+   */
+  datum?: "pooled" | "per-frame";
+  /**
+   * The vertical gap that tells a crown from a tall plant.
+   *
+   * A crown floats: a frame sees the ground under it, then nothing for a metre or more, then
+   * foliage. Grass, brush and a hedge are continuous from the ground up. So a cell whose voting
+   * frames typically show a gap wider than this between one voxel height and the next, with at
+   * least a tenth of the frame's voxels above the gap, is canopy — whatever its extent, which
+   * the ceilings above may well let through when the lowest branches hang at two metres.
+   * Infinity, the default, never looks.
+   */
+  canopyGapM?: number;
 }
 
 const DEFAULTS: Required<GrassHeightGridOptions> = {
@@ -140,6 +166,8 @@ const DEFAULTS: Required<GrassHeightGridOptions> = {
   minVoxelsPerFrame: 20,
   maxHeightM: Infinity,
   canopyExtentM: Infinity,
+  datum: "pooled",
+  canopyGapM: Infinity,
 };
 
 export interface GrassHeightFrameInput {
@@ -226,7 +254,9 @@ export interface GrassCellMeasurement {
    */
   evidenceFrameIndices: number[];
   status: "measured" | "insufficient-support" | "canopy";
-  reason?: "too-few-frames" | "too-few-samples" | "above-canopy-extent";
+  reason?: "too-few-frames" | "too-few-samples" | "above-canopy-extent" | "floating-above-ground";
+  /** The typical vertical gap a voting frame saw inside this cell, in metres. Tall for a crown. */
+  gapM?: number;
 }
 
 export type GrassReviewSampleReason =
@@ -255,6 +285,9 @@ export interface GrassHeightAssessmentV1 {
     /** The canopy ceilings in force, or null when every height was kept. */
     maxHeightM: number | null;
     canopyExtentM: number | null;
+    canopyGapM: number | null;
+    /** Whether each cell's ground came from all its frames together or from each frame alone. */
+    datum: "pooled" | "per-frame";
   };
   measurements: GrassCellMeasurement[];
   reviewEvidence: {
@@ -567,6 +600,10 @@ interface FrameVote {
   voxelCount: number;
   /** Nearest-rank percentiles of this frame's voxel heights, in `REPORTED_PERCENTILES` order. */
   percentiles: number[];
+  /** This frame's own 2nd percentile: its view of the ground, for the per-frame datum. */
+  groundM: number;
+  /** The widest gap between consecutive voxel heights with a tenth of the voxels above it. */
+  gapM: number;
 }
 
 interface CellAccumulator {
@@ -591,7 +628,23 @@ function voteFor(frameIndex: number, voxels: Map<string, number>, minVoxels: num
     frameIndex,
     voxelCount: voxels.size,
     percentiles: REPORTED_PERCENTILES.map((p) => percentileOfSorted(heights, p)),
+    groundM: percentileOfSorted(heights, LOCAL_GROUND_PERCENTILE),
+    gapM: widestGap(heights),
   };
+}
+
+/**
+ * The widest gap between consecutive sorted heights whose upper side still holds a tenth of
+ * them. The floor on the upper side is what keeps a single flying voxel from reading as a crown.
+ */
+function widestGap(sortedHeights: Float64Array): number {
+  const keepAbove = Math.max(1, Math.ceil(sortedHeights.length * 0.1));
+  let widest = 0;
+  for (let i = 1; i <= sortedHeights.length - keepAbove; i++) {
+    const gap = sortedHeights[i] - sortedHeights[i - 1];
+    if (gap > widest) widest = gap;
+  }
+  return widest;
 }
 
 /**
@@ -649,10 +702,13 @@ function resolveOptions(options: GrassHeightGridOptions | undefined): Required<G
     }
   }
   // The two ceilings may be infinite, which is how "no ceiling" is spelled.
-  for (const [name, value] of [["maxHeightM", resolved.maxHeightM], ["canopyExtentM", resolved.canopyExtentM]] as const) {
+  for (const [name, value] of [["maxHeightM", resolved.maxHeightM], ["canopyExtentM", resolved.canopyExtentM], ["canopyGapM", resolved.canopyGapM]] as const) {
     if (!(value > 0)) {
       throw new GrassHeightInputError(`${name} must be a positive number of metres or Infinity, got ${value}`);
     }
+  }
+  if (resolved.datum !== "pooled" && resolved.datum !== "per-frame") {
+    throw new GrassHeightInputError(`datum must be "pooled" or "per-frame", got ${JSON.stringify(resolved.datum)}`);
   }
   return resolved;
 }
@@ -955,17 +1011,28 @@ function reduceCells(
       ...byAgreement.map((v) => v.frameIndex),
     ])].slice(0, 3);
 
+    // The extents. Pooled: each canopy percentile above the one datum the voting frames share.
+    // Per frame: each frame's percentile above that frame's own datum, then the median, so a
+    // frame that floats above the others carries its ground up with it and changes nothing.
+    const perFrame = options.datum === "per-frame";
+    const extentAt = (slot: number) =>
+      perFrame
+        ? median(votes.map((vote) => above(vote.groundM, vote.percentiles[slot])))
+        : above(groundM, [h50M, h90M, h95M][slot]);
+    const localGroundM = perFrame ? median(votes.map((vote) => vote.groundM)) : groundM;
     // Taller than a verge can be is a tree standing in the band: kept, with every number it
     // computed, under a status the aggregates do not count.
-    const extent95M = above(groundM, h95M);
-    const isCanopy = extent95M > options.canopyExtentM;
+    const extent95M = extentAt(2);
+    const gapM = median(votes.map((vote) => vote.gapM));
+    const floating = gapM > options.canopyGapM;
+    const isCanopy = extent95M > options.canopyExtentM || floating;
 
     measurements.push({
       coordinate,
-      localGroundM: groundM,
+      localGroundM,
       groundContactVoxels: contactVoxels,
-      extent50M: above(groundM, h50M),
-      extent90M: above(groundM, h90M),
+      extent50M: extentAt(0),
+      extent90M: extentAt(1),
       extent95M,
       h50M,
       h90M,
@@ -976,8 +1043,9 @@ function reduceCells(
       frameVotes: votes.map((v) => ({ frameIndex: v.frameIndex, sampleCount: v.voxelCount,
         h50M: v.percentiles[0], h90M: v.percentiles[1], h95M: v.percentiles[2] })),
       evidenceFrameIndices,
+      gapM,
       status: isCanopy ? "canopy" : "measured",
-      ...(isCanopy ? { reason: "above-canopy-extent" as const } : {}),
+      ...(isCanopy ? { reason: extent95M > options.canopyExtentM ? ("above-canopy-extent" as const) : ("floating-above-ground" as const) } : {}),
     });
   }
 
@@ -998,6 +1066,8 @@ function reduceCells(
       cellSizeM: options.cellSizeM,
       maxHeightM: Number.isFinite(options.maxHeightM) ? options.maxHeightM : null,
       canopyExtentM: Number.isFinite(options.canopyExtentM) ? options.canopyExtentM : null,
+      canopyGapM: Number.isFinite(options.canopyGapM) ? options.canopyGapM : null,
+      datum: options.datum,
     },
     measurements,
     reviewEvidence: buildReviewEvidence(measurements),

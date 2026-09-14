@@ -827,8 +827,23 @@ not by class. **A wet road hides the floor:** one segment found no ground plane 
 against the 1% floor) because the road's reflection reads as depth scattered below the surface;
 `groundFallback` allows one coarser fit (0.07 m, 0.5%), kept only if the camera stands 0.3–6 m
 above it and named `ground-fit-relaxed`, and that segment then measures 601 cells at a p50 of
-0.28 m. Which aggregate a mowing policy takes is still the open question of `GRASS-QUALITY.md`.
-No reading here is graded against a tape.
+0.28 m.
+
+**The frames of a driven capture float against each other, and the pooled datum read the float
+as grass — 2026-09-14.** A cell's heights spread 1–8 cm within one frame and 24–52 cm between
+frames; the pooled 2nd percentile sat on the lowest frame and the median P95 on the middle one,
+so a verge the photographs put at 10–15 cm read 16–28 cm. `datum: "per-frame"` (each frame
+against its own 2nd percentile, then the median) reads it at 4–12 cm and is pinned by a test of
+five frames three of which float 0.30 m. `canopyGapM` tells a crown from a plant by the air
+under it — the widest per-frame gap between voxel heights with a tenth of the voxels above —
+and at 0.5 m sets a branch hanging at two metres aside where the height ceilings let it
+through. `maxDistanceFromRoadM: 5.5` from the auto-placed edge holds the band to the five-metre
+mowing corridor instead of the slope behind it. All three off by default. On the 43 runs
+together: 40 measured, 17,699 cells, p50 2–18 cm on 37 of them, dashboard levels 7/11/22 where
+the previous round had 34 at level 3. The guardrail top in `0f/1`, 0.51 m in the model against
+a 0.70–0.75 m standard, agrees with the GPS anchor's ×1.28; scale was not the inflation. Which
+aggregate a mowing policy takes is still the open question of `GRASS-QUALITY.md`. No reading
+here is graded against a tape.
 
 Three things the same day established about the capture rather than the pipeline: the frame
 extractor's distance grouping publishes the first 30–40 m of a 170–250 m segment at highway
