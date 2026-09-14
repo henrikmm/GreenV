@@ -337,6 +337,11 @@ locals {
     # called it; and nothing past the camera track's ends is measured at all.
     GREENV_MEASUREMENT_STRUCTURE_FRAMES = var.measurement_structure_frames == null ? "" : tostring(var.measurement_structure_frames)
     GREENV_MEASUREMENT_PAST_ENDS        = var.measurement_past_ends
+    # A second segmentation that knows a guardrail (ADE20K's fence, railing, wall, bannister),
+    # asked only what is not grass; the Cityscapes grass model was never taught one.
+    GREENV_MEASUREMENT_STRUCTURE_MODEL   = var.measurement_structure_model
+    GREENV_MEASUREMENT_STRUCTURE_CLASSES = var.measurement_structure_classes
+    GREENV_MEASUREMENT_STRUCTURE_FLOOR   = var.measurement_structure_floor == null ? "" : tostring(var.measurement_structure_floor)
 
     PORT = "8090"
   })

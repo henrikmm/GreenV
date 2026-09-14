@@ -527,6 +527,56 @@ variable "measurement_structure_frames" {
   }
 }
 
+variable "measurement_structure_model" {
+  description = <<-EOT
+    The key of a second segmentation model asked only what is NOT grass, or empty to run the
+    grass model alone. The grass model is trained on Cityscapes, which never taught it a
+    guardrail, so a wet W-beam or a concrete barrier is `terrain` to it in many frames and reads
+    as 0.6 m of vegetation. `ade20k-b4` is a SegFormer trained on ADE20K's 150 classes, `fence`,
+    `railing`, `wall` and `bannister` among them; on 2026-09-14 it painted the rail and the
+    barrier of the two stretches that read 0.55-0.59 m over short grass exactly those classes.
+    About 0.9 s a frame on the worker's CPU, on top of the grass model's 0.14 s.
+  EOT
+  type        = string
+  default     = "ade20k-b4"
+
+  validation {
+    condition     = contains(["", "ade20k-b4", "ade20k-b2"], var.measurement_structure_model)
+    error_message = "measurement_structure_model must be \"ade20k-b4\", \"ade20k-b2\" or empty."
+  }
+}
+
+variable "measurement_structure_classes" {
+  description = <<-EOT
+    The classes of `measurement_structure_model` that are a structure, in that model's own names:
+    taken out of the grass mask with the `measurement_exclude_near_px` margin, and into the cells
+    `measurement_structure_frames` counts. Empty only when no second model runs.
+  EOT
+  type        = string
+  default     = "fence,railing,wall,bannister,pole,column,signboard,building,house,streetlight,step"
+
+  validation {
+    condition     = (var.measurement_structure_model == "") == (var.measurement_structure_classes == "")
+    error_message = "measurement_structure_classes must be set exactly when measurement_structure_model is."
+  }
+}
+
+variable "measurement_structure_floor" {
+  description = <<-EOT
+    A pixel is a structure to the second model when the probability it gives
+    `measurement_structure_classes`, summed, reaches this. The model spreads a guardrail over
+    fence, railing, wall and bannister, so no one class need win. Null leaves Verge Studio's
+    0.5, a majority of the probability.
+  EOT
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.measurement_structure_floor == null || (var.measurement_structure_floor > 0 && var.measurement_structure_floor <= 1)
+    error_message = "measurement_structure_floor must be a probability above 0 and at most 1, or null."
+  }
+}
+
 variable "measurement_past_ends" {
   description = <<-EOT
     What becomes of a point past either end of the camera track. `fold` piles it onto the nearer

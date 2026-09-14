@@ -247,6 +247,18 @@ function build() {
       // walked polyline that spans its stretch); `drop` leaves it out, which a driven capture
       // needs because the depth reaches on down the road past the last pose.
       pastEnds: text("GREENV_MEASUREMENT_PAST_ENDS", "fold"),
+      // A second segmentation asked only what is not grass. The grass model is Cityscapes-trained
+      // and Cityscapes never taught it a guardrail, so a wet W-beam or a concrete barrier is
+      // `terrain` to it in many frames; ADE20K (`ade20k-b4`) knows `fence`, `railing`, `wall`
+      // and `bannister`. Its named classes join the structure map: out of the grass mask with the
+      // same margin as EXCLUDE_NEAR, and into the cells STRUCTURE_FRAMES counts. Empty runs one
+      // model only; the classes are the second model's own names.
+      structureModel: text("GREENV_MEASUREMENT_STRUCTURE_MODEL", ""),
+      structureClasses: text("GREENV_MEASUREMENT_STRUCTURE_CLASSES", ""),
+      // A pixel is a structure to the second model when the probability it gives those classes,
+      // summed, reaches this; a rail is spread over fence, railing, wall and bannister, so no
+      // one class need win. Unset leaves Verge Studio's 0.5, a majority of the probability.
+      structureFloor: number("GREENV_MEASUREMENT_STRUCTURE_FLOOR", null),
       excludeNear: text("GREENV_MEASUREMENT_EXCLUDE_NEAR", ""),
       excludeNearPx: number("GREENV_MEASUREMENT_EXCLUDE_NEAR_PX", 1),
       // Start a re-measure from the reconstruction the depth handler left beside the frames when
@@ -325,6 +337,15 @@ function build() {
   }
   if (!["fold", "drop"].includes(config.measurement.pastEnds)) {
     throw new Error(`GREENV_MEASUREMENT_PAST_ENDS must be "fold" or "drop", got "${config.measurement.pastEnds}"`);
+  }
+  if (config.measurement.structureModel && !config.measurement.structureClasses) {
+    throw new Error("GREENV_MEASUREMENT_STRUCTURE_CLASSES must name the classes GREENV_MEASUREMENT_STRUCTURE_MODEL is asked for");
+  }
+  if (!config.measurement.structureModel && config.measurement.structureClasses) {
+    throw new Error("GREENV_MEASUREMENT_STRUCTURE_CLASSES needs GREENV_MEASUREMENT_STRUCTURE_MODEL to read them from");
+  }
+  if (config.measurement.structureFloor !== null && !(config.measurement.structureFloor > 0 && config.measurement.structureFloor <= 1)) {
+    throw new Error(`GREENV_MEASUREMENT_STRUCTURE_FLOOR must be a probability above 0 and at most 1, got ${config.measurement.structureFloor}`);
   }
   if (config.measurement.cameraHeightM !== null && !(config.measurement.cameraHeightM > 0)) {
     throw new Error(`GREENV_MEASUREMENT_CAMERA_HEIGHT_M must be a positive number of metres, got ${config.measurement.cameraHeightM}`);

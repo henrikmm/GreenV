@@ -162,10 +162,15 @@ guardrail or the concrete barrier itself: the segmentation never learned a guard
 (Cityscapes leaves that label out of its nineteen classes) and calls it `terrain` in the frames
 where it does not call it `fence` or `wall`. A cell that three frames saw a structure standing in
 is now refused whatever the other frames read there, and nothing beyond the camera track's ends
-is measured any more; that took one of the two from 0.59 m to 0.20 m. The other stays at
+is measured any more; that took one of the two from 0.59 m to 0.20 m. The other stayed at
 0.55 m: its second half is a guardrail no frame calls anything but terrain, and nothing in the
-geometry of a packet tells a 0.6 m rail from a 0.6 m stand of grass. **A segmentation with a
-guard-rail class is the open item**, untested.
+geometry of a packet tells a 0.6 m rail from a 0.6 m stand of grass. So a second segmentation
+now runs beside the first, a SegFormer trained on ADE20K, whose classes include `fence`,
+`railing` and `wall` and whose guardrails are annotated `fence`; it is asked only what is not
+grass, and its answer joins the structure map. That stretch reads 0.05 m. It costs 0.9 s of CPU
+a frame on top of the 0.14 s of the grass model, and a wet rail in fog is still grass to both
+models in some frames (`measurement/docs/evidence/2026-09-13-car-mount.md`, "A second model
+that knows a fence").
 
 ### 6. The default stretch is now shorter than the graded band
 

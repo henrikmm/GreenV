@@ -125,6 +125,11 @@ test("the vehicle-mount settings default to off and refuse nonsense", () => {
   assert.throws(() => loadConfig({ GREENV_MEASUREMENT_STRUCTURE_FRAMES: "1.5" }), /STRUCTURE_FRAMES/);
   assert.throws(() => loadConfig({ GREENV_MEASUREMENT_STRUCTURE_FRAMES: "0" }), /STRUCTURE_FRAMES/);
   assert.throws(() => loadConfig({ GREENV_MEASUREMENT_PAST_ENDS: "clamp" }), /PAST_ENDS/);
+  assert.deepEqual([off.structureModel, off.structureClasses], ["", ""]);
+  assert.throws(() => loadConfig({ GREENV_MEASUREMENT_STRUCTURE_MODEL: "ade20k-b4" }), /STRUCTURE_CLASSES/);
+  assert.throws(() => loadConfig({ GREENV_MEASUREMENT_STRUCTURE_CLASSES: "fence" }), /STRUCTURE_MODEL/);
+  assert.equal(off.structureFloor, null);
+  assert.throws(() => loadConfig({ GREENV_MEASUREMENT_STRUCTURE_FLOOR: "1.5" }), /STRUCTURE_FLOOR/);
 
   const car = loadConfig({
     GREENV_MEASUREMENT_OFFSET_SIDE: "auto",
