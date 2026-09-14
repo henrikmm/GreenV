@@ -64,6 +64,7 @@ describe('a second model asked what is not grass', () => {
     expect(() => vehicleOptions({ structureClasses: 'fence' })).toThrow(/structureModel/);
     expect(() => vehicleOptions({ structureModel: 'nope', structureClasses: 'fence' })).toThrow(/unknown model/);
     expect(on.structureFloor).toBe(0.5);
+    expect(vehicleOptions({ structureModel: 'clipseg', structureClasses: 'guardrail,guard rail' }).structureClasses).toEqual(['guardrail', 'guard rail']);
     expect(() => vehicleOptions({ structureFloor: 1.5 })).toThrow(/structureFloor/);
     expect(() => vehicleOptions({ gridOptions: { structureFrames: 0.5 } })).toThrow(/structureFrames/);
     expect(() => vehicleOptions({ gridOptions: { pastEnds: 'clamp' } })).toThrow(/pastEnds/);

@@ -66,6 +66,21 @@ export const SEGMENTATION_MODELS = [
     runtime: "@huggingface/transformers@3.8.1",
     default: false,
   },
+  // A prompted model: it has no classes, it answers a phrase with a probability per pixel at
+  // 352x352. Asked "guardrail", "guard rail" and "concrete barrier" it found the rail in fog and
+  // rain where both SegFormers saw grass (2026-09-14), and on two ONNX threads — the worker's
+  // budget — it takes 0.75 s a frame where the ADE20K B4 takes 3.9. fp16 halves the weights to
+  // 273 MB and gave the same probabilities as fp32 on the frames tried.
+  {
+    key: "clipseg",
+    id: "Xenova/clipseg-rd64-refined",
+    revision: "924dc94f85f58739f353f94258b33bc47eae4862",
+    runtime: "@huggingface/transformers@3.8.1",
+    kind: "prompted",
+    dtype: "fp16",
+    file: "model_fp16.onnx",
+    default: false,
+  },
 ];
 
 /**
@@ -76,7 +91,7 @@ export const SEGMENTATION_MODELS = [
  * shorter path: it makes the pin real on the filesystem rather than only in a comment.
  */
 function cachedAt(model, cache = MODEL_CACHE) {
-  return join(cache, ...model.id.split("/"), model.revision, "onnx", "model.onnx");
+  return join(cache, ...model.id.split("/"), model.revision, "onnx", model.file ?? "model.onnx");
 }
 
 for (const model of SEGMENTATION_MODELS) model.cachedAt = (cache) => cachedAt(model, cache);
@@ -115,12 +130,21 @@ async function load(model) {
     throw new Error("this needs the app's dependencies: run `npm ci --prefix app` first");
   }
 
-  const { AutoModelForSemanticSegmentation, AutoProcessor, RawImage, env } = transformers;
+  const { AutoModelForSemanticSegmentation, AutoProcessor, AutoTokenizer, CLIPSegForImageSegmentation, RawImage, env } = transformers;
   env.cacheDir = MODEL_CACHE;
   env.allowRemoteModels = false;
 
   const started = Date.now();
-  const runner = await AutoModelForSemanticSegmentation.from_pretrained(model.id, { revision: model.revision });
+  const pinned = { revision: model.revision, ...(model.dtype ? { dtype: model.dtype } : {}) };
+  if (model.kind === "prompted") {
+    const runner = await CLIPSegForImageSegmentation.from_pretrained(model.id, pinned);
+    const processor = await AutoProcessor.from_pretrained(model.id, { revision: model.revision });
+    const tokenizer = await AutoTokenizer.from_pretrained(model.id, { revision: model.revision });
+    const entry = { key: model.key, model, runner, processor, tokenizer, RawImage, labels: null, loadMs: Date.now() - started };
+    loaded.set(model.key, entry);
+    return entry;
+  }
+  const runner = await AutoModelForSemanticSegmentation.from_pretrained(model.id, pinned);
   const processor = await AutoProcessor.from_pretrained(model.id, { revision: model.revision });
   // The checkpoint's own class names, by id. ADE20K spells a class with its synonyms
   // ("building, edifice"); the first name is the one a request can ask for.
@@ -146,6 +170,7 @@ export async function modelLabels(model = DEFAULT_MODEL) {
  * covers roughly 4.5 by 8 source pixels, and that is the honest resolution of this instrument.
  */
 export async function segmentFrame(framePath, model = DEFAULT_MODEL) {
+  if (model.kind === "prompted") throw new Error(`${model.key} answers prompts, not classes: use promptFrame`);
   const { runner, processor, RawImage, labels, loadMs } = await load(model);
   const image = await RawImage.read(framePath);
   const inputs = await processor(image);
@@ -160,5 +185,37 @@ export async function segmentFrame(framePath, model = DEFAULT_MODEL) {
     timing: { loadMs, inferMs },
     model,
     labels,
+  };
+}
+
+/**
+ * Ask a prompted model how much each pixel is what each phrase names.
+ *
+ * One sigmoid per prompt per pixel, on the model's own 352x352 grid, not upsampled, for the
+ * reason `segmentFrame` gives. The prompts are the caller's: the model has no classes to
+ * validate them against, so a misspelt phrase is a weaker answer, not an error.
+ */
+export async function promptFrame(framePath, prompts, model) {
+  if (model.kind !== "prompted") throw new Error(`${model.key} has classes, not prompts: use segmentFrame`);
+  if (!Array.isArray(prompts) || !prompts.length) throw new Error("promptFrame needs at least one prompt");
+  const { runner, processor, tokenizer, RawImage, loadMs } = await load(model);
+  const image = await RawImage.read(framePath);
+  const text = tokenizer(prompts, { padding: true, truncation: true });
+  const inputs = await processor(image);
+  const started = Date.now();
+  const { logits } = await runner({ ...text, ...inputs });
+  const inferMs = Date.now() - started;
+
+  const [count, height, width] = logits.dims;
+  const probabilities = new Float32Array(count * height * width);
+  for (let i = 0; i < probabilities.length; i++) probabilities[i] = 1 / (1 + Math.exp(-Number(logits.data[i])));
+  return {
+    probabilities,
+    prompts: count,
+    height,
+    width,
+    frame: { width: image.width, height: image.height },
+    timing: { loadMs, inferMs },
+    model,
   };
 }

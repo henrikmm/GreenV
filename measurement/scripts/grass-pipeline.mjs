@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 import { basename } from "node:path";
 import { typed } from "./inspect/typed.mjs";
 import { resolveRun, readArrays, readCloud, frameFiles, readManifest, readMeasurementEvidence } from "./inspect/source.mjs";
-import { segmentFrame, findModel, modelLabels, DEFAULT_MODEL, MODEL_CACHE } from "./inspect/segment-model.mjs";
+import { segmentFrame, promptFrame, findModel, modelLabels, DEFAULT_MODEL, MODEL_CACHE } from "./inspect/segment-model.mjs";
 import { apply4x4, invert4x4, projectToPixel } from "./inspect/render.mjs";
 import { QUALITY_SCHEMA, encodeRuns, decodeRuns, roadContext, qualitySummary, compareAssessments } from "./grass-quality.mjs";
 import { lateralProfile, chooseBand, trackLengthScale, cameraHeightScale, scaleAffine, polylineLength, ontoPlane } from "./grass-anchor.mjs";
@@ -147,7 +147,7 @@ export async function runGrassPipeline(request, onProgress = () => {}, signal) {
   // what the model actually predicts rather than against a list kept here.
   const secondModel = vehicle.structureModel === null ? null : findModel(vehicle.structureModel);
   let secondIds = null;
-  if (secondModel) {
+  if (secondModel && secondModel.kind !== "prompted") {
     const labels = await modelLabels(secondModel);
     const unknown = vehicle.structureClasses.filter((label) => !labels.includes(label));
     if (unknown.length) throw new Error(`unknown ${secondModel.key} label(s) in structureClasses: ${unknown.join(", ")}`);
@@ -239,26 +239,42 @@ export async function runGrassPipeline(request, onProgress = () => {}, signal) {
       // classes, and the second model's when one is asked for.
       let structure = null;
       let second = null;
-      if (excludeNearIds.size || secondIds) {
+      if (excludeNearIds.size || secondModel) {
         const map = T.classMapFromLogits(result.logits);
         const w = map.width, h = map.height, r = vehicle.excludeNearPx;
         structure = new Uint8Array(w * h);
         for (let p = 0; p < w * h; p++) if (excludeNearIds.has(map.classIds[p])) structure[p] = 1;
-        if (secondIds) {
-          const opinion = await segmentFrame(files[i], secondModel);
-          check();
-          // The probability the second model gives its structure classes, summed per pixel: a
-          // softmax over its logits, with the maximum subtracted first so the exponentials cannot
-          // overflow. No one class need win — a rail is spread over four of them.
-          const { data, classes, height: h2, width: w2 } = opinion.logits;
-          const stride2 = h2 * w2;
-          const structureMass = new Float32Array(stride2);
-          for (let p = 0; p < stride2; p++) {
-            let max = -Infinity;
-            for (let c = 0; c < classes; c++) { const v = data[c * stride2 + p]; if (v > max) max = v; }
-            let sum = 0, mass = 0;
-            for (let c = 0; c < classes; c++) { const e = Math.exp(data[c * stride2 + p] - max); sum += e; if (secondIds.has(c)) mass += e; }
-            structureMass[p] = mass / sum;
+        if (secondModel) {
+          // How much of a structure the second model makes of each pixel, 0 to 1, on its own grid.
+          let opinion, structureMass, h2, w2;
+          if (secondModel.kind === "prompted") {
+            // A prompted model: as much as the phrase that fits the pixel best says it is.
+            opinion = await promptFrame(files[i], vehicle.structureClasses, secondModel);
+            check();
+            ({ height: h2, width: w2 } = opinion);
+            const stride2 = h2 * w2;
+            structureMass = new Float32Array(stride2);
+            for (let k = 0; k < opinion.prompts; k++) for (let p = 0; p < stride2; p++) {
+              const v = opinion.probabilities[k * stride2 + p];
+              if (v > structureMass[p]) structureMass[p] = v;
+            }
+          } else {
+            opinion = await segmentFrame(files[i], secondModel);
+            check();
+            // The probability the second model gives its structure classes, summed per pixel: a
+            // softmax over its logits, with the maximum subtracted first so the exponentials cannot
+            // overflow. No one class need win — a rail is spread over four of them.
+            const { data, classes } = opinion.logits;
+            ({ height: h2, width: w2 } = opinion.logits);
+            const stride2 = h2 * w2;
+            structureMass = new Float32Array(stride2);
+            for (let p = 0; p < stride2; p++) {
+              let max = -Infinity;
+              for (let c = 0; c < classes; c++) { const v = data[c * stride2 + p]; if (v > max) max = v; }
+              let sum = 0, mass = 0;
+              for (let c = 0; c < classes; c++) { const e = Math.exp(data[c * stride2 + p] - max); sum += e; if (secondIds.has(c)) mass += e; }
+              structureMass[p] = mass / sum;
+            }
           }
           let pixels = 0;
           // The two logit grids agree in size for the 512-input SegFormers; a different one is
@@ -267,7 +283,8 @@ export async function runGrassPipeline(request, onProgress = () => {}, signal) {
             const p2 = Math.floor(y * h2 / h) * w2 + Math.floor(x * w2 / w);
             if (structureMass[p2] >= vehicle.structureFloor) { structure[y * w + x] = 1; pixels += 1; }
           }
-          second = { modelId: secondModel.id, modelRevision: secondModel.revision, runtime: secondModel.runtime, classes: vehicle.structureClasses,
+          second = { modelId: secondModel.id, modelRevision: secondModel.revision, runtime: secondModel.runtime, kind: secondModel.kind ?? "classes",
+            ...(secondModel.dtype ? { dtype: secondModel.dtype } : {}), classes: vehicle.structureClasses,
             floor: vehicle.structureFloor, logitsWidth: w2, logitsHeight: h2, structurePixels: pixels, inferenceMs: opinion.timing.inferMs, modelLoadMs: opinion.timing.loadMs };
         }
         // Everything either model called a structure, grown by `excludeNearPx`, taken out of the mask.

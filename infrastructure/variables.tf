@@ -541,8 +541,8 @@ variable "measurement_structure_model" {
   default     = "ade20k-b4"
 
   validation {
-    condition     = contains(["", "ade20k-b4", "ade20k-b2"], var.measurement_structure_model)
-    error_message = "measurement_structure_model must be \"ade20k-b4\", \"ade20k-b2\" or empty."
+    condition     = contains(["", "ade20k-b4", "ade20k-b2", "clipseg"], var.measurement_structure_model)
+    error_message = "measurement_structure_model must be \"clipseg\", \"ade20k-b4\", \"ade20k-b2\" or empty."
   }
 }
 
