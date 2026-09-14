@@ -103,8 +103,14 @@ export function vehicleOptions(request) {
   // classes, summed, reaches this floor. 0.5 is a majority of the probability.
   const structureFloor = request.structureFloor ?? 0.5;
   if (!(structureFloor > 0 && structureFloor <= 1)) throw new Error("structureFloor must be a probability above 0 and at most 1");
+  // Whether the second model's structure pixels also leave the grass mask, with the margin, or
+  // only vote on cells. A query model's mask fades a metre onto the grass beside a rail; taken
+  // out of the mask in every frame that starves the strip of points, while as votes alone it
+  // refuses the rail's cells and leaves the strip its evidence.
+  const structureModelMask = request.structureModelMask ?? true;
+  if (typeof structureModelMask !== "boolean") throw new Error("structureModelMask must be true or false");
   return { offsetSide, minTrackM, cameraHeightM, trackLengthM, minProbability, gridOptions, widthPinned, groundFallback, excludeNear, excludeNearPx, bandSidePinned,
-    structureModel, structureClasses, structureFloor };
+    structureModel, structureClasses, structureFloor, structureModelMask };
 }
 
 /**
@@ -238,12 +244,16 @@ export async function runGrassPipeline(request, onProgress = () => {}, signal) {
       // the frames that called it grass. Two sources paint it: the grass model's own structure
       // classes, and the second model's when one is asked for.
       let structure = null;
+      // What the grid is told stands in a cell. The same map as the margin's unless the second
+      // model is asked to vote without touching the mask, in which case it gets its own copy.
+      let votes = null;
       let second = null;
       if (excludeNearIds.size || secondModel) {
         const map = T.classMapFromLogits(result.logits);
         const w = map.width, h = map.height, r = vehicle.excludeNearPx;
         structure = new Uint8Array(w * h);
         for (let p = 0; p < w * h; p++) if (excludeNearIds.has(map.classIds[p])) structure[p] = 1;
+        votes = structure;
         if (secondModel) {
           // How much of a structure the second model makes of each pixel, 0 to 1, on its own grid.
           let opinion, structureMass, h2, w2;
@@ -289,15 +299,17 @@ export async function runGrassPipeline(request, onProgress = () => {}, signal) {
             }
           }
           let pixels = 0;
+          const target = vehicle.structureModelMask ? structure : (votes = new Uint8Array(structure));
           // The two logit grids agree in size for the 512-input SegFormers; a different one is
           // sampled nearest onto the grass model's grid, the same rule the grid applies to a mask.
           for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
             const p2 = Math.floor(y * h2 / h) * w2 + Math.floor(x * w2 / w);
-            if (structureMass[p2] >= vehicle.structureFloor) { structure[y * w + x] = 1; pixels += 1; }
+            if (structureMass[p2] >= vehicle.structureFloor) { target[y * w + x] = 1; pixels += 1; }
           }
           second = { modelId: secondModel.id, modelRevision: secondModel.revision, runtime: secondModel.runtime, kind: secondModel.kind ?? "classes",
             ...(secondModel.dtype ? { dtype: secondModel.dtype } : {}), classes: vehicle.structureClasses,
-            floor: vehicle.structureFloor, logitsWidth: w2, logitsHeight: h2, structurePixels: pixels, inferenceMs: opinion.timing.inferMs, modelLoadMs: opinion.timing.loadMs };
+            floor: vehicle.structureFloor, maskedGrass: vehicle.structureModelMask, logitsWidth: w2, logitsHeight: h2, structurePixels: pixels,
+            inferenceMs: opinion.timing.inferMs, modelLoadMs: opinion.timing.loadMs };
         }
         // Everything either model called a structure, grown by `excludeNearPx`, taken out of the mask.
         for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
@@ -321,7 +333,7 @@ export async function runGrassPipeline(request, onProgress = () => {}, signal) {
         structureModel: second,
         counts: mask.counts, inferenceMs: result.timing.inferMs, modelLoadMs: result.timing.loadMs };
       inputs.push({ frameIndex: i, geometryFrame: geometryFrames[i], grassMask: mask.mask, maskWidth: mask.width, maskHeight: mask.height,
-        ...(structure ? { structureMask: structure } : {}) });
+        ...(votes ? { structureMask: votes } : {}) });
     } catch (error) { check(); frame.status = "failed"; frame.error = error.message; }
     const thumbnail = await sharp(bytes).resize({ width: 480, height: 480, fit: "inside", withoutEnlargement: true }).jpeg({ quality: 78 }).toBuffer();
     images.push(`data:image/jpeg;base64,${thumbnail.toString("base64")}`);

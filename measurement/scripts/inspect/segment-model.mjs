@@ -248,7 +248,7 @@ export async function promptFrame(framePath, prompts, model) {
  * argmax of. The masses are returned whole, at the model's own quarter-resolution mask grid, so a
  * caller can weigh a set of classes against the rest instead of asking only who won.
  */
-export async function queriesFrame(framePath, model) {
+export async function queriesFrame(framePath, model, { maskFloor = model.maskFloor ?? 1e-3 } = {}) {
   if (model.kind !== "queries") throw new Error(`${model.key} has logits, not queries: use segmentFrame`);
   const { runner, processor, RawImage, labels, loadMs } = await load(model);
   const image = await RawImage.read(framePath);
@@ -276,10 +276,13 @@ export async function queriesFrame(framePath, model) {
     const active = [];
     for (let c = 0; c < classes; c++) { probs[c] /= sum; if (probs[c] > 1e-3) active.push(c); }
     if (!active.length) continue;
+    // A query's mask fades out past the object it found: at a quarter of the frame's resolution
+    // the fade below a guardrail is a metre of grass. `maskFloor` is where the fade stops
+    // counting; 1e-3 is HF's soft semantic product, 0.5 its panoptic cut.
     const base = q * pixels;
     for (let p = 0; p < pixels; p++) {
       const m = 1 / (1 + Math.exp(-Number(mk[base + p])));
-      if (m < 1e-3) continue;
+      if (m < maskFloor) continue;
       for (const c of active) mass[c * pixels + p] += probs[c] * m;
     }
   }

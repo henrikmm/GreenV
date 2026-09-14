@@ -259,6 +259,11 @@ function build() {
       // summed, reaches this; a rail is spread over fence, railing, wall and bannister, so no
       // one class need win. Unset leaves Verge Studio's 0.5, a majority of the probability.
       structureFloor: number("GREENV_MEASUREMENT_STRUCTURE_FLOOR", null),
+      // Whether the second model's structure pixels also leave the grass mask with the margin
+      // (true, Verge Studio's default) or only vote on cells (false). A query model's mask fades
+      // a metre onto the grass beside a rail; out of the mask in every frame it starves the strip
+      // of points, as votes alone it refuses the rail's cells and leaves the strip its evidence.
+      structureModelMask: flag("GREENV_MEASUREMENT_STRUCTURE_MODEL_MASK", true),
       excludeNear: text("GREENV_MEASUREMENT_EXCLUDE_NEAR", ""),
       excludeNearPx: number("GREENV_MEASUREMENT_EXCLUDE_NEAR_PX", 1),
       // Start a re-measure from the reconstruction the depth handler left beside the frames when

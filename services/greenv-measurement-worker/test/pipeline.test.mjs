@@ -191,7 +191,7 @@ test("a re-measure starts from the reconstruction kept beside the frames and wak
       [`${PREFIX}/depth/${earlier.runId}/scene.glb`]: Buffer.from("GLB"),
       [`${PREFIX}/depth/${earlier.runId}/result.npz`]: Buffer.from("NPZ"),
     },
-    env: { GREENV_MEASUREMENT_OFFSET_SIDE: "auto", GREENV_MEASUREMENT_MIN_TRACK_M: "3", GREENV_MEASUREMENT_CAMERA_HEIGHT_M: "1.25", GREENV_MEASUREMENT_SCALE_ANCHOR: "telemetry", GREENV_MEASUREMENT_MAX_HEIGHT_M: "3", GREENV_MEASUREMENT_CANOPY_EXTENT_M: "2", GREENV_MEASUREMENT_GROUND_FALLBACK: "true", GREENV_MEASUREMENT_CANOPY_GAP_M: "0.5", GREENV_MEASUREMENT_BAND_WIDTH_M: "5.5", GREENV_MEASUREMENT_DATUM: "per-frame", GREENV_MEASUREMENT_EXCLUDE_NEAR: "fence,wall,pole,building", GREENV_MEASUREMENT_SLOPE_RISE_M: "0.1", GREENV_MEASUREMENT_STRUCTURE_FRAMES: "3", GREENV_MEASUREMENT_PAST_ENDS: "drop", GREENV_MEASUREMENT_STRUCTURE_MODEL: "ade20k-b4", GREENV_MEASUREMENT_STRUCTURE_CLASSES: "fence,railing,wall", GREENV_MEASUREMENT_STRUCTURE_FLOOR: "0.4" },
+    env: { GREENV_MEASUREMENT_OFFSET_SIDE: "auto", GREENV_MEASUREMENT_MIN_TRACK_M: "3", GREENV_MEASUREMENT_CAMERA_HEIGHT_M: "1.25", GREENV_MEASUREMENT_SCALE_ANCHOR: "telemetry", GREENV_MEASUREMENT_MAX_HEIGHT_M: "3", GREENV_MEASUREMENT_CANOPY_EXTENT_M: "2", GREENV_MEASUREMENT_GROUND_FALLBACK: "true", GREENV_MEASUREMENT_CANOPY_GAP_M: "0.5", GREENV_MEASUREMENT_BAND_WIDTH_M: "5.5", GREENV_MEASUREMENT_DATUM: "per-frame", GREENV_MEASUREMENT_EXCLUDE_NEAR: "fence,wall,pole,building", GREENV_MEASUREMENT_SLOPE_RISE_M: "0.1", GREENV_MEASUREMENT_STRUCTURE_FRAMES: "3", GREENV_MEASUREMENT_PAST_ENDS: "drop", GREENV_MEASUREMENT_STRUCTURE_MODEL: "ade20k-b4", GREENV_MEASUREMENT_STRUCTURE_CLASSES: "fence,railing,wall", GREENV_MEASUREMENT_STRUCTURE_FLOOR: "0.4", GREENV_MEASUREMENT_STRUCTURE_MODEL_MASK: "false" },
   });
   const result = await measure({ sessionId: segmentManifest().sessionId, segmentIndex: 0, force: true, reuseDepth: true });
 
@@ -210,8 +210,8 @@ test("a re-measure starts from the reconstruction kept beside the frames and wak
   assert.deepEqual(request().gridOptions, { maxHeightM: 3, canopyExtentM: 2, canopyGapM: 0.5, maxDistanceFromRoadM: 5.5, slopeRiseM: 0.1, structureFrames: 3, pastEnds: "drop", datum: "per-frame" }, "the ceilings, the gap, the band width, the slope rise, the structure bar, the ends and the datum travel as grid options");
   assert.equal(result.measurement.slopeRiseM, 0.1);
   assert.deepEqual([result.measurement.structureFrames, result.measurement.pastEnds], [3, "drop"]);
-  assert.deepEqual([request().structureModel, request().structureClasses, request().structureFloor], ["ade20k-b4", "fence,railing,wall", 0.4], "the second model, its classes and its floor travel with the request");
-  assert.deepEqual([result.measurement.structureModel, result.measurement.structureClasses, result.measurement.structureFloor], ["ade20k-b4", "fence,railing,wall", 0.4]);
+  assert.deepEqual([request().structureModel, request().structureClasses, request().structureFloor, request().structureModelMask], ["ade20k-b4", "fence,railing,wall", 0.4, false], "the second model, its classes, its floor and whether it masks travel with the request");
+  assert.deepEqual([result.measurement.structureModel, result.measurement.structureClasses, result.measurement.structureFloor, result.measurement.structureModelMask], ["ade20k-b4", "fence,railing,wall", 0.4, false]);
   assert.deepEqual([result.measurement.maxHeightM, result.measurement.canopyExtentM, result.measurement.canopyGapM, result.measurement.bandWidthM, result.measurement.datum], [3, 2, 0.5, 5.5, "per-frame"]);
   assert.equal(request().groundFallback, true);
   assert.equal(result.measurement.groundFallback, true);

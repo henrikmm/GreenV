@@ -578,6 +578,18 @@ variable "measurement_structure_floor" {
   }
 }
 
+variable "measurement_structure_model_mask" {
+  description = <<-EOT
+    Whether the second model's structure pixels also leave the grass mask with the exclusion
+    margin (true) or only vote on cells (false). A query model's mask fades a metre onto the
+    grass beside a rail: out of the mask in every frame it starved a median strip of two thirds
+    of its points on 2026-09-14, while as votes alone it refused the rail's cells and left the
+    strip its evidence. True for the ADE20K SegFormer, whose masks do not fade.
+  EOT
+  type        = bool
+  default     = true
+}
+
 variable "measurement_past_ends" {
   description = <<-EOT
     What becomes of a point past either end of the camera track. `fold` piles it onto the nearer
