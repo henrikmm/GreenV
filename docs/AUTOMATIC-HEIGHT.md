@@ -221,6 +221,45 @@ read as `fence` against a pale wall, which is exactly what pulls a P95 down.
 Evidence: [`2026-09-05-class-fit.md`](../measurement/docs/evidence/2026-09-05-class-fit.md) and
 [`2026-09-05-extent-vs-percentile.md`](../measurement/docs/evidence/2026-09-05-extent-vs-percentile.md).
 
+## Driving, not walking
+
+Everything Verge Studio graded was walked: a person beside a garden bed, the camera a metre or
+two from the plant. The first day of driving (13 September 2026, seven sessions at 63–90 km/h)
+measured 41 segments and got twelve with no cell at all and readings of 2–15 cm on verges that
+were not that short. Re-measured on a local bench from the reconstructions the RunPod handler
+keeps beside the frames — no GPU — the causes were three, and none of them was the mask
+(`measurement/docs/evidence/2026-09-13-car-mount.md`):
+
+| What a walk assumes | What a car does | What the worker asks for now |
+|---|---|---|
+| The verge is 2 m to one fixed side of the camera track (`GREENV_MEASUREMENT_OFFSET_M`) | It is 5–9 m out, behind a shoulder and a guardrail, on the *other* side in 37 of 37 usable segments | `GREENV_MEASUREMENT_OFFSET_SIDE=auto`: the band's side, distance and width come from the run's own masks, and the packet records them under `corridor.band` |
+| DA3's metric scale is right, as it was on the graded walk | It ran from 0.78× to 1.86× against the GPS path of the very frames it reconstructed | `GREENV_MEASUREMENT_SCALE_ANCHOR=telemetry`: the manifest's `distanceMeters` span becomes the track's expected length; one factor per run, recorded under `scale`, refused outside 0.5–2× |
+| The camera moved | Four segments had a camera track under 2 m — a phone still being mounted, a stopped car — and reported a door handle and a tree as 1.1–3.9 m of vegetation | `GREENV_MEASUREMENT_MIN_TRACK_M=3`: a shorter track is refused with the blocker `camera-track-too-short` |
+| The road is a surface the depth model can see | A wet road reflects the sky, and the reflection reads as depth scattered below the surface; one segment found no ground plane (0.80% support against the 1% floor) and measured nothing | `GREENV_MEASUREMENT_GROUND_FALLBACK=true`: one coarser fit when the strict one fails, kept only if the camera stands a plausible height above it, named `ground-fit-relaxed` in the packet. That segment then measures 601 cells |
+| The frames agree about where the ground is | Within one frame a cell's heights spread 1–8 cm; between frames the same cell floated 24–52 cm. The pooled datum sat on the lowest frame, the canopy percentile on the middle one, and a mown verge read half the float as grass: 16–28 cm where the photographs show 10–15 | `GREENV_MEASUREMENT_DATUM=per-frame`: each frame's extent against that frame's own ground, then the median. The same verges read 9–11 cm |
+| A crown is taller than a verge | A branch hanging at two metres passes under a 3 m ceiling and inside a 2 m extent; one segment read a p95 of 1.58 m from the tree beside the road | `GREENV_MEASUREMENT_CANOPY_GAP_M=0.5`: a crown floats — ground, then half a metre or more of nothing, then foliage — and a hedge or tall grass does not. A cell whose frames see that gap is `canopy` |
+| The verge is wherever the vegetation is | A band that follows the vegetation out to 10 m climbs the slope behind the mowing corridor, and the corridor's mown strip reads the slope's brush | `GREENV_MEASUREMENT_BAND_WIDTH_M=5.5`: the band starts half a metre before the vegetation and reaches five metres into it, which is what a crew cuts |
+| The road is not vegetation | In rain the wet asphalt reflects the trees and the segmentation calls a fifth of the frame `vegetation`; a band that folds both sides of the edge together counted the road as cells of 0 cm | The band keeps the vegetation's side of the edge only (`bandSide`, set by the auto edge), so the road is out whatever the mask says of it |
+| A grass pixel is grass | At 128×128 logits one class pixel is 4.5 by 8 photograph pixels, and the grass against a guardrail carried the rail's lower edge: the tallest cells of a mown strip were its last half metre against the rail, 40–57 cm where the strip read 3–9 | `GREENV_MEASUREMENT_EXCLUDE_NEAR=fence,wall,pole,building`, one logit pixel around: a pixel next to a structure is not measured |
+| The corridor is as wide as the band | Behind a 5 m corridor an embankment climbs, and a band that reaches it measures the brush on the slope with the strip: one segment read a p95 of 0.82 m on a strip cut short | `GREENV_MEASUREMENT_SLOPE_RISE_M=0.1`: two consecutive rises of each cell's own ground by more than that per half-metre cell mark the slope's foot, and every cell beyond is `slope`, aggregated nowhere. That segment reads 0.17 m; 1,971 of the day's 17,060 cells were slope |
+| The stretch is its top twentieth of cells | That twentieth is the last half metre against the guardrail or the touceira at the corridor's edge, and it held 20 of 40 stretches at level 3 over grass of 2–18 cm | The API projects the 90th percentile of the cells since 14 September 2026 (`STRETCH_PERCENTILE`); the field keeps its `extent95P95M` name because the installed capture app reads it. Levels 9 / 21 / 10 where p95 gave 6 / 14 / 20 |
+| A structure is a structure in every frame | Cityscapes never trained on a guardrail, and a wet rail or a concrete barrier is `fence` or `wall` in some frames and `terrain` in the rest; the frames that call it grass measure it, 0.7–0.8 m agreed across twenty frames, because it is an object of that height. A pixel margin around the structure classes cannot reach a frame that saw none | `GREENV_MEASUREMENT_STRUCTURE_FRAMES=3`: each frame's structure pixels are back-projected into the same cells as its grass, and a cell that three frames saw a structure standing in is `structure`, kept with its numbers, aggregated nowhere. One stretch went from a p90 of 0.59 m to 0.20 m |
+| The grass model knows what a guardrail is | Cityscapes never trained it on one: a wet W-beam or a concrete barrier is `terrain` to it in frame after frame, and a stretch of mown lawn behind a barrier read a p90 of 0.55 m from the barrier alone | `GREENV_MEASUREMENT_STRUCTURE_MODEL=ade20k-b4`: a second SegFormer, trained on ADE20K's 150 classes (`fence`, `railing`, `wall`, `bannister` among them), asked only what is not grass; its structure pixels join the structure map. That stretch reads 0.05 m. About 0.9 s a frame of CPU |
+| The road edge spans the stretch | The edge is the camera track and stops at the last pose, while the depth reaches on down the road; a point past the end folds onto it with the overshoot turned into distance, so a guardrail one metre out filled the last along-road cell at every distance to the band's width, 65–75 cm in each | `GREENV_MEASUREMENT_PAST_ENDS=drop`: nothing before the first pose or beyond the last is measured |
+| Everything `vegetation` claims is verge | A band wide enough to hold the verge reaches the tree line: in nine segments 10–25% of the cells were crowns and cut faces 2–8 m up, and the segment's p95 read 3.9–8.7 m | `GREENV_MEASUREMENT_MAX_HEIGHT_M=3` drops a point higher than that above the road before it can reach a cell; `GREENV_MEASUREMENT_CANOPY_EXTENT_M=2` reports a cell still taller than that as `canopy`, with its numbers, outside every aggregate. The class stays `terrain,vegetation` — `terrain` alone reads 0.000 m on a plant taped at 0.980 m, because tall grass is `vegetation` too |
+
+All three are off in Verge Studio's own defaults and on in the deployment's Terraform. A packet
+built without them from a driven capture is unreliable, and the worker can rebuild it from the
+kept reconstruction rather than paying for depth again: a queue message or `POST /measurements`
+body carrying `force: true, reuseDepth: true` skips the GPU when `depth/<runId>/scene.glb` and
+`result.npz` are still beside the frames.
+
+**What driving has not fixed.** The extractor's `distance-groups` sampling spends its 112-frame
+budget on the first groups of consecutive frames, and at highway speed that is 30–40 m of a
+170–250 m segment. The rest of the road is never seen by the depth model. That is a decision
+about segments, frames and GPU runs, recorded as a gap in `STATE-OF-THE-SYSTEM.md`, not a setting
+here.
+
 ## Limitations
 
 Ordered by how likely each is to mislead someone reading a dashboard.
@@ -281,6 +320,24 @@ chain carries operational traffic.
 | Accept mock packets | `GREENV_MEASUREMENT_ALLOW_MOCK` | `false` |
 | Cityscapes classes | `GREENV_MEASUREMENT_CLASSES` | `terrain,vegetation` |
 | Corridor offset, metres | `GREENV_MEASUREMENT_OFFSET_M` | `2` |
+| Which side of the camera track the band goes to | `GREENV_MEASUREMENT_OFFSET_SIDE` | `given` (or `auto`, which reads it off the masks — see [Driving, not walking](#driving-not-walking)) |
+| Shortest camera track worth measuring, metres | `GREENV_MEASUREMENT_MIN_TRACK_M` | `0`, off. The deployment sets 3 |
+| Where the metric scale comes from | `GREENV_MEASUREMENT_SCALE_ANCHOR` | `none`. The deployment sets `telemetry`: the GPS path length of the sampled frames, from the manifest |
+| The lens's height above the road, metres | `GREENV_MEASUREMENT_CAMERA_HEIGHT_M` | unset. A taped height wins over the telemetry anchor when given |
+| Highest point that is still verge, metres above the road | `GREENV_MEASUREMENT_MAX_HEIGHT_M` | unset, every point kept. The deployment sets 3: higher is a crown |
+| Tallest extent that is still verge, metres above the cell's own ground | `GREENV_MEASUREMENT_CANOPY_EXTENT_M` | unset. The deployment sets 2: a taller cell is reported as `canopy` and counted in no aggregate |
+| A second, coarser ground fit when the first finds no floor | `GREENV_MEASUREMENT_GROUND_FALLBACK` | `false`. The deployment sets `true`; a relaxed fit is named in the blockers as `ground-fit-relaxed` |
+| Where a cell's own ground comes from | `GREENV_MEASUREMENT_DATUM` | `pooled`, all voting frames together. The deployment sets `per-frame`: each frame against its own ground, then the median |
+| Vertical gap that marks a crown, metres | `GREENV_MEASUREMENT_CANOPY_GAP_M` | unset. The deployment sets 0.5: a cell whose frames see that much empty air under the foliage is `canopy` |
+| Band width from the detected road edge, metres | `GREENV_MEASUREMENT_BAND_WIDTH_M` | unset, which lets the band follow the vegetation out to 10 m. The deployment sets 5.5: the mowing corridor |
+| Classes whose neighbourhood is not measured | `GREENV_MEASUREMENT_EXCLUDE_NEAR` | empty. The deployment sets `fence,wall,pole,building`, one logit pixel around (`GREENV_MEASUREMENT_EXCLUDE_NEAR_PX`) |
+| Rise per half-metre cell that marks a slope's foot | `GREENV_MEASUREMENT_SLOPE_RISE_M` | unset. The deployment sets 0.1: two consecutive rises of more than that end the corridor, and every cell beyond is `slope` |
+| Frames that must see a structure standing in a cell to refuse it | `GREENV_MEASUREMENT_STRUCTURE_FRAMES` | unset. The deployment sets 3: a cell three frames saw one of the excluded classes in is `structure`, whatever the other frames called it |
+| Points past the camera track's ends | `GREENV_MEASUREMENT_PAST_ENDS` | `fold`, Verge Studio's own behaviour for a walked polyline. The deployment sets `drop`: nothing beyond the first or last pose is measured |
+| A second segmentation asked only what is not grass | `GREENV_MEASUREMENT_STRUCTURE_MODEL` | empty. The deployment sets `ade20k-b4`, a SegFormer trained on ADE20K's 150 classes, because the Cityscapes grass model was never taught a guardrail; about 0.9 s a frame on the worker's CPU |
+| The probability the second model must give those classes, summed, for a pixel to be a structure | `GREENV_MEASUREMENT_STRUCTURE_FLOOR` | unset, which leaves Verge Studio's 0.5, a majority of the probability. The deployment sets 0.4: no single class need win a pixel the model spreads over fence, railing, wall and bannister, and a rail in fog it half-sees still counts |
+| That model's structure classes, in its own names | `GREENV_MEASUREMENT_STRUCTURE_CLASSES` | empty. The deployment sets `fence,railing,wall,bannister,pole,column,signboard,building,house,streetlight,step`: out of the grass mask with the exclusion margin, and into the cells the structure bar counts |
+| Re-measure from the reconstruction already in the bucket | `GREENV_MEASUREMENT_REUSE_DEPTH` | `false`; a request can also ask per segment with `reuseDepth: true` |
 | Object storage | `GREENV_OBJECT_STORAGE_ADAPTER` | `local` (or `s3`) |
 | Trigger queue | `GREENV_MEASUREMENT_QUEUE` | `greenv.segment.measure.v1` |
 | Announce from the extractor | `GREENV_MEASUREMENT_ENABLED` | `false` |

@@ -60,7 +60,7 @@ try {
   process.exit(1);
 }
 
-const { AutoModelForSemanticSegmentation, AutoProcessor, env } = transformers;
+const { AutoModelForSemanticSegmentation, AutoProcessor, AutoTokenizer, CLIPSegForImageSegmentation, MaskFormerForInstanceSegmentation, env } = transformers;
 env.cacheDir = MODEL_CACHE;
 
 for (const model of missing) {
@@ -68,7 +68,15 @@ for (const model of missing) {
   const started = Date.now();
   // Pinned by revision, not by `main`. A model id that follows a moving branch is not
   // reproducible evidence, which is the same rule segmenter.ts applies to SlimSAM.
-  await AutoModelForSemanticSegmentation.from_pretrained(model.id, { revision: model.revision });
+  const pinned = { revision: model.revision, ...(model.dtype ? { dtype: model.dtype } : {}) };
+  if (model.kind === "prompted") {
+    await CLIPSegForImageSegmentation.from_pretrained(model.id, pinned);
+    await AutoTokenizer.from_pretrained(model.id, { revision: model.revision });
+  } else if (model.kind === "queries") {
+    await MaskFormerForInstanceSegmentation.from_pretrained(model.id, pinned);
+  } else {
+    await AutoModelForSemanticSegmentation.from_pretrained(model.id, pinned);
+  }
   await AutoProcessor.from_pretrained(model.id, { revision: model.revision });
   console.log(`  done in ${((Date.now() - started) / 1000).toFixed(1)} s`);
 }

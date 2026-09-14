@@ -86,6 +86,25 @@ export function buildFrameContext(sampledFrames, telemetry, session = {}) {
 }
 
 /**
+ * How far the vehicle drove over the sampled frames, from the extractor's own odometer.
+ *
+ * Under the `distance-groups` strategy the extractor stamps every sampled frame with its GPS
+ * path distance from the segment's start, so the span between the first and the last sampled
+ * frame is the length the reconstructed camera track ought to have. That is the scale anchor:
+ * DA3 fixes one scalar per clip, and on 2026-09-13 that scalar ran from 0.78x to 1.86x against
+ * this number on neighbouring segments of one drive. Null when the manifest cannot say — an
+ * older strategy, a frame without a distance — and null reaches Verge Studio as "no anchor".
+ */
+export function sampledTrackLength(manifest) {
+  if (manifest?.samplingStrategy !== "distance-groups") return null;
+  const frames = manifest.sampledFrames ?? [];
+  const first = frames[0]?.distanceMeters;
+  const last = frames[frames.length - 1]?.distanceMeters;
+  if (!Number.isFinite(first) || !Number.isFinite(last) || last < first) return null;
+  return last - first;
+}
+
+/**
  * One segment-level context for the run as a whole.
  *
  * `capturado_em` is the first sampled frame's own timestamp rather than the segment's requested

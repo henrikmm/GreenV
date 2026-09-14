@@ -97,7 +97,7 @@ export default function SegmentDetail({ segment, place, focusFileName }) {
     <div style={s.panel}>
       <div style={s.mapColumn}>
         <div style={s.summary}>
-          <span>altura p95 <span style={{ ...s.summaryValue, color: LEVELS[level].color }}>
+          <span>altura p90 <span style={{ ...s.summaryValue, color: LEVELS[level].color }}>
             {segment.measurementExtent95P95M != null
               ? `${(segment.measurementExtent95P95M * 100).toFixed(0)} cm`
               : '—'}

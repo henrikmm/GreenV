@@ -108,3 +108,44 @@ test("the runpod adapter reads the names the deployment actually sets", () => {
     /needs GREENV_OBJECT_STORAGE_ADAPTER=s3/,
   );
 });
+
+// Three settings a car needs and a walk does not. Each defaults to Verge Studio's own behaviour,
+// and a misspelt value is refused at startup rather than measured with.
+test("the vehicle-mount settings default to off and refuse nonsense", () => {
+  const off = loadConfig({}).measurement;
+  assert.deepEqual([off.offsetSide, off.minTrackM, off.cameraHeightM, off.scaleAnchor, off.reuseDepth, off.groundFallback], ["given", 0, null, "none", false, false]);
+  assert.equal(loadConfig({ GREENV_MEASUREMENT_GROUND_FALLBACK: "true" }).measurement.groundFallback, true);
+  assert.deepEqual([off.datum, off.canopyGapM, off.bandWidthM], ["pooled", null, null]);
+  assert.throws(() => loadConfig({ GREENV_MEASUREMENT_DATUM: "average" }), /pooled.*per-frame/);
+  assert.throws(() => loadConfig({ GREENV_MEASUREMENT_BAND_WIDTH_M: "-5" }), /BAND_WIDTH_M/);
+  assert.deepEqual([off.excludeNear, off.excludeNearPx, off.slopeRiseM], ["", 1, null]);
+  assert.throws(() => loadConfig({ GREENV_MEASUREMENT_SLOPE_RISE_M: "0" }), /SLOPE_RISE_M/);
+  assert.throws(() => loadConfig({ GREENV_MEASUREMENT_EXCLUDE_NEAR_PX: "1.5" }), /EXCLUDE_NEAR_PX/);
+  assert.deepEqual([off.structureFrames, off.pastEnds], [null, "fold"]);
+  assert.throws(() => loadConfig({ GREENV_MEASUREMENT_STRUCTURE_FRAMES: "1.5" }), /STRUCTURE_FRAMES/);
+  assert.throws(() => loadConfig({ GREENV_MEASUREMENT_STRUCTURE_FRAMES: "0" }), /STRUCTURE_FRAMES/);
+  assert.throws(() => loadConfig({ GREENV_MEASUREMENT_PAST_ENDS: "clamp" }), /PAST_ENDS/);
+  assert.deepEqual([off.structureModel, off.structureClasses], ["", ""]);
+  assert.throws(() => loadConfig({ GREENV_MEASUREMENT_STRUCTURE_MODEL: "ade20k-b4" }), /STRUCTURE_CLASSES/);
+  assert.throws(() => loadConfig({ GREENV_MEASUREMENT_STRUCTURE_CLASSES: "fence" }), /STRUCTURE_MODEL/);
+  assert.equal(off.structureFloor, null);
+  assert.throws(() => loadConfig({ GREENV_MEASUREMENT_STRUCTURE_FLOOR: "1.5" }), /STRUCTURE_FLOOR/);
+
+  const car = loadConfig({
+    GREENV_MEASUREMENT_OFFSET_SIDE: "auto",
+    GREENV_MEASUREMENT_MIN_TRACK_M: "3",
+    GREENV_MEASUREMENT_CAMERA_HEIGHT_M: "1.25",
+    GREENV_MEASUREMENT_REUSE_DEPTH: "true",
+  }).measurement;
+  assert.deepEqual([car.offsetSide, car.minTrackM, car.cameraHeightM, car.reuseDepth], ["auto", 3, 1.25, true]);
+
+  assert.throws(() => loadConfig({ GREENV_MEASUREMENT_OFFSET_SIDE: "left" }), /given.*auto/);
+  assert.throws(() => loadConfig({ GREENV_MEASUREMENT_SCALE_ANCHOR: "gps" }), /telemetry.*none/);
+  assert.throws(() => loadConfig({ GREENV_MEASUREMENT_MAX_HEIGHT_M: "0" }), /MAX_HEIGHT_M/);
+  assert.deepEqual(
+    [loadConfig({}).measurement.maxHeightM, loadConfig({ GREENV_MEASUREMENT_CANOPY_EXTENT_M: "2" }).measurement.canopyExtentM],
+    [null, 2],
+  );
+  assert.throws(() => loadConfig({ GREENV_MEASUREMENT_MIN_TRACK_M: "-1" }), /MIN_TRACK_M/);
+  assert.throws(() => loadConfig({ GREENV_MEASUREMENT_CAMERA_HEIGHT_M: "0" }), /CAMERA_HEIGHT_M/);
+});

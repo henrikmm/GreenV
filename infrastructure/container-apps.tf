@@ -155,9 +155,28 @@ resource "azurerm_container_app" "api" {
       name                = "http-concurrency"
       concurrent_requests = "10"
     }
+
+    # A finished measurement is announced on a queue the API polls, and the API scales to zero
+    # on HTTP traffic alone. On 14 September 2026 four results arrived a minute after KEDA had
+    # deactivated the API's only replica and sat in the queue, invisible to the dashboard, until
+    # a request happened to wake it. A pending result is a reason to be awake, so the queue is a
+    # scale source too: same form as the workers' rules, for the same reason (see the measurement
+    # app below), and the identity already holds Message Processor on this queue. queueLength = 1
+    # wakes one replica per pending result; max_replicas bounds it as before.
+    custom_scale_rule {
+      name             = "measurement-results"
+      custom_rule_type = "azure-queue"
+      identity_id      = azurerm_user_assigned_identity.api.id
+
+      metadata = {
+        accountName = azurerm_storage_account.queue.name
+        queueLength = "1"
+        queueName   = azurerm_storage_queue.measurement_result.name
+      }
+    }
   }
 
-  depends_on = [azurerm_role_assignment.api_queue_sender]
+  depends_on = [azurerm_role_assignment.api_queue_sender, azurerm_role_assignment.api_measurement_result_processor]
 }
 
 resource "azurerm_container_app" "worker" {
@@ -373,13 +392,16 @@ resource "azurerm_container_app" "measurement" {
       # turns out to be materialised whole. Read this number as "somewhere in 2-8 GiB, chosen high
       # because the failure mode is an OOM kill mid-run that pays for the GPU twice".
       #
-      # The CPU figure answers a different question. The image carries `measurement/` and a baked
-      # model cache and was reported at 1.21 GB, which a scale-to-zero app pays for on every cold
-      # start; layer decompression is CPU-bound, so two cores shorten a pull that happens far more
-      # often here than on a warm service. Container Apps Consumption accepts memory only at 2 GiB
-      # per vCPU, so the two numbers are not chosen independently.
-      cpu    = 2
-      memory = "4Gi"
+      # The CPU figure answers a different question. Since 2026-09-14 a second segmentation runs
+      # on every frame, and it is the one thing here that scales with cores: the ADE20K B4 takes
+      # 3.9 s a frame on two ONNX threads and 1.3 s on four (measured on the bench machine, a
+      # cloud vCPU being slower still), which over a hundred frames is the difference between six
+      # minutes and two per segment. Four is the Consumption ceiling, and it accepts memory only at
+      # 2 GiB per vCPU, so the two numbers are not chosen independently. The image also carries
+      # `measurement/` and two baked models (~1.5 GB), which a scale-to-zero app decompresses on
+      # every cold start, and that is CPU-bound too.
+      cpu    = 4
+      memory = "8Gi"
 
       dynamic "env" {
         for_each = local.measurement_environment

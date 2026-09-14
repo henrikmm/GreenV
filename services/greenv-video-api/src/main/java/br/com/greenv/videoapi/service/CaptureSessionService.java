@@ -51,10 +51,14 @@ public class CaptureSessionService implements CaptureSessionUseCase {
     private static final long MAXIMUM_MEASUREMENT_BYTES = 4 * 1024 * 1024;
 
     /**
-     * The cell grid is the largest document a segment produces - half a megabyte for a hundred
-     * frames - and it is read only to derive a summary, never served.
+     * The cell grid is the largest document a segment produces and it is read only to derive a
+     * summary, never served. Half a megabyte for a walked hundred frames; a driven segment with
+     * the band placed on the verge carries 500 to 2,300 cells, each with the pixels behind it,
+     * and on 13 September 2026 seven of forty-three such packets ran 17 to 31 MB. At the earlier
+     * 16 MiB ceiling those seven were recorded with their cell counts and no height at all, and
+     * the dashboard showed a stretch of 900 measured cells with no level.
      */
-    private static final long MAXIMUM_ASSESSMENT_BYTES = 16 * 1024 * 1024;
+    private static final long MAXIMUM_ASSESSMENT_BYTES = 64 * 1024 * 1024;
 
     /** A published frame is a 1024 px JPEG, about 65 KB. This bounds a read, nothing more. */
     private static final long MAXIMUM_FRAME_BYTES = 8 * 1024 * 1024;

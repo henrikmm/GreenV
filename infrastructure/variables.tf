@@ -325,6 +325,292 @@ variable "measurement_classes" {
   }
 }
 
+variable "measurement_offset_side" {
+  description = <<-EOT
+    Which side of the camera track the measured band goes to. `auto` reads it off the vegetation
+    masks of each run; `given` keeps the sign of the worker's fixed offset, which is Verge Studio's
+    own behaviour. Every driven segment of 2026-09-13 had the verge on the side `given` never
+    reached, and twelve of them measured nothing (measurement/scripts/grass-anchor.mjs).
+  EOT
+  type        = string
+  default     = "auto"
+
+  validation {
+    condition     = contains(["given", "auto"], var.measurement_offset_side)
+    error_message = "measurement_offset_side must be \"given\" or \"auto\"."
+  }
+}
+
+variable "measurement_min_track_m" {
+  description = <<-EOT
+    A run whose camera track on the road plane is shorter than this, in metres, is not measured:
+    the reconstruction did not see the vehicle move, and whatever lies in the band is a door
+    handle or a tree rather than a verge. Four such segments on 2026-09-13 were reported as 1.1
+    to 3.9 m of vegetation. 0 disables the gate.
+  EOT
+  type        = number
+  default     = 3
+
+  validation {
+    condition     = var.measurement_min_track_m >= 0
+    error_message = "measurement_min_track_m must be zero or a positive number of metres."
+  }
+}
+
+variable "measurement_scale_anchor" {
+  description = <<-EOT
+    Where the worker takes the reconstruction's metric scale from. `telemetry` hands Verge Studio
+    the GPS path length of the sampled frames, which the frame extractor writes into every
+    manifest, and each run is stretched or shrunk until its camera track is that long. DA3 fixes
+    its scale once per clip and it ran from 0.78x to 1.86x against that length on neighbouring
+    segments of one drive (2026-09-13). `none` leaves the model's scale alone. A configured
+    camera height wins over either.
+  EOT
+  type        = string
+  default     = "telemetry"
+
+  validation {
+    condition     = contains(["telemetry", "none"], var.measurement_scale_anchor)
+    error_message = "measurement_scale_anchor must be \"telemetry\" or \"none\"."
+  }
+}
+
+variable "measurement_max_height_m" {
+  description = <<-EOT
+    A back-projected point higher than this above the road plane, in metres, is a tree crown, a
+    wall top or a cut face and never enters a measurement cell. The `vegetation` class is the
+    only one that captures the tall grass and brush a mowing decision is about, and it captures
+    trees with them; their height is what tells them apart. Null keeps every point.
+  EOT
+  type        = number
+  default     = 3
+
+  validation {
+    condition     = var.measurement_max_height_m == null || var.measurement_max_height_m > 0
+    error_message = "measurement_max_height_m must be a positive number of metres, or null."
+  }
+}
+
+variable "measurement_canopy_extent_m" {
+  description = <<-EOT
+    A cell whose vegetation extent above its own ground exceeds this, in metres, is reported as
+    `canopy` — a trunk with low branches, a hedge line — with every number it computed, and is
+    counted in no aggregate. Null reports every measured cell as measured.
+  EOT
+  type        = number
+  default     = 2
+
+  validation {
+    condition     = var.measurement_canopy_extent_m == null || var.measurement_canopy_extent_m > 0
+    error_message = "measurement_canopy_extent_m must be a positive number of metres, or null."
+  }
+}
+
+variable "measurement_ground_fallback" {
+  description = <<-EOT
+    When the strict ground-plane fit finds no floor, allow one coarser attempt (twice the inlier
+    distance, half the support floor), kept only if the camera stands a plausible height above
+    the result and named in the packet as `ground-fit-relaxed`. A wet road reflects the sky and
+    the depth model reads the reflection as depth scattered below the surface, so the true
+    ground is a thin layer: one segment of 2026-09-13 measured nothing without this and 601
+    cells with it.
+  EOT
+  type        = bool
+  default     = true
+}
+
+variable "measurement_datum" {
+  description = <<-EOT
+    Where each measurement cell takes its own ground from. `pooled` is Verge Studio's default:
+    the lowest percentile of every voting frame's points together, which assumes the frames
+    agree about where the ground is. On the driven captures of 2026-09-13 the same cell floated
+    24-52 cm between frames and a mown verge read half the float as grass. `per-frame` measures
+    each frame against its own ground and takes the median, which no float can move.
+  EOT
+  type        = string
+  default     = "per-frame"
+
+  validation {
+    condition     = contains(["pooled", "per-frame"], var.measurement_datum)
+    error_message = "measurement_datum must be \"pooled\" or \"per-frame\"."
+  }
+}
+
+variable "measurement_canopy_gap_m" {
+  description = <<-EOT
+    A crown floats: a frame sees the ground, then nothing for half a metre or more, then
+    foliage. A cell whose voting frames typically show a vertical gap wider than this, in
+    metres, is reported as `canopy` whatever its extent, which is how a branch hanging at two
+    metres stays out of the verge's numbers while a hedge or tall grass, continuous from the
+    ground up, stays in. Null never looks.
+  EOT
+  type        = number
+  default     = 0.5
+
+  validation {
+    condition     = var.measurement_canopy_gap_m == null || var.measurement_canopy_gap_m > 0
+    error_message = "measurement_canopy_gap_m must be a positive number of metres, or null."
+  }
+}
+
+variable "measurement_band_width_m" {
+  description = <<-EOT
+    How far from the detected road edge the measured band reaches, in metres. The edge is placed
+    half a metre before the vegetation starts, so 5.5 covers five metres of verge: the mowing
+    corridor. Null lets the band widen to the vegetation's far edge, up to 10 m, and the slope
+    behind the corridor then counts, which it must not.
+  EOT
+  type        = number
+  default     = 5.5
+
+  validation {
+    condition     = var.measurement_band_width_m == null || var.measurement_band_width_m > 0
+    error_message = "measurement_band_width_m must be a positive number of metres, or null."
+  }
+}
+
+variable "measurement_exclude_near" {
+  description = <<-EOT
+    Cityscapes labels whose neighbourhood is not measured, comma separated. At the model's
+    128x128 logits one class pixel is 4.5 by 8 photograph pixels, so the grass against a
+    guardrail carries the rail's lower edge with it: on 2026-09-13 the tallest cells of a mown
+    strip were its last half metre against the rail. Empty excludes nothing.
+  EOT
+  type        = string
+  default     = "fence,wall,pole,building"
+}
+
+variable "measurement_exclude_near_px" {
+  description = "How far from an excluded class a pixel is still excluded, in logit pixels."
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.measurement_exclude_near_px >= 0 && var.measurement_exclude_near_px <= 8 && floor(var.measurement_exclude_near_px) == var.measurement_exclude_near_px
+    error_message = "measurement_exclude_near_px must be a whole number from 0 to 8."
+  }
+}
+
+variable "measurement_slope_rise_m" {
+  description = <<-EOT
+    The mowing corridor ends where the embankment begins. Walking outward along a column of
+    measurement cells, two consecutive rises of each cell's own ground by more than this, in
+    metres per half-metre cell, mark the slope's foot; that cell and everything beyond it are
+    reported as `slope` with their numbers and counted in no aggregate. 0.1 is a 20% grade: on
+    2026-09-13 it set 460 cells of one segment's embankment aside and took its p95 from 0.82 m
+    to 0.17 m, while a flat verge lost none. Null never looks.
+  EOT
+  type        = number
+  default     = 0.1
+
+  validation {
+    condition     = var.measurement_slope_rise_m == null || var.measurement_slope_rise_m > 0
+    error_message = "measurement_slope_rise_m must be a positive number of metres, or null."
+  }
+}
+
+variable "measurement_structure_frames" {
+  description = <<-EOT
+    How many frames must see one of `measurement_exclude_near`'s classes standing in a measurement
+    cell before the cell is reported as `structure` and counted in no aggregate. The segmentation
+    calls a wet guardrail or a concrete barrier grass in some frames and a structure in the rest,
+    and the frames that call it grass measure it: on 2026-09-13 a rail read 0.7-0.8 m of "grass"
+    agreed across twenty frames, because it is an object of that height. Three is the bar a cell
+    must clear to be measured at all. Null never looks.
+  EOT
+  type        = number
+  default     = 3
+
+  validation {
+    condition     = var.measurement_structure_frames == null || (var.measurement_structure_frames >= 1 && floor(var.measurement_structure_frames) == var.measurement_structure_frames)
+    error_message = "measurement_structure_frames must be a whole number of frames, at least 1, or null."
+  }
+}
+
+variable "measurement_structure_model" {
+  description = <<-EOT
+    The key of a second segmentation model asked only what is NOT grass, or empty to run the
+    grass model alone. The grass model is trained on Cityscapes, which never taught it a
+    guardrail, so a wet W-beam or a concrete barrier is `terrain` to it in many frames and reads
+    as 0.6 m of vegetation. `ade20k-b4` is a SegFormer trained on ADE20K's 150 classes, `fence`,
+    `railing`, `wall` and `bannister` among them; on 2026-09-14 it painted the rail and the
+    barrier of the two stretches that read 0.55-0.59 m over short grass exactly those classes.
+    About 0.9 s a frame on the worker's CPU, on top of the grass model's 0.14 s.
+  EOT
+  type        = string
+  default     = "ade20k-b4"
+
+  validation {
+    condition     = contains(["", "ade20k-b4", "ade20k-b2", "clipseg", "vistas-r50"], var.measurement_structure_model)
+    error_message = "measurement_structure_model must be \"ade20k-b4\", \"ade20k-b2\", \"clipseg\", \"vistas-r50\" or empty."
+  }
+}
+
+variable "measurement_structure_classes" {
+  description = <<-EOT
+    The classes of `measurement_structure_model` that are a structure, in that model's own names:
+    taken out of the grass mask with the `measurement_exclude_near_px` margin, and into the cells
+    `measurement_structure_frames` counts. Empty only when no second model runs.
+  EOT
+  type        = string
+  default     = "fence,railing,wall,bannister,pole,column,signboard,building,house,streetlight,step"
+
+  validation {
+    condition     = (var.measurement_structure_model == "") == (var.measurement_structure_classes == "")
+    error_message = "measurement_structure_classes must be set exactly when measurement_structure_model is."
+  }
+}
+
+variable "measurement_structure_floor" {
+  description = <<-EOT
+    A pixel is a structure to the second model when the probability it gives
+    `measurement_structure_classes`, summed, reaches this. The model spreads a guardrail over
+    fence, railing, wall and bannister, so no one class need win. Null leaves Verge Studio's
+    0.5, a majority of the probability; 0.4 took a median strip in fog from a p90 of 0.16 m to
+    0.14 for ten cells of 303 on 2026-09-14, and changed nothing on a mown lawn.
+  EOT
+  type        = number
+  default     = 0.4
+
+  validation {
+    condition     = var.measurement_structure_floor == null || (var.measurement_structure_floor > 0 && var.measurement_structure_floor <= 1)
+    error_message = "measurement_structure_floor must be a probability above 0 and at most 1, or null."
+  }
+}
+
+variable "measurement_past_ends" {
+  description = <<-EOT
+    What becomes of a point past either end of the camera track. `fold` piles it onto the nearer
+    end with the overshoot turned into distance from the road, Verge Studio's default for a walked
+    polyline that spans its stretch; `drop` leaves it out. A driven capture's track stops at the
+    last pose while the depth reaches on down the road, and on 2026-09-13 the fold put a guardrail
+    one metre out into the last along-road cell at every distance to the band's width.
+  EOT
+  type        = string
+  default     = "drop"
+
+  validation {
+    condition     = contains(["fold", "drop"], var.measurement_past_ends)
+    error_message = "measurement_past_ends must be \"fold\" or \"drop\"."
+  }
+}
+
+variable "measurement_camera_height_m" {
+  description = <<-EOT
+    The lens's height above the road for the mount in use, in metres, measured with a tape. DA3
+    fixes its metric scale once per clip and it varied more than two to one between neighbouring
+    segments of one drive; with this set, each run is rescaled so the camera sits where it
+    physically was, and the packet records the factor. Null leaves the model's own scale alone.
+  EOT
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.measurement_camera_height_m == null || (var.measurement_camera_height_m > 0 && var.measurement_camera_height_m < 10)
+    error_message = "measurement_camera_height_m must be a height in metres, or null."
+  }
+}
+
 variable "depth_max_frames" {
   description = <<-EOT
     Frames sent to the depth service in one run. 112 is Verge Studio's best graded setting and the

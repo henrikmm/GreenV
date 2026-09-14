@@ -111,6 +111,103 @@ export interface GrassHeightGridOptions {
   minFrames?: number;
   /** A frame contributing fewer unique voxels than this to a cell does not vote on it. */
   minVoxelsPerFrame?: number;
+  /**
+   * An observation higher than this above the fitted plane, along gravity, is canopy and is
+   * not an observation of the verge.
+   *
+   * The `vegetation` class is the only one that captures vertically growing plants — the tall
+   * grass and brush that a mowing decision is about — and it captures trees with them. Nothing
+   * in a mask separates a clump at 1 m from a crown at 6 m; their height does. Infinity, the
+   * default, keeps every point, which is how every graded fixture was measured.
+   */
+  maxHeightM?: number;
+  /**
+   * A cell whose `extent95M` exceeds this is reported as `canopy` rather than `measured`.
+   *
+   * The ceiling above removes crowns; what it leaves under a tree is the trunk and the low
+   * branches, which read as vegetation of two or three metres standing on the ground beneath
+   * them. That is not a verge either. The cell keeps every number it computed so a reviewer can
+   * see what was excluded, and it counts in neither the measured nor the abstained tallies.
+   */
+  canopyExtentM?: number;
+  /**
+   * Where each cell's own ground is taken from.
+   *
+   * `pooled`, the default, takes the 2nd percentile of every voting frame's voxels together —
+   * the ground is a property of the place, not of the viewpoint — and it is how every graded
+   * fixture was measured. It assumes the frames agree about where that ground is. On the
+   * driven captures of 2026-09-13 they did not: within one frame a cell's heights spread 1–8 cm,
+   * between frames the same cell floated by 24–52 cm, so the pooled datum sat on the lowest
+   * floating frame while the canopy percentile sat on the middle one, and a mown verge read
+   * half the float as grass. `per-frame` takes each frame's extent against that frame's own
+   * 2nd percentile and reports the median of those, which no float between frames can move.
+   * `localGroundM` is then the median of the per-frame datums, and `h95M − localGroundM` no
+   * longer equals `extent95M` by construction.
+   */
+  datum?: "pooled" | "per-frame";
+  /**
+   * The vertical gap that tells a crown from a tall plant.
+   *
+   * A crown floats: a frame sees the ground under it, then nothing for a metre or more, then
+   * foliage. Grass, brush and a hedge are continuous from the ground up. So a cell whose voting
+   * frames typically show a gap wider than this between one voxel height and the next, with at
+   * least a tenth of the frame's voxels above the gap, is canopy — whatever its extent, which
+   * the ceilings above may well let through when the lowest branches hang at two metres.
+   * Infinity, the default, never looks.
+   */
+  canopyGapM?: number;
+  /**
+   * Which side of the road edge the band lies on.
+   *
+   * `both`, the default, folds the two sides together: a distance from the edge is unsigned,
+   * which is how every graded fixture was measured and what a walk beside a garden bed needs.
+   * A vehicle knows its side — the edge was placed on the vegetation's side of the camera
+   * track — and the other side is the road, which in rain the segmentation calls vegetation
+   * (a wet surface reflects the trees). Sides are signed along `cross(normal, travel)`, the
+   * direction a positive offset moves the edge, so an edge offset outward by a negative amount
+   * has its verge on the `negative` side.
+   */
+  bandSide?: "both" | "positive" | "negative";
+  /**
+   * The rise, in metres per cell outward from the road edge, at which the verge becomes a slope.
+   *
+   * A mowing corridor ends where the embankment begins, and the embankment is where each cell's
+   * own ground climbs away from the road plane. Walking outward along one along-road column of
+   * cells, the first cell whose ground rises by more than this from the cell before it AND whose
+   * next cell rises by more than this again is the slope's foot — one step is a kerb or a raised
+   * median, two in a row is a bank — and that cell and every cell beyond it are reported as
+   * `slope`, with their numbers, and counted in no aggregate. A cell on a slope also over-reads by construction,
+   * because ground falling across it is added to its extent as grass. Infinity, the default,
+   * never looks.
+   */
+  slopeRiseM?: number;
+  /**
+   * How many frames must see a structure standing in a cell before the cell is refused.
+   *
+   * A guardrail or a concrete barrier is a class of its own to the segmentation in most frames
+   * and grass in the rest — wet steel and wet concrete are grey-green at 128x128 — and the
+   * frames that call it grass measure it: on 2026-09-13 a rail read 0.7–0.8 m of "grass" agreed
+   * to a few centimetres across twenty frames, because it is a real object of that height.
+   * Refusing the pixels next to a structure in the frames that saw one cannot reach the frames
+   * that did not. So each frame's structure pixels are back-projected into the same cells as its
+   * grass, a frame that lands `minVoxelsPerFrame` of them in a cell has seen a structure there,
+   * and a cell that this many frames saw one in is reported as `structure`, with its numbers,
+   * counted in no aggregate. Needs `structureMask` on the frames; Infinity, the default, never
+   * looks.
+   */
+  structureFrames?: number;
+  /**
+   * What becomes of a point past either end of the road edge.
+   *
+   * `fold`, the default, is `stationOf`'s own answer: the point's station is the nearer end and
+   * its distance is the distance to that end vertex — right for a walked polyline that spans
+   * the stretch, and how every graded fixture was measured. A driven capture's edge is the
+   * camera track, which stops at the last pose while the depth reaches on down the road, and
+   * the fold turns the overshoot into distance: on 2026-09-13 a guardrail one metre out
+   * reappeared in the last along-road cell at every distance to the band's width, 65–75 cm in
+   * each. `drop` keeps only what lies between the two ends.
+   */
+  pastEnds?: "fold" | "drop";
 }
 
 const DEFAULTS: Required<GrassHeightGridOptions> = {
@@ -119,6 +216,14 @@ const DEFAULTS: Required<GrassHeightGridOptions> = {
   voxelSizeM: 0.02,
   minFrames: 3,
   minVoxelsPerFrame: 20,
+  maxHeightM: Infinity,
+  canopyExtentM: Infinity,
+  datum: "pooled",
+  canopyGapM: Infinity,
+  bandSide: "both",
+  slopeRiseM: Infinity,
+  structureFrames: Infinity,
+  pastEnds: "fold",
 };
 
 export interface GrassHeightFrameInput {
@@ -138,6 +243,11 @@ export interface GrassHeightFrameInput {
    */
   maskWidth?: number;
   maskHeight?: number;
+  /**
+   * 1 where a structure stands — a fence, a wall, a pole, a building — on the same grid as
+   * `grassMask`. Read only when `structureFrames` is finite; see that option.
+   */
+  structureMask?: Uint8Array;
 }
 
 export interface GrassHeightGridInput {
@@ -204,8 +314,12 @@ export interface GrassCellMeasurement {
    * there is "why was there not enough evidence", and that is what those frames show.
    */
   evidenceFrameIndices: number[];
-  status: "measured" | "insufficient-support";
-  reason?: "too-few-frames" | "too-few-samples";
+  status: "measured" | "insufficient-support" | "canopy" | "slope" | "structure";
+  reason?: "too-few-frames" | "too-few-samples" | "above-canopy-extent" | "floating-above-ground" | "beyond-slope-foot" | "structure-stands-here";
+  /** The typical vertical gap a voting frame saw inside this cell, in metres. Tall for a crown. */
+  gapM?: number;
+  /** Frames that landed `minVoxelsPerFrame` structure voxels in this cell. Present when looked for. */
+  structureFrames?: number;
 }
 
 export type GrassReviewSampleReason =
@@ -231,11 +345,31 @@ export interface GrassHeightAssessmentV1 {
     minDistanceFromRoadM: 0;
     maxDistanceFromRoadM: number;
     cellSizeM: number;
+    /** The canopy ceilings in force, or null when every height was kept. */
+    maxHeightM: number | null;
+    canopyExtentM: number | null;
+    canopyGapM: number | null;
+    /** Whether each cell's ground came from all its frames together or from each frame alone. */
+    datum: "pooled" | "per-frame";
+    /** Whether the band folds both sides of the edge together or keeps one. */
+    bandSide: "both" | "positive" | "negative";
+    /** The rise per cell that marks a slope's foot, or null when no slope is looked for. */
+    slopeRiseM: number | null;
+    /** Frames that must see a structure in a cell to refuse it, or null when none is looked for. */
+    structureFrames: number | null;
+    /** Whether points past the road edge's ends were folded onto the ends or dropped. */
+    pastEnds: "fold" | "drop";
   };
   measurements: GrassCellMeasurement[];
   reviewEvidence: {
     measuredCellCount: number;
     abstainedCellCount: number;
+    /** Cells that measured more than `canopyExtentM` of extent: trees, not verge. */
+    canopyCellCount: number;
+    /** Cells at or beyond a slope's foot: the embankment, not the corridor. */
+    slopeCellCount: number;
+    /** Cells enough frames saw a fence, a wall, a pole or a building standing in. */
+    structureCellCount: number;
     /**
      * Measured cells over OBSERVED cells — not over the band's area.
      *
@@ -290,6 +424,10 @@ export class GrassHeightInputError extends Error {
 interface RoadStation {
   alongRoadM: number;
   distanceFromRoadM: number;
+  /** +1 on the side a positive offset moves the edge to, -1 on the other, 0 on the line. */
+  side: -1 | 0 | 1;
+  /** True when the nearest position was an end of the polyline, i.e. the point lies past it. */
+  pastEnd: boolean;
 }
 
 /**
@@ -366,6 +504,9 @@ function buildRoadFrame(roadEdgeWorld: Vec3[], plane: Plane): RoadFrame {
 function stationOf(u: number, v: number, road: RoadFrame): RoadStation {
   let bestDistance = Infinity;
   let bestAlong = 0;
+  let bestSide: -1 | 0 | 1 = 0;
+  let bestPastEnd = false;
+  const last = road.vertices.length - 1;
   for (let i = 1; i < road.vertices.length; i++) {
     const [ax, ay] = road.vertices[i - 1];
     const [bx, by] = road.vertices[i];
@@ -374,7 +515,8 @@ function stationOf(u: number, v: number, road: RoadFrame): RoadStation {
     const lengthSquared = dx * dx + dy * dy;
     // A repeated vertex is a zero-length segment: it is still a valid position on the
     // polyline, so measure to the point rather than dividing by zero.
-    const t = lengthSquared > 0 ? Math.min(1, Math.max(0, ((u - ax) * dx + (v - ay) * dy) / lengthSquared)) : 0;
+    const raw = lengthSquared > 0 ? ((u - ax) * dx + (v - ay) * dy) / lengthSquared : 0;
+    const t = Math.min(1, Math.max(0, raw));
     const cx = ax + dx * t;
     const cy = ay + dy * t;
     const distance = Math.hypot(u - cx, v - cy);
@@ -383,9 +525,16 @@ function stationOf(u: number, v: number, road: RoadFrame): RoadStation {
     if (distance < bestDistance) {
       bestDistance = distance;
       bestAlong = road.station[i - 1] + Math.hypot(cx - ax, cy - ay);
+      // The perpendicular (-dy, dx) is cross(normal, travel) in the plane's own basis, so this
+      // sign is the sign `roadEdgeFromCameraTrack` gives a positive offset.
+      const lateral = (u - ax) * -dy + (v - ay) * dx;
+      bestSide = lateral > 0 ? 1 : lateral < 0 ? -1 : 0;
+      // Clamped at the polyline's own ends only: a point that projects onto an interior vertex
+      // is beside a corner, not beyond the road.
+      bestPastEnd = (i === 1 && raw < 0) || (i === last && raw > 1);
     }
   }
-  return { alongRoadM: bestAlong, distanceFromRoadM: bestDistance };
+  return { alongRoadM: bestAlong, distanceFromRoadM: bestDistance, side: bestSide, pastEnd: bestPastEnd };
 }
 
 /**
@@ -436,8 +585,8 @@ function confidenceFloor(frame: Frame, mask: Uint8Array): number {
   return percentile(values, CONFIDENCE_DROP_FRACTION * 100);
 }
 
-function maskOnDepthGrid(frame: GrassHeightFrameInput): Uint8Array {
-  const { geometryFrame, grassMask, maskWidth, maskHeight, frameIndex } = frame;
+function maskOnDepthGrid(frame: GrassHeightFrameInput, grassMask: Uint8Array): Uint8Array {
+  const { geometryFrame, maskWidth, maskHeight, frameIndex } = frame;
   const expected = geometryFrame.width * geometryFrame.height;
   if (maskWidth !== undefined || maskHeight !== undefined) {
     if (!maskWidth || !maskHeight || maskWidth < 1 || maskHeight < 1) {
@@ -461,24 +610,34 @@ function maskOnDepthGrid(frame: GrassHeightFrameInput): Uint8Array {
 }
 
 /**
- * One frame's grass pixels, as road-local observations.
+ * One frame's pixels of one kind, as road-local observations.
  *
  * The height is normalised to gravity here rather than later, because everything after
  * this point — the below-ground rejection, the voxel grid, the percentiles — is stated
  * in physical vertical metres, and a mixture of two verticals in one distribution is
  * exactly the error that would be invisible in the output.
+ *
+ * Grass is eroded by two depth pixels before back-projection, so a mask's rim — where the
+ * depth model's edges bleed — does not vote, and a point above `maxHeightM` is a crown and is
+ * counted rather than kept. A structure is neither: it is looked for, not measured, so its
+ * mask is taken whole (a pole is one or two pixels wide and erosion would remove it) and its
+ * height is not judged. Both are held to the band, the side and the ends alike.
  */
 function observationsFor(
   frame: GrassHeightFrameInput,
+  kind: "grass" | "structure",
   input: GrassHeightGridInput,
   road: RoadFrame,
   options: Required<GrassHeightGridOptions>,
   verticalScale: number,
   collectPixelIndices: boolean,
+  canopy: { observations: number },
 ): Observation[] {
   const { plane, planeRmseM } = { plane: input.ground.plane, planeRmseM: input.ground.planeRmseM };
-  const onGrid = maskOnDepthGrid(frame);
-  const eroded = erodeMask(onGrid, frame.geometryFrame.width, frame.geometryFrame.height, 2);
+  const mask = kind === "grass" ? frame.grassMask : frame.structureMask;
+  if (!mask) return [];
+  const onGrid = maskOnDepthGrid(frame, mask);
+  const eroded = kind === "grass" ? erodeMask(onGrid, frame.geometryFrame.width, frame.geometryFrame.height, 2) : onGrid;
   const minConfidence = confidenceFloor(frame.geometryFrame, eroded);
 
   const backprojected = backprojectMask(frame.geometryFrame, eroded, {
@@ -504,10 +663,17 @@ function observationsFor(
     // and are flattened rather than dropped, which keeps a sparse cell's support.
     if (heightM < belowGroundLimit) continue;
     const height = heightM < 0 ? 0 : heightM;
+    // Above the canopy ceiling is a crown, a wall top or a cut face: counted, never measured.
+    if (kind === "grass" && height > options.maxHeightM) {
+      canopy.observations += 1;
+      continue;
+    }
 
     const flat = projectOntoPlane(point, plane);
     const station = stationOf(dot(flat, road.e1), dot(flat, road.e2), road);
     if (station.distanceFromRoadM > options.maxDistanceFromRoadM) continue;
+    if (options.bandSide !== "both" && station.side !== (options.bandSide === "positive" ? 1 : -1)) continue;
+    if (options.pastEnds === "drop" && station.pastEnd) continue;
 
     // Voxels are quantised in ROAD-LOCAL space, not world space. A world-space grid is
     // pinned to the origin, so translating the scene slides points across voxel walls and
@@ -535,6 +701,10 @@ interface FrameVote {
   voxelCount: number;
   /** Nearest-rank percentiles of this frame's voxel heights, in `REPORTED_PERCENTILES` order. */
   percentiles: number[];
+  /** This frame's own 2nd percentile: its view of the ground, for the per-frame datum. */
+  groundM: number;
+  /** The widest gap between consecutive voxel heights with a tenth of the voxels above it. */
+  gapM: number;
 }
 
 interface CellAccumulator {
@@ -559,7 +729,23 @@ function voteFor(frameIndex: number, voxels: Map<string, number>, minVoxels: num
     frameIndex,
     voxelCount: voxels.size,
     percentiles: REPORTED_PERCENTILES.map((p) => percentileOfSorted(heights, p)),
+    groundM: percentileOfSorted(heights, LOCAL_GROUND_PERCENTILE),
+    gapM: widestGap(heights),
   };
+}
+
+/**
+ * The widest gap between consecutive sorted heights whose upper side still holds a tenth of
+ * them. The floor on the upper side is what keeps a single flying voxel from reading as a crown.
+ */
+function widestGap(sortedHeights: Float64Array): number {
+  const keepAbove = Math.max(1, Math.ceil(sortedHeights.length * 0.1));
+  let widest = 0;
+  for (let i = 1; i <= sortedHeights.length - keepAbove; i++) {
+    const gap = sortedHeights[i] - sortedHeights[i - 1];
+    if (gap > widest) widest = gap;
+  }
+  return widest;
 }
 
 /**
@@ -616,6 +802,24 @@ function resolveOptions(options: GrassHeightGridOptions | undefined): Required<G
       throw new GrassHeightInputError(`${name} must be a positive finite number, got ${value}`);
     }
   }
+  // The two ceilings may be infinite, which is how "no ceiling" is spelled.
+  for (const [name, value] of [["maxHeightM", resolved.maxHeightM], ["canopyExtentM", resolved.canopyExtentM], ["canopyGapM", resolved.canopyGapM], ["slopeRiseM", resolved.slopeRiseM]] as const) {
+    if (!(value > 0)) {
+      throw new GrassHeightInputError(`${name} must be a positive number of metres or Infinity, got ${value}`);
+    }
+  }
+  if (resolved.datum !== "pooled" && resolved.datum !== "per-frame") {
+    throw new GrassHeightInputError(`datum must be "pooled" or "per-frame", got ${JSON.stringify(resolved.datum)}`);
+  }
+  if (!["both", "positive", "negative"].includes(resolved.bandSide)) {
+    throw new GrassHeightInputError(`bandSide must be "both", "positive" or "negative", got ${JSON.stringify(resolved.bandSide)}`);
+  }
+  if (!(resolved.structureFrames === Infinity || (Number.isInteger(resolved.structureFrames) && resolved.structureFrames >= 1))) {
+    throw new GrassHeightInputError(`structureFrames must be a whole number of frames, at least 1, or Infinity, got ${resolved.structureFrames}`);
+  }
+  if (resolved.pastEnds !== "fold" && resolved.pastEnds !== "drop") {
+    throw new GrassHeightInputError(`pastEnds must be "fold" or "drop", got ${JSON.stringify(resolved.pastEnds)}`);
+  }
   return resolved;
 }
 
@@ -659,6 +863,8 @@ export interface GrassHeightProgress {
   /** Observations that frame contributed, and the running total across frames. */
   frameObservations: number;
   observationsRetained: number;
+  /** Observations dropped above `maxHeightM` so far: crowns, not verge. */
+  canopyObservations: number;
   /** Distinct cells touched so far. Rises as coverage grows, never falls. */
   cellsTouched: number;
   /** Present only on the `done` step. */
@@ -721,14 +927,34 @@ export function* measureGrassHeightGridStaged(
   const road = buildRoadFrame(input.roadEdgeWorld, input.ground.plane);
 
   const cells = new Map<string, CellAccumulator>();
+  // Cell key -> frameIndex -> the structure voxels that frame landed there. Kept apart from the
+  // grass so a cell nothing but a fence stands in is never opened, and never counted abstained.
+  const structureVotes = new Map<string, Map<number, Set<string>>>();
   const collectProvenance = debug.collectProvenance === true;
   const pixelTrail = collectProvenance ? new Map<string, Map<number, number[]>>() : null;
   const frameTotal = input.frames.length;
   let framesDone = 0;
   let observationsRetained = 0;
+  const canopy = { observations: 0 };
 
   for (const frame of input.frames) {
-    const observations = observationsFor(frame, input, road, options, verticalScale, collectProvenance);
+    if (Number.isFinite(options.structureFrames) && frame.structureMask) {
+      for (const observation of observationsFor(frame, "structure", input, road, options, verticalScale, false, canopy)) {
+        const key = `${observation.alongIndex},${observation.distIndex}`;
+        let byFrame = structureVotes.get(key);
+        if (!byFrame) {
+          byFrame = new Map();
+          structureVotes.set(key, byFrame);
+        }
+        let voxels = byFrame.get(frame.frameIndex);
+        if (!voxels) {
+          voxels = new Set();
+          byFrame.set(frame.frameIndex, voxels);
+        }
+        voxels.add(observation.voxelKey);
+      }
+    }
+    const observations = observationsFor(frame, "grass", input, road, options, verticalScale, collectProvenance, canopy);
     for (const observation of observations) {
       const key = `${observation.alongIndex},${observation.distIndex}`;
       let cell = cells.get(key);
@@ -766,6 +992,7 @@ export function* measureGrassHeightGridStaged(
       frameIndex: frame.frameIndex,
       frameObservations: observations.length,
       observationsRetained,
+      canopyObservations: canopy.observations,
       cellsTouched: cells.size,
       assessment: null,
       provenance: null,
@@ -779,12 +1006,13 @@ export function* measureGrassHeightGridStaged(
     frameIndex: null,
     frameObservations: 0,
     observationsRetained,
+    canopyObservations: canopy.observations,
     cellsTouched: cells.size,
     assessment: null,
     provenance: null,
   };
 
-  const assessment = reduceCells(cells, input.runId, options);
+  const assessment = reduceCells(cells, input.runId, options, structureVotes);
   yield {
     phase: "done",
     framesDone,
@@ -792,6 +1020,7 @@ export function* measureGrassHeightGridStaged(
     frameIndex: null,
     frameObservations: 0,
     observationsRetained,
+    canopyObservations: canopy.observations,
     cellsTouched: cells.size,
     assessment,
     provenance: pixelTrail ? freezeProvenance(pixelTrail, cells, options) : null,
@@ -848,9 +1077,11 @@ function reduceCells(
   cells: Map<string, CellAccumulator>,
   runId: string,
   options: Required<GrassHeightGridOptions>,
+  structureVotes: Map<string, Map<number, Set<string>>> = new Map(),
 ): GrassHeightAssessmentV1 {
+  const lookForStructure = Number.isFinite(options.structureFrames);
   const measurements: GrassCellMeasurement[] = [];
-  for (const cell of cells.values()) {
+  for (const [key, cell] of cells) {
     const votes: FrameVote[] = [];
     for (const [frameIndex, voxels] of cell.byFrame) {
       const vote = voteFor(frameIndex, voxels, options.minVoxelsPerFrame);
@@ -864,6 +1095,13 @@ function reduceCells(
     };
     const frameCount = votes.length;
     const sampleCount = votes.reduce((total, vote) => total + vote.voxelCount, 0);
+    // A frame has seen a structure in the cell on the same terms it would have voted on grass.
+    let structureFrames = 0;
+    for (const voxels of structureVotes.get(key)?.values() ?? []) {
+      if (voxels.size >= options.minVoxelsPerFrame) structureFrames += 1;
+    }
+    const structureStands = lookForStructure && structureFrames >= options.structureFrames;
+    const structureField = lookForStructure ? { structureFrames } : {};
 
     if (frameCount < options.minFrames) {
       // Which of the two shortages it was: some frames qualified but not enough of them,
@@ -888,6 +1126,7 @@ function reduceCells(
         evidenceFrameIndices: observing.slice(0, 3),
         status: "insufficient-support",
         reason,
+        ...structureField,
       });
       continue;
     }
@@ -911,13 +1150,29 @@ function reduceCells(
       ...byAgreement.map((v) => v.frameIndex),
     ])].slice(0, 3);
 
+    // The extents. Pooled: each canopy percentile above the one datum the voting frames share.
+    // Per frame: each frame's percentile above that frame's own datum, then the median, so a
+    // frame that floats above the others carries its ground up with it and changes nothing.
+    const perFrame = options.datum === "per-frame";
+    const extentAt = (slot: number) =>
+      perFrame
+        ? median(votes.map((vote) => above(vote.groundM, vote.percentiles[slot])))
+        : above(groundM, [h50M, h90M, h95M][slot]);
+    const localGroundM = perFrame ? median(votes.map((vote) => vote.groundM)) : groundM;
+    // Taller than a verge can be is a tree standing in the band: kept, with every number it
+    // computed, under a status the aggregates do not count.
+    const extent95M = extentAt(2);
+    const gapM = median(votes.map((vote) => vote.gapM));
+    const floating = gapM > options.canopyGapM;
+    const isCanopy = extent95M > options.canopyExtentM || floating;
+
     measurements.push({
       coordinate,
-      localGroundM: groundM,
+      localGroundM,
       groundContactVoxels: contactVoxels,
-      extent50M: above(groundM, h50M),
-      extent90M: above(groundM, h90M),
-      extent95M: above(groundM, h95M),
+      extent50M: extentAt(0),
+      extent90M: extentAt(1),
+      extent95M,
       h50M,
       h90M,
       h95M,
@@ -927,7 +1182,15 @@ function reduceCells(
       frameVotes: votes.map((v) => ({ frameIndex: v.frameIndex, sampleCount: v.voxelCount,
         h50M: v.percentiles[0], h90M: v.percentiles[1], h95M: v.percentiles[2] })),
       evidenceFrameIndices,
-      status: "measured",
+      gapM,
+      // A structure is the more specific finding: a rail is not a crown, whatever its gap says.
+      status: structureStands ? "structure" : isCanopy ? "canopy" : "measured",
+      ...(structureStands
+        ? { reason: "structure-stands-here" as const }
+        : isCanopy
+          ? { reason: extent95M > options.canopyExtentM ? ("above-canopy-extent" as const) : ("floating-above-ground" as const) }
+          : {}),
+      ...structureField,
     });
   }
 
@@ -936,6 +1199,7 @@ function reduceCells(
       a.coordinate.alongRoadM - b.coordinate.alongRoadM ||
       a.coordinate.distanceFromRoadM - b.coordinate.distanceFromRoadM,
   );
+  if (Number.isFinite(options.slopeRiseM)) markSlopes(measurements, options.slopeRiseM);
 
   return {
     schemaVersion: GRASS_HEIGHT_ASSESSMENT_SCHEMA,
@@ -946,6 +1210,14 @@ function reduceCells(
       minDistanceFromRoadM: 0,
       maxDistanceFromRoadM: options.maxDistanceFromRoadM,
       cellSizeM: options.cellSizeM,
+      maxHeightM: Number.isFinite(options.maxHeightM) ? options.maxHeightM : null,
+      canopyExtentM: Number.isFinite(options.canopyExtentM) ? options.canopyExtentM : null,
+      canopyGapM: Number.isFinite(options.canopyGapM) ? options.canopyGapM : null,
+      datum: options.datum,
+      bandSide: options.bandSide,
+      slopeRiseM: Number.isFinite(options.slopeRiseM) ? options.slopeRiseM : null,
+      structureFrames: Number.isFinite(options.structureFrames) ? options.structureFrames : null,
+      pastEnds: options.pastEnds,
     },
     measurements,
     reviewEvidence: buildReviewEvidence(measurements),
@@ -957,6 +1229,47 @@ function reduceCells(
       note: null,
     },
   };
+}
+
+/**
+ * Where the verge becomes an embankment, column by column, and everything beyond it.
+ *
+ * Only measured and canopy cells carry a ground; an abstained cell in the column is skipped,
+ * not treated as level. Once the foot is found, every cell further out in that column is slope
+ * whatever its own ground does — a terrace above a bank is still not the corridor.
+ */
+function markSlopes(measurements: GrassCellMeasurement[], riseM: number): void {
+  const columns = new Map<number, GrassCellMeasurement[]>();
+  for (const cell of measurements) {
+    const list = columns.get(cell.coordinate.alongRoadM) ?? [];
+    list.push(cell);
+    columns.set(cell.coordinate.alongRoadM, list);
+  }
+  for (const column of columns.values()) {
+    column.sort((a, b) => a.coordinate.distanceFromRoadM - b.coordinate.distanceFromRoadM);
+    // A structure's "ground" is its own foot — a rail's lower edge half a metre up — and would
+    // read as a step in the terrain, so a cell one stands in says nothing about the climb.
+    const grounded = column.filter((cell) => cell.localGroundM !== null && cell.status !== "structure");
+    if (grounded.length < 2) continue;
+    // Two rising steps in a row. A kerb or a raised median is one step and then level ground,
+    // and a mown strip behind a kerb is still the corridor; an embankment keeps climbing.
+    let foot: number | null = null;
+    for (let i = 1; i + 1 < grounded.length; i++) {
+      const before = grounded[i - 1].localGroundM as number;
+      const here = grounded[i].localGroundM as number;
+      const beyond = grounded[i + 1].localGroundM as number;
+      if (here - before > riseM && beyond - here > riseM) {
+        foot = grounded[i].coordinate.distanceFromRoadM;
+        break;
+      }
+    }
+    if (foot === null) continue;
+    for (const cell of column) {
+      if (cell.coordinate.distanceFromRoadM < foot || cell.status === "insufficient-support" || cell.status === "structure") continue;
+      cell.status = "slope";
+      cell.reason = "beyond-slope-foot";
+    }
+  }
 }
 
 /**
@@ -973,6 +1286,9 @@ function reduceCells(
 function buildReviewEvidence(measurements: GrassCellMeasurement[]): GrassHeightAssessmentV1["reviewEvidence"] {
   const measured = measurements.filter((cell) => cell.status === "measured");
   const abstained = measurements.filter((cell) => cell.status === "insufficient-support");
+  const canopy = measurements.filter((cell) => cell.status === "canopy");
+  const slope = measurements.filter((cell) => cell.status === "slope");
+  const structure = measurements.filter((cell) => cell.status === "structure");
   const total = measurements.length;
 
   // Folded rather than spread: a kilometre of verge is tens of thousands of cells, and
@@ -1026,6 +1342,9 @@ function buildReviewEvidence(measurements: GrassCellMeasurement[]): GrassHeightA
   return {
     measuredCellCount: measured.length,
     abstainedCellCount: abstained.length,
+    canopyCellCount: canopy.length,
+    slopeCellCount: slope.length,
+    structureCellCount: structure.length,
     coverageFraction: total > 0 ? measured.length / total : 0,
     h95RangeM,
     extent95RangeM,

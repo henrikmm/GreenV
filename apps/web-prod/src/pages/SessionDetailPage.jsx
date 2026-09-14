@@ -342,7 +342,7 @@ export default function SessionDetailPage() {
             <thead>
               <tr>
                 <th style={s.th} /><th style={s.th}>#</th><th style={s.th}>Nível</th>
-                <th style={s.th}>Altura p95</th><th style={s.th}>Células</th><th style={s.th}>GPS</th>
+                <th style={s.th}>Altura p90</th><th style={s.th}>Células</th><th style={s.th}>GPS</th>
                 <th style={s.th} />
               </tr>
             </thead>

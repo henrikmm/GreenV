@@ -118,7 +118,67 @@ have been graded against a tape.** The packets say so themselves — `operationa
 This is not a documentation gap; the documentation is honest about it. It is on this list because
 it is the gap that decides whether the product works, and no amount of plumbing closes it.
 
-### 5. The default stretch is now shorter than the graded band
+### 5. A driven segment measures its first 30 m, and the first driven day measured almost nothing
+
+The extractor's `distance-groups` sampling spends its 112-frame budget on the first groups of
+consecutive frames — 102 frames at 59 fps is 1.7 s of video. At the 63–90 km/h the seven sessions
+of 13 September 2026 were driven, a ten-second segment covers 170–250 m and its measurement
+covers the first 30–40 m. **Roughly four fifths of the road is never seen by the depth model.**
+The extractor says so in every manifest (`groups[].published`); nothing downstream reported it.
+Closing it is a decision, not a parameter: shorter segments in the app, more than one depth run
+per segment at proportional GPU cost, or sparser sampling with a baseline DA3 has not been graded
+at. Nothing has been chosen.
+
+What the 41 measured segments of that day did contain was wrong for three separate reasons, all
+found on a local bench that re-measures from the `scene.glb` and `result.npz` the RunPod handler
+keeps beside the frames, with no GPU (`docs/AUTOMATIC-HEIGHT.md`, "Driving, not walking", and
+`measurement/docs/evidence/2026-09-13-car-mount.md`):
+
+- the band lay on the road side of the camera track in every usable segment, so twelve of them
+  measured no cell at all although every frame carried a vegetation mask;
+- DA3's per-clip scale ran from 0.78× to 1.86× against the GPS path length of the very frames it
+  reconstructed, which the manifest already records per frame;
+- four segments whose camera track collapsed to under 2 m — a phone still being mounted, a
+  stopped car — were reported as 1.1 to 3.9 m of vegetation.
+
+The pipeline and the worker now place the band from the masks, anchor the scale to the manifest's
+path length, and refuse a collapsed track, all recorded in the packet; the worker can re-measure
+a segment from the kept reconstruction (`reuseDepth`). A second pass the next day found three
+more things a walk never showed: the frames of a driven capture float 24–52 cm against each
+other, so each frame is now measured against its own ground; a tree's low branch is told from
+a hedge by the air under it, not by its height; and the band is held to the five-metre mowing
+corridor rather than to wherever the vegetation ends. With all of it on, the 43 segments read a
+p50 of 2–18 cm on 37 of them, against the 16–28 cm the first pass gave a verge the photographs
+put at 10–15. The corridor now ends where each cell's own ground starts to climb — two
+consecutive rises of more than 10 cm per half-metre cell mark the embankment's foot, and 1,971
+of 17,060 cells on that day were set aside as slope — and the stretch stands for the 90th
+percentile of its cells rather than the 95th, because the top twentieth was the last half metre
+against the guardrail: by p95 the day sat at 6 / 14 / 20 stretches on levels 1 / 2 / 3, by p90
+at 9 / 21 / 10. Which aggregate and which thresholds a mowing policy should use remains the
+question `measurement/docs/GRASS-QUALITY.md` leaves to Motiva; p90 is a draft.
+
+Two stretches still read 0.55–0.59 m over grass of 5–15 cm, and both turned out to be the
+guardrail or the concrete barrier itself: the segmentation never learned a guard rail
+(Cityscapes leaves that label out of its nineteen classes) and calls it `terrain` in the frames
+where it does not call it `fence` or `wall`. A cell that three frames saw a structure standing in
+is now refused whatever the other frames read there, and nothing beyond the camera track's ends
+is measured any more; that took one of the two from 0.59 m to 0.20 m. The other stayed at
+0.55 m: its second half is a guardrail no frame calls anything but terrain, and nothing in the
+geometry of a packet tells a 0.6 m rail from a 0.6 m stand of grass. So a second segmentation
+now runs beside the first, a SegFormer trained on ADE20K, whose classes include `fence`,
+`railing` and `wall` and whose guardrails are annotated `fence`; it is asked only what is not
+grass, and its answer joins the structure map. That stretch reads 0.05 m, the median strip
+0.14. It costs 1.3 s of CPU a frame on four threads (3.9 on two, which is why the worker now
+has four vCPU) on top of the grass model's, and a wet rail in fog is still grass to both models
+in some frames. CLIPSeg and a Mapillary-Vistas MaskFormer, which name a guardrail outright,
+were wired the same way and refuse too much grass beside the rail; both stay registered
+(`measurement/docs/evidence/2026-09-13-car-mount.md`, "A second model that knows a fence").
+Re-measured in the cloud on 14 September with all of this on, the 43 segments sit at 18 / 21 / 0
+stretches on levels 1 / 2 / 3, from 9 / 21 / 10 the day before: what had held the top twentieth
+of the cells was the guardrail. Whether a rail-side strip of tall grass is now refused with the
+rail is the open question that a tape on a real verge has to answer.
+
+### 6. The default stretch is now shorter than the graded band
 
 As of 10 September 2026, `GroupPlanner.DEFAULT_GROUP_METERS` is **10.0 m**, lowered from 20 m so
 that a person walking can exercise the pipeline without a car. Verge Studio's graded evidence
@@ -128,7 +188,7 @@ speed**. The code says this and the envelope flag reports it, and
 default and what it costs. The four segments measured that day confirm it: every packet reports
 `operationalStatus: "not-ready"` with the graded-envelope blocker among its seven.
 
-### 6. Five cloud vendors, one MVP, and no record of which combination is real
+### 7. Five cloud vendors, one MVP, and no record of which combination is real
 
 The API and worker 1 between them ship three object-storage adapters (`local`, `s3`, `azure-blob`)
 and four queue adapters (`rabbitmq`, `sqs`, `azure-queue`, `azure-service-bus`). Add Neon for
@@ -147,13 +207,13 @@ What remains is that the other adapters — `azure-blob`, `sqs`, `azure-service-
 the repository there is still no way to tell a path someone operates from a path someone wrote,
 except by that one document.
 
-### 7. The API does not authenticate a capture device
+### 8. The API does not authenticate a capture device
 
 `infrastructure/README.md` states it and it belongs on this list: Terraform provisions TLS and
 cloud identity between services, not application authentication. No external pilot user should be
 invited until the API authorizes each device and each capture session.
 
-### 8. The depth model's licence has no answer
+### 9. The depth model's licence has no answer
 
 Personal and research use only. Fine for a pilot, not fine for a concessionaire, and it needs an
 answer before this chain carries operational traffic. Unchanged, and unresolved, since it was first

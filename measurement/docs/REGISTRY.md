@@ -792,6 +792,119 @@ from the road is unsigned, so V1 assumes the mask covers one side. The ground un
 plane: a crowned shoulder or a ditch inside five metres becomes grass height and nothing notices.
 Every result is stamped `validationStatus: "unvalidated"` and human acceptance does not change it.
 
+### A driven capture needs the band, the scale and the track decided per run — 2026-09-13
+
+**On the first day of vehicle-mounted capture, 20 of 43 segments measured no cell and the rest
+read 0.02–0.15 m, and none of it was the mask.** Re-measured from the kept `scene.glb` and
+`result.npz` with no GPU (`docs/evidence/2026-09-13-car-mount.md`): the fixed `offsetM: 2` band
+lay on the road side of the camera track in 37 of 37 usable segments while the verge sat 5–9 m
+out on the other side; DA3's per-clip scale ran 0.78x–1.86x (median 1.24x) against the GPS path
+length of the very frames it reconstructed; and four segments whose camera track collapsed to
+0.5–6.6 m — a phone still being mounted, a stopped car — were reported as 1.1–3.9 m of vegetation
+from a door handle and a tree.
+
+Three request fields, all off by default so every walked fixture measures as recorded, in
+`scripts/grass-anchor.mjs` (pure, 12 tests) and `runGrassPipeline`: `offsetSide: "auto"` places
+the edge at the 10th percentile of the back-projected mask's lateral distance less 0.5 m, on the
+side holding at least 70% of it, and widens the band to the 90th percentile within 5–10 m;
+`trackLengthM` scales the run so the camera track is as long as the caller says the vehicle
+drove, one factor per run applied to the alignment, the poses and the plane together, refused
+outside 0.5x–2x with the blocker `scale-anchor-unusable`; `minTrackM` refuses a shorter track
+with `camera-track-too-short`. `cameraHeightM` exists for a caller that has taped one and wins
+over the track anchor. All decisions and the model's own numbers travel under `corridor.band`,
+`corridor.cameraTrack` and `scale`. With the three on, the 43 runs go from 900 measured cells to
+24,603, the twenty empty segments to four (three refused, one without a ground plane), and the
+median usable segment from 2 cells to 614. **The far end of a 10 m band reaches the tree line:**
+in 9 runs 10–25% of cells read over 2 m from 5–10 m out on ground 0.5–5.4 m above the road.
+Two grid ceilings take them out and nothing else: `maxHeightM` (a point higher than that above
+the plane is a crown and never enters a cell) and `canopyExtentM` (a cell still taller than that
+above its own ground is `status: "canopy"`, kept with its numbers, counted in no aggregate).
+Both default to Infinity; at 3 m and 2 m on the 43 runs they set 87 cells aside and emptied
+1,395 more, brought those nine p95 values from 1.07–8.65 m to 0.39–1.58 m, and left 31 of 39
+banded runs without a single cell changed. The class stays `terrain,vegetation`: `terrain`
+alone reads 0.000 m on a plant taped at 0.980 m (2026-09-05), so trees are removed by height,
+not by class. **A wet road hides the floor:** one segment found no ground plane (0.80% support
+against the 1% floor) because the road's reflection reads as depth scattered below the surface;
+`groundFallback` allows one coarser fit (0.07 m, 0.5%), kept only if the camera stands 0.3–6 m
+above it and named `ground-fit-relaxed`, and that segment then measures 601 cells at a p50 of
+0.28 m.
+
+**The frames of a driven capture float against each other, and the pooled datum read the float
+as grass — 2026-09-14.** A cell's heights spread 1–8 cm within one frame and 24–52 cm between
+frames; the pooled 2nd percentile sat on the lowest frame and the median P95 on the middle one,
+so a verge the photographs put at 10–15 cm read 16–28 cm. `datum: "per-frame"` (each frame
+against its own 2nd percentile, then the median) reads it at 4–12 cm and is pinned by a test of
+five frames three of which float 0.30 m. `canopyGapM` tells a crown from a plant by the air
+under it — the widest per-frame gap between voxel heights with a tenth of the voxels above —
+and at 0.5 m sets a branch hanging at two metres aside where the height ceilings let it
+through. `maxDistanceFromRoadM: 5.5` from the auto-placed edge holds the band to the five-metre
+mowing corridor instead of the slope behind it. All three off by default. On the 43 runs
+together: 40 measured, 17,699 cells, p50 2–18 cm on 37 of them, dashboard levels 7/11/22 where
+the previous round had 34 at level 3. The guardrail top in `0f/1`, 0.51 m in the model against
+a 0.70–0.75 m standard, agrees with the GPS anchor's ×1.28; scale was not the inflation. Two
+more, the same day: the tallest cells of a mown strip were its last half metre against the
+guardrail, the rail's lower edge carried by the `terrain` beside it at 128×128 logits, so
+`excludeNearClasses` drops mask pixels within a radius of a named class (one pixel of
+`fence,wall,pole,building` takes `11/7` from 31 to 29 cm, three would take it to 24 but eats
+vegetation beside any wall); and a wet road reads as `vegetation` (a fifth of a frame), which a
+band folding both sides of the edge counted as 0 cm cells, so `bandSide` keeps the vegetation's
+side alone — 17,699 cells to 17,060, four segments just past 30 cm down to level 2, levels
+6/14/20. **The corridor ends where the ground starts to climb:** `slopeRiseM` walks each
+along-road column outward and calls the first cell whose ground rises by more than that from
+the cell before it, and whose next cell rises by more than that again, the slope's foot — two
+steps, because a kerb is one step and then level, and one step cost a mown strip 147 of 365
+cells — and every cell from the foot out is `status: "slope"`, kept, aggregated nowhere. At
+0.1 m per half-metre cell: 1,971 of 17,060 cells set aside on the 43 runs, `19/5`'s embankment
+p95 0.82 → 0.17 m, the flat run untouched. GreenV's own aggregate moved from the 95th to the
+90th percentile of the cells the same day, outside this pipeline: levels 9/21/10 where p95
+gave 6/14/20. Which aggregate a mowing policy takes is still the open question of
+`GRASS-QUALITY.md`. No reading here is graded against a tape.
+
+**A cell a structure stands in is refused, whatever the frames that missed it say, and nothing
+past the track's ends is measured.** A wet guardrail or a concrete barrier is `fence` or `wall`
+to the segmentation in some frames and `terrain` in the rest — Cityscapes' *guard rail* label is
+not among the nineteen classes the model predicts — and the frames that call it grass measure
+it, 0.7–0.8 m agreed across twenty frames, because that is its height. `structureFrames`
+back-projects each frame's structure pixels whole into the same cells as its grass; a cell that
+many frames landed `minVoxelsPerFrame` structure voxels in is `status: "structure"`, kept,
+aggregated nowhere, out of the slope search. Three frames, the measurement's own bar: on
+`11/10` 55 of 78 tall cells, at one frame 22 short cells would go for 14 tall. `pastEnds:
+"drop"` discards a point past either end of the road edge instead of folding it onto the end,
+where the overshoot became distance and a rail one metre out filled the last column at every
+distance. `11/10` p90 0.59 → 0.20 m; `7e/2` 0.55 → 0.55, because its second half is a guardrail
+no frame calls anything but terrain — the model's confidence, a stacking metric, a ground step
+and a 1024 input were each tried there and none separates a 0.6 m rail from a 0.6 m stand
+([evidence/2026-09-13-car-mount.md](evidence/2026-09-13-car-mount.md), last two sections).
+
+**A second segmentation, trained on ADE20K, is asked only what is not grass.** ADE20K's 150
+classes include `fence`, `railing`, `wall` and `bannister`, and its guardrails are annotated
+`fence` (MSeg relabelled them out of that class). `structureModel: "ade20k-b4"` runs
+`Xenova/segformer-b4-finetuned-ade-512-512` (pinned, 246 MB, 0.9 s a frame on CPU, no slower
+than B2) beside the Cityscapes B0, which still decides what is grass; the pixels whose summed
+probability over `structureClasses` reaches `structureFloor` (0.5) join the structure map, out
+of the mask with the margin and into the cells `structureFrames` counts. `7e/2` p90 0.55 →
+0.05 m, its barrier-and-rail line `structure` end to end; `11/10` 0.20 → 0.16, the rail in fog
+still grass to both models in two of the frames that see it. Recorded per frame in
+`frame.semantic.structureModel`. At 1024 input the same model takes 12.8 s a frame: not taken.
+A floor of 0.4 on the summed probability, rather than the winning class, took `11/10` to 0.14
+m for ten cells and is the deployment's. Two other kinds of model take the same seat and were
+measured the same way: a prompted one (`clipseg`, CLIPSeg asked "guardrail") and a query one
+(`vistas-r50`, a MaskFormer on Mapillary Vistas with `Guard Rail` and `Barrier` classes). Each
+finds the rail where the SegFormers miss it and each refuses too much — 50 and 51 cells of
+317 on `11/10` against the ADE20K's 293 — because its mask fattens over the grass beside the
+rail. On the 43 runs: 10,069 measured cells, 4,634 `structure`, levels 18/21/0 by p90 where
+the class veto alone gave 15/21/3 and the slope round 9/21/10; the cloud worker reports the
+same 18/21/0 on the same segments. Evidence: the sections "A second model that knows a fence"
+and after, same file.
+
+Three things the same day established about the capture rather than the pipeline: the frame
+extractor's distance grouping publishes the first 30–40 m of a 170–250 m segment at highway
+speed, so four fifths of the road never reaches the model; the manifest's per-frame
+`distanceMeters` is a usable scale anchor and the camera's height above the plane is not (0.93 to
+2.25 m for one mount, not constant after correction); and `check-grass-quality.mjs`'s
+`process.argv[1].endsWith('/…')` guard never fires on Windows, where the checker has to be called
+through its export.
+
 ### The grid measures from each cell's own ground, not from the plane — 2026-09-05
 
 **The default reading is now an extent: `extent50M`, `extent90M`, `extent95M`, from a low

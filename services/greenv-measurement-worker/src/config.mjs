@@ -178,6 +178,93 @@ function build() {
       // here is validated; this one is the one whose failure mode is visible rather than silent.
       classes: text("GREENV_MEASUREMENT_CLASSES", "terrain,vegetation"),
       offsetM: number("GREENV_MEASUREMENT_OFFSET_M", 2),
+      // The three settings a vehicle-mounted capture needs and a walked one does not, all
+      // defaulting to Verge Studio's own behaviour (measurement/scripts/grass-anchor.mjs):
+      //
+      //   - `auto` lets the assessment choose the SIGN of offsetM from where the vegetation mask
+      //     lies relative to the camera track. On 2026-09-13 every one of 37 usable segments had
+      //     the verge on the side the fixed +2 m never reached, and 12 of them measured nothing.
+      //   - a camera track shorter than minTrackM on the road plane means the reconstruction did
+      //     not see the car move — a phone still being mounted, a stopped car — and four such
+      //     segments were reported that day as 1.1 to 3.9 m of vegetation. 0 disables the gate.
+      //   - cameraHeightM is the lens's height above the road for this mount, the one length a
+      //     car keeps constant all day. DA3 fixes its scale once per clip and it varied more than
+      //     two to one between neighbouring segments; the anchor rescales each run to put the
+      //     camera where it physically was. Null leaves the model's scale alone.
+      offsetSide: text("GREENV_MEASUREMENT_OFFSET_SIDE", "given"),
+      minTrackM: number("GREENV_MEASUREMENT_MIN_TRACK_M", 0),
+      cameraHeightM: number("GREENV_MEASUREMENT_CAMERA_HEIGHT_M", null),
+      // Where the scale anchor comes from. `telemetry` hands Verge Studio the GPS path length of
+      // the sampled frames, which the frame extractor writes into the manifest as each frame's
+      // `distanceMeters`; the reconstruction is then stretched or shrunk until its camera track
+      // is that long. `none` leaves DA3's per-clip scale alone. A configured camera height wins
+      // over either, because a taped length beats an inferred one.
+      scaleAnchor: text("GREENV_MEASUREMENT_SCALE_ANCHOR", "none"),
+      // Trees. The `vegetation` class is the only one that captures the tall grass and brush a
+      // mowing decision is about, and it captures crowns with them; nothing in a mask tells a
+      // clump at 1 m from a crown at 6 m, their height does. A back-projected point higher than
+      // maxHeightM above the road plane is canopy and never enters a cell; a cell whose extent
+      // still exceeds canopyExtentM — a trunk with low branches, a cut face — is reported as
+      // `canopy` with its numbers and counted in no aggregate. Unset leaves every height in,
+      // which is how every graded fixture was measured. The deployment sets 3 and 2.
+      maxHeightM: number("GREENV_MEASUREMENT_MAX_HEIGHT_M", null),
+      canopyExtentM: number("GREENV_MEASUREMENT_CANOPY_EXTENT_M", null),
+      // A wet road reflects the sky and the depth model reads the reflection as depth scattered
+      // below the surface, so the true ground is a thin layer the strict plane fit refuses. With
+      // this on, Verge Studio makes one coarser attempt, keeps it only if the camera stands a
+      // plausible height above it, and names the relaxation in the packet's blockers. One
+      // segment of 2026-09-13 measured nothing without it and 601 cells with it.
+      groundFallback: flag("GREENV_MEASUREMENT_GROUND_FALLBACK", false),
+      // Where a cell's own ground is taken from. `pooled` is Verge Studio's default and assumes
+      // the frames agree about where the ground is; on the driven captures of 2026-09-13 the
+      // same cell floated 24-52 cm between frames and a mown verge read half the float as
+      // grass. `per-frame` measures each frame against its own ground and takes the median.
+      datum: text("GREENV_MEASUREMENT_DATUM", "pooled"),
+      // A crown floats: ground, then nothing for half a metre or more, then foliage. A cell
+      // whose frames typically show a vertical gap wider than this is canopy whatever its
+      // extent, which is how a low branch at two metres stays out of the verge's numbers.
+      canopyGapM: number("GREENV_MEASUREMENT_CANOPY_GAP_M", null),
+      // How far from the detected road edge the measured band reaches, in metres. The band is
+      // placed 0.5 m before the vegetation starts, so 5.5 covers five metres of verge: the
+      // mowing corridor Motiva cuts. Unset, the band widens to the vegetation's far edge (up to
+      // 10 m) and the slope behind the corridor counts, which it must not.
+      bandWidthM: number("GREENV_MEASUREMENT_BAND_WIDTH_M", null),
+      // Cityscapes labels whose neighbourhood is not measured. At the model's 128x128 logits one
+      // class pixel is 4.5 by 8 photograph pixels, so the grass against a guardrail carries the
+      // rail's lower edge with it. Empty excludes nothing; the radius is in logit pixels.
+      // The mowing corridor ends where the embankment begins. Walking outward along a column of
+      // cells, two consecutive rises of more than this, in metres per half-metre cell, mark the
+      // slope's foot; that cell and everything beyond it is reported as `slope` and aggregated
+      // nowhere. 0.1 is a 20% grade. Unset never looks.
+      slopeRiseM: number("GREENV_MEASUREMENT_SLOPE_RISE_M", null),
+      // A wet guardrail or a concrete barrier is grass to the segmentation in some frames and a
+      // structure in the rest, and the frames that call it grass measure it. A cell that this
+      // many frames saw one of the excluded classes standing in is reported as `structure` and
+      // aggregated nowhere, whatever the other frames read there. Unset never looks.
+      structureFrames: number("GREENV_MEASUREMENT_STRUCTURE_FRAMES", null),
+      // What becomes of a point past either end of the camera track. `fold` piles it onto the
+      // nearer end with the overshoot turned into distance (Verge Studio's default, right for a
+      // walked polyline that spans its stretch); `drop` leaves it out, which a driven capture
+      // needs because the depth reaches on down the road past the last pose.
+      pastEnds: text("GREENV_MEASUREMENT_PAST_ENDS", "fold"),
+      // A second segmentation asked only what is not grass. The grass model is Cityscapes-trained
+      // and Cityscapes never taught it a guardrail, so a wet W-beam or a concrete barrier is
+      // `terrain` to it in many frames; ADE20K (`ade20k-b4`) knows `fence`, `railing`, `wall`
+      // and `bannister`. Its named classes join the structure map: out of the grass mask with the
+      // same margin as EXCLUDE_NEAR, and into the cells STRUCTURE_FRAMES counts. Empty runs one
+      // model only; the classes are the second model's own names.
+      structureModel: text("GREENV_MEASUREMENT_STRUCTURE_MODEL", ""),
+      structureClasses: text("GREENV_MEASUREMENT_STRUCTURE_CLASSES", ""),
+      // A pixel is a structure to the second model when the probability it gives those classes,
+      // summed, reaches this; a rail is spread over fence, railing, wall and bannister, so no
+      // one class need win. Unset leaves Verge Studio's 0.5, a majority of the probability.
+      structureFloor: number("GREENV_MEASUREMENT_STRUCTURE_FLOOR", null),
+      excludeNear: text("GREENV_MEASUREMENT_EXCLUDE_NEAR", ""),
+      excludeNearPx: number("GREENV_MEASUREMENT_EXCLUDE_NEAR_PX", 1),
+      // Start a re-measure from the reconstruction the depth handler left beside the frames when
+      // it is there, instead of waking a GPU for geometry that has not changed. A request can
+      // also ask for it per segment (`reuseDepth: true`), which is what a backfill does.
+      reuseDepth: flag("GREENV_MEASUREMENT_REUSE_DEPTH", false),
       timeoutMs: number("GREENV_MEASUREMENT_TIMEOUT_MS", 30 * 60 * 1000),
       // A packet built on the fixture-backed mock describes the fixture's scene, not the
       // uploaded video. It is worth producing — it exercises every seam — and it must never be
@@ -224,6 +311,44 @@ function build() {
       "GREENV_AWS_ACCESS_KEY and GREENV_AWS_SECRET_KEY must be set together, or both left unset " +
         "to use the AWS default credential chain",
     );
+  }
+  if (!["given", "auto"].includes(config.measurement.offsetSide)) {
+    throw new Error(`GREENV_MEASUREMENT_OFFSET_SIDE must be "given" or "auto", got "${config.measurement.offsetSide}"`);
+  }
+  if (!["telemetry", "none"].includes(config.measurement.scaleAnchor)) {
+    throw new Error(`GREENV_MEASUREMENT_SCALE_ANCHOR must be "telemetry" or "none", got "${config.measurement.scaleAnchor}"`);
+  }
+  if (!Number.isInteger(config.measurement.excludeNearPx) || config.measurement.excludeNearPx < 0 || config.measurement.excludeNearPx > 8) {
+    throw new Error(`GREENV_MEASUREMENT_EXCLUDE_NEAR_PX must be a whole number of logit pixels from 0 to 8, got ${config.measurement.excludeNearPx}`);
+  }
+  if (!["pooled", "per-frame"].includes(config.measurement.datum)) {
+    throw new Error(`GREENV_MEASUREMENT_DATUM must be "pooled" or "per-frame", got "${config.measurement.datum}"`);
+  }
+  for (const [name, value] of [["GREENV_MEASUREMENT_MAX_HEIGHT_M", config.measurement.maxHeightM], ["GREENV_MEASUREMENT_CANOPY_EXTENT_M", config.measurement.canopyExtentM], ["GREENV_MEASUREMENT_CANOPY_GAP_M", config.measurement.canopyGapM], ["GREENV_MEASUREMENT_BAND_WIDTH_M", config.measurement.bandWidthM], ["GREENV_MEASUREMENT_SLOPE_RISE_M", config.measurement.slopeRiseM]]) {
+    if (value !== null && !(value > 0)) {
+      throw new Error(`${name} must be a positive number of metres, got ${value}`);
+    }
+  }
+  if (!(config.measurement.minTrackM >= 0)) {
+    throw new Error(`GREENV_MEASUREMENT_MIN_TRACK_M must be zero or a positive number of metres, got ${config.measurement.minTrackM}`);
+  }
+  if (config.measurement.structureFrames !== null && !(Number.isInteger(config.measurement.structureFrames) && config.measurement.structureFrames >= 1)) {
+    throw new Error(`GREENV_MEASUREMENT_STRUCTURE_FRAMES must be a whole number of frames, at least 1, got ${config.measurement.structureFrames}`);
+  }
+  if (!["fold", "drop"].includes(config.measurement.pastEnds)) {
+    throw new Error(`GREENV_MEASUREMENT_PAST_ENDS must be "fold" or "drop", got "${config.measurement.pastEnds}"`);
+  }
+  if (config.measurement.structureModel && !config.measurement.structureClasses) {
+    throw new Error("GREENV_MEASUREMENT_STRUCTURE_CLASSES must name the classes GREENV_MEASUREMENT_STRUCTURE_MODEL is asked for");
+  }
+  if (!config.measurement.structureModel && config.measurement.structureClasses) {
+    throw new Error("GREENV_MEASUREMENT_STRUCTURE_CLASSES needs GREENV_MEASUREMENT_STRUCTURE_MODEL to read them from");
+  }
+  if (config.measurement.structureFloor !== null && !(config.measurement.structureFloor > 0 && config.measurement.structureFloor <= 1)) {
+    throw new Error(`GREENV_MEASUREMENT_STRUCTURE_FLOOR must be a probability above 0 and at most 1, got ${config.measurement.structureFloor}`);
+  }
+  if (config.measurement.cameraHeightM !== null && !(config.measurement.cameraHeightM > 0)) {
+    throw new Error(`GREENV_MEASUREMENT_CAMERA_HEIGHT_M must be a positive number of metres, got ${config.measurement.cameraHeightM}`);
   }
   if (!["http", "runpod"].includes(config.infer.adapter)) {
     throw new Error(`GREENV_INFER_ADAPTER must be "http" or "runpod", got "${config.infer.adapter}"`);

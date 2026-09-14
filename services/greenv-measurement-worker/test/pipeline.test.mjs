@@ -180,6 +180,85 @@ test("absent frames are retryable, an unusable segment is not", async () => {
   );
 });
 
+test("a re-measure starts from the reconstruction kept beside the frames and wakes no GPU", async () => {
+  const earlier = {
+    runId: "20260913-140757-87b58d", sourceGeneration: "a".repeat(64), mock: false,
+    depth: { service: "runpod:2q5q0j3e9ug08q", modelRepositoryId: "depth-anything/DA3NESTED-GIANT-LARGE-1.1", modelRevision: "b2359bd", framesDescribed: 4 },
+  };
+  const { measure, calls, request } = harness({
+    storageOverrides: {
+      [`${PREFIX}/measurement/measurement-result-v1.json`]: earlier,
+      [`${PREFIX}/depth/${earlier.runId}/scene.glb`]: Buffer.from("GLB"),
+      [`${PREFIX}/depth/${earlier.runId}/result.npz`]: Buffer.from("NPZ"),
+    },
+    env: { GREENV_MEASUREMENT_OFFSET_SIDE: "auto", GREENV_MEASUREMENT_MIN_TRACK_M: "3", GREENV_MEASUREMENT_CAMERA_HEIGHT_M: "1.25", GREENV_MEASUREMENT_SCALE_ANCHOR: "telemetry", GREENV_MEASUREMENT_MAX_HEIGHT_M: "3", GREENV_MEASUREMENT_CANOPY_EXTENT_M: "2", GREENV_MEASUREMENT_GROUND_FALLBACK: "true", GREENV_MEASUREMENT_CANOPY_GAP_M: "0.5", GREENV_MEASUREMENT_BAND_WIDTH_M: "5.5", GREENV_MEASUREMENT_DATUM: "per-frame", GREENV_MEASUREMENT_EXCLUDE_NEAR: "fence,wall,pole,building", GREENV_MEASUREMENT_SLOPE_RISE_M: "0.1", GREENV_MEASUREMENT_STRUCTURE_FRAMES: "3", GREENV_MEASUREMENT_PAST_ENDS: "drop", GREENV_MEASUREMENT_STRUCTURE_MODEL: "ade20k-b4", GREENV_MEASUREMENT_STRUCTURE_CLASSES: "fence,railing,wall", GREENV_MEASUREMENT_STRUCTURE_FLOOR: "0.4" },
+  });
+  const result = await measure({ sessionId: segmentManifest().sessionId, segmentIndex: 0, force: true, reuseDepth: true });
+
+  assert.equal(calls.infer, 0, "the geometry has not changed, so no GPU runs");
+  assert.equal(calls.assess, 1);
+  assert.equal(result.runId, earlier.runId);
+  assert.equal(result.depth.reused, true);
+  assert.equal(result.depth.service, "runpod:2q5q0j3e9ug08q", "the packet still names the service that computed the geometry");
+  assert.equal(result.depth.gpuSeconds, null);
+  // The vehicle-mount settings travel to Verge Studio as an explicit request, and are recorded.
+  assert.equal(request().offsetSide, "auto");
+  assert.equal(request().minTrackM, 3);
+  assert.equal(request().cameraHeightM, 1.25);
+  // The test manifest is not distance-grouped, so the telemetry anchor has nothing to say.
+  assert.equal(request().trackLengthM, null);
+  assert.deepEqual(request().gridOptions, { maxHeightM: 3, canopyExtentM: 2, canopyGapM: 0.5, maxDistanceFromRoadM: 5.5, slopeRiseM: 0.1, structureFrames: 3, pastEnds: "drop", datum: "per-frame" }, "the ceilings, the gap, the band width, the slope rise, the structure bar, the ends and the datum travel as grid options");
+  assert.equal(result.measurement.slopeRiseM, 0.1);
+  assert.deepEqual([result.measurement.structureFrames, result.measurement.pastEnds], [3, "drop"]);
+  assert.deepEqual([request().structureModel, request().structureClasses, request().structureFloor], ["ade20k-b4", "fence,railing,wall", 0.4], "the second model, its classes and its floor travel with the request");
+  assert.deepEqual([result.measurement.structureModel, result.measurement.structureClasses, result.measurement.structureFloor], ["ade20k-b4", "fence,railing,wall", 0.4]);
+  assert.deepEqual([result.measurement.maxHeightM, result.measurement.canopyExtentM, result.measurement.canopyGapM, result.measurement.bandWidthM, result.measurement.datum], [3, 2, 0.5, 5.5, "per-frame"]);
+  assert.equal(request().groundFallback, true);
+  assert.equal(result.measurement.groundFallback, true);
+  assert.deepEqual([request().excludeNearClasses, request().excludeNearPx], ["fence,wall,pole,building", 1]);
+  assert.deepEqual([result.measurement.excludeNear, result.measurement.excludeNearPx], ["fence,wall,pole,building", 1]);
+  assert.deepEqual(
+    [result.measurement.offsetSide, result.measurement.minTrackM, result.measurement.cameraHeightM, result.measurement.scaleAnchor],
+    ["auto", 3, 1.25, "telemetry"],
+  );
+});
+
+test("the GPS path length of the sampled frames reaches Verge Studio as the scale anchor", async () => {
+  const grouped = segmentManifest({
+    samplingStrategy: "distance-groups",
+    sampledFrames: segmentManifest().sampledFrames.map((f, i) => ({ ...f, distanceMeters: 4.2 + i * 9.9 })),
+  });
+  const { measure, request } = harness({
+    storageOverrides: { [`${PREFIX}/segment-manifest-v2.json`]: grouped },
+    env: { GREENV_MEASUREMENT_SCALE_ANCHOR: "telemetry" },
+  });
+  const result = await measure({ sessionId: segmentManifest().sessionId, segmentIndex: 0 });
+  assert.ok(Math.abs(request().trackLengthM - 29.7) < 1e-9, `span of the sampled frames' distances, got ${request().trackLengthM}`);
+  assert.ok(Math.abs(result.measurement.trackLengthM - 29.7) < 1e-9);
+
+  const off = harness({ storageOverrides: { [`${PREFIX}/segment-manifest-v2.json`]: grouped } });
+  await off.measure({ sessionId: segmentManifest().sessionId, segmentIndex: 0 });
+  assert.equal(off.request().trackLengthM, null, "no anchor unless the deployment asks for one");
+});
+
+test("a kept reconstruction missing one artifact falls through to a fresh inference", async () => {
+  const earlier = { runId: "earlier", sourceGeneration: "a".repeat(64), mock: false, depth: { framesDescribed: 4 } };
+  const { measure, calls, request } = harness({
+    storageOverrides: {
+      [`${PREFIX}/measurement/measurement-result-v1.json`]: earlier,
+      [`${PREFIX}/depth/earlier/scene.glb`]: Buffer.from("GLB"),
+    },
+    env: { GREENV_MEASUREMENT_REUSE_DEPTH: "true" },
+  });
+  const result = await measure({ sessionId: segmentManifest().sessionId, segmentIndex: 0, force: true });
+  assert.equal(calls.infer, 1);
+  assert.equal(result.depth.reused, false);
+  assert.equal(result.measurement.offsetSide, "given", "Verge Studio's own default unless the deployment says otherwise");
+  assert.equal("gridOptions" in request(), false, "no ceiling is sent when none is configured");
+  assert.equal(request().groundFallback, false, "the strict fit alone unless the deployment says otherwise");
+  assert.equal("excludeNearClasses" in request(), false, "nothing excluded unless the deployment names it");
+});
+
 test("the 110 MB run directory does not survive the measurement", async () => {
   const { measure, config } = harness();
   const result = await measure({ sessionId: segmentManifest().sessionId, segmentIndex: 0 });

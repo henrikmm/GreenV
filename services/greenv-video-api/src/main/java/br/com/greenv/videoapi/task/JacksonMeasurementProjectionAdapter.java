@@ -27,6 +27,18 @@ public class JacksonMeasurementProjectionAdapter implements MeasurementProjectio
     /** Worst first, so the track reports the weakest fix that went into it. */
     private static final List<String> QUALITY_WORST_FIRST = List.of("unavailable", "degraded", "good");
 
+    /**
+     * The percentile of the measured cells that stands for the stretch.
+     *
+     * <p>0.90 since 14 September 2026, down from 0.95. The top twentieth of a mown corridor's
+     * cells is its last half metre against the guardrail or the touceira at its far edge, and
+     * on the first driven captures that held 20 of 40 stretches at level 3 over grass of 2 to
+     * 18 cm. The top tenth is still well above the median and still catches a stretch half of
+     * which has grown. The projection's field and column keep the name {@code extent95P95M}: the
+     * installed capture app reads it, and a rename is a release, not a constant.
+     */
+    private static final double STRETCH_PERCENTILE = 0.90;
+
     private final ObjectMapper objectMapper;
 
     public JacksonMeasurementProjectionAdapter(ObjectMapper objectMapper) {
@@ -42,20 +54,20 @@ public class JacksonMeasurementProjectionAdapter implements MeasurementProjectio
             JsonNode packet = objectMapper.readTree(new String(resultPacket, StandardCharsets.UTF_8));
             JsonNode quality = packet.path("measurement").path("quality");
             Track track = readTrack(packet.path("positions"));
-            Double p95 = null;
+            Double p90 = null;
             Double max = null;
             if (assessment != null && assessment.length > 0) {
                 List<Double> heights = readMeasuredHeights(assessment);
-                p95 = percentile(heights, 0.95);
+                p90 = percentile(heights, STRETCH_PERCENTILE);
                 max = heights.isEmpty() ? null : heights.get(heights.size() - 1);
             }
             return new MeasurementProjection(
-                    p95,
+                    p90,
                     max,
-                    // From the 95th percentile rather than the tallest cell. One reading of 3.78 m
+                    // From a high percentile rather than the tallest cell. One reading of 3.78 m
                     // among six is a bush or a tree the mask let through, and colouring a whole
                     // stretch by it sends a crew to mow something that is not grass.
-                    MeasurementProjection.levelFor(p95),
+                    MeasurementProjection.levelFor(p90),
                     integer(quality, "measuredCells"),
                     integer(quality, "abstainedCells"),
                     decimal(quality, "observedCellCoverage"),

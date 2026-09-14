@@ -303,6 +303,46 @@ locals {
     GREENV_INFER_ADAPTER       = var.depth_service_adapter
     GREENV_INFER_MAX_FRAMES    = tostring(var.depth_max_frames)
 
+    # The capture is a phone mounted in a car, and Verge Studio's defaults were tuned on a walk:
+    # the band went to a fixed side of the camera track (the road's, on every driven segment of
+    # 2026-09-13), a camera that never moved still produced cells, and DA3's per-clip scale went
+    # unchecked. Each of these is a worker setting so the deployment says what it measures with.
+    # An empty camera height is "unset" to the worker, which then keeps the model's own scale.
+    GREENV_MEASUREMENT_OFFSET_SIDE     = var.measurement_offset_side
+    GREENV_MEASUREMENT_MIN_TRACK_M     = tostring(var.measurement_min_track_m)
+    GREENV_MEASUREMENT_SCALE_ANCHOR    = var.measurement_scale_anchor
+    GREENV_MEASUREMENT_CAMERA_HEIGHT_M = var.measurement_camera_height_m == null ? "" : tostring(var.measurement_camera_height_m)
+    # Trees: a point higher than this above the road is a crown and never enters a cell; a cell
+    # whose extent still exceeds the second value is reported as canopy and counted in no
+    # aggregate. Empty leaves every height in, which is how every graded fixture was measured.
+    GREENV_MEASUREMENT_MAX_HEIGHT_M    = var.measurement_max_height_m == null ? "" : tostring(var.measurement_max_height_m)
+    GREENV_MEASUREMENT_CANOPY_EXTENT_M = var.measurement_canopy_extent_m == null ? "" : tostring(var.measurement_canopy_extent_m)
+    # A wet road reads as depth scattered below the surface and the strict plane fit finds no
+    # floor; this allows one coarser attempt, named in the packet's blockers when it is used.
+    GREENV_MEASUREMENT_GROUND_FALLBACK = tostring(var.measurement_ground_fallback)
+    # Each frame measured against its own ground (the frames of a driven capture float 24-52 cm
+    # against each other), a crown told from a plant by the vertical gap under it, and the band
+    # held to the mowing corridor rather than to wherever the vegetation ends.
+    GREENV_MEASUREMENT_DATUM        = var.measurement_datum
+    GREENV_MEASUREMENT_CANOPY_GAP_M = var.measurement_canopy_gap_m == null ? "" : tostring(var.measurement_canopy_gap_m)
+    GREENV_MEASUREMENT_BAND_WIDTH_M = var.measurement_band_width_m == null ? "" : tostring(var.measurement_band_width_m)
+    # The grass against a guardrail carries the rail's lower edge with it at the model's
+    # resolution, so pixels next to these classes are not measured.
+    GREENV_MEASUREMENT_EXCLUDE_NEAR    = var.measurement_exclude_near
+    GREENV_MEASUREMENT_EXCLUDE_NEAR_PX = tostring(var.measurement_exclude_near_px)
+    # The corridor ends where the embankment begins: two consecutive rises of more than this
+    # per half-metre cell mark the slope's foot, and everything beyond it is not measured.
+    GREENV_MEASUREMENT_SLOPE_RISE_M = var.measurement_slope_rise_m == null ? "" : tostring(var.measurement_slope_rise_m)
+    # A cell enough frames saw a structure standing in is not measured, whatever the other frames
+    # called it; and nothing past the camera track's ends is measured at all.
+    GREENV_MEASUREMENT_STRUCTURE_FRAMES = var.measurement_structure_frames == null ? "" : tostring(var.measurement_structure_frames)
+    GREENV_MEASUREMENT_PAST_ENDS        = var.measurement_past_ends
+    # A second segmentation that knows a guardrail (ADE20K's fence, railing, wall, bannister),
+    # asked only what is not grass; the Cityscapes grass model was never taught one.
+    GREENV_MEASUREMENT_STRUCTURE_MODEL   = var.measurement_structure_model
+    GREENV_MEASUREMENT_STRUCTURE_CLASSES = var.measurement_structure_classes
+    GREENV_MEASUREMENT_STRUCTURE_FLOOR   = var.measurement_structure_floor == null ? "" : tostring(var.measurement_structure_floor)
+
     PORT = "8090"
   })
 

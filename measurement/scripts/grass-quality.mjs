@@ -29,7 +29,7 @@ export function roadContext(value = {}) {
   return { rodovia: text(value.rodovia), sentido: text(value.sentido), km: value.km ?? null, capturado_em: text(value.capturado_em) };
 }
 
-export function qualitySummary(assessment, frames, context, ground, corridor) {
+export function qualitySummary(assessment, frames, context, ground, corridor, scale = null) {
   const measured = assessment?.measurements.filter((c) => c.status === "measured") ?? [];
   const empty = frames.filter((f) => f.status === "no-grass-detected").length;
   const errors = frames.filter((f) => f.status === "failed").length;
@@ -37,6 +37,12 @@ export function qualitySummary(assessment, frames, context, ground, corridor) {
   if (Object.values(context).some((v) => v === null)) blockers.push("road-metadata-missing");
   if (corridor.source !== "surveyed") blockers.push("road-boundary-assumed");
   if (!ground.available) blockers.push("ground-unavailable");
+  // The floor was found only at twice the tolerance: a wet road, a thin ground. Say so.
+  if (ground.relaxedFit) blockers.push("ground-fit-relaxed");
+  // The reconstruction never saw the vehicle move: nothing in the band is a verge.
+  if (corridor.status === "degenerate") blockers.push("camera-track-too-short");
+  // A scale anchor was asked for and could not be honoured, so the metres are the model's own.
+  if (scale?.requested && !scale.applied) blockers.push("scale-anchor-unusable");
   if (errors) blockers.push("frame-processing-failed");
   if (!measured.length) blockers.push("no-measurable-cells");
   // Unsigned distances fold both sides together. Do not manufacture an area denominator.
@@ -46,6 +52,12 @@ export function qualitySummary(assessment, frames, context, ground, corridor) {
     frames: { total: frames.length, processed: frames.length - errors, empty, failed: errors },
     measuredCells: measured.length,
     abstainedCells: assessment?.reviewEvidence.abstainedCellCount ?? 0,
+    // Cells taller than a verge can be, kept in the packet with their numbers and counted here.
+    canopyCells: assessment?.reviewEvidence.canopyCellCount ?? 0,
+    // Cells from a slope's foot outward: the embankment, kept with their numbers, aggregated nowhere.
+    slopeCells: assessment?.reviewEvidence.slopeCellCount ?? 0,
+    // Cells enough frames saw a fence, a wall, a pole or a building standing in: the same.
+    structureCells: assessment?.reviewEvidence.structureCellCount ?? 0,
     observedCellCoverage: assessment?.reviewEvidence.coverageFraction ?? 0,
     intendedAreaCoverage: null,
     missingAreaMeaning: "unknown: unobserved, occluded, excluded or no grass; not short grass",

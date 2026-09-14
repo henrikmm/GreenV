@@ -1438,15 +1438,18 @@ components:
           format: uri
         measurementLevel:
           description: >-
-            1, 2 or 3 on the mowing thresholds, from the 95th percentile of the
+            1, 2 or 3 on the mowing thresholds, from the 90th percentile of the
             measured cells. Null means unmeasured and must never render as 1:
             a height nobody established is not a short one.
           type: [integer, 'null']
           enum: [1, 2, 3, null]
         measurementExtent95P95M:
           description: >-
-            Metres above each cell's own local ground. This is the estimator
-            graded against a tape, not the one measured from the fitted plane.
+            The 90th percentile of the measured cells, in metres above each
+            cell's own local ground. This is the estimator graded against a
+            tape, not the one measured from the fitted plane. The name keeps
+            the 95th percentile it was until 14 September 2026, because the
+            installed capture app reads it.
           type: [number, 'null']
         measurementExtent95MaxM:
           type: [number, 'null']
