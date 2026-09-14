@@ -167,10 +167,12 @@ is measured any more; that took one of the two from 0.59 m to 0.20 m. The other 
 geometry of a packet tells a 0.6 m rail from a 0.6 m stand of grass. So a second segmentation
 now runs beside the first, a SegFormer trained on ADE20K, whose classes include `fence`,
 `railing` and `wall` and whose guardrails are annotated `fence`; it is asked only what is not
-grass, and its answer joins the structure map. That stretch reads 0.05 m. It costs 0.9 s of CPU
-a frame on top of the 0.14 s of the grass model, and a wet rail in fog is still grass to both
-models in some frames (`measurement/docs/evidence/2026-09-13-car-mount.md`, "A second model
-that knows a fence").
+grass, and its answer joins the structure map. That stretch reads 0.05 m, the median strip
+0.14. It costs 1.3 s of CPU a frame on four threads (3.9 on two, which is why the worker now
+has four vCPU) on top of the grass model's, and a wet rail in fog is still grass to both models
+in some frames. CLIPSeg and a Mapillary-Vistas MaskFormer, which name a guardrail outright,
+were wired the same way and refuse too much grass beside the rail; both stay registered
+(`measurement/docs/evidence/2026-09-13-car-mount.md`, "A second model that knows a fence").
 
 ### 6. The default stretch is now shorter than the graded band
 

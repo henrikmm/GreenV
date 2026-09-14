@@ -81,6 +81,21 @@ export const SEGMENTATION_MODELS = [
     file: "model_fp16.onnx",
     default: false,
   },
+  // A query model trained on Mapillary Vistas, the one public label set that names `Guard Rail`
+  // and `Barrier` outright (ids 4 and 5 of 65). A MaskFormer predicts a hundred queries, each a
+  // class distribution and a mask; the semantic map is their product, computed here because
+  // transformers.js 3.8.1 has no semantic post-processing for it. Fed the frame at its own size:
+  // at a 512 short side the barrier of `20260913-161156-40b383` frame 23 turned into `Wall`, and
+  // the int8 file painted the sky `Building` (2026-09-14). 158 MB.
+  {
+    key: "vistas-r50",
+    id: "onnx-community/maskformer-resnet50-vistas",
+    revision: "d744d54982b5fb33c404ef8a9712666fd794075d",
+    runtime: "@huggingface/transformers@3.8.1",
+    kind: "queries",
+    size: { shortest_edge: 576, longest_edge: 1024 },
+    default: false,
+  },
 ];
 
 /**
@@ -130,7 +145,7 @@ async function load(model) {
     throw new Error("this needs the app's dependencies: run `npm ci --prefix app` first");
   }
 
-  const { AutoModelForSemanticSegmentation, AutoProcessor, AutoTokenizer, CLIPSegForImageSegmentation, RawImage, env } = transformers;
+  const { AutoModelForSemanticSegmentation, AutoProcessor, AutoTokenizer, CLIPSegForImageSegmentation, MaskFormerForInstanceSegmentation, RawImage, env } = transformers;
   env.cacheDir = MODEL_CACHE;
   env.allowRemoteModels = false;
 
@@ -144,8 +159,11 @@ async function load(model) {
     loaded.set(model.key, entry);
     return entry;
   }
-  const runner = await AutoModelForSemanticSegmentation.from_pretrained(model.id, pinned);
+  const runner = model.kind === "queries"
+    ? await MaskFormerForInstanceSegmentation.from_pretrained(model.id, pinned)
+    : await AutoModelForSemanticSegmentation.from_pretrained(model.id, pinned);
   const processor = await AutoProcessor.from_pretrained(model.id, { revision: model.revision });
+  if (model.size) processor.image_processor.size = { ...model.size };
   // The checkpoint's own class names, by id. ADE20K spells a class with its synonyms
   // ("building, edifice"); the first name is the one a request can ask for.
   const count = Object.keys(runner.config.id2label ?? {}).length;
@@ -171,6 +189,7 @@ export async function modelLabels(model = DEFAULT_MODEL) {
  */
 export async function segmentFrame(framePath, model = DEFAULT_MODEL) {
   if (model.kind === "prompted") throw new Error(`${model.key} answers prompts, not classes: use promptFrame`);
+  if (model.kind === "queries") throw new Error(`${model.key} answers with queries, not logits: use queriesFrame`);
   const { runner, processor, RawImage, labels, loadMs } = await load(model);
   const image = await RawImage.read(framePath);
   const inputs = await processor(image);
@@ -214,6 +233,62 @@ export async function promptFrame(framePath, prompts, model) {
     prompts: count,
     height,
     width,
+    frame: { width: image.width, height: image.height },
+    timing: { loadMs, inferMs },
+    model,
+  };
+}
+
+/**
+ * Ask a query model for its class mass per pixel.
+ *
+ * A MaskFormer predicts Q queries, each a distribution over the classes plus "no object" and a
+ * mask over the frame; the semantic answer at a pixel is, per class, the sum over queries of the
+ * class probability times the mask's sigmoid — the product HF's own post-processing takes the
+ * argmax of. The masses are returned whole, at the model's own quarter-resolution mask grid, so a
+ * caller can weigh a set of classes against the rest instead of asking only who won.
+ */
+export async function queriesFrame(framePath, model) {
+  if (model.kind !== "queries") throw new Error(`${model.key} has logits, not queries: use segmentFrame`);
+  const { runner, processor, RawImage, labels, loadMs } = await load(model);
+  const image = await RawImage.read(framePath);
+  const inputs = await processor(image);
+  const started = Date.now();
+  const output = await runner(inputs);
+  const inferMs = Date.now() - started;
+
+  const classLogits = output.class_queries_logits;
+  const maskLogits = output.masks_queries_logits;
+  const [, queries, withNothing] = classLogits.dims;
+  const classes = withNothing - 1;
+  const [, , height, width] = maskLogits.dims;
+  const pixels = height * width;
+  const cl = classLogits.data;
+  const mk = maskLogits.data;
+  const mass = new Float32Array(classes * pixels);
+  const probs = new Float32Array(withNothing);
+  for (let q = 0; q < queries; q++) {
+    let max = -Infinity;
+    for (let c = 0; c < withNothing; c++) { const v = Number(cl[q * withNothing + c]); if (v > max) max = v; }
+    let sum = 0;
+    for (let c = 0; c < withNothing; c++) { probs[c] = Math.exp(Number(cl[q * withNothing + c]) - max); sum += probs[c]; }
+    // Queries that are nearly all "no object" contribute nothing worth the pixels' time.
+    const active = [];
+    for (let c = 0; c < classes; c++) { probs[c] /= sum; if (probs[c] > 1e-3) active.push(c); }
+    if (!active.length) continue;
+    const base = q * pixels;
+    for (let p = 0; p < pixels; p++) {
+      const m = 1 / (1 + Math.exp(-Number(mk[base + p])));
+      if (m < 1e-3) continue;
+      for (const c of active) mass[c * pixels + p] += probs[c] * m;
+    }
+  }
+  return {
+    mass,
+    classes,
+    height,
+    width,
+    labels,
     frame: { width: image.width, height: image.height },
     timing: { loadMs, inferMs },
     model,

@@ -60,7 +60,7 @@ try {
   process.exit(1);
 }
 
-const { AutoModelForSemanticSegmentation, AutoProcessor, AutoTokenizer, CLIPSegForImageSegmentation, env } = transformers;
+const { AutoModelForSemanticSegmentation, AutoProcessor, AutoTokenizer, CLIPSegForImageSegmentation, MaskFormerForInstanceSegmentation, env } = transformers;
 env.cacheDir = MODEL_CACHE;
 
 for (const model of missing) {
@@ -72,6 +72,8 @@ for (const model of missing) {
   if (model.kind === "prompted") {
     await CLIPSegForImageSegmentation.from_pretrained(model.id, pinned);
     await AutoTokenizer.from_pretrained(model.id, { revision: model.revision });
+  } else if (model.kind === "queries") {
+    await MaskFormerForInstanceSegmentation.from_pretrained(model.id, pinned);
   } else {
     await AutoModelForSemanticSegmentation.from_pretrained(model.id, pinned);
   }

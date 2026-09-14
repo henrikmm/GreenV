@@ -541,8 +541,8 @@ variable "measurement_structure_model" {
   default     = "ade20k-b4"
 
   validation {
-    condition     = contains(["", "ade20k-b4", "ade20k-b2", "clipseg"], var.measurement_structure_model)
-    error_message = "measurement_structure_model must be \"clipseg\", \"ade20k-b4\", \"ade20k-b2\" or empty."
+    condition     = contains(["", "ade20k-b4", "ade20k-b2", "clipseg", "vistas-r50"], var.measurement_structure_model)
+    error_message = "measurement_structure_model must be \"ade20k-b4\", \"ade20k-b2\", \"clipseg\", \"vistas-r50\" or empty."
   }
 }
 
@@ -566,10 +566,11 @@ variable "measurement_structure_floor" {
     A pixel is a structure to the second model when the probability it gives
     `measurement_structure_classes`, summed, reaches this. The model spreads a guardrail over
     fence, railing, wall and bannister, so no one class need win. Null leaves Verge Studio's
-    0.5, a majority of the probability.
+    0.5, a majority of the probability; 0.4 took a median strip in fog from a p90 of 0.16 m to
+    0.14 for ten cells of 303 on 2026-09-14, and changed nothing on a mown lawn.
   EOT
   type        = number
-  default     = null
+  default     = 0.4
 
   validation {
     condition     = var.measurement_structure_floor == null || (var.measurement_structure_floor > 0 && var.measurement_structure_floor <= 1)

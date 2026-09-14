@@ -392,13 +392,16 @@ resource "azurerm_container_app" "measurement" {
       # turns out to be materialised whole. Read this number as "somewhere in 2-8 GiB, chosen high
       # because the failure mode is an OOM kill mid-run that pays for the GPU twice".
       #
-      # The CPU figure answers a different question. The image carries `measurement/` and a baked
-      # model cache and was reported at 1.21 GB, which a scale-to-zero app pays for on every cold
-      # start; layer decompression is CPU-bound, so two cores shorten a pull that happens far more
-      # often here than on a warm service. Container Apps Consumption accepts memory only at 2 GiB
-      # per vCPU, so the two numbers are not chosen independently.
-      cpu    = 2
-      memory = "4Gi"
+      # The CPU figure answers a different question. Since 2026-09-14 a second segmentation runs
+      # on every frame, and it is the one thing here that scales with cores: the ADE20K B4 takes
+      # 3.9 s a frame on two ONNX threads and 1.3 s on four (measured on the bench machine, a
+      # cloud vCPU being slower still), which over a hundred frames is the difference between six
+      # minutes and two per segment. Four is the Consumption ceiling, and it accepts memory only at
+      # 2 GiB per vCPU, so the two numbers are not chosen independently. The image also carries
+      # `measurement/` and two baked models (~1.5 GB), which a scale-to-zero app decompresses on
+      # every cold start, and that is CPU-bound too.
+      cpu    = 4
+      memory = "8Gi"
 
       dynamic "env" {
         for_each = local.measurement_environment

@@ -886,7 +886,13 @@ of the mask with the margin and into the cells `structureFrames` counts. `7e/2` 
 0.05 m, its barrier-and-rail line `structure` end to end; `11/10` 0.20 → 0.16, the rail in fog
 still grass to both models in two of the frames that see it. Recorded per frame in
 `frame.semantic.structureModel`. At 1024 input the same model takes 12.8 s a frame: not taken.
-Evidence: the section "A second model that knows a fence" of the same file.
+A floor of 0.4 on the summed probability, rather than the winning class, took `11/10` to 0.14
+m for ten cells and is the deployment's. Two other kinds of model take the same seat and were
+measured the same way: a prompted one (`clipseg`, CLIPSeg asked "guardrail") and a query one
+(`vistas-r50`, a MaskFormer on Mapillary Vistas with `Guard Rail` and `Barrier` classes). Each
+finds the rail where the SegFormers miss it and each refuses too much — 50 and 51 cells of
+317 on `11/10` against the ADE20K's 293 — because its mask fattens over the grass beside the
+rail. Evidence: the sections "A second model that knows a fence" and after, same file.
 
 Three things the same day established about the capture rather than the pipeline: the frame
 extractor's distance grouping publishes the first 30–40 m of a 170–250 m segment at highway

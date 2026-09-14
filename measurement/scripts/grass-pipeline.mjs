@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 import { basename } from "node:path";
 import { typed } from "./inspect/typed.mjs";
 import { resolveRun, readArrays, readCloud, frameFiles, readManifest, readMeasurementEvidence } from "./inspect/source.mjs";
-import { segmentFrame, promptFrame, findModel, modelLabels, DEFAULT_MODEL, MODEL_CACHE } from "./inspect/segment-model.mjs";
+import { segmentFrame, promptFrame, queriesFrame, findModel, modelLabels, DEFAULT_MODEL, MODEL_CACHE } from "./inspect/segment-model.mjs";
 import { apply4x4, invert4x4, projectToPixel } from "./inspect/render.mjs";
 import { QUALITY_SCHEMA, encodeRuns, decodeRuns, roadContext, qualitySummary, compareAssessments } from "./grass-quality.mjs";
 import { lateralProfile, chooseBand, trackLengthScale, cameraHeightScale, scaleAffine, polylineLength, ontoPlane } from "./grass-anchor.mjs";
@@ -257,6 +257,18 @@ export async function runGrassPipeline(request, onProgress = () => {}, signal) {
             for (let k = 0; k < opinion.prompts; k++) for (let p = 0; p < stride2; p++) {
               const v = opinion.probabilities[k * stride2 + p];
               if (v > structureMass[p]) structureMass[p] = v;
+            }
+          } else if (secondModel.kind === "queries") {
+            // A query model: the structure classes' share of the mass every query lays on the pixel.
+            opinion = await queriesFrame(files[i], secondModel);
+            check();
+            ({ height: h2, width: w2 } = opinion);
+            const stride2 = h2 * w2;
+            structureMass = new Float32Array(stride2);
+            for (let p = 0; p < stride2; p++) {
+              let total = 0, mass = 0;
+              for (let c = 0; c < opinion.classes; c++) { const v = opinion.mass[c * stride2 + p]; total += v; if (secondIds.has(c)) mass += v; }
+              structureMass[p] = total > 0 ? mass / total : 0;
             }
           } else {
             opinion = await segmentFrame(files[i], secondModel);

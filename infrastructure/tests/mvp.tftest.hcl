@@ -214,10 +214,10 @@ run "plans_cost_conscious_mvp_defaults" {
 
   assert {
     condition = (
-      azurerm_container_app.measurement.template[0].container[0].cpu == 2 &&
-      azurerm_container_app.measurement.template[0].container[0].memory == "4Gi"
+      azurerm_container_app.measurement.template[0].container[0].cpu == 4 &&
+      azurerm_container_app.measurement.template[0].container[0].memory == "8Gi"
     )
-    error_message = "The measurement worker holds a ~108 MB reconstruction and spawns a segmentation model; 4 GiB is the margin an unmeasured working set needs."
+    error_message = "The measurement worker runs a second segmentation on every frame that takes 3.9 s on two ONNX threads and 1.3 s on four; four vCPU is the Consumption ceiling and brings 8 GiB with it."
   }
 
   # Scaling on the extraction queue would wake this worker for every segment cut, GPU and all.
