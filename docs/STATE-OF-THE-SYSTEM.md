@@ -143,9 +143,15 @@ keeps beside the frames, with no GPU (`docs/AUTOMATIC-HEIGHT.md`, "Driving, not 
 
 The pipeline and the worker now place the band from the masks, anchor the scale to the manifest's
 path length, and refuse a collapsed track, all recorded in the packet; the worker can re-measure
-a segment from the kept reconstruction (`reuseDepth`). Those 41 packets in the bucket and the
-rows projected from them are the old ones until the new worker image is deployed and the
-segments re-measured.
+a segment from the kept reconstruction (`reuseDepth`). A second pass the next day found three
+more things a walk never showed: the frames of a driven capture float 24–52 cm against each
+other, so each frame is now measured against its own ground; a tree's low branch is told from
+a hedge by the air under it, not by its height; and the band is held to the five-metre mowing
+corridor rather than to wherever the vegetation ends. With all of it on, the 43 segments read a
+p50 of 2–18 cm on 37 of them, against the 16–28 cm the first pass gave a verge the photographs
+put at 10–15. What decides the dashboard level is still the top twentieth of the cells, which a
+hedge at the corridor's edge is enough to hold above 30 cm; the policy question in
+`measurement/docs/GRASS-QUALITY.md` is now the one that matters.
 
 ### 6. The default stretch is now shorter than the graded band
 

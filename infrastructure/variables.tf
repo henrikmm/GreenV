@@ -419,6 +419,56 @@ variable "measurement_ground_fallback" {
   default     = true
 }
 
+variable "measurement_datum" {
+  description = <<-EOT
+    Where each measurement cell takes its own ground from. `pooled` is Verge Studio's default:
+    the lowest percentile of every voting frame's points together, which assumes the frames
+    agree about where the ground is. On the driven captures of 2026-09-13 the same cell floated
+    24-52 cm between frames and a mown verge read half the float as grass. `per-frame` measures
+    each frame against its own ground and takes the median, which no float can move.
+  EOT
+  type        = string
+  default     = "per-frame"
+
+  validation {
+    condition     = contains(["pooled", "per-frame"], var.measurement_datum)
+    error_message = "measurement_datum must be \"pooled\" or \"per-frame\"."
+  }
+}
+
+variable "measurement_canopy_gap_m" {
+  description = <<-EOT
+    A crown floats: a frame sees the ground, then nothing for half a metre or more, then
+    foliage. A cell whose voting frames typically show a vertical gap wider than this, in
+    metres, is reported as `canopy` whatever its extent, which is how a branch hanging at two
+    metres stays out of the verge's numbers while a hedge or tall grass, continuous from the
+    ground up, stays in. Null never looks.
+  EOT
+  type        = number
+  default     = 0.5
+
+  validation {
+    condition     = var.measurement_canopy_gap_m == null || var.measurement_canopy_gap_m > 0
+    error_message = "measurement_canopy_gap_m must be a positive number of metres, or null."
+  }
+}
+
+variable "measurement_band_width_m" {
+  description = <<-EOT
+    How far from the detected road edge the measured band reaches, in metres. The edge is placed
+    half a metre before the vegetation starts, so 5.5 covers five metres of verge: the mowing
+    corridor. Null lets the band widen to the vegetation's far edge, up to 10 m, and the slope
+    behind the corridor then counts, which it must not.
+  EOT
+  type        = number
+  default     = 5.5
+
+  validation {
+    condition     = var.measurement_band_width_m == null || var.measurement_band_width_m > 0
+    error_message = "measurement_band_width_m must be a positive number of metres, or null."
+  }
+}
+
 variable "measurement_camera_height_m" {
   description = <<-EOT
     The lens's height above the road for the mount in use, in metres, measured with a tape. DA3

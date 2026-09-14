@@ -291,6 +291,9 @@ absence. A deployment must never fall back to a signing key that dies with the p
 | `GREENV_MEASUREMENT_MAX_HEIGHT_M` | `measurement_max_height_m`, default 3 | a point higher than this above the road is a crown, a wall top or a cut face and never enters a cell. `vegetation` captures trees with the tall grass; their height is what tells them apart |
 | `GREENV_MEASUREMENT_CANOPY_EXTENT_M` | `measurement_canopy_extent_m`, default 2 | a cell whose extent above its own ground still exceeds this is reported as `canopy` with its numbers and counted in no aggregate |
 | `GREENV_MEASUREMENT_GROUND_FALLBACK` | `measurement_ground_fallback`, default `true` | one coarser ground fit when the strict one finds no floor, as on a wet road; kept only if the camera stands a plausible height above it, and named `ground-fit-relaxed` in the packet |
+| `GREENV_MEASUREMENT_DATUM` | `measurement_datum`, default `per-frame` | each frame measured against its own ground, then the median. The frames of a driven capture float 24–52 cm against each other, and the pooled datum read half the float as grass |
+| `GREENV_MEASUREMENT_CANOPY_GAP_M` | `measurement_canopy_gap_m`, default 0.5 | a cell whose frames see that much empty air between the ground and the foliage is a crown, whatever its extent |
+| `GREENV_MEASUREMENT_BAND_WIDTH_M` | `measurement_band_width_m`, default 5.5 | the band reaches this far from the detected road edge: five metres of verge, the mowing corridor, not the slope behind it |
 | `GREENV_INFER_ADAPTER` | `http` or `runpod` | which depth dialect |
 | `GREENV_INFER_BASE_URL` | set only for `http` | the FastAPI service |
 | `GREENV_INFER_RUNPOD_ENDPOINT_ID` | set only for `runpod` | the endpoint id, not a URL |

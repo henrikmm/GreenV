@@ -320,6 +320,12 @@ locals {
     # A wet road reads as depth scattered below the surface and the strict plane fit finds no
     # floor; this allows one coarser attempt, named in the packet's blockers when it is used.
     GREENV_MEASUREMENT_GROUND_FALLBACK = tostring(var.measurement_ground_fallback)
+    # Each frame measured against its own ground (the frames of a driven capture float 24-52 cm
+    # against each other), a crown told from a plant by the vertical gap under it, and the band
+    # held to the mowing corridor rather than to wherever the vegetation ends.
+    GREENV_MEASUREMENT_DATUM        = var.measurement_datum
+    GREENV_MEASUREMENT_CANOPY_GAP_M = var.measurement_canopy_gap_m == null ? "" : tostring(var.measurement_canopy_gap_m)
+    GREENV_MEASUREMENT_BAND_WIDTH_M = var.measurement_band_width_m == null ? "" : tostring(var.measurement_band_width_m)
 
     PORT = "8090"
   })

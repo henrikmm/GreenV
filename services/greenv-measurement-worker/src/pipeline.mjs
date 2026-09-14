@@ -159,6 +159,9 @@ export function measurementPipeline({ config, storage, infer, runner, log = () =
     const gridOptions = {
       ...(config.measurement.maxHeightM === null ? {} : { maxHeightM: config.measurement.maxHeightM }),
       ...(config.measurement.canopyExtentM === null ? {} : { canopyExtentM: config.measurement.canopyExtentM }),
+      ...(config.measurement.canopyGapM === null ? {} : { canopyGapM: config.measurement.canopyGapM }),
+      ...(config.measurement.bandWidthM === null ? {} : { maxDistanceFromRoadM: config.measurement.bandWidthM }),
+      ...(config.measurement.datum === "pooled" ? {} : { datum: config.measurement.datum }),
     };
 
     const output = await mkdtemp(join(tmpdir(), "greenv-measurement-"));
@@ -210,6 +213,9 @@ export function measurementPipeline({ config, storage, infer, runner, log = () =
           trackLengthM,
           maxHeightM: config.measurement.maxHeightM,
           canopyExtentM: config.measurement.canopyExtentM,
+          canopyGapM: config.measurement.canopyGapM,
+          bandWidthM: config.measurement.bandWidthM,
+          datum: config.measurement.datum,
           groundFallback: config.measurement.groundFallback,
           contentSha256: summary.contentSha256,
           quality: summary.quality,

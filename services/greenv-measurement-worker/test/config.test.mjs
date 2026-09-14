@@ -115,6 +115,9 @@ test("the vehicle-mount settings default to off and refuse nonsense", () => {
   const off = loadConfig({}).measurement;
   assert.deepEqual([off.offsetSide, off.minTrackM, off.cameraHeightM, off.scaleAnchor, off.reuseDepth, off.groundFallback], ["given", 0, null, "none", false, false]);
   assert.equal(loadConfig({ GREENV_MEASUREMENT_GROUND_FALLBACK: "true" }).measurement.groundFallback, true);
+  assert.deepEqual([off.datum, off.canopyGapM, off.bandWidthM], ["pooled", null, null]);
+  assert.throws(() => loadConfig({ GREENV_MEASUREMENT_DATUM: "average" }), /pooled.*per-frame/);
+  assert.throws(() => loadConfig({ GREENV_MEASUREMENT_BAND_WIDTH_M: "-5" }), /BAND_WIDTH_M/);
 
   const car = loadConfig({
     GREENV_MEASUREMENT_OFFSET_SIDE: "auto",

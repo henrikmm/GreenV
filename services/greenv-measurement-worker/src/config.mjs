@@ -215,6 +215,20 @@ function build() {
       // plausible height above it, and names the relaxation in the packet's blockers. One
       // segment of 2026-09-13 measured nothing without it and 601 cells with it.
       groundFallback: flag("GREENV_MEASUREMENT_GROUND_FALLBACK", false),
+      // Where a cell's own ground is taken from. `pooled` is Verge Studio's default and assumes
+      // the frames agree about where the ground is; on the driven captures of 2026-09-13 the
+      // same cell floated 24-52 cm between frames and a mown verge read half the float as
+      // grass. `per-frame` measures each frame against its own ground and takes the median.
+      datum: text("GREENV_MEASUREMENT_DATUM", "pooled"),
+      // A crown floats: ground, then nothing for half a metre or more, then foliage. A cell
+      // whose frames typically show a vertical gap wider than this is canopy whatever its
+      // extent, which is how a low branch at two metres stays out of the verge's numbers.
+      canopyGapM: number("GREENV_MEASUREMENT_CANOPY_GAP_M", null),
+      // How far from the detected road edge the measured band reaches, in metres. The band is
+      // placed 0.5 m before the vegetation starts, so 5.5 covers five metres of verge: the
+      // mowing corridor Motiva cuts. Unset, the band widens to the vegetation's far edge (up to
+      // 10 m) and the slope behind the corridor counts, which it must not.
+      bandWidthM: number("GREENV_MEASUREMENT_BAND_WIDTH_M", null),
       // Start a re-measure from the reconstruction the depth handler left beside the frames when
       // it is there, instead of waking a GPU for geometry that has not changed. A request can
       // also ask for it per segment (`reuseDepth: true`), which is what a backfill does.
@@ -272,7 +286,10 @@ function build() {
   if (!["telemetry", "none"].includes(config.measurement.scaleAnchor)) {
     throw new Error(`GREENV_MEASUREMENT_SCALE_ANCHOR must be "telemetry" or "none", got "${config.measurement.scaleAnchor}"`);
   }
-  for (const [name, value] of [["GREENV_MEASUREMENT_MAX_HEIGHT_M", config.measurement.maxHeightM], ["GREENV_MEASUREMENT_CANOPY_EXTENT_M", config.measurement.canopyExtentM]]) {
+  if (!["pooled", "per-frame"].includes(config.measurement.datum)) {
+    throw new Error(`GREENV_MEASUREMENT_DATUM must be "pooled" or "per-frame", got "${config.measurement.datum}"`);
+  }
+  for (const [name, value] of [["GREENV_MEASUREMENT_MAX_HEIGHT_M", config.measurement.maxHeightM], ["GREENV_MEASUREMENT_CANOPY_EXTENT_M", config.measurement.canopyExtentM], ["GREENV_MEASUREMENT_CANOPY_GAP_M", config.measurement.canopyGapM], ["GREENV_MEASUREMENT_BAND_WIDTH_M", config.measurement.bandWidthM]]) {
     if (value !== null && !(value > 0)) {
       throw new Error(`${name} must be a positive number of metres, got ${value}`);
     }
