@@ -1470,7 +1470,7 @@ components:
           format: uri
         measurementLevel:
           description: >-
-            1, 2 or 3 on the mowing thresholds, from the 90th percentile of the
+            1, 2 or 3 on the mowing thresholds, from the 95th percentile of the
             measured cells. Null means unmeasured and must never render as 1:
             a height nobody established is not a short one.
           type: [integer, 'null']

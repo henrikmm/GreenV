@@ -206,7 +206,7 @@ export default function NewOrderModal({ segments, teams = [], onCreated, onClose
               <div style={{ ...s.infoValue, color: LEVELS[worst].color }}>{LEVELS[worst].label}</div>
             </div>
             <div style={s.infoBox}>
-              <div style={s.infoLabel}>Maior altura p90</div>
+              <div style={s.infoLabel}>Maior altura p95</div>
               <div style={{ ...s.infoValue, fontFamily: 'var(--font-mono)' }}>
                 {tallest > 0 ? `${(tallest * 100).toFixed(0)} cm` : '—'}
               </div>

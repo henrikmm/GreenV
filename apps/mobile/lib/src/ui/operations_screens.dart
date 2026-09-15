@@ -1343,7 +1343,7 @@ final class _OrderFormState extends State<OrderForm> {
               rows: [
                 ('Trechos', '${widget.targets.length}'),
                 ('Nível', _worst.label),
-                ('Maior altura p90', centimetres(tallest)),
+                ('Maior altura p95', centimetres(tallest)),
               ],
             ),
             const SizedBox(height: 16),

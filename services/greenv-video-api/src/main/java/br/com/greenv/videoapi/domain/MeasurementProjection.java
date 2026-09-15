@@ -8,7 +8,7 @@ package br.com.greenv.videoapi.domain;
  * reading from a thin one. Deriving it here rather than storing what the worker reports means a
  * wrong projection is repaired by re-reading object storage, never by paying for the GPU again.
  *
- * @param extent95P95M the 90th percentile of the measured cells' own {@code extent95M}, in metres.
+ * @param extent95P95M the 95th percentile of the measured cells' own {@code extent95M}, in metres.
  *     Named for the 95th it was until 14 September 2026; the name stays because the installed
  *     capture app reads it
  * @param extent95MaxM the tallest measured cell

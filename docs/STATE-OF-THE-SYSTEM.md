@@ -151,11 +151,13 @@ corridor rather than to wherever the vegetation ends. With all of it on, the 43 
 p50 of 2–18 cm on 37 of them, against the 16–28 cm the first pass gave a verge the photographs
 put at 10–15. The corridor now ends where each cell's own ground starts to climb — two
 consecutive rises of more than 10 cm per half-metre cell mark the embankment's foot, and 1,971
-of 17,060 cells on that day were set aside as slope — and the stretch stands for the 90th
-percentile of its cells rather than the 95th, because the top twentieth was the last half metre
-against the guardrail: by p95 the day sat at 6 / 14 / 20 stretches on levels 1 / 2 / 3, by p90
-at 9 / 21 / 10. Which aggregate and which thresholds a mowing policy should use remains the
-question `measurement/docs/GRASS-QUALITY.md` leaves to Motiva; p90 is a draft.
+of 17,060 cells on that day were set aside as slope. The stretch dropped to the 90th percentile
+of its cells for a few hours that day, because the top twentieth was the last half metre against
+the guardrail and by p95 the day sat at 6 / 14 / 20 stretches on levels 1 / 2 / 3 against
+9 / 21 / 10 by p90. It is back at the 95th: once the rail stopped being measured the two
+percentiles agreed, 0 to 6 cm apart over the 43 segments and neither reaching level 3. Which
+thresholds a mowing policy should use remains the question
+`measurement/docs/GRASS-QUALITY.md` leaves to Motiva.
 
 Two stretches still read 0.55–0.59 m over grass of 5–15 cm, and both turned out to be the
 guardrail or the concrete barrier itself: the segmentation never learned a guard rail

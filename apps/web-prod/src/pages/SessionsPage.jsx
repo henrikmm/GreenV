@@ -170,7 +170,7 @@ export default function SessionsPage() {
     { icon: Route, label: 'Sessões capturadas', value: page?.total ?? 0 },
     { icon: Ruler, label: 'Trechos medidos', value: measured?.total ?? 0 },
     { icon: TriangleAlert, label: 'Acima de 30 cm', value: overdue },
-    { icon: Camera, label: 'Maior altura p90', value: highest * 100, decimals: 0, suffix: ' cm' },
+    { icon: Camera, label: 'Maior altura p95', value: highest * 100, decimals: 0, suffix: ' cm' },
   ]
 
   return (
@@ -211,7 +211,7 @@ export default function SessionsPage() {
 
       <Card delay={0.25} style={{ marginBottom: 12 }}>
         <div style={s.cardTitle}>Trechos mais altos</div>
-        <div style={s.cardHint}>Maior altura p90 medida — prioridade máxima</div>
+        <div style={s.cardHint}>Maior altura p95 medida — prioridade máxima</div>
         {tallest.map(segment => (
           <div key={`${segment.sessionId}:${segment.segmentIndex}`} style={s.criticalRow}>
             <span style={s.criticalDot(LEVELS[vegetationLevel(segment.measurementLevel)].color)} />

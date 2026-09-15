@@ -856,9 +856,10 @@ steps, because a kerb is one step and then level, and one step cost a mown strip
 cells — and every cell from the foot out is `status: "slope"`, kept, aggregated nowhere. At
 0.1 m per half-metre cell: 1,971 of 17,060 cells set aside on the 43 runs, `19/5`'s embankment
 p95 0.82 → 0.17 m, the flat run untouched. GreenV's own aggregate moved from the 95th to the
-90th percentile of the cells the same day, outside this pipeline: levels 9/21/10 where p95
-gave 6/14/20. Which aggregate a mowing policy takes is still the open question of
-`GRASS-QUALITY.md`. No reading here is graded against a tape.
+90th percentile of the cells the same day, outside this pipeline (levels 9/21/10 where p95 gave
+6/14/20), and back to the 95th a few hours later once the guardrail stopped being measured.
+Which thresholds a mowing policy takes is still the open question of `GRASS-QUALITY.md`. No
+reading here is graded against a tape.
 
 **A cell a structure stands in is refused, whatever the frames that missed it say, and nothing
 past the track's ends is measured.** A wet guardrail or a concrete barrier is `fence` or `wall`
