@@ -129,6 +129,9 @@ test("the vehicle-mount settings default to off and refuse nonsense", () => {
   assert.throws(() => loadConfig({ GREENV_MEASUREMENT_STRUCTURE_MODEL: "ade20k-b4" }), /STRUCTURE_CLASSES/);
   assert.throws(() => loadConfig({ GREENV_MEASUREMENT_STRUCTURE_CLASSES: "fence" }), /STRUCTURE_MODEL/);
   assert.equal(off.structureFloor, null);
+  assert.equal(off.structureModelMask, "always");
+  assert.equal(loadConfig({ GREENV_MEASUREMENT_STRUCTURE_MODEL_MASK: "band" }).measurement.structureModelMask, "band");
+  assert.throws(() => loadConfig({ GREENV_MEASUREMENT_STRUCTURE_MODEL_MASK: "sometimes" }), /STRUCTURE_MODEL_MASK/);
   assert.throws(() => loadConfig({ GREENV_MEASUREMENT_STRUCTURE_FLOOR: "1.5" }), /STRUCTURE_FLOOR/);
 
   const car = loadConfig({

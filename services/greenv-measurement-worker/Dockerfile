@@ -34,12 +34,12 @@ COPY measurement/app/package.json measurement/app/package-lock.json /app/measure
 RUN npm ci --omit=dev --prefix /app/measurement/app
 
 # The pinned segmentation models baked in: the Cityscapes B0 that decides what is grass (~15 MB)
-# and the ADE20K B4 that says what is not (~246 MB) — Cityscapes never taught the first one a
+# and the ADE20K B4 (~246 MB) or the Mapillary MaskFormer (~158 MB) that say what is not — Cityscapes never taught the first one a
 # guardrail. This is the ONE network call in the whole build: the inspector refuses to download
 # at run time by design, so a container without a warm cache fails every frame with an
 # instruction instead of quietly fetching weights in production.
 ENV VERGE_MODEL_CACHE=/app/measurement/.models
-RUN node /app/measurement/scripts/fetch-model.mjs cityscapes-b0 ade20k-b4
+RUN node /app/measurement/scripts/fetch-model.mjs cityscapes-b0 ade20k-b4 vistas-r50
 
 # The two TypeScript trees `scripts/inspect/bridge.ts` re-exports from. The bridge is compiled at
 # RUN time, not at build time — `typed.mjs` bundles it on every measurement so the inspector can

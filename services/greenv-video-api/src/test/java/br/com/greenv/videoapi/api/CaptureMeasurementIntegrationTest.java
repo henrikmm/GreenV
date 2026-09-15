@@ -240,6 +240,48 @@ class CaptureMeasurementIntegrationTest {
                 .isEqualTo(404);
     }
 
+    /**
+     * The reconstruction is the one artifact a person may want to open in their own viewer, and
+     * it is also the one whose name must never come out of the URL: the key is built from the two
+     * names the depth service writes and the run id on the segment's own row.
+     */
+    @Test
+    void servesTheReconstructionUnderTheRunThatComputedIt() throws Exception {
+        UUID sessionId = givenASegment();
+
+        assertThat(get("/v2/capture-sessions/" + sessionId + "/segments/0/depth/scene.glb").statusCode())
+                .as("nothing measured yet, so there is no run to serve geometry from")
+                .isEqualTo(409);
+
+        givenAMeasurement(sessionId);
+
+        assertThat(get("/v2/capture-sessions/" + sessionId + "/segments/0/depth/scene.glb").statusCode())
+                .as("measured, but this packet kept no reconstruction")
+                .isEqualTo(409);
+        assertThat(get("/v2/capture-sessions/" + sessionId + "/segments/0/depth/assessment.json").statusCode())
+                .as("a name that is not one of the two is refused, never turned into a key")
+                .isEqualTo(404);
+
+        String mesh = "glTF-pretend-bytes";
+        objectStorage.put(
+                CaptureObjectKeys.depthArtifact(sessionId, 0, "20260908-000000-abcdef", "scene.glb"),
+                new ByteArrayInputStream(mesh.getBytes(StandardCharsets.UTF_8)),
+                sha256(mesh),
+                1024);
+
+        HttpResponse<String> download =
+                get("/v2/capture-sessions/" + sessionId + "/segments/0/depth/scene.glb");
+        assertThat(download.statusCode()).isEqualTo(200);
+        assertThat(download.body()).isEqualTo(mesh);
+        assertThat(download.headers().firstValue("content-disposition").orElse(""))
+                .as("a browser saves it under a name that says which segment it belongs to")
+                .contains("attachment")
+                .contains(sessionId.toString().substring(0, 8) + "-segmento-0-scene.glb");
+        assertThat(download.headers().firstValue("content-length").orElse(""))
+                .as("streamed, but the length is known, so a download shows progress")
+                .isEqualTo(String.valueOf(mesh.length()));
+    }
+
     private void givenAMeasurement(UUID sessionId) throws Exception {
         objectStorage.put(
                 CaptureObjectKeys.measurement(sessionId, 0),

@@ -171,7 +171,10 @@ grass, and its answer joins the structure map. That stretch reads 0.05 m, the me
 0.14. It costs 1.3 s of CPU a frame on four threads (3.9 on two, which is why the worker now
 has four vCPU) on top of the grass model's, and a wet rail in fog is still grass to both models
 in some frames. CLIPSeg and a Mapillary-Vistas MaskFormer, which name a guardrail outright,
-were wired the same way and refuse too much grass beside the rail; both stay registered
+were wired the same way and refuse too much grass beside the rail when their pixels leave the
+grass mask; letting the Mapillary model only vote on cells and place the band fixes the two
+stretches the ADE20K still misses (a wall, two rails in rain) and raises one at the foot of a
+shotcrete wall, and which of the two to deploy is an open choice. Both stay registered
 (`measurement/docs/evidence/2026-09-13-car-mount.md`, "A second model that knows a fence").
 Re-measured in the cloud on 14 September with all of this on, the 43 segments sit at 18 / 21 / 0
 stretches on levels 1 / 2 / 3, from 9 / 21 / 10 the day before: what had held the top twentieth

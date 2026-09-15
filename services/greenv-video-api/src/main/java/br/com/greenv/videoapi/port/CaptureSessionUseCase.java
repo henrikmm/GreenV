@@ -99,6 +99,15 @@ public interface CaptureSessionUseCase {
     /** The packet worker 2 wrote for this segment, byte for byte. */
     byte[] measurement(UUID sessionId, int segmentIndex);
 
+    /**
+     * One file of the reconstruction this segment was measured from, opened for streaming.
+     *
+     * <p>`scene.glb` is the mesh and `result.npz` the depth arrays the point cloud is rebuilt
+     * from; anything else is refused rather than turned into a key. Tens of megabytes each, so
+     * the caller gets a stream and closes it. See {@link CaptureObjectStorage#open}.
+     */
+    CaptureObjectStorage.ObjectContent depthArtifact(UUID sessionId, int segmentIndex, String fileName);
+
     /** Called when worker 2 announces that it measured a segment. */
     void recordMeasurement(SegmentMeasurementAnnouncement announcement);
 
