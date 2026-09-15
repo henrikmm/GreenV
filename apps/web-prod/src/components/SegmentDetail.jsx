@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { LEVELS, vegetationLevel } from '@greenv/web-core'
-import { sessions } from '../api/greenv'
+import { Download } from 'lucide-react'
+import { LEVELS, vegetationLevel, useToast } from '@greenv/web-core'
+import { sessions, saveBlob } from '../api/greenv'
 import SessionMap from './SessionMap'
 import FramePanel from './FramePanel'
 
@@ -42,7 +43,28 @@ const s = {
     marginBottom: 10, flexWrap: 'wrap',
   },
   summaryValue: { fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--text-primary)' },
+  // Empurrados para a direita da mesma faixa: são sobre este trecho, como o resto dela, mas são
+  // ação e não leitura.
+  downloads: { display: 'flex', gap: 6, marginLeft: 'auto' },
+  download: (busy) => ({
+    display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 9px',
+    fontSize: 11, fontWeight: 700, fontFamily: 'inherit', borderRadius: 'var(--radius-sm)',
+    border: '1px solid var(--border)', background: 'white',
+    color: busy ? 'var(--text-muted)' : 'var(--motiva)',
+    cursor: busy ? 'progress' : 'pointer',
+  }),
 }
+
+/**
+ * Os dois arquivos que o serviço de profundidade deixa ao lado dos quadros, guardados desde que
+ * o handler passou a não descartá-los — é deles que uma remedição parte sem acordar a GPU, e é
+ * neles que alguém abre a nuvem de pontos por conta própria. Os tamanhos são a ordem de grandeza
+ * de um trecho de 102 quadros de 13 de setembro de 2026, não uma promessa.
+ */
+const DEPTH_FILES = [
+  { name: 'scene.glb', label: 'malha .glb', hint: 'A cena reconstruída, para abrir num visualizador 3D (~15 MB)' },
+  { name: 'result.npz', label: 'nuvem .npz', hint: 'Os arrays de profundidade de onde a nuvem de pontos é remontada (~50 MB)' },
+]
 
 const trackCache = new Map()
 
@@ -61,6 +83,25 @@ function loadTrack(sessionId) {
 export default function SegmentDetail({ segment, place, focusFileName }) {
   const [state, setState] = useState({ loading: true })
   const [selected, setSelected] = useState(null)
+  const [downloading, setDownloading] = useState(null)
+  const { addToast } = useToast()
+
+  async function download(fileName) {
+    setDownloading(fileName)
+    try {
+      const blob = await sessions.depthArtifact(segment.sessionId, segment.segmentIndex, fileName)
+      saveBlob(blob, `${segment.sessionId.slice(0, 8)}-segmento-${segment.segmentIndex}-${fileName}`)
+    } catch (failure) {
+      addToast({
+        type: 'danger',
+        message: failure.status === 409
+          ? 'Este trecho não guardou a reconstrução.'
+          : failure.message || 'Não foi possível baixar o arquivo.',
+      })
+    } finally {
+      setDownloading(null)
+    }
+  }
 
   useEffect(() => {
     let live = true
@@ -113,6 +154,20 @@ export default function SegmentDetail({ segment, place, focusFileName }) {
               : '—'}
           </span></span>
           <span>quadros <span style={s.summaryValue}>{frames?.length ?? 0}</span></span>
+          <div style={s.downloads}>
+            {DEPTH_FILES.map(file => (
+              <button
+                key={file.name}
+                style={s.download(downloading === file.name)}
+                disabled={downloading !== null}
+                title={file.hint}
+                onClick={() => download(file.name)}
+              >
+                <Download size={12} />
+                {downloading === file.name ? 'baixando…' : file.label}
+              </button>
+            ))}
+          </div>
         </div>
         <div style={{ ...s.card, ...s.mapCard }}>
           <SessionMap track={track} frames={frames} onFrameClick={setSelected} height="100%" />

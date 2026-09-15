@@ -115,6 +115,41 @@ export const sessions = {
   measurement(sessionId, segmentIndex) {
     return getJson(`/v2/capture-sessions/${sessionId}/segments/${segmentIndex}/measurement`)
   },
+
+  /**
+   * A reconstrução de onde a medida saiu: `scene.glb` é a malha e `result.npz` são os arrays de
+   * profundidade de onde a nuvem de pontos é remontada.
+   *
+   * Vem por `fetch` e não por um link direto porque a resposta pode ser 409 — um trecho medido
+   * antes de o serviço de profundidade passar a guardar o que calculou não tem arquivo nenhum —
+   * e um link levaria a pessoa a uma aba com JSON de erro em vez de uma mensagem na tela.
+   * Dezenas de megabytes: quem chama mostra que está baixando.
+   */
+  async depthArtifact(sessionId, segmentIndex, fileName) {
+    const response = await request(
+      `/v2/capture-sessions/${sessionId}/segments/${segmentIndex}/depth/${fileName}`,
+      { accept: 'application/octet-stream' })
+    return response.blob()
+  },
+}
+
+/**
+ * Entrega um blob ao navegador com o nome que ele deve ter em disco.
+ *
+ * O atributo `download` de uma âncora é ignorado quando o endereço é de outra origem, e a API
+ * mora noutro subdomínio — daí o blob local, que é da mesma origem da página e por isso obedece.
+ * A URL é revogada depois, e não na hora: revogar antes de o navegador terminar cancela o
+ * download em silêncio.
+ */
+export function saveBlob(blob, fileName) {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = fileName
+  document.body.append(link)
+  link.click()
+  link.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 30_000)
 }
 
 /**
