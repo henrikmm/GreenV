@@ -166,6 +166,73 @@ while the mask is painted and settles at 10.4 cm. The slide's footer and notes s
 come from the saved trials. This corrects the old note on the second scene, which gave only the
 3.5 cm the recording passes through.
 
+### The tape inside the 3D, and why the recordings had holes — 15 September
+
+**The tape's own printed labels confirm the reconstruction's scale in `rodovia_medida1` and
+contradict it in `rodovia_movimento`.** Consecutive labels are 10 cm apart on the tape. Lifted into
+3D, they are:
+
+| Clip | Frames | Gaps found | In 3D | On the measured frame |
+|---|---|---:|---|---|
+| `rodovia_medida1` | 69–86 | 25 | 9.96–11.86 cm, median 10.40 | 10.14 and 10.42 cm (frame 74) |
+| `rodovia_movimento` | 90–97 | 7 | 11.62–14.24 cm, median 13.18 | 13.61 cm (frame 92) |
+
+On frame 92 the tape is resolved as its own surface: 0.55–0.59 m deep, against 0.69–0.97 m for the
+ground beside it. The stretch is therefore not the thin tape taking the background's depth.
+
+**What it means for the roadside figures.** The three `rodovia_movimento` trials read 10.19–10.48 cm
+against an operator estimate of about 10 cm. They sit on a reconstruction that stretches the tape
+beside them by about a third, so their agreement is more likely coincidence than accuracy. Slides 5
+and 7 still count them, pending a decision.
+
+**Method.** `render_road_scale.py <clip> --scan first,last`:
+
+1. Finds compact pink blocks, the printed labels, and skips any block cut by the frame's edge.
+2. Takes the median depth under each block.
+3. Back-projects the block's centre with that frame's intrinsics and extrinsics, in the convention of
+   `measurement/geometry/backproject.ts`.
+4. Measures the 3D distance between consecutive blocks 90–260 px apart in the photo.
+
+On the two measured frames the label numbers (10, 20, 30) were read by eye.
+
+**Why the Verge Studio recordings had holes.** They show DA3's exported cloud; the packets record
+`live.cloudSource: glb`. That exporter keeps a pixel only above one confidence floor for the whole
+clip, `min(max(1.05, p40), p90)` over every pixel of every frame, as `measurement/geometry/cloud.ts`
+describes. It then samples a million of the survivors.
+
+| Clip | Floor | Frames keeping under 10% of their pixels | Share of survivors in the million |
+|---|---:|---:|---:|
+| `rodovia_movimento` | 1.200 | 16 of 100; the driven stretch keeps 0–1% | 12% |
+| `rodovia_medida1` | 2.216 | 14 of 87 | 14% |
+
+Rebuilt from the depth maps instead, `rodovia_movimento` gives 9.4 million points from 14.1 million
+pixels. That uses no confidence floor, drops pixels on depth edges, and fuses into 4 mm voxels.
+Anything that moved between frames leaves a ghost: the crouching person, the car door.
+
+**Video.** `docs/presentations/motiva-pitch/render_road_scale.py` needs `moderngl` 5.12, a headless
+OpenGL 4.1 context. It draws the measured frame as a triangle mesh from its own depth map, textured
+with the photograph.
+
+- **Cuts and seams.** A triangle spanning more than 4% of its depth is cut. Seams of up to 12% are
+  closed by a second pass, which shows only where the first left nothing.
+- **Ruler.** It is drawn in 3D along the line through the lifted labels, anchored at the lowest one
+  and 2 cm to its side. From the recording camera its ticks land on the printed labels only as far
+  as the scale is right. On `rodovia_movimento` the "20" tick falls near the tape's 17 cm.
+- **Motion.** The camera orbits ±14° about the ground normal through the tape, then the trials'
+  painted grass and extent appear.
+- **Rejected: neighbouring frames as the fill.** They carry the hand and the tape in other places,
+  which showed as a second tape.
+- **Rejected: a road shot built from the first 30 frames.** Those frames and the close-up frames do
+  not register, so the close-up sank beneath the road cloud.
+
+Outputs, in `output/motiva-pitch/escala-trena/` (ignored), none of them in the deck yet:
+
+- `rodovia_medida1-escala.mp4`: 1920 × 1080, 17 s, 4.9 MB, SHA-256
+  `1d6df7fa8017a5afa47f1dda172ff4fa9ebf8ff937da8fc608ee6699598b4676`.
+- `rodovia_movimento-escala.mp4`: same format, 4.6 MB, SHA-256
+  `91a786e2254bc198818ac9278846e48223c9c44aa8484d97e0bebf1e43b4a3b9`.
+- `rodovia_movimento-nuvem-da3-vs-reconstruida.png`: the two clouds from one virtual camera.
+
 ### Automatic measurement slide
 
 **On `carro_em_movimento2.mp4`, driven in rain past a guardrail, a viaduct and a concrete barrier,
