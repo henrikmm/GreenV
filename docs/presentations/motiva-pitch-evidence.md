@@ -107,29 +107,64 @@ error 2.11 cm**, with the roadside figure of 0.91 cm still the headline. A secon
 automatic-processing slide with an animation of the deployed pipeline measuring a driven clip.
 
 Branch: `feat/docs-motiva-pitch-final`, from `main` at `777b390`.
-Output: `output/motiva-pitch/GreenV-Motiva-Pitch-Final.pptx` (local, ignored), 13 visible slides and
+Output: `output/motiva-pitch/GreenV-Motiva-Pitch-Final.pptx` (local, ignored), 11 visible slides and
 3 hidden. The evidence deck above is its input and is left unchanged.
 Build: `docs/presentations/motiva-pitch/build_final_deck.py`, run with any Python that has `lxml`.
 It recomputes every accuracy figure from its source and stops if a rounded value on a slide no
 longer matches. Icons in `docs/presentations/motiva-pitch/icons/` are Lucide 0.544.0 (ISC).
-SHA-256: `27d50c101f33885a14f5e03a7b1de672ee78c6a4398f8771142566ac9a2520c6`.
+SHA-256 after the pass of 15 September: `5a5dcc80512f2d5801e163092df79f33cbb264b72f8d46354ef4b82cb6ba67a5`,
+40.2 MB.
 
 | # | Slide | Change |
 |---|---|---|
 | 2 | Captura em campo | Car photo removed. Phone video, "10 s" per segment, and four facts from `apps/mobile/README.md`: Android and iOS in Flutter; GPS and sensors; offline queue; a file leaves the phone only after the API accepts it |
-| 3 | Gestão da operação | `greenv.matomomitsu.com` drawn as an address bar with a live badge, and the four deployed pieces from `docs/STATE-OF-THE-SYSTEM.md`: Cloudflare Pages, Azure Container Apps, RunPod, Neon and R2. The login page answered on 14 Sep; nobody signed in |
+| 3 | Gestão da operação | `greenv.matomomitsu.com` drawn as an address bar with a live badge, and the four deployed pieces from `docs/STATE-OF-THE-SYSTEM.md`: Cloudflare Pages, Azure Container Apps, RunPod, Neon and R2. The login page answered on 14 Sep; nobody signed in. On 15 Sep the recording was replaced by one that goes on to open a service order; see below |
 | 4 | Do vídeo ao 3D | New. `projecao_2d3d.gif` on a background sampled from the GIF (`#0D0C12`). Animation confirmed by playing it in Keynote |
-| 5 | GreenV | Renamed from "A evolução da prova". Timeline quarto → jardim → rodovia, echoing the pitch's own lines |
-| 8 | Sem ninguém descer do carro | New content for the old third slide, moved after the second roadside scene. See "Automatic measurement slide" below |
-| 9 | Erro medido contra a trena | Roadside chart kept; panel added with every tape-graded trial on record |
-| 10 | Quanto custa medir | Processing cost kept at US$ 0.62/km. Two capture paths: any phone, or a fixed roof installation with the user's car photo as reference |
-| 12 | Previsão | Model, data and next step from Ryan's branch, replacing the one-line summary |
-| 14 | Apoio · acurácia (hidden) | Rewritten to the 32-trial totals, which superseded the 15-trial aggregate |
+| 5 | Duas cenas medidas ao lado da trena | 15 Sep: the two roadside slides merged into one, both recordings side by side. See below |
+| 6 | Sem ninguém descer do carro | New content for the old third slide, moved after the roadside scenes. See "Automatic measurement slide" below |
+| 7 | Erro medido contra a trena | Roadside chart kept; panel added with every tape-graded trial on record |
+| 8 | Quanto custa medir | Processing cost kept at US$ 0.62/km. Two capture paths: any phone, or a fixed roof installation with the user's car photo as reference |
+| 10 | Previsão | Model, data and next step from Ryan's branch, replacing the one-line summary |
+| 12 | Apoio · acurácia (hidden) | Rewritten to the 32-trial totals, which superseded the 15-trial aggregate |
 
-The old third slide ("Processamento automático", a CPU report screenshot) is gone. Speaker notes
-carry the narration from `~/Desktop/pitch-greenv-final.md` and the sources. Slides
-whose notes held minute ranges now name the pitch section instead, because the inserted slide
-made those ranges wrong.
+The old third slide ("Processamento automático", a CPU report screenshot) is gone, and so, since
+15 September, is the recap of the room and garden tests ("GreenV", the `recapVerge-Studio.mp4`
+slide): the pitch is short of time, and the automatic measurement now carries that part. Speaker
+notes carry the narration from `~/Desktop/pitch-greenv-final.md` and the sources. Slides whose notes
+held minute ranges now name the pitch section instead, because the inserted slides made those
+ranges wrong.
+
+### Pass of 15 September
+
+**The management video now shows a service order being opened, and its first 3.9 s are cut, because
+until 2.0 s the recording shows the admin login form with the password legible.** The source is
+`~/Desktop/NovoVideoWeb.mov` (2632 × 1540, 56.2 s). After the login it shows the overview, the map
+with its level filter, the capture sessions, the measured stretches and one stretch's detail, then
+opens `OS-ROÇ-202609-1001` for one stretch of the Rodovia Anchieta (p90 24 cm, level 2, medium
+priority, 431 m², no team assigned yet), the order list and the teams page.
+
+- **Cut.** At 3.9 s the dashboard has finished drawing and the page has not started to scroll yet.
+  Keynote uses a video's frame at 0 s as its still, so the cut also resets the timestamps. Without
+  that reset the first frame sat at 0.033 s and Keynote exported a black box.
+- **Check.** A scan of every tenth of a second for the login page's purple panel finds it in
+  0.0–1.9 s of the source and in no frame of the cut. The command is in the build script's
+  docstring.
+- **Output.** `output/motiva-pitch/Gestao-Web-OS.mp4`: 1640 × 960, 30 fps, 52.4 s, 9.27 MB, SHA-256
+  `772f1a8febd798258b119da41fe63d753712068e5f3ae4865be85c92eccd9f14`. Its poster is its own first
+  frame.
+- **The source still holds the password.** Do not share `NovoVideoWeb.mov` itself.
+
+**The two roadside slides are one.** "Vegetação ao lado da trena" (`rodovia_medida1`) and "A segunda
+cena na rodovia" (`rodovia_movimento`) became "Duas cenas medidas ao lado da trena". The two
+recordings play side by side, muted, each looping on its own length (22.4 s and 7.3 s). Under each is
+the tape's 10.0 cm beside the mean of its three saved trials, 8.50 cm and 10.32 cm. The build
+recomputes those figures from the packets and stops if they drift.
+
+The recordings are live inspection with a mask painted on the spot, not the saved trials, and their
+on-screen readings say so. `rodovia_medida1` climbs to 9.4 cm. `rodovia_movimento` starts at 3.5 cm
+while the mask is painted and settles at 10.4 cm. The slide's footer and notes state that the numbers
+come from the saved trials. This corrects the old note on the second scene, which gave only the
+3.5 cm the recording passes through.
 
 ### Automatic measurement slide
 
@@ -191,7 +226,7 @@ Pillow.
 
 The output is 1600 × 716, 17.6 s, H.264 CRF 25, 8.3 MB (`output/motiva-pitch/Medicao-Automatica.mp4`,
 SHA-256 `20db9c60f1a9e42bdb92d54e759d66a848108042de0df6b863757ad77c7195fb`). It is embedded like the
-deck's other five videos, with `repeatCount="indefinite"` added.
+deck's other videos, with `repeatCount="indefinite"` added.
 
 ### Accuracy totals
 
@@ -253,11 +288,14 @@ that does not exist yet.
 
 ### Checks
 
-- `scripts/office/validate.py` from the pptx skill passed, compared against the evidence deck.
-- Every visible slide was exported by Keynote and inspected, including the automatic slide's still.
+- `scripts/office/validate.py` from the pptx skill passed, compared against the evidence deck, on 14
+  and again on 15 September.
+- Every visible slide was exported by Keynote and inspected, including the automatic slide's still;
+  on 15 September all eleven again, after the merge. The embedded management and automatic videos
+  match their files in `output/motiva-pitch/` byte for byte.
 - The frustum GIF was seen on three different frames during Keynote playback.
 - All visible text is Arial. Keynote's font warning comes from the Calibri theme fonts that the
   evidence deck already carried.
-- Not checked: playback in Microsoft PowerPoint, which is not installed on this machine. The
-  automatic slide's video was not played in a slideshow. A test slideshow was stopped, because it
-  took over the screen while the user was working in Keynote.
+- Not checked: playback in Microsoft PowerPoint, which is not installed on this machine. No video
+  was played in a slideshow, including the two looping side by side on the roadside slide. A test
+  slideshow was stopped, because it took over the screen while the user was working in Keynote.

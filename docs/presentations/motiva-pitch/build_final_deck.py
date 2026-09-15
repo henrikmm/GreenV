@@ -8,10 +8,21 @@ from its source (the tape-graded trials) or carries its source in the speaker no
 
 Inputs outside the repository, all local:
   output/motiva-pitch/GreenV-Motiva-Pitch-Evidencias.pptx   the deck being revised
+  output/motiva-pitch/Gestao-Web-OS.mp4 and -capa.jpg       cut from ~/Desktop/NovoVideoWeb.mov
   ~/Downloads/drive-download-20260911T203554Z-1-001/projecao_2d3d.gif
   ~/Desktop/carro_fiscalizacao = exemplo de setup de camera.jpg
   ~/verge-runs/*/measurements/*.json                          roadside trials
   ~/dev/verge-studio/.inspect/evidence/SUMMARY.md             the 26 replayed trials
+
+The web recording opens on a login form with the password shown in clear, until 2.0 s. The embedded
+copy starts at 3.9 s, when the dashboard has finished drawing, because Keynote shows a video's frame
+at 0 s as its still; for the same reason the timestamps are reset to start at 0:
+
+    ffmpeg -ss 3.9 -i ~/Desktop/NovoVideoWeb.mov \\
+      -vf "setpts=PTS-STARTPTS,scale=1640:960:flags=lanczos,format=yuv420p" \\
+      -r 30 -c:v libx264 -preset slow -crf 20 -profile:v high -movflags +faststart -an \\
+      output/motiva-pitch/Gestao-Web-OS.mp4
+    ffmpeg -i output/motiva-pitch/Gestao-Web-OS.mp4 -frames:v 1 -q:v 3 output/motiva-pitch/Gestao-Web-OS-capa.jpg
 
 Icons are Lucide (ISC licence), rendered to PNG in icons/.
 """
@@ -22,6 +33,7 @@ import copy
 import glob
 import json
 import os
+import posixpath
 import statistics
 import zipfile
 from pathlib import Path
@@ -46,6 +58,8 @@ EVIDENCE_SUMMARY = Path(os.environ.get(
 AUTOMATIC_VIDEO = REPO / "output/motiva-pitch/Medicao-Automatica.mp4"
 AUTOMATIC_POSTER = REPO / "output/motiva-pitch/Medicao-Automatica-capa.png"
 AUTOMATIC_PACKET = REPO / "output/motiva-pitch/medicao-automatica-pacote/assessment.json"
+WEB_VIDEO = REPO / "output/motiva-pitch/Gestao-Web-OS.mp4"
+WEB_POSTER = REPO / "output/motiva-pitch/Gestao-Web-OS-capa.jpg"
 
 A = "http://schemas.openxmlformats.org/drawingml/2006/main"
 P = "http://schemas.openxmlformats.org/presentationml/2006/main"
@@ -59,6 +73,9 @@ REL_SLIDE = R + "/slide"
 REL_LAYOUT = R + "/slideLayout"
 REL_NOTES = R + "/notesSlide"
 REL_NOTES_MASTER = R + "/notesMaster"
+REL_VIDEO = R + "/video"
+REL_MEDIA = "http://schemas.microsoft.com/office/2007/relationships/media"
+P14 = "http://schemas.microsoft.com/office/powerpoint/2010/main"
 
 # The deck is 1600 x 900 units wide; one unit is 9525 EMU, and a font size in units is 0.75 pt.
 EMU = 9525
@@ -135,6 +152,15 @@ def accuracy() -> dict:
     for env in ("rodovia", "jardim", "interior"):
         result[env] = summary([t for t in trials if t["environment"] == env])
     result["withoutDoor"] = summary([t for t in trials if t["clip"] != "door"])
+    result["scenes"] = {}
+    for clip in ("rodovia_medida1.mp4", "rodovia_movimento.mp4"):
+        rows = [t for t in trials if t["clip"] == clip]
+        truths = {r["truthM"] for r in rows}
+        assert len(truths) == 1, (clip, truths)
+        result["scenes"][clip] = {
+            "readingsCm": [r["readingM"] * 100 for r in rows], "truthCm": truths.pop() * 100,
+            "meanCm": statistics.mean(r["readingM"] * 100 for r in rows), **summary(rows),
+        }
     # The slides print these rounded; fail loudly if the evidence ever stops matching them.
     expected = {"all": (32, 12, 6, "2,11"), "rodovia": (6, 2, 2, "0,91"),
                 "jardim": (8, 4, 2, "1,55"), "interior": (18, 6, 2, "2,76")}
@@ -142,6 +168,10 @@ def accuracy() -> dict:
         got = result[key]
         assert (got["trials"], got["targets"], got["clips"]) == (trials_n, targets_n, clips_n), (key, got)
         assert cm(got["maeCm"]) == mae, (key, got)
+    for clip, (mean, mae) in {"rodovia_medida1.mp4": ("8,50", "1,50"),
+                              "rodovia_movimento.mp4": ("10,32", "0,32")}.items():
+        got = result["scenes"][clip]
+        assert (got["trials"], cm(got["meanCm"]), cm(got["maeCm"]), cm(got["truthCm"], 1)) == (3, mean, mae, "10,0"), got
     return result
 
 
@@ -353,6 +383,45 @@ def kicker_and_title(slide: Slide, kicker: str, title: str, dark: bool = False) 
     slide.text(80, 105, 1440, 100, title, 60, DARK_TEXT if dark else GREEN, bold=True, name="Title")
 
 
+def blank_slide(fill: str) -> bytes:
+    return (
+        f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sld xmlns:a="{A}" xmlns:r="{R}" xmlns:p="{P}">'
+        f'<p:cSld><p:bg><p:bgPr><a:solidFill><a:srgbClr val="{fill}"/></a:solidFill><a:effectLst/></p:bgPr></p:bg>'
+        '<p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>'
+        '<p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/>'
+        '<a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr></p:spTree></p:cSld>'
+        '<p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>'
+    ).encode()
+
+
+def video(pkg: Package, s: Slide, part: str, key: str, media: str, poster: str,
+          x: float, y: float, w: float, h: float, name: str, alt: str) -> int:
+    """Embed a video over its poster frame; returns the shape id the slide's timing has to start."""
+    pkg.add_rel(part, REL_VIDEO, media, f"rId{key}Video")
+    pkg.add_rel(part, REL_MEDIA, media, f"rId{key}Media")
+    pkg.add_rel(part, REL_IMAGE, poster, f"rId{key}Poster")
+    shape_id = s._id()
+    s.tree.append(fragment(
+        f'<p:pic><p:nvPicPr><p:cNvPr id="{shape_id}" name="{escape(name)}" descr="{escape(alt)}">'
+        '<a:hlinkClick action="ppaction://media"/></p:cNvPr><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr>'
+        f'<p:nvPr><a:videoFile r:link="rId{key}Video"/><p:extLst><p:ext uri="{{DAA4B4D4-6D71-4841-9C94-3DE7FCFB9230}}">'
+        f'<p14:media xmlns:p14="{P14}" r:embed="rId{key}Media"/></p:ext></p:extLst></p:nvPr></p:nvPicPr>'
+        f'<p:blipFill><a:blip r:embed="rId{key}Poster"/><a:stretch><a:fillRect/></a:stretch></p:blipFill>'
+        f'<p:spPr>{xfrm(x, y, w, h)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>'))
+    return shape_id
+
+
+def autoplay(s: Slide, shape_ids: list[int]) -> None:
+    """Start every listed video with the slide, muted, each looping on its own length."""
+    nodes = "".join(
+        f'<p:video><p:cMediaNode vol="0"><p:cTn id="{i + 2}" repeatCount="indefinite" fill="hold" display="0">'
+        f'<p:stCondLst><p:cond delay="0"/></p:stCondLst></p:cTn><p:tgtEl><p:spTgt spid="{shape_id}"/></p:tgtEl>'
+        '</p:cMediaNode></p:video>' for i, shape_id in enumerate(shape_ids))
+    s.root.append(fragment(
+        '<p:timing><p:tnLst><p:par><p:cTn id="1" dur="indefinite" restart="never" nodeType="tmRoot">'
+        f'<p:childTnLst>{nodes}</p:childTnLst></p:cTn></p:par></p:tnLst></p:timing>'))
+
+
 def set_notes(pkg: Package, notes_part: str, paragraphs: list[str]) -> None:
     notes = pkg.xml(notes_part)
     body = None
@@ -418,6 +487,14 @@ def capture(pkg: Package) -> None:
 def management(pkg: Package) -> None:
     part = "ppt/slides/slide4.xml"
     s = Slide(pkg.xml(part))
+    # The recording that goes on to open a service order replaces the one that stopped at the list.
+    web = pkg.add_media("web-service-order.mp4", WEB_VIDEO.read_bytes())
+    pkg.add_rel(part, REL_VIDEO, web, "rIdPitchVideo")
+    pkg.add_rel(part, REL_MEDIA, web, "rIdPitchMedia")
+    poster = pkg.add_rel(part, REL_IMAGE, pkg.add_media("web-service-order-poster.jpeg", WEB_POSTER.read_bytes()),
+                         "rIdWebPoster")
+    s.by_id(6).find(".//a:blip", NS).set(f"{{{R}}}embed", poster)
+    s.by_id(6).find("p:nvPicPr/p:cNvPr", NS).set("name", "Gestao-Web-OS.mp4")
     s.move(6, 80, 228, 1080, 632)
     # The address, drawn like a browser bar, with a live badge.
     s.box(905, 116, 615, 80, radius=40, name="Address bar")
@@ -442,10 +519,17 @@ def management(pkg: Package) -> None:
     s.text(1196, 800, 330, 60, "Endereço público conferido em 14/09/2026", 18, GRAY, name="Checked")
     pkg.put(part, s.root)
     set_notes(pkg, "ppt/notesSlides/notesSlide4.xml", [
-        "[1:45 · Camada 2: decisão] Essas medições alimentam a plataforma de gestão. O mapa, os trechos "
-        "por nível e as sessões de captura estão num endereço público: greenv.matomomitsu.com.",
-        "[2:45 · clímax] Nada do que eu mostrei é maquete. Está no ar. Tem endereço. (pausa)",
-        "Fonte: GestaoMotiva.mov, gravação da interface publicada, após o login. Tela de login de "
+        "[1:45 · Camada 2: decisão] Essas medições alimentam a plataforma de gestão. Aqui está o mapa, cada "
+        "trecho pintado pela altura da vegetação: abaixo de dez centímetros, entre dez e trinta, acima de trinta.",
+        "Mas o ponto não é o mapa. É o que vem depois dele. Seleciono um trecho e crio a ordem de serviço ali "
+        "mesmo: prioridade, equipe, data prevista. E acompanho até fechar. A distância entre enxergar um problema "
+        "e despachar uma equipe vira dois cliques.",
+        "[2:45 · clímax] Nada do que eu mostrei é maquete. Está no ar. Tem endereço: greenv.matomomitsu.com. (pausa)",
+        "Fonte: NovoVideoWeb.mov (Mesa, 14/09/2026), gravação da interface publicada: visão geral, mapa com "
+        "filtro por nível, sessões, trechos medidos e o detalhe de um trecho; depois a ordem OS-ROÇ-202609-1001, "
+        "aberta para 1 trecho da Rodovia Anchieta (p90 24 cm, nível 2, prioridade média, 431 m², ainda sem equipe "
+        "atribuída), a lista de ordens e a página de equipes. O vídeo do slide começa em 3,9 s, com o painel já "
+        "carregado: até 2,0 s a gravação mostra o formulário de login com a senha legível. Tela de login de "
         "https://greenv.matomomitsu.com conferida em 14/09/2026, sem entrar. Infraestrutura segundo "
         "docs/STATE-OF-THE-SYSTEM.md e infrastructure/README.md: painel apps/web-prod no Cloudflare Pages "
         "desde 11/09/2026; API e dois workers no Azure Container Apps, com filas Azure e escala até zero; "
@@ -455,17 +539,10 @@ def management(pkg: Package) -> None:
 
 
 def frustum(pkg: Package) -> None:
-    """A new dark slide for the 2D-to-3D animation, placed before the recap."""
+    """A new dark slide for the 2D-to-3D animation, placed before the roadside scenes."""
     part = "ppt/slides/slide16.xml"
     notes_part = "ppt/notesSlides/notesSlide16.xml"
-    pkg.files[part] = (
-        f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sld xmlns:a="{A}" xmlns:r="{R}" xmlns:p="{P}">'
-        f'<p:cSld><p:bg><p:bgPr><a:solidFill><a:srgbClr val="{DARK}"/></a:solidFill><a:effectLst/></p:bgPr></p:bg>'
-        '<p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>'
-        '<p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/>'
-        '<a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr></p:spTree></p:cSld>'
-        '<p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>'
-    ).encode()
+    pkg.files[part] = blank_slide(DARK)
     pkg.files[pkg.rels_name(part)] = (
         f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="{PKG_REL}">'
         f'<Relationship Id="rIdLayout" Type="{REL_LAYOUT}" Target="/ppt/slideLayouts/slideLayout1.xml"/>'
@@ -528,54 +605,33 @@ def frustum(pkg: Package) -> None:
 def automatic(pkg: Package) -> None:
     """The old automatic-processing slide, rebuilt around the rendered measurement of a driven clip."""
     part = "ppt/slides/slide3.xml"
-    p14 = "http://schemas.microsoft.com/office/powerpoint/2010/main"
-    pkg.files[part] = (
-        f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sld xmlns:a="{A}" xmlns:r="{R}" xmlns:p="{P}">'
-        f'<p:cSld><p:bg><p:bgPr><a:solidFill><a:srgbClr val="{DARK}"/></a:solidFill><a:effectLst/></p:bgPr></p:bg>'
-        '<p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>'
-        '<p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/>'
-        '<a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr></p:spTree></p:cSld>'
-        '<p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>'
-    ).encode()
+    pkg.files[part] = blank_slide(DARK)
     rels = pkg.xml(pkg.rels_name(part))
     for rel in list(rels):
         if rel.get("Type") not in (REL_LAYOUT, REL_NOTES):
             rels.remove(rel)
     pkg.put(pkg.rels_name(part), rels)
-    video = pkg.add_media("automatic-measurement.mp4", AUTOMATIC_VIDEO.read_bytes())
-    pkg.add_rel(part, R + "/video", video, "rIdAutoVideo")
-    pkg.add_rel(part, "http://schemas.microsoft.com/office/2007/relationships/media", video, "rIdAutoMedia")
-    pkg.add_rel(part, REL_IMAGE, pkg.add_media("automatic-measurement-poster.png", AUTOMATIC_POSTER.read_bytes()), "rIdAutoPoster")
 
     s = Slide(pkg.xml(part))
     kicker_and_title(s, "GREENV · MEDIÇÃO AUTOMÁTICA", "Sem ninguém descer do carro", dark=True)
     s.text(80, 186, 1440, 44, "Um modelo acha a vegetação, outro reconhece guard-rail, muro, poste e placa, e a geometria "
            "mede cada célula de 0,5 m", 24, DARK_TEXT, name="How")
-    video_id = s._id()
     # 1920 x 860 rendered, drawn at 1360 x 609 so the caption fits beneath it.
-    s.tree.append(fragment(
-        f'<p:pic><p:nvPicPr><p:cNvPr id="{video_id}" name="Medicao-Automatica.mp4" '
-        'descr="Animação: o vídeo do carro com os pixels medidos e a reconstrução 3D com as células de 0,5 m">'
-        '<a:hlinkClick action="ppaction://media"/></p:cNvPr><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr>'
-        f'<p:nvPr><a:videoFile r:link="rIdAutoVideo"/><p:extLst><p:ext uri="{{DAA4B4D4-6D71-4841-9C94-3DE7FCFB9230}}">'
-        f'<p14:media xmlns:p14="{p14}" r:embed="rIdAutoMedia"/></p:ext></p:extLst></p:nvPr></p:nvPicPr>'
-        '<p:blipFill><a:blip r:embed="rIdAutoPoster"/><a:stretch><a:fillRect/></a:stretch></p:blipFill>'
-        f'<p:spPr>{xfrm(120, 238, 1360, 609)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>'))
+    video_id = video(
+        pkg, s, part, "Auto", pkg.add_media("automatic-measurement.mp4", AUTOMATIC_VIDEO.read_bytes()),
+        pkg.add_media("automatic-measurement-poster.png", AUTOMATIC_POSTER.read_bytes()), 120, 238, 1360, 609,
+        "Medicao-Automatica.mp4", "Animação: o vídeo do carro com os pixels medidos e a reconstrução 3D com as células de 0,5 m")
     s.text(80, 854, 1440, 36, "carro_em_movimento2 · 97 quadros · 12 s na chuva · parâmetros do deploy · escala do "
            "próprio modelo (vídeo sem GPS) · ainda sem comparação com trena", 17, DARK_MUTED, name="Caption")
-    s.root.append(fragment(
-        '<p:timing><p:tnLst><p:par><p:cTn id="1" dur="indefinite" restart="never" nodeType="tmRoot"><p:childTnLst>'
-        '<p:video><p:cMediaNode vol="0"><p:cTn id="2" repeatCount="indefinite" fill="hold" display="0"><p:stCondLst>'
-        f'<p:cond delay="0"/></p:stCondLst></p:cTn><p:tgtEl><p:spTgt spid="{video_id}"/></p:tgtEl></p:cMediaNode>'
-        '</p:video></p:childTnLst></p:cTn></p:par></p:tnLst></p:timing>'))
+    autoplay(s, [video_id])
     pkg.put(part, s.root)
 
-    # After the second roadside scene (sldId 262), instead of third.
+    # After the roadside scenes (sldId 261), instead of third.
     presentation = pkg.xml("ppt/presentation.xml")
     slide_list = presentation.find("p:sldIdLst", NS)
     entry = next(s_id for s_id in slide_list if s_id.get("id") == "258")
     slide_list.remove(entry)
-    next(s_id for s_id in slide_list if s_id.get("id") == "262").addnext(entry)
+    next(s_id for s_id in slide_list if s_id.get("id") == "261").addnext(entry)
     pkg.put("ppt/presentation.xml", presentation)
 
     totals = json.loads(AUTOMATIC_PACKET.read_text())
@@ -603,31 +659,84 @@ def automatic(pkg: Package) -> None:
     ])
 
 
-def recap(pkg: Package) -> None:
-    part = "ppt/slides/slide5.xml"
+def resolve(source_part: str, target: str) -> str:
+    """A relationship target as a package name, whether it was written absolute or relative."""
+    if target.startswith("/"):
+        return target[1:]
+    return posixpath.normpath(posixpath.join(posixpath.dirname(source_part), target))
+
+
+def drop_slide(pkg: Package, slide_id: str) -> None:
+    """Remove a slide and its notes; media only it used goes in prune_images."""
+    presentation = pkg.xml("ppt/presentation.xml")
+    slide_list = presentation.find("p:sldIdLst", NS)
+    entry = next(s_id for s_id in slide_list if s_id.get("id") == slide_id)
+    slide_list.remove(entry)
+    pkg.put("ppt/presentation.xml", presentation)
+    rels = pkg.xml("ppt/_rels/presentation.xml.rels")
+    rel = next(r for r in rels if r.get("Id") == entry.get(f"{{{R}}}id"))
+    rels.remove(rel)
+    pkg.put("ppt/_rels/presentation.xml.rels", rels)
+    part = resolve("ppt/presentation.xml", rel.get("Target"))
+    parts = [part] + [resolve(part, r.get("Target")) for r in pkg.xml(pkg.rels_name(part)) if r.get("Type") == REL_NOTES]
+    types = pkg.xml("[Content_Types].xml")
+    for name in parts:
+        del pkg.files[name]
+        pkg.files.pop(pkg.rels_name(name), None)
+        for override in [t for t in types if t.get("PartName") == f"/{name}"]:
+            types.remove(override)
+    pkg.put("[Content_Types].xml", types)
+
+
+def roadside(pkg: Package, numbers: dict) -> None:
+    """The two tape-measured roadside scenes on one slide, their recordings playing side by side."""
+    part = "ppt/slides/slide6.xml"
+    pkg.files[part] = blank_slide(BG)
+    rels = pkg.xml(pkg.rels_name(part))
+    for rel in list(rels):
+        if rel.get("Type") not in (REL_LAYOUT, REL_NOTES):
+            rels.remove(rel)
+    pkg.put(pkg.rels_name(part), rels)
+
     s = Slide(pkg.xml(part))
-    s.set_text(4, ["DA ÚLTIMA VEZ QUE CONVERSAMOS"])
-    s.set_text(2, ["GreenV"])
-    s.move(6, 80, 228, 1100, 619)
-    s.box(1251, 300, 3, 380, fill="C9D6CC", line=None, geometry="rect", name="Timeline")
-    stages = [
-        ("Quarto", "Objetos medidos com trena · ago/2026", GREEN),
-        ("Jardim", "Plantas medidas com trena · ago/2026", GREEN),
-        ("Rodovia", "Agora: os resultados novos · set/2026", LIME),
+    kicker_and_title(s, "VERGE STUDIO · RODOVIA · 14/09/2026", "Duas cenas medidas ao lado da trena")
+    scenes = [
+        ("Road1", "rodovia_medida1.mp4", "pitch-road1.mp4", "image6.jpeg", "CENA 1 · RODOVIA_MEDIDA1"),
+        ("Road2", "rodovia_movimento.mp4", "pitch-road2.mp4", "image7.jpeg", "CENA 2 · RODOVIA_MOVIMENTO"),
     ]
-    for i, (label, detail, dot) in enumerate(stages):
-        y = 282 + i * 190
-        s.box(1240, y, 26, 26, fill=dot, line=BG, geometry="ellipse", name=f"{label} dot")
-        s.text(1282, y - 12, 250, 48, label, 32, bold=True, name=label)
-        s.text(1282, y + 36, 240, 80, detail, 20, GRAY, name=f"{label} detail")
+    videos = []
+    for i, (key, clip, media, poster, label) in enumerate(scenes):
+        scene = numbers["scenes"][clip]
+        x = 80 + i * 740
+        # Both recordings are 1230 x 720.
+        videos.append(video(pkg, s, part, key, f"/ppt/media/{media}", f"/ppt/media/{poster}", x, 230, 700, 410,
+                            media, f"Gravação do Verge Studio: {clip}, o quadro com a trena e a nuvem 3D"))
+        s.text(x, 660, 700, 36, label, 20, GRAY, bold=True, name=f"{key} label")
+        s.text(x - 8, 694, 300, 90, f"{cm(scene['truthCm'], 1)} cm", 60, bold=True, name=f"{key} tape")
+        s.text(x, 782, 290, 40, "trena", 22, name=f"{key} tape label")
+        s.box(x + 300, 712, 2, 104, fill=LINE, line=None, geometry="rect", name=f"{key} divider")
+        s.text(x + 326, 694, 374, 90, f"{cm(scene['meanCm'])} cm", 60, bold=True, name=f"{key} reading")
+        s.text(x + 334, 782, 366, 40, f"GreenV · média de {scene['trials']} ensaios", 22, name=f"{key} reading label")
+    s.text(80, 846, 1440, 36, "Seleção manual · método Extent · os vídeos mostram a inspeção; os números vêm dos "
+           "ensaios salvos", 18, GRAY, name="Footer")
+    autoplay(s, videos)
     pkg.put(part, s.root)
-    set_notes(pkg, "ppt/notesSlides/notesSlide5.xml", [
-        "[3:05 · Camada 3: prova] Da última vez que conversamos, eu tinha testado essa ideia no meu quarto. "
-        "Depois no jardim do meu condomínio. Esse vídeo resume o que já tínhamos mostrado. Nessa semana, "
-        "levamos a mesma medição para a rodovia.",
-        "Fonte: recapVerge-Studio.mp4, fornecido; gravações de inspeção no Verge Studio. Quarto: "
-        "RoomNewFixture, 11/08/2026. Jardim: capturas de 14/08/2026. Material histórico, não uma nova rodada "
-        "de validação.",
+
+    first, second = (numbers["scenes"][clip] for clip in ("rodovia_medida1.mp4", "rodovia_movimento.mp4"))
+    set_notes(pkg, "ppt/notesSlides/notesSlide6.xml", [
+        "[3:05 · Camada 3: prova] Nessa semana eu levei a câmera para a rodovia. Reparem na vegetação sendo "
+        "reconstruída. Reparem na escala: nas duas cenas tem uma trena marcando dez centímetros. Na primeira, a "
+        f"média de três ensaios deu {cm(first['meanCm'])} centímetros. Na segunda, depois de dirigir um trecho, "
+        f"parar e descer do carro, {cm(second['meanCm'])}.",
+        "Fontes: cena 1 — run 20260914-144411-5032ee (rodovia_medida1.mp4), alvo “TAPE - Grass around tape”, "
+        "quadro 74, leituras " + "; ".join(cm(v, 3) for v in first["readingsCm"]) + " cm. Cena 2 — run "
+        "20260914-143905-ce30bc (rodovia_movimento.mp4), alvo “Vegetation around the tape”, quadro 92, leituras "
+        + "; ".join(cm(v, 3) for v in second["readingsCm"]) + " cm; o operador descreveu essa referência como "
+        "aproximadamente 10 cm. Nas duas: vertical_extent, máscara de pincel, três ensaios na mesma sessão, pacotes "
+        "em ~/verge-runs/<run>/measurements/.",
+        "Limites: são dois alvos, não seis trechos independentes. Os vídeos são inspeção ao vivo, com uma seleção "
+        "pintada na hora e não a dos ensaios salvos: a leitura na tela sobe até 9,4 cm na cena 1, e na cena 2 começa em "
+        "3,5 cm enquanto a máscara é pintada e para em 10,4 cm. Nenhuma leitura ao vivo entra nas médias.",
     ])
 
 
@@ -857,8 +966,11 @@ def main() -> None:
     capture(pkg)
     management(pkg)
     frustum(pkg)
+    # The recap of room and garden is cut for time; the automatic measurement carries that part now.
+    drop_slide(pkg, "260")
+    roadside(pkg, numbers)
+    drop_slide(pkg, "262")
     automatic(pkg)
-    recap(pkg)
     accuracy_slide(pkg, numbers)
     cost(pkg)
     prediction(pkg)
@@ -866,8 +978,6 @@ def main() -> None:
     # Sections of ~/Desktop/pitch-greenv-final.md; the old minute ranges no longer fit the order.
     for notes_part, label in [
         ("ppt/notesSlides/notesSlide1.xml", "[0:00 · Abertura e as três camadas]"),
-        ("ppt/notesSlides/notesSlide6.xml", "[3:05 · Camada 3: prova]"),
-        ("ppt/notesSlides/notesSlide7.xml", "[3:05 · Camada 3: prova]"),
         ("ppt/notesSlides/notesSlide10.xml", "[4:20 · fecho: modularidade]"),
         ("ppt/notesSlides/notesSlide12.xml", "[4:20 · fecho: expansão]"),
     ]:
