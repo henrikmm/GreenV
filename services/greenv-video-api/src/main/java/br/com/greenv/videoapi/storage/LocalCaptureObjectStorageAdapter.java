@@ -110,6 +110,32 @@ public class LocalCaptureObjectStorageAdapter implements CaptureObjectStorage {
         }
     }
 
+    @Override
+    public ObjectContent open(String objectKey, long maximumBytes) {
+        Path path = resolve(objectKey);
+        try {
+            if (!Files.isRegularFile(path)) {
+                throw new ApplicationException(
+                        FailureKind.NOT_FOUND, "capture_object_not_found", "capture object does not exist");
+            }
+            long bytes = Files.size(path);
+            if (bytes > maximumBytes) {
+                throw new ApplicationException(
+                        FailureKind.INTERNAL_ERROR,
+                        "capture_object_too_large",
+                        "capture object exceeds its read limit");
+            }
+            return new ObjectContent(objectKey, bytes, Files.newInputStream(path));
+        } catch (ApplicationException exception) {
+            throw exception;
+        } catch (IOException exception) {
+            throw new ApplicationException(
+                    FailureKind.INTERNAL_ERROR,
+                    "capture_storage_failure",
+                    "could not read capture object");
+        }
+    }
+
     private Path resolve(String objectKey) {
         if (objectKey == null || objectKey.isBlank() || objectKey.contains(":")) {
             throw new ApplicationException(

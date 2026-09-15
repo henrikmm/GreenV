@@ -94,6 +94,25 @@ public class AzureBlobCaptureObjectStorageAdapter implements CaptureObjectStorag
         }
     }
 
+    @Override
+    public ObjectContent open(String objectKey, long maximumBytes) {
+        String key = CloudStorageSupport.requireObjectKey(objectKey);
+        StoredObject object = find(key).orElseThrow(() -> new ApplicationException(
+                FailureKind.NOT_FOUND, "capture_object_not_found", "capture object does not exist"));
+        if (object.bytes() > maximumBytes) {
+            throw new ApplicationException(
+                    FailureKind.INTERNAL_ERROR,
+                    "capture_object_too_large",
+                    "capture object exceeds its read limit");
+        }
+        try {
+            // Not closed here on purpose: the stream IS the answer, and the caller closes it.
+            return new ObjectContent(key, object.bytes(), containerClient.getBlobClient(key).openInputStream());
+        } catch (RuntimeException exception) {
+            throw unavailable("could not read " + key, exception);
+        }
+    }
+
     private Optional<StoredObject> find(String objectKey) {
         try {
             BlobClient blob = containerClient.getBlobClient(objectKey);

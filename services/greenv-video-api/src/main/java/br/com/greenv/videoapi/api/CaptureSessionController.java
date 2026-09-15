@@ -3,6 +3,7 @@ package br.com.greenv.videoapi.api;
 import br.com.greenv.videoapi.domain.CaptureSessionQuery;
 import br.com.greenv.videoapi.domain.SegmentQuery;
 import br.com.greenv.videoapi.domain.Sentido;
+import br.com.greenv.videoapi.port.CaptureObjectStorage;
 import br.com.greenv.videoapi.port.CaptureSessionUseCase;
 import br.com.greenv.videoapi.service.ApplicationException;
 import br.com.greenv.videoapi.service.FailureKind;
@@ -14,6 +15,10 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.springframework.core.io.InputStreamResource;
+import org.springframework.core.io.Resource;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -234,6 +239,37 @@ public class CaptureSessionController {
             produces = MediaType.APPLICATION_JSON_VALUE)
     byte[] measurement(@PathVariable UUID sessionId, @PathVariable int segmentIndex) {
         return captureSessionUseCase.measurement(sessionId, segmentIndex);
+    }
+
+    /**
+     * The reconstruction this segment was measured from, as a download.
+     *
+     * <p>Two files, tens of megabytes each, so the body is a stream rather than an array and the
+     * response carries a length a browser can show a progress bar against. The name offered to
+     * the browser carries the run id, because a person downloading several of these needs to
+     * tell them apart on disk.
+     */
+    @GetMapping(
+            path = "/{sessionId}/segments/{segmentIndex}/depth/{fileName}",
+            produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
+    ResponseEntity<Resource> depthArtifact(
+            @PathVariable UUID sessionId, @PathVariable int segmentIndex, @PathVariable String fileName) {
+        CaptureObjectStorage.ObjectContent content =
+                captureSessionUseCase.depthArtifact(sessionId, segmentIndex, fileName);
+        String downloadName = "%s-segmento-%d-%s"
+                .formatted(shortSession(sessionId), segmentIndex, fileName);
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                .contentLength(content.bytes())
+                .header(
+                        HttpHeaders.CONTENT_DISPOSITION,
+                        ContentDisposition.attachment().filename(downloadName).build().toString())
+                .body(new InputStreamResource(content.stream()));
+    }
+
+    /** Enough of a session id to tell two downloads apart in a folder, and no more. */
+    private static String shortSession(UUID sessionId) {
+        return sessionId.toString().substring(0, 8);
     }
 
     private static String baseUrl() {

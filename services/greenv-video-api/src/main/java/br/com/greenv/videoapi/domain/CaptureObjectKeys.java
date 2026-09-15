@@ -53,6 +53,19 @@ public final class CaptureObjectKeys {
         return segmentPrefix(sessionId, segmentIndex) + "/sampled-frames/" + safeFileName(fileName);
     }
 
+    /**
+     * One file of the reconstruction the depth service left beside the frames.
+     *
+     * <p>Under the run that computed it, because a segment measured twice has two of them and the
+     * run id is the only thing that tells them apart. This is the shape the measurement worker
+     * writes (`services/greenv-measurement-worker/src/keys.mjs`, `depthArtifact`) and reads back
+     * when it re-measures without waking a GPU.
+     */
+    public static String depthArtifact(UUID sessionId, int segmentIndex, String runId, String fileName) {
+        return segmentPrefix(sessionId, segmentIndex)
+                + "/depth/" + safeFileName(runId) + "/" + safeFileName(fileName);
+    }
+
     private static String safeFileName(String fileName) {
         if (fileName == null || fileName.isBlank() || fileName.contains("/") || fileName.contains("\\")
                 || fileName.contains("..")) {

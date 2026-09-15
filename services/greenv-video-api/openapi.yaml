@@ -804,6 +804,38 @@ paths:
           description: Segment not found
         '409':
           description: The segment has not been measured
+  /v2/capture-sessions/{sessionId}/segments/{segmentIndex}/depth/{fileName}:
+    get:
+      operationId: getCaptureSegmentDepthArtifact
+      summary: Download the reconstruction this segment was measured from
+      description: >-
+        scene.glb is the mesh and result.npz the depth arrays a point cloud is
+        rebuilt from, as the depth service left them beside the frames. Tens of
+        megabytes each, streamed, with Content-Disposition set so a browser
+        saves the file under a name carrying the session and the segment.
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - $ref: '#/components/parameters/SegmentIndex'
+        - name: fileName
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [scene.glb, result.npz]
+      responses:
+        '200':
+          description: The file
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Segment not found, or a name that is not one of the two
+        '409':
+          description: >-
+            The segment has not been measured, or its reconstruction was not
+            kept
   /v2/teams:
     get:
       operationId: listTeams

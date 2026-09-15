@@ -32,6 +32,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 
@@ -62,6 +63,19 @@ public class CaptureSessionService implements CaptureSessionUseCase {
 
     /** A published frame is a 1024 px JPEG, about 65 KB. This bounds a read, nothing more. */
     private static final long MAXIMUM_FRAME_BYTES = 8 * 1024 * 1024;
+
+    /**
+     * The two files the depth service leaves beside a segment's frames: the mesh and the arrays
+     * a point cloud is rebuilt from. Named here rather than taken from the URL.
+     */
+    private static final Set<String> DEPTH_ARTIFACTS = Set.of("scene.glb", "result.npz");
+
+    /**
+     * 13 September 2026 kept 15.4 MB of mesh and 53.1 MB of arrays for one 102-frame segment.
+     * A longer segment is bigger; this bounds the read at roughly four times the largest seen,
+     * and the bytes are streamed rather than held, so the ceiling costs nothing until it fires.
+     */
+    private static final long MAXIMUM_DEPTH_ARTIFACT_BYTES = 256L * 1024 * 1024;
 
     private final CaptureSessionStore captureSessionStore;
     private final CaptureObjectStorage objectStorage;
@@ -302,6 +316,44 @@ public class CaptureSessionService implements CaptureSessionUseCase {
                     "segment measurement is not ready");
         }
         return objectStorage.read(segment.measurementObjectKey(), MAXIMUM_MEASUREMENT_BYTES);
+    }
+
+    /**
+     * One file of the reconstruction, for somebody who wants to open the point cloud themselves.
+     *
+     * <p>The name is matched against the two the depth service writes rather than put into a key,
+     * for the same reason the frame route checks the manifest: a caller who can name any object
+     * can read any object. The run id comes from the segment's own row, so this always serves the
+     * geometry the stored measurement was computed from.
+     *
+     * <p>A segment measured before the handler started keeping its output, or one whose
+     * reconstruction has been cleaned up, answers 409 rather than 404: the segment is fine and
+     * the measurement is real, and only this particular file is gone.
+     */
+    @Override
+    public CaptureObjectStorage.ObjectContent depthArtifact(UUID sessionId, int segmentIndex, String fileName) {
+        if (!DEPTH_ARTIFACTS.contains(fileName)) {
+            throw new ApplicationException(
+                    FailureKind.NOT_FOUND,
+                    "depth_artifact_unknown",
+                    "a reconstruction is scene.glb or result.npz, nothing else");
+        }
+        CaptureSegmentDocument segment = captureSessionStore.getSegment(sessionId, segmentIndex);
+        if (segment.measurementRunId() == null) {
+            throw new ApplicationException(
+                    FailureKind.CONFLICT,
+                    "segment_measurement_not_ready",
+                    "segment measurement is not ready");
+        }
+        String objectKey = CaptureObjectKeys.depthArtifact(
+                sessionId, segmentIndex, segment.measurementRunId(), fileName);
+        if (!objectStorage.exists(objectKey)) {
+            throw new ApplicationException(
+                    FailureKind.CONFLICT,
+                    "depth_artifact_absent",
+                    "this segment's reconstruction was not kept");
+        }
+        return objectStorage.open(objectKey, MAXIMUM_DEPTH_ARTIFACT_BYTES);
     }
 
     @Override
