@@ -170,7 +170,9 @@ public class CaptureSessionService implements CaptureSessionUseCase {
                 session,
                 captureSessionStore.segmentCount(sessionId),
                 captureSessionStore.readySegmentCount(sessionId),
-                captureSessionStore.measuredSegmentCount(sessionId));
+                captureSessionStore.measuredSegmentCount(sessionId),
+                captureSessionStore.readingCounts(sessionId),
+                captureSessionStore.readingPlace(sessionId));
     }
 
     @Override

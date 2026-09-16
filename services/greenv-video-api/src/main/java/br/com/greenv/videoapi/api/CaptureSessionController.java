@@ -1,6 +1,7 @@
 package br.com.greenv.videoapi.api;
 
 import br.com.greenv.videoapi.domain.CaptureSessionQuery;
+import br.com.greenv.videoapi.domain.CaptureSessionSort;
 import br.com.greenv.videoapi.domain.SegmentQuery;
 import br.com.greenv.videoapi.domain.Sentido;
 import br.com.greenv.videoapi.port.CaptureObjectStorage;
@@ -17,6 +18,7 @@ import java.util.Map;
 import java.util.UUID;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.core.io.Resource;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -142,10 +144,14 @@ public class CaptureSessionController {
     }
 
     /**
-     * The sessions, newest first.
+     * The sessions, newest first unless the caller asks for another order.
      *
      * <p>Until this existed nothing could open on a list: every read path needed an id the caller
      * already had, so a dashboard had no way to discover what had been captured.
+     *
+     * <p>The day and the order are the route's job, not the client's, for the reason {@link
+     * MeasurementController} gives: a browser that filters the page it was given is answering
+     * about the request rather than about the data, and cannot tell the two apart on screen.
      */
     @GetMapping
     PageResponse<CaptureSessionResponse> listSessions(
@@ -153,10 +159,23 @@ public class CaptureSessionController {
             @RequestParam(required = false) String rodovia,
             @RequestParam(required = false) String sentido,
             @RequestParam(defaultValue = "false") boolean measuredOnly,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+                    Instant capturedFrom,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+                    Instant capturedTo,
+            @RequestParam(required = false) String sort,
             @RequestParam(defaultValue = "0") int limit,
             @RequestParam(defaultValue = "0") int offset) {
         var query = new CaptureSessionQuery(
-                state, rodovia, sentido == null ? null : Sentido.of(sentido), measuredOnly, limit, offset);
+                state,
+                rodovia,
+                sentido == null ? null : Sentido.of(sentido),
+                measuredOnly,
+                capturedFrom,
+                capturedTo,
+                CaptureSessionSort.of(sort),
+                limit,
+                offset);
         return PageResponse.from(
                 captureSessionUseCase.listSessions(query),
                 CaptureSessionResponse::from);

@@ -12,6 +12,8 @@ import br.com.greenv.videoapi.domain.Page;
 import br.com.greenv.videoapi.domain.SegmentPlace;
 import br.com.greenv.videoapi.domain.SegmentQuery;
 import br.com.greenv.videoapi.domain.Sentido;
+import br.com.greenv.videoapi.domain.SessionPlace;
+import br.com.greenv.videoapi.domain.SessionReadingCounts;
 import br.com.greenv.videoapi.port.CaptureSessionStore;
 import br.com.greenv.videoapi.service.ApplicationException;
 import br.com.greenv.videoapi.service.FailureKind;
@@ -126,6 +128,58 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
             + " UNION ALL "
             + WINDOW_SELECT
             + ") reading";
+
+    /**
+     * One row per session, carrying how many of its readings fall in each level.
+     *
+     * <p>Over {@link #READING_SOURCE} and nothing else, because the sessions screen links
+     * straight to the readings screen: counting a windowed segment as one row here and as eight
+     * rows there would make the two pages contradict each other on the same data.
+     *
+     * <p>Grouped once and joined, rather than four correlated counts per row. The sessions list
+     * sorts on these, so they have to exist before the ORDER BY runs; a subquery repeated in the
+     * select list and again in the ordering would be eight scans to draw fifty lines.
+     */
+    private static final String SESSION_READING_COUNTS = """
+            (SELECT session_id,
+                    SUM(CASE WHEN measurement_level = 1 THEN 1 ELSE 0 END) AS level_1,
+                    SUM(CASE WHEN measurement_level = 2 THEN 1 ELSE 0 END) AS level_2,
+                    SUM(CASE WHEN measurement_level = 3 THEN 1 ELSE 0 END) AS level_3,
+                    SUM(CASE WHEN measurement_level IN (1, 2, 3) THEN 0 ELSE 1 END) AS level_0
+               FROM """
+            + READING_SOURCE
+            + " GROUP BY session_id) r";
+
+    /**
+     * Where each session was, from its own readings.
+     *
+     * <p>The first geocoded reading in capture order names the session, and the count of
+     * distinct streets beside it is what lets a screen say the drive crossed more than one.
+     * Ranking here rather than in Java keeps it in the one query the list already runs, and
+     * keeps this screen's answer identical to the readings screen's.
+     */
+    private static final String SESSION_PLACES =
+            "(SELECT session_id, place_label, place_detail, distinct_labels FROM ("
+                    + " SELECT session_id, place_label, place_detail,"
+                    + " COUNT(DISTINCT place_label) OVER (PARTITION BY session_id)"
+                    + "   AS distinct_labels,"
+                    + " ROW_NUMBER() OVER (PARTITION BY session_id"
+                    + "   ORDER BY segment_index, COALESCE(window_index, -1))"
+                    + "   AS rank_in_session"
+                    + " FROM " + READING_SOURCE
+                    + " WHERE place_label IS NOT NULL) ordered_places"
+                    + " WHERE rank_in_session = 1) p";
+
+    /** The three segment counters every session line shows, as correlated counts. */
+    private static final String SEGMENT_COUNTS = """
+            (SELECT COUNT(*) FROM capture_segments g
+              WHERE g.session_id = s.session_id) AS segment_total,
+            (SELECT COUNT(*) FROM capture_segments g
+              WHERE g.session_id = s.session_id AND g.state = 'ready') AS segment_ready,
+            (SELECT COUNT(*) FROM capture_segments g
+              WHERE g.session_id = s.session_id
+                AND g.measurement_state IS NOT NULL) AS segment_measured
+            """;
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -508,11 +562,21 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
     }
 
     /**
-     * One page of sessions, newest first.
+     * One page of sessions, filtered, counted and ordered in SQL.
      *
-     * <p>The clauses are assembled rather than written out because five optional filters are
-     * thirty-two queries. {@code session_id} joins the ordering so a page boundary cannot fall
+     * <p>The clauses are assembled rather than written out because six optional filters are
+     * sixty-four queries. The ordering ends in {@code session_id} so a page boundary cannot fall
      * between two sessions started in the same millisecond and show one of them twice.
+     *
+     * <p>The day and the order used to be applied by the browser, over the fifty rows it had
+     * asked for. That is an answer about the page rather than about the data — the same defect
+     * the readings list was moved into SQL to remove — and it is worse here, because a filter
+     * that removes rows from one page of fifty leaves a screen that looks empty rather than
+     * paged.
+     *
+     * <p>The select list is wrapped in a derived table so {@link CaptureSessionSort} can name
+     * plain columns: the level counters exist only as output aliases, and an ORDER BY over the
+     * join would have to know which side of it each name came from.
      */
     @Override
     public Page<CaptureSessionSummary> findSessions(CaptureSessionQuery query) {
@@ -536,6 +600,16 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                              WHERE g.session_id = s.session_id AND g.measurement_state IS NOT NULL)
                     """);
         }
+        // Half-open, like the readings filter: a session started exactly at midnight belongs to
+        // the day that begins there and not to both of the days that touch it.
+        if (query.capturedFrom() != null) {
+            clauses.add("s.started_at >= ?");
+            arguments.add(Timestamp.from(query.capturedFrom()));
+        }
+        if (query.capturedTo() != null) {
+            clauses.add("s.started_at < ?");
+            arguments.add(Timestamp.from(query.capturedTo()));
+        }
         String where = clauses.isEmpty() ? "" : " WHERE " + String.join(" AND ", clauses);
 
         Long total = jdbcTemplate.queryForObject(
@@ -544,27 +618,41 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
         List<Object> paged = new ArrayList<>(arguments);
         paged.add(query.limit());
         paged.add(query.offset());
-        // The three counters come back with the row. One query per session would be a round trip
-        // per line of the list, and the list is the first thing a dashboard draws.
+        // Every counter comes back with the row. One query per session would be a round trip per
+        // line of the list, and the list is the first thing a dashboard draws.
+        String source = "(SELECT s.*, "
+                + SEGMENT_COUNTS
+                + ", COALESCE(r.level_1, 0) AS reading_level_1"
+                + ", COALESCE(r.level_2, 0) AS reading_level_2"
+                + ", COALESCE(r.level_3, 0) AS reading_level_3"
+                + ", COALESCE(r.level_0, 0) AS reading_unrated"
+                + ", p.place_label AS reading_place_label"
+                + ", p.place_detail AS reading_place_detail"
+                + ", COALESCE(p.distinct_labels, 0) AS reading_place_labels"
+                + " FROM capture_sessions s"
+                // Left, not inner: a session recorded this morning has no reading yet and still
+                // has to appear, at zero.
+                + " LEFT JOIN " + SESSION_READING_COUNTS + " ON r.session_id = s.session_id"
+                + " LEFT JOIN " + SESSION_PLACES + " ON p.session_id = s.session_id"
+                + where
+                + ") session_row";
         List<CaptureSessionSummary> items = jdbcTemplate.query(
-                """
-                SELECT s.*,
-                       (SELECT COUNT(*) FROM capture_segments g
-                         WHERE g.session_id = s.session_id) AS segment_total,
-                       (SELECT COUNT(*) FROM capture_segments g
-                         WHERE g.session_id = s.session_id AND g.state = 'ready') AS segment_ready,
-                       (SELECT COUNT(*) FROM capture_segments g
-                         WHERE g.session_id = s.session_id
-                           AND g.measurement_state IS NOT NULL) AS segment_measured
-                  FROM capture_sessions s
-                """
-                        + where
-                        + " ORDER BY s.started_at DESC, s.session_id DESC LIMIT ? OFFSET ?",
+                "SELECT * FROM " + source
+                        + " ORDER BY " + query.sort().orderBy() + " LIMIT ? OFFSET ?",
                 (result, row) -> new CaptureSessionSummary(
                         mapSession(result, row),
                         result.getLong("segment_total"),
                         result.getLong("segment_ready"),
-                        result.getLong("segment_measured")),
+                        result.getLong("segment_measured"),
+                        new SessionReadingCounts(
+                                result.getLong("reading_level_1"),
+                                result.getLong("reading_level_2"),
+                                result.getLong("reading_level_3"),
+                                result.getLong("reading_unrated")),
+                        new SessionPlace(
+                                result.getString("reading_place_label"),
+                                result.getString("reading_place_detail"),
+                                result.getLong("reading_place_labels"))),
                 paged.toArray());
         return new Page<>(items, total == null ? 0 : total, query.limit(), query.offset());
     }
@@ -840,6 +928,64 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                 Long.class,
                 sessionId);
         return value == null ? 0 : value;
+    }
+
+    /**
+     * The same tally the listing carries, for one session.
+     *
+     * <p>Over the same source, so the session a reader opened from the list reports what the list
+     * said it would. The level rule is the one the rest of the system uses: anything that is not
+     * 1, 2 or 3 — null included — is unrated, which is "not classified" and not "low".
+     */
+    @Override
+    public SessionReadingCounts readingCounts(UUID sessionId) {
+        return jdbcTemplate.query(
+                """
+                SELECT SUM(CASE WHEN measurement_level = 1 THEN 1 ELSE 0 END) AS level_1,
+                       SUM(CASE WHEN measurement_level = 2 THEN 1 ELSE 0 END) AS level_2,
+                       SUM(CASE WHEN measurement_level = 3 THEN 1 ELSE 0 END) AS level_3,
+                       SUM(CASE WHEN measurement_level IN (1, 2, 3) THEN 0 ELSE 1 END) AS level_0
+                  FROM """
+                        + READING_SOURCE
+                        + " WHERE session_id = ?",
+                result -> {
+                    if (!result.next()) {
+                        return SessionReadingCounts.EMPTY;
+                    }
+                    return new SessionReadingCounts(
+                            result.getLong("level_1"),
+                            result.getLong("level_2"),
+                            result.getLong("level_3"),
+                            result.getLong("level_0"));
+                },
+                sessionId);
+    }
+
+    /**
+     * Where one session was, by the rule its line in the list answers with.
+     *
+     * <p>The first geocoded reading in capture order, and how many streets the session
+     * crossed altogether. A session whose readings carry no place answers nowhere, which a
+     * screen says out loud rather than filling in from a guess.
+     */
+    @Override
+    public SessionPlace readingPlace(UUID sessionId) {
+        return jdbcTemplate.query(
+                "SELECT place_label, place_detail,"
+                        + " COUNT(DISTINCT place_label) OVER () AS distinct_labels"
+                        + " FROM " + READING_SOURCE
+                        + " WHERE session_id = ? AND place_label IS NOT NULL"
+                        + " ORDER BY segment_index, COALESCE(window_index, -1)",
+                result -> {
+                    if (!result.next()) {
+                        return SessionPlace.NOWHERE;
+                    }
+                    return new SessionPlace(
+                            result.getString("place_label"),
+                            result.getString("place_detail"),
+                            result.getLong("distinct_labels"));
+                },
+                sessionId);
     }
 
     private static CaptureSessionDocument mapSession(ResultSet result, int row) throws SQLException {

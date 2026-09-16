@@ -414,6 +414,14 @@ paths:
     get:
       operationId: listCaptureSessions
       summary: List capture sessions, newest first
+      description: >-
+        Filtered, counted and ordered here rather than in the client. A caller
+        that fetches one page and then filters it by day is answering about the
+        request rather than about the data, and a screen cannot tell the two
+        apart. Every session carries how many of its readings sit at each
+        level, counted over the set /v2/measurements pages - one row per
+        measured window, or the segment itself where it was cut into none - so
+        the two screens agree about the same capture.
       parameters:
         - name: state
           in: query
@@ -438,6 +446,9 @@ paths:
           schema:
             type: boolean
             default: false
+        - $ref: '#/components/parameters/CapturedFrom'
+        - $ref: '#/components/parameters/CapturedTo'
+        - $ref: '#/components/parameters/CaptureSessionSort'
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Offset'
       responses:
@@ -1105,9 +1116,10 @@ components:
       in: query
       required: false
       description: >-
-        Inclusive lower bound on capture time. A day is a local idea and this
-        service does not guess whose, so a caller filtering by day sends the two
-        instants that bound it in its own timezone.
+        Inclusive lower bound on capture time - when a reading was captured, or
+        when a session started. A day is a local idea and this service does not
+        guess whose, so a caller filtering by day sends the two instants that
+        bound it in its own timezone.
       schema:
         type: string
         format: date-time
@@ -1117,10 +1129,24 @@ components:
       required: false
       description: >-
         Exclusive upper bound on capture time, so two adjacent days never share
-        the reading recorded exactly at midnight.
+        the row recorded exactly at midnight.
       schema:
         type: string
         format: date-time
+    CaptureSessionSort:
+      name: sort
+      in: query
+      required: false
+      description: >-
+        Order of the page. Defaults to STARTED_DESC, the newest outing first.
+        CRITICAL_DESC ranks by how many level-3 readings a session holds, then
+        by level 2, then by date: not by the tallest reading, because one 90 cm
+        window on an otherwise trimmed verge is an hour of work and twenty of
+        them is a day of it. Every order ends in the session id so paging is
+        stable, and an unrecognised value falls back to the default.
+      schema:
+        type: string
+        enum: [STARTED_DESC, STARTED_ASC, CRITICAL_DESC]
     MeasurementSearch:
       name: q
       in: query
@@ -1474,6 +1500,39 @@ components:
           description: Segments of this session that carry a measurement.
           type: integer
         readySegmentCount:
+          type: integer
+        level1Count:
+          description: >-
+            Readings of this session at level 1. A reading is a measured window
+            of about 25 m, or the whole segment where the extractor cut it into
+            none - the same set /v2/measurements pages, so the two screens
+            report the same capture the same way.
+          type: integer
+        level2Count:
+          description: Readings of this session at level 2.
+          type: integer
+        level3Count:
+          description: Readings of this session at level 3.
+          type: integer
+        unratedCount:
+          description: >-
+            Readings with no level: measured with no usable cell, or not
+            measured yet. Counted apart from level 1 because an unknown height
+            is not a short one.
+          type: integer
+        placeLabel:
+          description: >-
+            The street of this session's first geocoded reading, in capture
+            order. Null when no reading of the session has resolved a place.
+          type: [string, 'null']
+        placeDetail:
+          description: That same reading's finer description, when it has one.
+          type: [string, 'null']
+        placeLabelCount:
+          description: >-
+            How many different streets this session's readings resolved to. Two
+            or more is a drive that crossed a junction, and a screen says so
+            rather than letting the first name stand for the whole session.
           type: integer
         rodovia:
           type: [string, 'null']

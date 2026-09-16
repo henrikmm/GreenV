@@ -263,6 +263,67 @@ class CaptureSessionControllerIntegrationTest {
         assertThat(objectMapper.readTree(created.body()).path("sentido").isNull()).isTrue();
     }
 
+    /**
+     * The day, the order and the level counters are the route's job now.
+     *
+     * <p>The dashboard used to fetch one page of fifty sessions and then pick a day out of it in
+     * the browser, which filters the page rather than the set: a capture that exists can vanish
+     * from the screen because it sat on page two. This is the wiring check — that the two
+     * instants and the order name arrive as parameters and come back applied.
+     */
+    @Test
+    void filtersTheSessionListByDayAndCarriesTheReadingCounters() throws Exception {
+        HttpClient client = HttpClient.newHttpClient();
+        String sessions = "http://127.0.0.1:" + port + "/v2/capture-sessions";
+        String onTheDay = createdSession(client, sessions, "day-phone", "2026-09-11T15:00:00Z");
+        String theDayBefore = createdSession(client, sessions, "eve-phone", "2026-09-10T15:00:00Z");
+
+        HttpResponse<String> page = send(client, HttpRequest.newBuilder(URI.create(sessions
+                        + "?capturedFrom=2026-09-11T00:00:00Z"
+                        + "&capturedTo=2026-09-12T00:00:00Z"
+                        + "&sort=CRITICAL_DESC"))
+                .GET());
+
+        assertThat(page.statusCode()).isEqualTo(200);
+        boolean sawTheDay = false;
+        for (var item : objectMapper.readTree(page.body()).path("items")) {
+            String id = item.path("sessionId").asString();
+            assertThat(id).isNotEqualTo(theDayBefore);
+            if (onTheDay.equals(id)) {
+                sawTheDay = true;
+                // Recorded and never measured: four counters at zero, not four absent fields.
+                assertThat(item.path("level1Count").asInt()).isZero();
+                assertThat(item.path("level2Count").asInt()).isZero();
+                assertThat(item.path("level3Count").asInt()).isZero();
+                assertThat(item.path("unratedCount").asInt()).isZero();
+            }
+        }
+        assertThat(sawTheDay).isTrue();
+    }
+
+    /** A link carrying an order this service does not know still lists, in the default one. */
+    @Test
+    void fallsBackToTheDefaultOrderRatherThanRefusingAnUnknownOne() throws Exception {
+        HttpClient client = HttpClient.newHttpClient();
+        String sessions = "http://127.0.0.1:" + port + "/v2/capture-sessions";
+
+        HttpResponse<String> page = send(
+                client, HttpRequest.newBuilder(URI.create(sessions + "?sort=whatever-the-link-said")).GET());
+
+        assertThat(page.statusCode()).isEqualTo(200);
+    }
+
+    private String createdSession(HttpClient client, String sessions, String device, String startedAt)
+            throws Exception {
+        HttpResponse<String> created = send(client, HttpRequest.newBuilder(URI.create(sessions))
+                .header("content-type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString("""
+                        {"deviceId":"%s","startedAt":"%s"}
+                        """.formatted(device, startedAt))));
+        assertThat(created.statusCode()).isEqualTo(201);
+        return objectMapper.readTree(created.body()).path("sessionId").asString();
+    }
+
     private static HttpResponse<String> upload(
             HttpClient client,
             String uri,

@@ -11,6 +11,8 @@ import br.com.greenv.videoapi.domain.FrameReadings;
 import br.com.greenv.videoapi.domain.Page;
 import br.com.greenv.videoapi.domain.SegmentPlace;
 import br.com.greenv.videoapi.domain.SegmentQuery;
+import br.com.greenv.videoapi.domain.SessionPlace;
+import br.com.greenv.videoapi.domain.SessionReadingCounts;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -128,6 +130,18 @@ public interface CaptureSessionStore {
     long readySegmentCount(UUID sessionId);
 
     long measuredSegmentCount(UUID sessionId);
+
+    /**
+     * How many readings of each level one session holds.
+     *
+     * <p>Counted over the set {@link #findMeasurements} pages — a window where the segment was
+     * cut into windows, the segment itself where it was not — so one session's line and the
+     * readings screen behind it report the same thing.
+     */
+    SessionReadingCounts readingCounts(UUID sessionId);
+
+    /** Where one session was, by the same rule its line in the list answers with. */
+    SessionPlace readingPlace(UUID sessionId);
 
     /**
      * Measured stretches that carry a position and were never asked about — windows included.
