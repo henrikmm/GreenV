@@ -75,6 +75,11 @@ resource "runpod_endpoint" "depth" {
   # own cold start.
   workers_min = 0
   workers_max = var.depth_workers_max
+  # Reaches the deployed endpoint only if Terraform created it, and it did not: `count` is 0 while
+  # `depth_service_endpoint_id` names an endpoint made by hand, so this line describes what a fresh
+  # one would get. The live endpoint was raised to 3 through RunPod's own API on 16 September 2026,
+  # to reprocess the 43 segments of 13 September as 320 windows; put it back to 1 when a batch is
+  # not running, since one at a time is right for segments arriving as they are captured.
 
   # The dial the whole bill hangs on. Segments arriving back to back from one drive ride a single
   # warm worker; a lone segment pays the entire tail. Short by default, to be raised deliberately
