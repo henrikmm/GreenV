@@ -103,6 +103,32 @@ export function windowsOf(manifest, maxFrames) {
   return windows;
 }
 
+/**
+ * Every window of one segment, a few at a time, in order.
+ *
+ * <p>Windows are independent - separate frames, separate reconstruction, separate packet - and
+ * most of a window's wall clock is spent waiting for the depth service rather than computing
+ * here, so running them strictly one after another leaves this replica's vCPU idle for minutes.
+ * The results keep the windows' own order whatever order they finish in, because the first one
+ * is the segment's announcement and the rest are indexed by position.
+ *
+ * <p>The first failure aborts the segment, as it did when this was a loop: a window that throws
+ * leaves the message unacknowledged and the whole segment is retried, skipping whatever already
+ * has a packet.
+ */
+export async function measureEvery(windows, measureOne, limit) {
+  const results = new Array(windows.length);
+  let next = 0;
+  const lane = async () => {
+    for (let mine = next++; mine < windows.length; mine = next++) {
+      results[mine] = await measureOne(windows[mine]);
+    }
+  };
+  const lanes = Math.max(1, Math.min(limit ?? 1, windows.length));
+  await Promise.all(Array.from({ length: lanes }, lane));
+  return results;
+}
+
 export function measurementPipeline({ config, storage, infer, runner, log = () => {} }) {
   /**
    * One window of one segment, from frames to a packet.
@@ -337,10 +363,11 @@ export function measurementPipeline({ config, storage, infer, runner, log = () =
     if (windows.length > 1) {
       log({ event: "windows", prefix, windows: windows.length, frames: windows.map((w) => w.frames.length) });
     }
-    const results = [];
-    for (const window of windows) {
-      results.push(await measureWindow(request, window));
-    }
+    const results = await measureEvery(
+      windows,
+      (window) => measureWindow(request, window),
+      config.measurement.windowConcurrency,
+    );
     return { ...results[0], windows: results };
   };
 }

@@ -274,6 +274,24 @@ variable "depth_service_token" {
   }
 }
 
+variable "measurement_window_concurrency" {
+  description = <<-EOT
+    How many of a segment's 25 m windows one measurement replica measures at once. One is the
+    conservative default. Most of a window's wall clock is the depth service building and
+    uploading the 83 MB it keeps, not work here, so overlapping two or three windows fills that
+    wait with another window's segmentation - measured 16 September 2026. Past the depth
+    service's own worker count it only moves the queue from the replica to the endpoint; a
+    re-measure from kept reconstructions wakes no GPU and is bounded by these vCPU alone.
+  EOT
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.measurement_window_concurrency >= 1 && var.measurement_window_concurrency <= 4
+    error_message = "measurement_window_concurrency must be between 1 and 4."
+  }
+}
+
 variable "measurement_worker_max_replicas" {
   description = <<-EOT
     Maximum number of measurement worker replicas. One was right while one segment was one whole

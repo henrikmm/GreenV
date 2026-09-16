@@ -275,6 +275,18 @@ function build() {
       // it is there, instead of waking a GPU for geometry that has not changed. A request can
       // also ask for it per segment (`reuseDepth: true`), which is what a backfill does.
       reuseDepth: flag("GREENV_MEASUREMENT_REUSE_DEPTH", false),
+      // How many of a segment's windows this replica measures at once.
+      //
+      // One at a time leaves the four vCPU idle for most of a window: measured on 16 September
+      // 2026, a window spent about six minutes waiting for the depth service - twenty seconds of
+      // it GPU, the rest the handler building and uploading the 83 MB it keeps - against two
+      // minutes of segmentation here. Overlapping two windows fills that wait with another
+      // window's segmentation.
+      //
+      // Raising it past the depth service's own worker count only moves the queue from here to
+      // there, so the two belong together. A re-measure from kept reconstructions
+      // (`reuseDepth`) wakes no GPU at all and is bounded by these vCPU alone.
+      windowConcurrency: number("GREENV_MEASUREMENT_WINDOW_CONCURRENCY", 1),
       timeoutMs: number("GREENV_MEASUREMENT_TIMEOUT_MS", 30 * 60 * 1000),
       // A packet built on the fixture-backed mock describes the fixture's scene, not the
       // uploaded video. It is worth producing — it exercises every seam — and it must never be

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { measurementPipeline, windowsOf, RESULT_SCHEMA } from "../src/pipeline.mjs";
+import { measurementPipeline, windowsOf, RESULT_SCHEMA, measureEvery } from "../src/pipeline.mjs";
 import { loadConfig } from "../src/config.mjs";
 
 const PREFIX = "capture-sessions/11111111-1111-7111-8111-111111111111/segments/00000000";
@@ -348,4 +348,42 @@ test("cada janela vira uma execução, um pacote e um anúncio", async () => {
     assert.ok(storage.written.has(`${PREFIX}/measurement/w01/${name}`), `janela 1 publicou ${name}`);
   }
   assert.ok(!storage.written.has(`${PREFIX}/measurement/assessment.json`), "nada no caminho do segmento inteiro");
+});
+
+test("windows are measured a few at a time and still come back in their own order", async () => {
+  let running = 0;
+  let maximum = 0;
+  const started = [];
+  const medir = async (window) => {
+    running += 1;
+    maximum = Math.max(maximum, running);
+    started.push(window.index);
+    // A later window finishing first is the whole point: the first window is the slowest here.
+    await new Promise((resolve) => setTimeout(resolve, window.index === 0 ? 20 : 1));
+    running -= 1;
+    return { windowIndex: window.index };
+  };
+
+  const windows = [0, 1, 2, 3, 4].map((index) => ({ index }));
+  const results = await measureEvery(windows, medir, 2);
+
+  assert.deepEqual(results.map((r) => r.windowIndex), [0, 1, 2, 3, 4]);
+  assert.equal(maximum, 2, "never more than the limit at once");
+  assert.deepEqual(started.slice(0, 2), [0, 1], "the first two start together");
+});
+
+test("one at a time is the default, and a single window needs no lane of its own", async () => {
+  let running = 0;
+  let maximum = 0;
+  const medir = async () => {
+    running += 1;
+    maximum = Math.max(maximum, running);
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    running -= 1;
+    return {};
+  };
+
+  await measureEvery([{ index: 0 }, { index: 1 }, { index: 2 }], medir);
+
+  assert.equal(maximum, 1);
 });
