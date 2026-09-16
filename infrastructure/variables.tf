@@ -693,7 +693,14 @@ variable "worker_max_replicas" {
 variable "queue_visibility_timeout_seconds" {
   description = "Azure Queue visibility lease; keep above the slowest measured extraction attempt."
   type        = number
-  default     = 300
+  # Thirty minutes, not the five it was until 16 September 2026. An extraction publishes every
+  # group now instead of the first few, which is about 570 JPEGs for a ten-second segment against
+  # the 99 it used to write, and each one is a PUT: a segment measured 4 to 5 minutes end to end
+  # on the deployed worker that day, against roughly one before. At a five-minute lease the slower
+  # ones reappear while they are still being extracted, a second replica redoes the same segment,
+  # and the duplicate announcement pays for the same depth runs twice. The extractor does not renew
+  # its lease the way the measurement worker does, so the lease has to cover the whole attempt.
+  default = 1800
 
   validation {
     condition     = var.queue_visibility_timeout_seconds >= 30 && var.queue_visibility_timeout_seconds <= 604800
