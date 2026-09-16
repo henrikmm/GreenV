@@ -9,6 +9,7 @@ from its source (the tape-graded trials) or carries its source in the speaker no
 Inputs outside the repository, all local:
   output/motiva-pitch/GreenV-Motiva-Pitch-Evidencias.pptx   the deck being revised
   output/motiva-pitch/Gestao-Web-OS.mp4 and -capa.jpg       cut from ~/Desktop/NovoVideoWeb.mov
+  output/motiva-pitch/Previsao-Vegetacao.mp4 and -capa.jpg  Ryan's forecast visualization, 15 Sep 2026
   ~/Downloads/drive-download-20260911T203554Z-1-001/projecao_2d3d.gif
   ~/Desktop/carro_fiscalizacao = exemplo de setup de camera.jpg
   ~/verge-runs/*/measurements/*.json                          roadside trials
@@ -23,6 +24,19 @@ at 0 s as its still; for the same reason the timestamps are reset to start at 0:
       -r 30 -c:v libx264 -preset slow -crf 20 -profile:v high -movflags +faststart -an \\
       output/motiva-pitch/Gestao-Web-OS.mp4
     ffmpeg -i output/motiva-pitch/Gestao-Web-OS.mp4 -frames:v 1 -q:v 3 output/motiva-pitch/Gestao-Web-OS-capa.jpg
+
+The forecast video ("WhatsApp Video 2026-09-15 at 20.41.11.mp4") is re-encoded like the others. As
+received, and even remuxed with its H.264 stream untouched, it crashed Keynote's slide-image export
+three times; encoded by ffmpeg it exports (SSIM 0.9996 against the original). The copy also starts at
+0.434 s, when the fade from black has finished, because Keynote shows a video's frame at 0 s as its
+still. The poster is the frame where every panel has drawn, before the closing card:
+
+    ffmpeg -ss 0.434 -i "WhatsApp Video 2026-09-15 at 20.41.11.mp4" -map 0:v:0 \\
+      -vf "setpts=PTS-STARTPTS,format=yuv420p" -r 30 -c:v libx264 -preset slow -crf 16 -profile:v high \\
+      -level:v 4.0 -x264-params ref=4 -movflags +faststart -map_metadata -1 -an \\
+      output/motiva-pitch/Previsao-Vegetacao.mp4
+    ffmpeg -ss 8.17 -i output/motiva-pitch/Previsao-Vegetacao.mp4 -frames:v 1 -q:v 3 \\
+      output/motiva-pitch/Previsao-Vegetacao-capa.jpg
 
 Icons are Lucide (ISC licence), rendered to PNG in icons/.
 """
@@ -60,6 +74,8 @@ AUTOMATIC_POSTER = REPO / "output/motiva-pitch/Medicao-Automatica-capa.png"
 AUTOMATIC_PACKET = REPO / "output/motiva-pitch/medicao-automatica-pacote/assessment.json"
 WEB_VIDEO = REPO / "output/motiva-pitch/Gestao-Web-OS.mp4"
 WEB_POSTER = REPO / "output/motiva-pitch/Gestao-Web-OS-capa.jpg"
+PREDICTION_VIDEO = REPO / "output/motiva-pitch/Previsao-Vegetacao.mp4"
+PREDICTION_POSTER = REPO / "output/motiva-pitch/Previsao-Vegetacao-capa.jpg"
 
 A = "http://schemas.openxmlformats.org/drawingml/2006/main"
 P = "http://schemas.openxmlformats.org/presentationml/2006/main"
@@ -372,8 +388,8 @@ class Slide:
             f'<p:blipFill><a:blip r:embed="{rel_id}"/>{src}<a:stretch><a:fillRect/></a:stretch></p:blipFill>'
             f'<p:spPr>{xfrm(x, y, w, h)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>'))
 
-    def icon(self, rel_id, x, y, size=56, name="Icon"):
-        self.box(x, y, size, size, fill=TINT, line=None, geometry="ellipse", name=f"{name} circle")
+    def icon(self, rel_id, x, y, size=56, name="Icon", fill=TINT, line=None):
+        self.box(x, y, size, size, fill=fill, line=line, geometry="ellipse", name=f"{name} circle")
         glyph = size * 0.56
         self.picture(rel_id, x + (size - glyph) / 2, y + (size - glyph) / 2, glyph, glyph, name=name)
 
@@ -411,10 +427,11 @@ def video(pkg: Package, s: Slide, part: str, key: str, media: str, poster: str,
     return shape_id
 
 
-def autoplay(s: Slide, shape_ids: list[int]) -> None:
-    """Start every listed video with the slide, muted, each looping on its own length."""
+def autoplay(s: Slide, shape_ids: list[int], loop: bool = True) -> None:
+    """Start every listed video with the slide, muted; each loops on its own length, or plays once and holds."""
+    repeat = ' repeatCount="indefinite"' if loop else ""
     nodes = "".join(
-        f'<p:video><p:cMediaNode vol="0"><p:cTn id="{i + 2}" repeatCount="indefinite" fill="hold" display="0">'
+        f'<p:video><p:cMediaNode vol="0"><p:cTn id="{i + 2}"{repeat} fill="hold" display="0">'
         f'<p:stCondLst><p:cond delay="0"/></p:stCondLst></p:cTn><p:tgtEl><p:spTgt spid="{shape_id}"/></p:tgtEl>'
         '</p:cMediaNode></p:video>' for i, shape_id in enumerate(shape_ids))
     s.root.append(fragment(
@@ -868,50 +885,84 @@ def cost(pkg: Package) -> None:
     ])
 
 
+def drop_part(pkg: Package, part: str) -> None:
+    """Delete a part and everything its relationships point at, so only for parts that own their targets."""
+    names = [part]
+    rels_name = pkg.rels_name(part)
+    if rels_name in pkg.files:
+        names += [resolve(part, rel.get("Target")) for rel in pkg.xml(rels_name)]
+        del pkg.files[rels_name]
+    types = pkg.xml("[Content_Types].xml")
+    for name in names:
+        pkg.files.pop(name, None)
+        for override in [t for t in types if t.get("PartName") == f"/{name}"]:
+            types.remove(override)
+    pkg.put("[Content_Types].xml", types)
+
+
 def prediction(pkg: Package) -> None:
+    """Ryan's forecast visualization, beside what is done, what the pilot adds, and what then becomes possible."""
     part = "ppt/slides/slide11.xml"
+    pkg.files[part] = blank_slide(BG)
+    rels = pkg.xml(pkg.rels_name(part))
+    for rel in list(rels):
+        if rel.get("Type") not in (REL_LAYOUT, REL_NOTES):
+            rels.remove(rel)
+    pkg.put(pkg.rels_name(part), rels)
+    # The native chart of one saved forecast gives way to the video, and its data workbook goes with it.
+    drop_part(pkg, "ppt/slides/charts/chart2.xml")
+
     s = Slide(pkg.xml(part))
-    s.remove(8)
-    s.move(3, 80, 222, 600, 70)
-    s.move(4, 80, 298, 600, 132)
-    s.move(5, 80, 430, 600, 64)
-    s.move(15, 700, 212, 820, 332)
-    s.move(7, 760, 548, 750, 56)
-    cards = [
-        ("trees", "Modelo", "Random Forest (scikit-learn), 300 árvores. No teste simulado, erro 39% menor "
-                            "que o melhor método de referência."),
-        ("flask-conical", "Dados simulados", "118 trechos de 500 m do Rodoanel Oeste, com clima real de 2023 "
-                                             "a 2026, para montar e testar o modelo."),
-        ("history", "Com histórico real", "Cada passagem vira dado. Com semanas de medições, retreinamos e "
-                                          "somamos clima, roçadas e tipo de vegetação."),
+    kicker_and_title(s, "GREENV · PREVISÃO", "Primeiro medir, depois prever")
+    # 1920 x 1080, drawn at 1010 x 568 to leave a column for the sequence beside it.
+    clip = video(pkg, s, part, "Forecast", pkg.add_media("prediction-visualization.mp4", PREDICTION_VIDEO.read_bytes()),
+                 pkg.add_media("prediction-visualization-poster.jpeg", PREDICTION_POSTER.read_bytes()),
+                 80, 222, 1010, 568, "Previsao-Vegetacao.mp4",
+                 "Animação do módulo de previsão com dados demonstrativos: altura de hoje, projeção até 30 cm e trechos "
+                 "priorizados")
+    s.text(80, 800, 1010, 34, "Visualização do módulo de previsão, ainda em desenvolvimento · valores demonstrativos", 18,
+           GRAY, name="Caption")
+    steps = [
+        ("flask-conical", "FEITO · DADOS SIMULADOS", "Modelo testado",
+         "Random Forest treinado e testado em 118 trechos simulados do Rodoanel Oeste, com clima real de 2023 a 2026"),
+        ("smartphone", "PRÓXIMO PASSO", "Medir com o GreenV",
+         "Cada passagem registra a altura de cada trecho e forma o histórico real"),
+        ("history", "DEPOIS", "Prever com dados reais",
+         "Com semanas de histórico, o modelo é retreinado e combina clima, roçadas e tipo de vegetação"),
     ]
-    for i, (icon, label, body) in enumerate(cards):
-        x = 80 + i * 487
-        s.box(x, 628, 466, 196, name=f"Card {label}")
-        s.icon(icon_rel(pkg, part, icon), x + 22, 652, 56, name=f"Icon {label}")
-        s.text(x + 92, 644, 364, 42, label, 24, bold=True, name=label)
-        s.text(x + 92, 684, 364, 136, body, 20, GRAY, name=f"{label} detail")
-    s.set_text(9, ["Exemplo simulado · SP-021 · sul · km 1,5 · base: 30/08/2026 · cenário sem nova roçada"])
-    s.move(9, 80, 838, 1450, 40)
+    for i, (icon, tag, label, detail) in enumerate(steps):
+        y = 226 + i * 188
+        done = i == 0
+        if i < len(steps) - 1:
+            s.box(1157.5, y + 66, 3, 114, fill="C9D6CC", line=None, geometry="rect", name=f"Connector {i + 1}")
+        # Done is filled; what depends on the pilot is only outlined.
+        s.icon(icon_rel(pkg, part, icon), 1130, y, 58, name=f"Icon {label}", fill=TINT if done else WHITE,
+               line=None if done else LINE)
+        s.text(1204, y - 4, 316, 30, tag, 17, GREEN if done else GRAY, bold=True, name=f"{label} tag")
+        s.text(1204, y + 24, 316, 40, label, 26, bold=True, name=label)
+        s.text(1204, y + 64, 316, 110, detail, 19, GRAY, name=f"{label} detail")
+    # Once, holding on its closing card while the narration finishes: 9.4 s against ~20 s of speech.
+    autoplay(s, [clip], loop=False)
     pkg.put(part, s.root)
     set_notes(pkg, "ppt/notesSlides/notesSlide11.xml", [
-        "[4:20 · fecho: previsão] E tem uma coisa que só acontece depois. Cada medição fica guardada. O modelo de "
-        "previsão — um Random Forest — já foi montado e testado com dados simulados: 118 trechos do Rodoanel "
-        "Oeste, com o clima real dos últimos anos. Neste exemplo, um trecho com 27 centímetros deve chegar a 30 em "
-        "cerca de dez dias, com uma janela de incerteza larga. Com semanas de medições reais, o modelo é "
-        "retreinado nesse histórico e combina clima, roçadas e tipo de vegetação. Prever significa ir menos "
-        "vezes a campo.",
-        "Fonte: branch origin/feat/vegetation-prediction, commit 209c8ef, de Ryan Amorim de Castro Santana — "
-        "services/greenv-vegetation-prediction. Modelo: RandomForestRegressor com 300 árvores, "
-        "min_samples_leaf=20 e 14 variáveis (altura atual e anteriores, crescimento semanal, dias desde a "
-        "roçada, graus-dia, temperatura mínima, chuva e déficit hídrico de 30 e 90 dias, estação seca, tipo "
-        "de vegetação, estado operacional). Vegetação 100% sintética; clima real do Open-Meteo, conferido "
-        "com o NASA POWER.",
-        "Teste com dados simulados (reports/model-card.md): 11,17 dias de erro médio nos dias até 30 cm, "
-        "contra 18,45 dias do melhor método de referência (−39,4%); 10,82 cm de erro na altura a 7 dias. "
-        "Intervalo de 90% por conformal, com largura média de ~55 dias. Previsão salva em "
-        "data/forecast/ranking_current.json, SP-021:sul:001500: 27,04 cm, 9,7 dias, intervalo 0–41,1 dias. "
-        "A medição automática ainda não alimenta a previsão.",
+        "[4:20 · fecho: previsão] E tem uma coisa que só acontece depois, porque cada medição fica guardada. Semana após "
+        "semana, vocês começam a acumular algo que hoje ninguém tem: o histórico completo de como a vegetação de vocês "
+        "cresce, quilômetro a quilômetro. E, a partir daí, podemos prever. E prever significa economia e ir menos vezes a "
+        "campo.",
+        "Vídeo: WhatsApp Video 2026-09-15 at 20.41.11.mp4 (9,8 s, 1920 × 1080), enviado por Ryan Amorim de Castro Santana em "
+        "15/09/2026; embutido recodificado pelo ffmpeg (SSIM 0,9996), a partir de 0,43 s, depois do fade de entrada, "
+        "porque o arquivo original fazia o Keynote travar ao exportar. É uma visualização do módulo de previsão com o selo “Dados demonstrativos — "
+        "módulo em desenvolvimento”: os valores na tela (27,4 cm hoje; 30 cm em ≈ 5 dias; 31,0, 34,7 e 43,0 cm em 7, 14 e "
+        "30 dias; a lista de trechos priorizados) são de demonstração, não medições nem saídas do modelo. O painel de "
+        "previsão existe só no branch origin/feat/vegetation-prediction (apps/web/src/components/"
+        "VegetationPredictionPanel.jsx, commit 4586188); não está na main nem em greenv.matomomitsu.com.",
+        "Modelo, no mesmo branch em 209c8ef (services/greenv-vegetation-prediction): RandomForestRegressor com 300 árvores, "
+        "min_samples_leaf=20 e 14 variáveis. Vegetação 100% sintética, 118 trechos de 500 m do Rodoanel Oeste; clima real do "
+        "Open-Meteo, conferido com o NASA POWER, de 01/01/2023 a 01/09/2026. No teste com dados sintéticos "
+        "(reports/model-card.md): 11,17 dias de erro médio nos dias até 30 cm, contra 18,45 dias do melhor método de "
+        "referência (−39,4%); intervalo de 90% por conformal, com largura média de ~55 dias.",
+        "Limites: nada disso foi validado com vegetação real, e a medição automática ainda não alimenta a previsão. "
+        "Economia e menos idas a campo são o objetivo, não um resultado medido.",
     ])
 
 

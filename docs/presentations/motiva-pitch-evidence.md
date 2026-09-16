@@ -112,8 +112,8 @@ Output: `output/motiva-pitch/GreenV-Motiva-Pitch-Final.pptx` (local, ignored), 1
 Build: `docs/presentations/motiva-pitch/build_final_deck.py`, run with any Python that has `lxml`.
 It recomputes every accuracy figure from its source and stops if a rounded value on a slide no
 longer matches. Icons in `docs/presentations/motiva-pitch/icons/` are Lucide 0.544.0 (ISC).
-SHA-256 after the pass of 15 September: `5a5dcc80512f2d5801e163092df79f33cbb264b72f8d46354ef4b82cb6ba67a5`,
-40.2 MB.
+SHA-256 after the forecast slide of 16 September: `63e6f249e3853d168ad4c4cb5c80db5b6058b33272a67c69612a47b936e64099`,
+41.4 MB.
 
 | # | Slide | Change |
 |---|---|---|
@@ -124,7 +124,7 @@ SHA-256 after the pass of 15 September: `5a5dcc80512f2d5801e163092df79f33cbb264b
 | 6 | Sem ninguém descer do carro | New content for the old third slide, moved after the roadside scenes. See "Automatic measurement slide" below |
 | 7 | Erro medido contra a trena | Roadside chart kept; panel added with every tape-graded trial on record |
 | 8 | Quanto custa medir | Processing cost kept at US$ 0.62/km. Two capture paths: any phone, or a fixed roof installation with the user's car photo as reference |
-| 10 | Previsão | Model, data and next step from Ryan's branch, replacing the one-line summary |
+| 10 | Primeiro medir, depois prever | Ryan's forecast visualization replaces the chart of one saved forecast, beside a three-step column: model tested on simulated data, measure with GreenV, forecast from real data. See below |
 | 12 | Apoio · acurácia (hidden) | Rewritten to the 32-trial totals, which superseded the 15-trial aggregate |
 
 The old third slide ("Processamento automático", a CPU report screenshot) is gone, and so, since
@@ -165,6 +165,44 @@ on-screen readings say so. `rodovia_medida1` climbs to 9.4 cm. `rodovia_moviment
 while the mask is painted and settles at 10.4 cm. The slide's footer and notes state that the numbers
 come from the saved trials. This corrects the old note on the second scene, which gave only the
 3.5 cm the recording passes through.
+
+### Forecast slide — 16 September
+
+**Slide 10 now plays Ryan's forecast visualization and says what it rests on: a model tested on
+simulated vegetation, which forecasts nothing about Motiva's verges until GreenV has measured them for
+some weeks.** The title is "Primeiro medir, depois prever", and the narration is the user's own text,
+in the speaker notes.
+
+- **The video.** `WhatsApp Video 2026-09-15 at 20.41.11.mp4`, 9.8 s, 1920 × 1080, sent by Ryan Amorim
+  de Castro Santana. It animates a forecast dashboard in three captions: current condition, measured
+  to projected up to 30 cm, and stretches ranked by proximity to 30 cm. It closes on
+  "Antecipar · Priorizar · Planejar".
+- **What its numbers are.** The dashboard carries its own badge, "Dados demonstrativos — módulo em
+  desenvolvimento". Its figures (27.4 cm today, 30 cm in about 5 days, 31.0, 34.7 and 43.0 cm at 7, 14
+  and 30 days) are demonstration values. They are neither measurements nor the model's saved forecast,
+  which for `SP-021:sul:001500` is 27.04 cm and 9.7 days, interval 0–41. The slide's caption says
+  "valores demonstrativos".
+- **Where the screen exists.** A forecast panel is on `origin/feat/vegetation-prediction` only
+  (`apps/web/src/components/VegetationPredictionPanel.jsx`, commit `4586188`). It is not on `main`, so
+  it is not at greenv.matomomitsu.com, and its layout differs from the video's.
+- **Playback.** Plays once and holds on its closing card. At about 20 s of narration a loop would
+  restart the build-up mid-sentence.
+
+**Why the embedded copy is re-encoded.** Keynote crashed three times exporting the deck's slide images
+with the video as received (crash reports 11:54, 11:56 and 11:58). The exception came from the
+AppleScript export. The file has a non-standard top-level `beam` box before `moov`.
+
+1. Remuxing it away with the H.264 stream bit-identical still crashed.
+2. QuickLook decoded both files, so the stream is not broken for macOS.
+3. Re-encoded by ffmpeg like every other video in the deck (libx264, CRF 16, level 4.0), a one-slide
+   copy and then the whole deck exported.
+
+The copy's SSIM against the original is 0.9996. It also starts at 0.434 s, where the 0.43 s fade from
+black ends, because Keynote shows a video's frame at 0 s as its still.
+
+`output/motiva-pitch/Previsao-Vegetacao.mp4`: 9.37 s, 1.06 MB, SHA-256
+`52f9058445300b9c4c01c56fd5ee6edf6a47af8daa3cdcea8fbfd326b65711d2`. The commands are in the build
+script's docstring. Not checked: playback in a slideshow.
 
 ### The tape inside the 3D, and why the recordings had holes — 15 September
 
