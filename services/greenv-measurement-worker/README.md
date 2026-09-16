@@ -6,6 +6,14 @@ It consumes a finished segment, reconstructs it in three dimensions on the depth
 segments the vegetation, measures its height in half-metre road-local cells, and publishes the
 packet beside the frames it came from.
 
+**A segment is measured one window at a time.** The extractor cuts a driven segment into groups of
+about 25 m and publishes every one; this worker packs consecutive groups into windows of at most
+`GREENV_MEASUREMENT_MAX_FRAMES` frames — one depth run each — and every window gets its own
+reconstruction, its own packet under `<outputPrefix>/measurement/wNN/` and its own announcement
+carrying `windowIndex`, `windowStartMeters` and `windowEndMeters`. A segment whose frames make a
+single window is measured exactly as it always was, packet path included, and announces
+`windowIndex: null`.
+
 **The full contract, the limitations and the calling conventions are in
 [`docs/AUTOMATIC-HEIGHT.md`](../../docs/AUTOMATIC-HEIGHT.md).** Read that before using a number
 this service produces. The short version: every packet says `operationalStatus: "not-ready"`, and
@@ -26,7 +34,7 @@ rather than from this directory.
 ## Commands
 
 ```
-npm ci && npm test        52 tests, including the whole chain on real recorded geometry
+npm ci && npm test        62 tests, including the whole chain on real recorded geometry
 npm start                 run it
 ```
 

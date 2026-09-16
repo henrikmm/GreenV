@@ -24,10 +24,11 @@ this file does not restate it.
 
 The middle row is the whole difficulty. Everything else is free and local.
 
-One segment is exactly one depth run, and that is not a choice: the extractor samples 10 fps
-capped at 112 frames, which is about 100 JPEGs for a ten-second segment, and an L4 runs out of
-memory above 144. Two segments cannot be merged into one inference, so there is no batching to
-design.
+**One window is exactly one depth run**, and that is not a choice: 112 frames is the ceiling the
+extractor plans to and an L4 runs out of memory above 144. A window is about 25 m of road, so a
+ten-second segment driven at highway speed is eight or nine depth runs rather than the one it was
+until 15 September 2026 — the reason is in `STATE-OF-THE-SYSTEM.md`, gap 5. Windows cannot be
+merged into one inference, so there is no batching to design.
 
 ### Where the middle row runs
 
@@ -112,7 +113,10 @@ round-trippable to `github.com/henrikmm/verge-studio`; see the rule in [`AGENTS.
 
 ## What comes back
 
-Three artifacts land under `<outputPrefix>/measurement/`, plus one envelope:
+Three artifacts land under `<outputPrefix>/measurement/`, plus one envelope. A segment cut into
+windows puts each window's four objects under `<outputPrefix>/measurement/wNN/` instead, two
+digits and zero padded; a segment measured whole keeps the unprefixed path, which is where every
+packet measured before 15 September 2026 still is:
 
 | Object | What it is |
 |---|---|
@@ -254,11 +258,13 @@ kept reconstruction rather than paying for depth again: a queue message or `POST
 body carrying `force: true, reuseDepth: true` skips the GPU when `depth/<runId>/scene.glb` and
 `result.npz` are still beside the frames.
 
-**What driving has not fixed.** The extractor's `distance-groups` sampling spends its 112-frame
-budget on the first groups of consecutive frames, and at highway speed that is 30–40 m of a
-170–250 m segment. The rest of the road is never seen by the depth model. That is a decision
-about segments, frames and GPU runs, recorded as a gap in `STATE-OF-THE-SYSTEM.md`, not a setting
-here.
+**What driving exposed, and what was done about it.** The extractor's `distance-groups` sampling
+spent its 112-frame budget on the first groups of consecutive frames, and at highway speed that was
+30–40 m of a 170–250 m segment: 1,545 m of the 7,923 m the 43 segments of 13 September planned, 19%
+of the road. Since 15 September the extractor cuts at 25 m and publishes every group, and the
+worker gives each window its own reconstruction, packet and announcement, so a stretch is a window
+rather than a segment. It costs about five times the depth frames. Not deployed at the time of
+writing; `STATE-OF-THE-SYSTEM.md`, gap 5, carries the evidence and the status.
 
 ## Limitations
 

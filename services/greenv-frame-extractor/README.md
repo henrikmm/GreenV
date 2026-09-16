@@ -29,8 +29,10 @@ L4 fits 0.0700 GiB per frame plus 9.39 GiB and fails above 144 frames. When the 
 `SamplingPlanner` lowers the rate rather than truncating the clip, so the frames still span the
 whole segment — never "N frames spread across it".
 
-A ten-second segment therefore publishes about 100 JPEGs. At 1024 px that is roughly 5 MB, against
-about 3.4 MB for the MP4 they came from, so the frames now cost more storage than the source.
+The cap is **one group's**, not one segment's. A ten-second segment therefore publishes 112 JPEGs
+per group and as many groups as the distance holds — about 600 frames for a 200 m stretch driven at
+71 km/h, where it published 100 until 15 September 2026. At 1024 px that is roughly 30 MB against
+the 3.4 MB of the MP4 they came from, and both are kept.
 
 ## Groups, not one long clip
 
@@ -38,44 +40,58 @@ A ten-second segment is an **upload** bound, not an analysis unit. At 100 km/h i
 which is many stretches of verge rather than one scene, so the worker cuts the distance travelled
 into groups and treats each as its own reconstruction.
 
-**The default target is 10 m** (`GroupPlanner.DEFAULT_GROUP_METERS`), and that is below the band
-the length was originally chosen from. Verge Studio's graded evidence covers camera paths of
-roughly 14-25 m, so a group of that length keeps the frames inside one looking at the same place —
-which is why the target was 20 m until 10 September 2026. It was lowered because a ten-second
-segment on foot covers eight to ten metres, and against a 20 m target a walk rounds to a single
-group it never fills, so nothing in the pipeline could be exercised without a car.
+**The default target is 25 m** (`GroupPlanner.DEFAULT_GROUP_METERS`), the far end of the band the
+length was chosen from: Verge Studio's graded evidence covers camera paths of roughly 14-25 m, so a
+group of that length keeps the frames inside one looking at the same place. It was 20 m until
+10 September 2026, then 10 m so a walk could exercise the pipeline without a car, and 25 m since
+15 September. **A group is also never cut below 64 frames** (`GRADED_MINIMUM_FRAMES`): the target
+decides the group count unless a fast vehicle would make the groups thinner than anything graded,
+and then the frame floor decides it instead and the groups come out longer than 25 m.
 
-**The price is that at the default no group is graded, at any speed.** The envelope flag says so
-rather than inferring gradedness from frame count alone, which is what it did before it gained a
-minimum length. The 20 m behaviour is not lost, only no longer the default: the envelope table and
-the faster-camera lever below are still measured at 20 m, where they were written. Set the target
-back to 20 m for any run whose readings are meant to be compared with that evidence. A group is
-never planned longer than 25 m.
+Why the far end rather than the near one: a shorter reconstruction is the more self-consistent. Two
+25 m windows of a driven segment, reconstructed against the 41 m their frames produce whole, have
+their frames agreeing about a cell's height half again as well (0.08-0.10 m of between-frame spread
+against 0.14 on flat grass, 0.27-0.30 against 0.41 on tall) and their points reaching the cell's own
+ground far more often (50-54% of voxels against 36%), with DA3's scale drifting less over the
+shorter path — `measurement/docs/evidence/2026-09-13-car-mount.md`, 15 September 2026. A ten-second
+walk still becomes one group of eight to ten metres, below the graded band and flagged as such.
 
 Frames inside a group are spaced by distance, which is what the depth model actually depends on.
 Sampling by time crowds frames together wherever the vehicle is slow — pulling away from a light
 puts half of them in the first twenty metres — and spreads them thin where it is fast.
 
-At a 10 m target, from a 30 fps camera and its ~300 encoded frames per segment:
+At a 25 m target, from the 59.94 fps the September 2026 captures actually recorded at, and its
+~600 encoded frames per segment:
 
 | km/h | distance / 10 s | groups | group length | frames / group | spacing | inside the graded range |
 |---:|---:|---:|---:|---:|---:|---|
 | 5, walking | 14 m | 1 | 13.9 m | 112 | 0.13 m | no, by 10 cm of path |
-| 20 | 56 m | 6 | 9.3 m | 50 | 0.19 m | no |
-| 30 | 83 m | 8 | 10.4 m | 37 | 0.29 m | no |
-| 40 | 111 m | 11 | 10.1 m | 27 | 0.39 m | no |
-| 60 | 167 m | 17 | 9.8 m | 17 | 0.61 m | no |
-| 100 | 278 m | 28 | 9.9 m | 10 | 1.10 m | no |
+| 20 | 56 m | 3 | 18.5 m | 112 | 0.17 m | yes |
+| 30 | 83 m | 4 | 20.8 m | 112 | 0.19 m | yes |
+| 40 | 111 m | 5 | 22.2 m | 112 | 0.20 m | yes |
+| 60 | 167 m | 7 | 23.8 m | 85 | 0.28 m | yes |
+| 71 | 197 m | 8 | 24.7 m | 74 | 0.34 m | yes |
+| 90 | 250 m | 9 | 27.8 m | 66 | 0.43 m | no, the frame floor won |
+| 100 | 278 m | 9 | 30.9 m | 66 | 0.47 m | no, the frame floor won |
 
-So at this setting essentially nothing is graded: the only band that reaches the envelope is a
-path of 14 to 15 m, where the planner still makes one group and 112 frames fit inside it. Every
-group records `withinGradedEnvelope` either way, so a consumer can always tell which side of the
-line it is on.
+**The rule needs the frames to exist, so it needs the camera.** The same table from a 30 fps camera
+and its ~300 encoded frames stops at four groups per segment, because 64 frames each is all 300
+frames buy: 27.8 m at 40 km/h, 41.7 m at 60, 69.4 m at 100 — longer windows than the evidence above
+argues for, and the planner has no way to make more frames. The capture app asks for the highest
+rate the device grants (240 ideal, 24 minimum, `camera_segment_recorder.dart`); the seven sessions
+of 13 September came back at 59.94 fps, which is why the driven rows above hold to 71 km/h. A 30 fps
+device driven at highway speed is a real limitation of this design and the manifest reports it
+frame by frame rather than hiding it: `nativeFps`, and `withinGradedEnvelope` on every group.
 
-Two of those limits belong to the camera and the vehicle rather than to the code. **Above roughly
-34 km/h a group cannot hold 64 frames**, because a 30 fps camera did not record them that close
-together; more frames per second would not help until the segment is re-cut. And the frame budget
-— 112 JPEGs for the whole segment, not per group — binds long before the camera does.
+Frames inside a group are spaced by distance, which is what the depth model actually depends on.
+Sampling by time crowds frames together wherever the vehicle is slow — pulling away from a light
+puts half of them in the first twenty metres — and spreads them thin where it is fast.
+
+That limit belongs to the camera and the vehicle rather than to the code: **above roughly 34 km/h a
+30 fps camera cannot put 64 frames inside 25 m**, because it never recorded them that close
+together, and at 59.94 fps the same wall is at about 68 km/h. Past it the planner keeps the 64
+frames and lets the group run long rather than reconstructing from fewer views than anything
+graded.
 
 A vehicle or a person that never moved produces no groups and publishes no frames. The floor is
 3 m, and **which distance it is compared against follows how that distance was measured**:
@@ -93,10 +109,14 @@ A vehicle or a person that never moved produces no groups and publishes no frame
   "did not move" is the only output the arithmetic permits there, and the manifest says that
   rather than calling it a finding.
 
-The manifest records **every** group, but publishes JPEGs only for as many as the frame budget
-allows. Publishing all of them would triple storage and triple a GPU bill that already runs to about
-four GPU-hours per hour driven. The source is kept, so a group that was only planned can be
-materialised later from its recorded frame indices.
+The manifest records **every** group and, since 15 September 2026, **publishes every one of them**
+whose frame count fits a single depth run. Until then the 112-frame ceiling was spent once per
+segment, on the first groups: of 7,923 m of camera path planned across the 43 segments of
+13 September, 1,545 m were published and measured — 19%, a median of 18% per segment. Four fifths of
+the road was photographed and never looked at. Publishing all of them multiplies the storage and the
+GPU bill by about five, and that is the price of measuring the whole road. The source is kept
+either way, so a group that was only planned can be materialised later from its recorded frame
+indices.
 
 ## The source segment is kept
 
@@ -273,8 +293,8 @@ location fields/quality/age and motion fields/age.
 - Horizontal accuracy up to 10 m is `good`; up to 25 m is `degraded`; worse is unavailable.
 - Motion older than 100 ms is unavailable.
 - Missing or stale evidence remains absent; it is never silently carried forward.
-- Sampled JPEGs are spaced by distance, at most 112 frames for the whole segment, with a
-  1024-pixel long edge and no upscaling.
+- Sampled JPEGs are spaced by distance, at most 112 frames per group and never fewer than 64 where
+  the camera recorded them, with a 1024-pixel long edge and no upscaling.
 
 The phone camera provides a completed segment rather than a hardware timestamp for each frame.
 Per-frame UTC/monotonic time is therefore derived from the encoded presentation timestamp plus
