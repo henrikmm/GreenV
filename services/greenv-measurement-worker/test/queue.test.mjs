@@ -121,3 +121,12 @@ test("a renewal that fails is abandoned rather than retried", async () => {
   // and Azure redelivers the segment when the original timeout expires.
   assert.equal(lease.receipt, "receipt-1");
 });
+
+test("a segment interrupted by a shutdown comes back instead of being poisoned", () => {
+  // `nextAction` is what decides, and it only ever leaves a message a caller marked retryable.
+  // The consumer overrides it while draining, which is what this asserts the default cannot do.
+  const aborted = Object.assign(new Error("The operation was aborted"), { code: "ABORT_ERR" });
+
+  assert.equal(nextAction(aborted, 1), "poison");
+  assert.equal(nextAction(Object.assign(new Error("depth timed out"), { retryable: true }), 1), "leave");
+});

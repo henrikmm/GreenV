@@ -201,7 +201,14 @@ export async function connectAzureQueue(config, { log = () => {} } = {}) {
     } catch (error) {
       await lease.stop();
       const attempt = message.dequeueCount ?? 1;
-      const action = nextAction(error, attempt);
+      // A measurement that failed because the worker is going away did not fail on its merits.
+      // Container Apps replaces a revision by killing replicas mid-run, and whatever they were
+      // measuring surfaces here as an aborted request - which `nextAction` reads as unretryable,
+      // because nothing marked it otherwise. Two segments went to the poison queue that way on
+      // 16 September 2026, each with two of its windows already measured. While draining, the
+      // message is left instead: it costs one visibility timeout and the next worker skips the
+      // windows whose packets are already written.
+      const action = draining ? nextAction(error, attempt) : "leave";
       log({ event: "message-failed", code: error.code ?? "unknown", attempt, action, error: error.message });
       if (action === "poison") await poison(message, error.code ?? "unknown", lease.receipt);
       // "leave" is the whole of the retry: the message reappears when its visibility expires.
