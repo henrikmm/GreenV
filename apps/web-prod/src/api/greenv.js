@@ -56,12 +56,25 @@ function toSession(user) {
 }
 
 export const sessions = {
-  list({ limit = 50, offset = 0, measuredOnly = false, rodovia, sentido, state } = {}) {
+  /**
+   * A página de sessões que o servidor escolheu.
+   *
+   * O dia e a ordem vão junto e não são aplicados aqui: filtrar no navegador uma página que o
+   * servidor já recortou responde sobre a requisição, não sobre os dados — escolher "mais
+   * críticas primeiro" reordenaria as cinquenta que vieram por data, e não as piores que existem.
+   */
+  list({
+    limit = 25, offset = 0, measuredOnly = false, rodovia, sentido, state,
+    sort, capturedFrom, capturedTo,
+  } = {}) {
     const query = new URLSearchParams({ limit, offset })
     if (measuredOnly) query.set('measuredOnly', 'true')
     if (rodovia) query.set('rodovia', rodovia)
     if (sentido) query.set('sentido', sentido)
     if (state) query.set('state', state)
+    if (sort) query.set('sort', sort)
+    if (capturedFrom) query.set('capturedFrom', capturedFrom)
+    if (capturedTo) query.set('capturedTo', capturedTo)
     return getJson(`/v2/capture-sessions?${query}`)
   },
 
