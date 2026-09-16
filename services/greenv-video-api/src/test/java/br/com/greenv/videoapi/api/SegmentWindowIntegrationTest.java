@@ -157,8 +157,8 @@ class SegmentWindowIntegrationTest {
         assertThat(segment.measurement().level()).isEqualTo(3);
         assertThat(segment.measurement().cellsMeasured())
                 .as("summed, because the cells of three windows are three sets of cells")
-                .isEqualTo(6);
-        assertThat(segment.measurement().cellsAbstained()).isEqualTo(3);
+                .isEqualTo(120);
+        assertThat(segment.measurement().cellsAbstained()).isEqualTo(60);
         assertThat(segment.measuredAt()).isEqualTo(CAPTURED.plusSeconds(2));
         assertThat(segment.windowCount()).isEqualTo(3);
         assertThat(segment.measuredWindowCount()).isEqualTo(3);
@@ -177,7 +177,7 @@ class SegmentWindowIntegrationTest {
         assertThat(store.findWindows(sessionId, 0)).hasSize(1);
         assertThat(store.getSegment(sessionId, 0).measurement().cellsMeasured())
                 .as("a redelivery must not double the cell counts it rolls up")
-                .isEqualTo(2);
+                .isEqualTo(40);
     }
 
     /**
@@ -441,7 +441,7 @@ class SegmentWindowIntegrationTest {
                             .formatted(frame));
         }
         return ("""
-                {"schemaVersion":"greenv.measurement-result/1.0.0","runId":"r","mock":false,                "windowIndex":%d,"positions":[%s],                "measurement":{"quality":{"measuredCells":2,"abstainedCells":1,                "observedCellCoverage":0.667,"operationalStatus":"not-ready"}}}""")
+                {"schemaVersion":"greenv.measurement-result/1.0.0","runId":"r","mock":false,                "windowIndex":%d,"positions":[%s],                "measurement":{"quality":{"measuredCells":40,"abstainedCells":20,                "observedCellCoverage":0.667,"operationalStatus":"not-ready"}}}""")
                 .formatted(windowIndex, positions);
     }
 
@@ -498,7 +498,7 @@ class SegmentWindowIntegrationTest {
                 "positions":[\
                 {"canonicalFrame":1,"latitude":-23.6365,"longitude":-46.6834,"locationQuality":"good"},\
                 {"canonicalFrame":2,"latitude":-23.6366,"longitude":-46.6835,"locationQuality":"good"}],\
-                "measurement":{"quality":{"measuredCells":2,"abstainedCells":1,\
+                "measurement":{"quality":{"measuredCells":40,"abstainedCells":20,\
                 "observedCellCoverage":0.667,"operationalStatus":"not-ready"},"height":%s}}""")
                 .formatted(height);
     }

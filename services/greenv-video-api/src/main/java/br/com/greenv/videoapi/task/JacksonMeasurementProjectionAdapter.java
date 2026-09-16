@@ -72,7 +72,7 @@ public class JacksonMeasurementProjectionAdapter implements MeasurementProjectio
                     // From a high percentile rather than the tallest cell. One reading of 3.78 m
                     // among six is a bush or a tree the mask let through, and colouring a whole
                     // stretch by it sends a crew to mow something that is not grass.
-                    MeasurementProjection.levelFor(p95),
+                    MeasurementProjection.levelFor(p95, integer(quality, "measuredCells")),
                     integer(quality, "measuredCells"),
                     integer(quality, "abstainedCells"),
                     decimal(quality, "observedCellCoverage"),

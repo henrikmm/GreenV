@@ -29,7 +29,7 @@ class JacksonMeasurementProjectionAdapterTest {
               {"canonicalFrame":1,"latitude":-23.6365,"longitude":-46.6834,"locationQuality":"degraded"},
               {"canonicalFrame":2,"latitude":-23.6366,"longitude":-46.6835,"locationQuality":"good"},
               {"canonicalFrame":3,"latitude":null,"longitude":null,"locationQuality":"unavailable"}],
-             "measurement":{"quality":{"measuredCells":2,"abstainedCells":1,"observedCellCoverage":0.667}}}
+             "measurement":{"quality":{"measuredCells":40,"abstainedCells":20,"observedCellCoverage":0.667}}}
             """;
 
     private static String assessment(String... extents) {
@@ -55,8 +55,8 @@ class JacksonMeasurementProjectionAdapterTest {
 
         assertThat(projection.extent95MaxM()).isEqualTo(0.42);
         assertThat(projection.extent95P95M()).isEqualTo(0.42);
-        assertThat(projection.cellsMeasured()).isEqualTo(2);
-        assertThat(projection.cellsAbstained()).isEqualTo(1);
+        assertThat(projection.cellsMeasured()).isEqualTo(40);
+        assertThat(projection.cellsAbstained()).isEqualTo(20);
         assertThat(projection.coverage()).isEqualTo(0.667);
     }
 
@@ -167,7 +167,7 @@ class JacksonMeasurementProjectionAdapterTest {
                 {"positions":[
                   {"canonicalFrame":1,"latitude":-23.6,"longitude":-46.6,"locationQuality":"degraded"},
                   {"canonicalFrame":2,"latitude":-23.6,"longitude":-46.6,"locationQuality":"degraded"}],
-                 "measurement":{"quality":{"measuredCells":2,"abstainedCells":0}}}
+                 "measurement":{"quality":{"measuredCells":40,"abstainedCells":0}}}
                 """;
 
         var projection = adapter.project(bytes(stationary), bytes(assessment(measured(0.2))));
@@ -189,7 +189,7 @@ class JacksonMeasurementProjectionAdapterTest {
         var projection = adapter.project(bytes(PACKET), null);
 
         assertThat(projection.trackGeoJson()).isNotNull();
-        assertThat(projection.cellsMeasured()).isEqualTo(2);
+        assertThat(projection.cellsMeasured()).isEqualTo(40);
         assertThat(projection.extent95P95M()).isNull();
         assertThat(projection.level()).as("no height read means no level, never level 1").isNull();
     }
@@ -201,5 +201,30 @@ class JacksonMeasurementProjectionAdapterTest {
         assertThat(MeasurementProjection.levelFor(0.30)).isEqualTo(2);
         assertThat(MeasurementProjection.levelFor(0.301)).isEqualTo(3);
         assertThat(MeasurementProjection.levelFor(null)).isNull();
+    }
+
+    /**
+     * A percentile over a handful of cells is the tallest of that handful, not a stretch.
+     *
+     * <p>The 43 segments of 13 September produced 38 windows that measured 17 cells or fewer -
+     * 4% of their corridor on average - and six of them landed above 30 cm, one from a single
+     * cell. Level 3 is where a crew is sent first, so a reading that thin has to say "unrated"
+     * rather than "critical".
+     */
+    @Test
+    void aLevelNeedsEnoughOfTheStretchToHaveBeenMeasured() {
+        assertThat(MeasurementProjection.levelFor(0.55, 5))
+                .as("five cells is a quarter of the floor and not a reading")
+                .isNull();
+        assertThat(MeasurementProjection.levelFor(0.55, 19)).isNull();
+        assertThat(MeasurementProjection.levelFor(0.55, 20))
+                .as("at the floor the reading stands, and it is level 3")
+                .isEqualTo(3);
+        assertThat(MeasurementProjection.levelFor(0.04, 3))
+                .as("a short reading on thin evidence is unrated too - unknown is not low")
+                .isNull();
+        assertThat(MeasurementProjection.levelFor(0.04, null))
+                .as("a caller with no cell count is answered as before")
+                .isEqualTo(1);
     }
 }
