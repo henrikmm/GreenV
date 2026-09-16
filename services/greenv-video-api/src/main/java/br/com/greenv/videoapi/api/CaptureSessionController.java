@@ -234,11 +234,30 @@ public class CaptureSessionController {
         return captureSessionUseCase.manifest(sessionId, segmentIndex);
     }
 
+    /**
+     * The measured stretches inside one uploaded segment.
+     *
+     * <p>A segment is 10 seconds of video and, driven, a couple of hundred metres of road. It is
+     * now cut into windows of about 25 m and each is reconstructed and measured on its own, so the
+     * trecho a crew is sent to is a window and this is the list of them. Empty for a segment
+     * measured whole.
+     */
+    @GetMapping("/{sessionId}/segments/{segmentIndex}/windows")
+    List<CaptureSegmentResponse> windows(@PathVariable UUID sessionId, @PathVariable int segmentIndex) {
+        String url = baseUrl();
+        return captureSessionUseCase.windows(sessionId, segmentIndex).stream()
+                .map(window -> CaptureSegmentResponse.from(window, url))
+                .toList();
+    }
+
     @GetMapping(
             path = "/{sessionId}/segments/{segmentIndex}/measurement",
             produces = MediaType.APPLICATION_JSON_VALUE)
-    byte[] measurement(@PathVariable UUID sessionId, @PathVariable int segmentIndex) {
-        return captureSessionUseCase.measurement(sessionId, segmentIndex);
+    byte[] measurement(
+            @PathVariable UUID sessionId,
+            @PathVariable int segmentIndex,
+            @RequestParam(required = false) Integer window) {
+        return captureSessionUseCase.measurement(sessionId, segmentIndex, window);
     }
 
     /**
@@ -253,11 +272,18 @@ public class CaptureSessionController {
             path = "/{sessionId}/segments/{segmentIndex}/depth/{fileName}",
             produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
     ResponseEntity<Resource> depthArtifact(
-            @PathVariable UUID sessionId, @PathVariable int segmentIndex, @PathVariable String fileName) {
+            @PathVariable UUID sessionId,
+            @PathVariable int segmentIndex,
+            @PathVariable String fileName,
+            @RequestParam(required = false) Integer window) {
         CaptureObjectStorage.ObjectContent content =
-                captureSessionUseCase.depthArtifact(sessionId, segmentIndex, fileName);
-        String downloadName = "%s-segmento-%d-%s"
-                .formatted(shortSession(sessionId), segmentIndex, fileName);
+                captureSessionUseCase.depthArtifact(sessionId, segmentIndex, window, fileName);
+        // The window is in the name because a segment now yields several reconstructions and a
+        // person downloading them needs to tell them apart in a folder.
+        String downloadName = window == null
+                ? "%s-segmento-%d-%s".formatted(shortSession(sessionId), segmentIndex, fileName)
+                : "%s-segmento-%d-trecho-%02d-%s"
+                        .formatted(shortSession(sessionId), segmentIndex, window, fileName);
         return ResponseEntity.ok()
                 .contentType(MediaType.APPLICATION_OCTET_STREAM)
                 .contentLength(content.bytes())

@@ -3,6 +3,20 @@ package br.com.greenv.videoapi.domain;
 import java.time.Instant;
 import java.util.UUID;
 
+/**
+ * One measured stretch: an uploaded segment, or one window of it.
+ *
+ * <p>A segment used to be the unit of measurement and so this record used to be one row of {@code
+ * capture_segments}. Since the extractor started cutting a segment into windows of about 25 m and
+ * measuring each on its own, the stretch a dashboard lists and a crew is sent to is a window. Both
+ * are described here rather than by two records, because outside the identity every field means
+ * exactly the same thing at both scales and a second record would be the same fields with a
+ * different spelling, plus a mapper between them.
+ *
+ * <p>{@link #windowIndex()} is what distinguishes them: null is the segment itself, measured
+ * whole. The upload fields — the state, the checksums, the manifest, the frame count — always
+ * describe the uploaded segment, because that is the only thing that was ever uploaded.
+ */
 public record CaptureSegmentDocument(
         UUID sessionId,
         int segmentIndex,
@@ -37,6 +51,18 @@ public record CaptureSegmentDocument(
          * nothing.
          */
         SegmentPlace place,
+        /** Which window of the segment this is, or null when it is the segment measured whole. */
+        Integer windowIndex,
+        /**
+         * Where the window runs, in metres along the segment's camera path. Null on a segment, and
+         * null on a window the worker announced without them — which is not the same as zero.
+         */
+        Double windowStartMeters,
+        Double windowEndMeters,
+        /** How many windows the segment was cut into. Zero for a segment measured whole. */
+        int windowCount,
+        /** How many of those carry a measurement. */
+        int measuredWindowCount,
         Instant createdAt,
         Instant updatedAt) {
 
@@ -46,5 +72,10 @@ public record CaptureSegmentDocument(
 
     public boolean isMeasured() {
         return "measured".equals(measurementState);
+    }
+
+    /** True when this row stands for a window rather than for the uploaded segment. */
+    public boolean isWindow() {
+        return windowIndex != null;
     }
 }

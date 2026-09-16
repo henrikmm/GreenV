@@ -15,10 +15,12 @@ import tools.jackson.databind.ObjectMapper;
 /**
  * The session's shape, as GeoJSON.
  *
- * <p>Two features per measured segment. The {@code LineString} is where the camera went, straight
- * from the stored track. The {@code Polygon} is that line widened to the band the grid actually
- * measured — {@code band.maxDistanceFromRoadM} is 5 m in every packet — so the filled area on a
- * map is the area a reading can speak for, and not a guess at how much verge there was.
+ * <p>Two features per measured stretch, which is a window of a segment wherever the segment was
+ * cut into windows and the segment itself where it was not. The {@code LineString} is where the
+ * camera went over that stretch, straight from its own stored track. The {@code Polygon} is that
+ * line widened to the band the grid actually measured — {@code band.maxDistanceFromRoadM} is 5 m
+ * in every packet — so the filled area on a map is the area a reading can speak for, and not a
+ * guess at how much verge there was.
  *
  * <p>The band is drawn on both sides because the packet folds them together:
  * {@code corridor.side} is {@code "unsigned-both-sides-folded"}, so which side of the road a cell
@@ -120,6 +122,12 @@ public class GeoJsonSegmentTrackWriterAdapter implements SegmentTrackWriter {
         Map<String, Object> properties = new LinkedHashMap<>();
         properties.put("sessionId", segment.sessionId().toString());
         properties.put("segmentIndex", segment.segmentIndex());
+        // Null means the whole segment was measured as one. A feature with a window index covers
+        // about 25 m of road; one without it may cover two hundred, and a map that could not tell
+        // them apart would draw two very different claims the same way.
+        properties.put("windowIndex", segment.windowIndex());
+        properties.put("windowStartMeters", segment.windowStartMeters());
+        properties.put("windowEndMeters", segment.windowEndMeters());
         properties.put("capturedAt", segment.capturedAt() == null ? null : segment.capturedAt().toString());
         properties.put("measurementState", segment.measurementState());
         properties.put("measurementIsMock", segment.measurementIsMock());

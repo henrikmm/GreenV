@@ -55,7 +55,18 @@ public record CaptureSegmentResponse(
         Integer placeKm,
         Double placeKmOffsetM,
         String placeSource,
-        String framesUrl) {
+        String framesUrl,
+        // Which stretch of the segment this row is. Null means the segment was measured whole:
+        // every reading taken before the extractor started cutting a segment into windows, and
+        // any segment whose frames make a single one. It is not a default — a row with a window
+        // index is a reading about 25 m of road, and a row without one may be about 200.
+        Integer windowIndex,
+        Double windowStartMeters,
+        Double windowEndMeters,
+        // How the segment was cut, on every row of it. A segment row carries these so a session
+        // list can show that a segment has eight readings without fetching them.
+        Integer windowCount,
+        Integer measuredWindowCount) {
 
     public static CaptureSegmentResponse from(CaptureSegmentDocument segment, String baseUrl) {
         String segmentPath = "/v2/capture-sessions/" + segment.sessionId()
@@ -63,10 +74,13 @@ public record CaptureSegmentResponse(
         String manifestUrl = segment.manifestObjectKey() == null
                 ? null
                 : baseUrl + segmentPath + "/manifest";
-        // The key is what proves the packet exists; the URL is only how a client fetches it.
+        // The key is what proves the packet exists; the URL is only how a client fetches it. A
+        // window's packet is the same route with the window named, so a client never composes a
+        // key of its own.
+        String window = segment.windowIndex() == null ? "" : "?window=" + segment.windowIndex();
         String measurementUrl = segment.measurementObjectKey() == null
                 ? null
-                : baseUrl + segmentPath + "/measurement";
+                : baseUrl + segmentPath + "/measurement" + window;
         String framesUrl = segment.manifestObjectKey() == null ? null : baseUrl + segmentPath + "/frames";
         var measurement = segment.measurement();
         var place = segment.place();
@@ -107,6 +121,11 @@ public record CaptureSegmentResponse(
                 place == null ? null : place.km(),
                 place == null ? null : place.kmOffsetMetres(),
                 place == null ? null : place.source(),
-                framesUrl);
+                framesUrl,
+                segment.windowIndex(),
+                segment.windowStartMeters(),
+                segment.windowEndMeters(),
+                segment.windowCount(),
+                segment.measuredWindowCount());
     }
 }

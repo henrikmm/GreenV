@@ -15,8 +15,12 @@ public interface SampledFrameReader {
 
     /**
      * @param manifest {@code segment-manifest-v2.json}; without it there is nothing to list
-     * @param resultPacket {@code measurement-result-v1.json}, or null when unmeasured, in which
-     *     case the frames come back without coordinates
+     * @param resultPackets every {@code measurement-result-v1.json} covering this segment, which
+     *     is one packet when it was measured whole and one per window otherwise. Empty when
+     *     unmeasured, and then the frames come back without coordinates. A list rather than a
+     *     single document because a window's packet carries only the positions of the frames that
+     *     window was reconstructed from, and the segment's photographs are spread across all of
+     *     them
      */
-    List<SampledFrame> read(byte[] manifest, byte[] resultPacket);
+    List<SampledFrame> read(byte[] manifest, List<byte[]> resultPackets);
 }

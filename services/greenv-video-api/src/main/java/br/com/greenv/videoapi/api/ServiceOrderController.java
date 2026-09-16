@@ -67,7 +67,8 @@ public class ServiceOrderController {
                 request.scheduledFor(),
                 request.notes(),
                 request.targets().stream()
-                        .map(target -> new SegmentReference(target.sessionId(), target.segmentIndex()))
+                        .map(target -> new SegmentReference(
+                                target.sessionId(), target.segmentIndex(), target.windowIndex()))
                         .toList());
         return ServiceOrderResponse.from(operations.openOrder(draft, nameOf(principal)));
     }

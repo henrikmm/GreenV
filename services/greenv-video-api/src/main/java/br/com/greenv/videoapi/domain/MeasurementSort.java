@@ -27,7 +27,11 @@ public enum MeasurementSort {
     /** When the measurement ran, which is freshness rather than severity. */
     MEASURED_DESC("measured_at DESC NULLS LAST");
 
-    private static final String TIE_BREAK = ", session_id, segment_index";
+    /**
+     * The whole key of a reading, which is a window of a segment of a session. Two windows of one
+     * segment measured at the same height would otherwise be free to swap places between pages.
+     */
+    private static final String TIE_BREAK = ", session_id, segment_index, window_index";
 
     private final String sortKey;
 

@@ -66,6 +66,37 @@ public interface CaptureSessionStore {
             MeasurementProjection projection,
             Instant now);
 
+    /**
+     * Records that worker 2 measured one window of a segment, and rolls the window set up onto the
+     * segment's own projection.
+     *
+     * <p>The rollup is what keeps the session screen and the per-segment counters working while
+     * the unit of measurement moves underneath them: the segment reports the worst window's height
+     * and level, the summed cell counts and the latest measurement. Idempotent for the same reason
+     * the segment path is — the worker republishes the same result when a delivery is retried.
+     */
+    CaptureSegmentDocument recordWindowMeasurement(
+            UUID sessionId,
+            int segmentIndex,
+            int windowIndex,
+            Double startMeters,
+            Double endMeters,
+            String objectKey,
+            String runId,
+            boolean mock,
+            Instant measuredAt,
+            MeasurementProjection projection,
+            Instant now);
+
+    /** One window of one segment, or empty when that window was never measured. */
+    Optional<CaptureSegmentDocument> findWindow(UUID sessionId, int segmentIndex, int windowIndex);
+
+    /** Every measured window of one segment, in window order. */
+    List<CaptureSegmentDocument> findWindows(UUID sessionId, int segmentIndex);
+
+    /** Every measured window of a whole session, ordered by segment and then by window. */
+    List<CaptureSegmentDocument> findWindows(UUID sessionId);
+
     CaptureSessionDocument completeSession(UUID sessionId, int lastSegmentIndex, Instant endedAt, Instant now);
 
     /** One page of sessions, newest first, filtered by {@code query}. */
@@ -80,7 +111,13 @@ public interface CaptureSessionStore {
     /** How many of a session's segments fall in each level, so a filter can show its own size. */
     MeasurementSummary summariseSegments(UUID sessionId);
 
-    /** One page of readings across every session, ordered and filtered by {@code query}. */
+    /**
+     * One page of readings across every session, ordered and filtered by {@code query}.
+     *
+     * <p>One row per measured window, plus one row per segment that was measured whole and has no
+     * windows. A segment cut into windows never appears on its own: its eight readings are eight
+     * rows, which is the point of cutting it.
+     */
     Page<CaptureSegmentDocument> findMeasurements(MeasurementQuery query);
 
     /** The counters for the whole filtered set, which a page of it cannot answer. */
@@ -93,15 +130,21 @@ public interface CaptureSessionStore {
     long measuredSegmentCount(UUID sessionId);
 
     /**
-     * Measured stretches that carry a position and were never asked about.
+     * Measured stretches that carry a position and were never asked about — windows included.
      *
      * <p>Ordered newest first, so a fresh measurement gets its street name before an old one that
-     * nobody is looking at.
+     * nobody is looking at. A window carries its own coordinate and gets its own name: a 200 m
+     * segment crosses streets, and naming all of its windows after the middle one is the
+     * distortion this cache exists to avoid.
      */
     List<CaptureSegmentDocument> findSegmentsAwaitingPlace(int limit);
 
-    /** Caches the place on the row. A row is written even when nothing was found. */
-    void recordPlace(UUID sessionId, int segmentIndex, SegmentPlace place);
+    /**
+     * Caches the place on the row. A row is written even when nothing was found.
+     *
+     * @param windowIndex which window the place belongs to, or null for the segment's own row
+     */
+    void recordPlace(UUID sessionId, int segmentIndex, Integer windowIndex, SegmentPlace place);
 
     /**
      * Replaces every frame reading of a segment, in one transaction.
@@ -110,6 +153,17 @@ public interface CaptureSessionStore {
      * a partial overwrite would leave rows from a previous run beside rows from this one.
      */
     void replaceFrameReadings(UUID sessionId, int segmentIndex, List<FrameReadings> readings);
+
+    /**
+     * Writes the readings of one window without disturbing its neighbours'.
+     *
+     * <p>The readings are keyed by the photograph, and a photograph belongs to exactly one window,
+     * so the windows of a segment derive disjoint sets. Replacing wholesale — which is right when
+     * one assessment describes the whole segment — would make every window's announcement erase
+     * the ones announced before it, and the segment would end up holding only its last window's
+     * frames.
+     */
+    void mergeFrameReadings(UUID sessionId, int segmentIndex, List<FrameReadings> readings);
 
     Optional<FrameReadings> findFrameReadings(UUID sessionId, int segmentIndex, int canonicalFrame);
 

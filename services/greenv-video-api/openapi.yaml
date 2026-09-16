@@ -523,10 +523,13 @@ paths:
       operationId: getCaptureSessionTrack
       summary: The session drawn as GeoJSON
       description: >-
-        A FeatureCollection with up to two features per measured segment: the
+        A FeatureCollection with up to two features per measured stretch: the
         camera path as a LineString, and the five-metre band the measurement
-        covered as a Polygon. The band is drawn on both sides because the packet
-        folds them together and never records which side a cell sat on.
+        covered as a Polygon. A stretch is a window wherever the segment was cut
+        into windows -- each feature then carries its own windowIndex and its own
+        track -- and the segment itself where it was not, where windowIndex is
+        null. The band is drawn on both sides because the packet folds them
+        together and never records which side a cell sat on.
       parameters:
         - $ref: '#/components/parameters/SessionId'
       responses:
@@ -745,13 +748,17 @@ paths:
         of an arbitrary slice as though it were the tallest there is. Carries
         the projected summary only; the packet itself is at the segment's
         measurement route. Every reading reports operationalStatus "not-ready".
+        A row is one measured window, not one uploaded segment: a segment cut
+        into windows contributes one row per window and never a row of its own,
+        and a segment measured whole contributes a single row with a null
+        windowIndex.
       parameters:
         - $ref: '#/components/parameters/MeasurementSort'
         - $ref: '#/components/parameters/MeasurementLevel'
         - $ref: '#/components/parameters/CapturedFrom'
         - $ref: '#/components/parameters/CapturedTo'
         - $ref: '#/components/parameters/MeasurementSearch'
-        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/MeasurementLimit'
         - $ref: '#/components/parameters/Offset'
       responses:
         '200':
@@ -765,7 +772,8 @@ paths:
       operationId: summariseMeasurements
       summary: How many readings the same filter selects, by level
       description: >-
-        The counters above the list. Its own route because the answer is the
+        The counters above the list, over windows now rather than over uploaded
+        segments. Its own route because the answer is the
         same for every page of one filter, and because a count describing only
         the page would be an answer about the request rather than about the
         data. The level filter is ignored here: the counters answer for every
@@ -782,6 +790,33 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MeasurementSummary'
+  /v2/capture-sessions/{sessionId}/segments/{segmentIndex}/windows:
+    get:
+      operationId: listCaptureSegmentWindows
+      summary: The measured stretches inside one uploaded segment
+      description: >-
+        A segment is ten seconds of video and, driven, a couple of hundred
+        metres of road. The frame extractor cuts it into windows of about 25 m
+        and publishes every one, and the measurement worker answers with one
+        reconstruction, one packet and one reading per window -- so the trecho
+        an operations team sends a crew to is a window, and this lists them in
+        the order they were cut. Empty for a segment measured whole, which is
+        every segment measured before the extractor stopped spending its whole
+        frame budget on the first few tens of metres.
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - $ref: '#/components/parameters/SegmentIndex'
+      responses:
+        '200':
+          description: The segment's windows, ordered by window index
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CaptureSegment'
+        '404':
+          description: Session or segment not found
   /v2/capture-sessions/{sessionId}/segments/{segmentIndex}/measurement:
     get:
       operationId: getCaptureSegmentMeasurement
@@ -793,6 +828,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/SessionId'
         - $ref: '#/components/parameters/SegmentIndex'
+        - $ref: '#/components/parameters/WindowIndex'
       responses:
         '200':
           description: Measurement packet
@@ -816,6 +852,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/SessionId'
         - $ref: '#/components/parameters/SegmentIndex'
+        - $ref: '#/components/parameters/WindowIndex'
         - name: fileName
           in: path
           required: true
@@ -1007,6 +1044,18 @@ components:
         type: integer
         minimum: 1
         maximum: 200
+    MeasurementLimit:
+      name: limit
+      in: query
+      required: false
+      description: >-
+        Page size. Defaults to 25 and is capped at 1000. Higher than the other listings because a
+        row here is a 25 m window rather than an uploaded segment, so a day of driving is some
+        hundreds of rows.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 1000
     Offset:
       name: offset
       in: query
@@ -1027,6 +1076,19 @@ components:
       schema:
         type: string
         enum: [HEIGHT_DESC, HEIGHT_ASC, CAPTURED_DESC, CAPTURED_ASC, MEASURED_DESC]
+    WindowIndex:
+      name: window
+      in: query
+      required: false
+      description: >-
+        Which window of the segment to answer for. A segment is cut into
+        windows of about 25 m and each is reconstructed and measured on its
+        own, so this is what names one reading. Omit it for a segment measured
+        whole; a segment that has windows has no packet of its own and answers
+        409 when it is omitted.
+      schema:
+        type: integer
+        minimum: 0
     MeasurementLevel:
       name: level
       in: query
@@ -1246,6 +1308,9 @@ components:
                 format: uuid
               segmentIndex:
                 type: integer
+              windowIndex:
+                type: [integer, 'null']
+                description: Null when the order covers a segment measured whole
         history:
           type: array
           items:
@@ -1312,6 +1377,15 @@ components:
                 format: uuid
               segmentIndex:
                 type: integer
+              windowIndex:
+                type: [integer, 'null']
+                description: >-
+                  Which window of that segment the order covers. A target that
+                  names one is answered by that window's own evidence -- its
+                  height, its level, its position and its length -- and not by
+                  the segment's summary of all of them. Null covers the whole
+                  segment. A window with no measurement is refused with 409,
+                  exactly as an unmeasured segment is.
     UpdateServiceOrder:
       type: object
       properties:
@@ -1525,6 +1599,31 @@ components:
         framesUrl:
           type: [string, 'null']
           format: uri
+        windowIndex:
+          description: >-
+            Which stretch of the segment this row is. Null means the segment
+            was measured whole: every reading taken before the extractor began
+            cutting a segment into windows, and any segment whose frames make a
+            single one. It is not a default -- a row with a window index speaks
+            for about 25 m of road, a row without one may speak for 200.
+          type: [integer, 'null']
+          minimum: 0
+        windowStartMeters:
+          description: >-
+            Where the window begins along the segment's camera path, in metres.
+            Null on a segment row, and null on a window the worker announced
+            without them, which is not the same as zero.
+          type: [number, 'null']
+        windowEndMeters:
+          type: [number, 'null']
+        windowCount:
+          description: >-
+            How many windows the segment was cut into, carried on every row of
+            it. Zero for a segment measured whole.
+          type: [integer, 'null']
+        measuredWindowCount:
+          description: How many of those windows carry a reading.
+          type: [integer, 'null']
     CaptureSessionPage:
       type: object
       required: [schemaVersion, items, total, limit, offset, hasMore]
@@ -1606,6 +1705,12 @@ components:
         locationQuality:
           type: [string, 'null']
           enum: [good, degraded, unavailable, null]
+        windowIndex:
+          description: >-
+            Which 25 m window of the segment reconstructed this photograph, from the packet that
+            carries its position. Null for a segment measured whole, and for a frame no packet
+            claims.
+          type: [integer, 'null']
         imageUrl:
           type: string
           format: uri

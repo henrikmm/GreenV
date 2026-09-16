@@ -23,7 +23,9 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -126,22 +128,32 @@ public class OperationsService implements OperationsUseCase {
             team(draft.teamId());
         }
 
+        // Deduplicated because the evidence is summed: the same window named twice would double
+        // the area the order claims, and because the target table no longer has a key to refuse
+        // it. See V15 for why that key had to go.
+        List<SegmentReference> targets = new ArrayList<>(new LinkedHashSet<>(draft.targets()));
         List<CaptureSegmentDocument> segments = new ArrayList<>();
-        for (SegmentReference target : draft.targets()) {
+        for (SegmentReference target : targets) {
             CaptureSegmentDocument segment = captures
                     .findSegment(target.sessionId(), target.segmentIndex())
                     .orElseThrow(() -> new ApplicationException(
                             FailureKind.NOT_FOUND,
                             "segment-not-found",
                             "No segment " + target.segmentIndex() + " in session " + target.sessionId()));
-            if (!segment.isMeasured()) {
+            // A target that names a window is answered by that window's own reading. The
+            // segment's is a rollup of every window it has, and opening an order against it would
+            // send a crew to two hundred metres of road on the evidence of the worst twenty-five.
+            CaptureSegmentDocument reading = target.windowIndex() == null
+                    ? segment
+                    : captures.findWindow(target.sessionId(), target.segmentIndex(), target.windowIndex())
+                            .orElse(null);
+            if (reading == null || !reading.isMeasured()) {
                 throw new ApplicationException(
                         FailureKind.CONFLICT,
                         "segment-not-measured",
-                        "Segment " + target.segmentIndex() + " of session " + target.sessionId()
-                                + " has no measurement to justify an order");
+                        describe(target) + " has no measurement to justify an order");
             }
-            segments.add(segment);
+            segments.add(reading);
         }
 
         Instant now = clock.instant();
@@ -164,7 +176,7 @@ public class OperationsService implements OperationsUseCase {
                 openedBy,
                 now,
                 now,
-                draft.targets(),
+                targets,
                 List.of(opened));
         orders.insert(order);
         return order(orderId);
@@ -220,6 +232,14 @@ public class OperationsService implements OperationsUseCase {
         amendOrder(orderId, ServiceOrderStatus.CANCELADA, null, null, null, null, cancelledBy);
     }
 
+    /** The stretch a refusal is about, in the words the request used. */
+    private static String describe(SegmentReference target) {
+        String segment = "Segment " + target.segmentIndex() + " of session " + target.sessionId();
+        return target.windowIndex() == null
+                ? segment
+                : "Window " + target.windowIndex() + " of " + segment.toLowerCase(Locale.ROOT);
+    }
+
     private String nextReference(Instant now) {
         String prefix = "OS-ROÇ-" + REFERENCE_MONTH.format(now) + "-";
         return prefix + String.format("%04d", 1001 + orders.countWithReferencePrefix(prefix));
@@ -242,9 +262,26 @@ public class OperationsService implements OperationsUseCase {
         double metres = 0;
         for (CaptureSegmentDocument segment : segments) {
             Double length = projection(segment).trackLengthM();
-            metres += length == null || length <= 0 ? ASSUMED_SEGMENT_LENGTH_METRES : length;
+            if (length != null && length > 0) {
+                metres += length;
+                continue;
+            }
+            // A window with no drawable track still knows how far along the segment it runs,
+            // because the extractor cut it to a distance. That is a measured length and not an
+            // assumption, so only a whole segment ever falls back to the guess below.
+            Double extent = extentOf(segment);
+            metres += extent == null ? ASSUMED_SEGMENT_LENGTH_METRES : extent;
         }
         return metres * BAND_WIDTH_METRES;
+    }
+
+    /** How far a window runs along its segment's camera path, when both ends were recorded. */
+    private static Double extentOf(CaptureSegmentDocument segment) {
+        if (segment.windowStartMeters() == null || segment.windowEndMeters() == null) {
+            return null;
+        }
+        double extent = segment.windowEndMeters() - segment.windowStartMeters();
+        return extent > 0 ? extent : null;
     }
 
     private static Integer worstLevel(List<CaptureSegmentDocument> segments) {

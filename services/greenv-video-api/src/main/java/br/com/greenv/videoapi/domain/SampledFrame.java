@@ -14,6 +14,9 @@ import java.time.Instant;
  * @param canonicalFrame the integer in that name, which is how a position refers to a frame
  * @param locationQuality {@code good}, {@code degraded}, {@code unavailable}, or null when the
  *     segment was never measured and nothing joined this frame to a fix
+ * @param windowIndex which of the segment's 25 m windows reconstructed this photograph, from the
+ *     packet that carries its position. Null for a segment measured whole, and null for a frame no
+ *     packet claims -- one that was published but never reached a reconstruction
  */
 public record SampledFrame(
         String fileName,
@@ -23,7 +26,8 @@ public record SampledFrame(
         Double latitude,
         Double longitude,
         Double horizontalAccuracyMeters,
-        String locationQuality) {
+        String locationQuality,
+        Integer windowIndex) {
 
     public boolean isLocated() {
         return latitude != null && longitude != null;

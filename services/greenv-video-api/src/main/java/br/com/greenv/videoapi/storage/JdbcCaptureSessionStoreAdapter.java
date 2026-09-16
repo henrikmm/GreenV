@@ -35,6 +35,98 @@ import org.springframework.transaction.annotation.Transactional;
 @ConditionalOnProperty(name = "greenv.adapters.database", havingValue = "jdbc", matchIfMissing = true)
 public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
 
+    /**
+     * How many windows a segment was cut into, and how many of them carry a reading.
+     *
+     * <p>Two correlated counts rather than a join, because they hang off every shape below —
+     * a segment row, a window row, a row of the readings union — and a join would have to be
+     * written three times and grouped three ways.
+     */
+    private static final String WINDOW_COUNTS = """
+            (SELECT COUNT(*) FROM capture_segment_windows c
+              WHERE c.session_id = g.session_id AND c.segment_index = g.segment_index)
+                AS window_count,
+            (SELECT COUNT(*) FROM capture_segment_windows c
+              WHERE c.session_id = g.session_id AND c.segment_index = g.segment_index
+                AND c.measurement_state IS NOT NULL) AS measured_window_count
+            """;
+
+    /**
+     * What was uploaded. Always the segment's, because a window is a stretch of one upload and
+     * never an upload of its own.
+     */
+    private static final String UPLOAD_COLUMNS = """
+            g.session_id, g.segment_index, g.state, g.idempotency_key, g.captured_at,
+            g.duration_millis, g.video_object_key, g.video_sha256, g.video_bytes,
+            g.telemetry_object_key, g.telemetry_sha256, g.telemetry_bytes,
+            g.manifest_object_key, g.frame_count, g.error_code, g.error_message
+            """;
+
+    /**
+     * What was measured, from whichever table holds the reading: {@code g} for a segment measured
+     * whole, {@code w} for one window. The two tables spell these columns identically on purpose,
+     * which is what lets one mapper read either.
+     */
+    private static final String MEASUREMENT_COLUMNS = """
+            %1$s.measurement_state, %1$s.measurement_object_key, %1$s.measurement_run_id,
+            %1$s.measurement_is_mock, %1$s.measured_at, %1$s.measurement_extent95_p95_m,
+            %1$s.measurement_extent95_max_m, %1$s.measurement_level,
+            %1$s.measurement_cells_measured, %1$s.measurement_cells_abstained,
+            %1$s.measurement_coverage, %1$s.measurement_track_length_m,
+            %1$s.track_center_lat, %1$s.track_center_lon, %1$s.track_geojson,
+            %1$s.track_location_quality, %1$s.place_label, %1$s.place_detail,
+            %1$s.place_house_number, %1$s.place_road, %1$s.place_km, %1$s.place_km_offset_m,
+            %1$s.place_source, %1$s.place_resolved_at, %1$s.created_at, %1$s.updated_at
+            """;
+
+    /** One uploaded segment, with the size of its window set beside it. */
+    private static final String SEGMENT_SELECT = "SELECT g.*, "
+            + "CAST(NULL AS INTEGER) AS window_index, "
+            + "CAST(NULL AS DOUBLE PRECISION) AS window_start_meters, "
+            + "CAST(NULL AS DOUBLE PRECISION) AS window_end_meters, "
+            + WINDOW_COUNTS
+            + " FROM capture_segments g";
+
+    private static final String WINDOW_JOIN = """
+             FROM capture_segment_windows w
+             JOIN capture_segments g
+               ON g.session_id = w.session_id AND g.segment_index = w.segment_index
+            """;
+
+    /** One window, wearing its segment's upload fields so one mapper reads both. */
+    private static final String WINDOW_SELECT = "SELECT " + UPLOAD_COLUMNS + ", "
+            + MEASUREMENT_COLUMNS.formatted("w")
+            + ", w.window_index, w.start_meters AS window_start_meters, "
+            + "w.end_meters AS window_end_meters, "
+            + WINDOW_COUNTS
+            + WINDOW_JOIN;
+
+    /**
+     * Every reading there is, at the scale it was taken.
+     *
+     * <p>One row per measured window, and one row per segment that has no windows — which is every
+     * segment measured before the extractor started cutting them, and any whose frames made a
+     * single window. A segment that does have windows never appears on its own: its readings are
+     * its windows, and counting it as well would double every total on the screen.
+     *
+     * <p>A derived table rather than two queries merged in Java, because the ordering, the paging
+     * and the counters all have to happen over the whole set. Sorting one page of each half and
+     * interleaving them in memory is the defect that moving the sort into SQL existed to remove.
+     */
+    private static final String READING_SOURCE = "(SELECT " + UPLOAD_COLUMNS + ", "
+            + MEASUREMENT_COLUMNS.formatted("g")
+            + ", CAST(NULL AS INTEGER) AS window_index"
+            + ", CAST(NULL AS DOUBLE PRECISION) AS window_start_meters"
+            + ", CAST(NULL AS DOUBLE PRECISION) AS window_end_meters, "
+            + WINDOW_COUNTS
+            + " FROM capture_segments g"
+            + " WHERE NOT EXISTS (SELECT 1 FROM capture_segment_windows c"
+            + "                    WHERE c.session_id = g.session_id"
+            + "                      AND c.segment_index = g.segment_index)"
+            + " UNION ALL "
+            + WINDOW_SELECT
+            + ") reading";
+
     private final JdbcTemplate jdbcTemplate;
 
     public JdbcCaptureSessionStoreAdapter(JdbcTemplate jdbcTemplate) {
@@ -81,7 +173,7 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
     @Override
     public Optional<CaptureSegmentDocument> findSegment(UUID sessionId, int segmentIndex) {
         return jdbcTemplate.query(
-                        "SELECT * FROM capture_segments WHERE session_id = ? AND segment_index = ?",
+                        SEGMENT_SELECT + " WHERE g.session_id = ? AND g.segment_index = ?",
                         JdbcCaptureSessionStoreAdapter::mapSegment,
                         sessionId,
                         segmentIndex)
@@ -235,6 +327,166 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
         return getSegment(sessionId, segmentIndex);
     }
 
+    /**
+     * Records one window's reading, then re-derives the segment's own summary from every window it
+     * now has.
+     *
+     * <p>Written as update-then-insert rather than as an upsert because {@code ON CONFLICT ... DO
+     * UPDATE} is not portable between PostgreSQL and the H2 the test suite runs on, and the pair
+     * is exact inside the transaction that wraps them.
+     *
+     * <p>The rollup is not a convenience. The session screen, the per-segment counters and the
+     * level chips all read {@code capture_segments}, and they were written when a segment was the
+     * unit of measurement. Rather than teach each of them about windows, the segment keeps
+     * reporting the worst window it has — the tallest grass in it, which is what decides whether a
+     * crew goes — with the cell counts summed and the latest measurement time.
+     */
+    @Transactional
+    @Override
+    public CaptureSegmentDocument recordWindowMeasurement(
+            UUID sessionId,
+            int segmentIndex,
+            int windowIndex,
+            Double startMeters,
+            Double endMeters,
+            String objectKey,
+            String runId,
+            boolean mock,
+            Instant measuredAt,
+            MeasurementProjection projection,
+            Instant now) {
+        int updated = jdbcTemplate.update("""
+                UPDATE capture_segment_windows
+                SET start_meters = ?, end_meters = ?, measurement_state = 'measured',
+                    measurement_object_key = ?, measurement_run_id = ?, measurement_is_mock = ?,
+                    measured_at = ?, updated_at = ?,
+                    measurement_extent95_p95_m = ?, measurement_extent95_max_m = ?,
+                    measurement_level = ?, measurement_cells_measured = ?,
+                    measurement_cells_abstained = ?, measurement_coverage = ?,
+                    track_center_lat = ?, track_center_lon = ?, track_geojson = ?,
+                    measurement_track_length_m = ?, track_location_quality = ?
+                WHERE session_id = ? AND segment_index = ? AND window_index = ?
+                """,
+                startMeters,
+                endMeters,
+                objectKey,
+                runId,
+                mock,
+                timestamp(measuredAt),
+                timestamp(now),
+                projection.extent95P95M(),
+                projection.extent95MaxM(),
+                projection.level(),
+                projection.cellsMeasured(),
+                projection.cellsAbstained(),
+                projection.coverage(),
+                projection.trackCenterLat(),
+                projection.trackCenterLon(),
+                projection.trackGeoJson(),
+                projection.trackLengthM(),
+                projection.trackLocationQuality(),
+                sessionId,
+                segmentIndex,
+                windowIndex);
+        if (updated == 0) {
+            jdbcTemplate.update("""
+                    INSERT INTO capture_segment_windows (
+                        session_id, segment_index, window_index, start_meters, end_meters,
+                        measurement_state, measurement_object_key, measurement_run_id,
+                        measurement_is_mock, measured_at, measurement_extent95_p95_m,
+                        measurement_extent95_max_m, measurement_level, measurement_cells_measured,
+                        measurement_cells_abstained, measurement_coverage,
+                        measurement_track_length_m, track_center_lat, track_center_lon,
+                        track_geojson, track_location_quality, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, 'measured', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    sessionId,
+                    segmentIndex,
+                    windowIndex,
+                    startMeters,
+                    endMeters,
+                    objectKey,
+                    runId,
+                    mock,
+                    timestamp(measuredAt),
+                    projection.extent95P95M(),
+                    projection.extent95MaxM(),
+                    projection.level(),
+                    projection.cellsMeasured(),
+                    projection.cellsAbstained(),
+                    projection.coverage(),
+                    projection.trackLengthM(),
+                    projection.trackCenterLat(),
+                    projection.trackCenterLon(),
+                    projection.trackGeoJson(),
+                    projection.trackLocationQuality(),
+                    timestamp(now),
+                    timestamp(now));
+        }
+        rollUpWindows(sessionId, segmentIndex, now);
+        return findWindow(sessionId, segmentIndex, windowIndex).orElseThrow(() -> new ApplicationException(
+                FailureKind.NOT_FOUND, "capture_segment_window_not_found", "capture segment window does not exist"));
+    }
+
+    /**
+     * Re-derives a segment's projection from its windows: the worst of them, and the sums.
+     *
+     * <p>The worst window is the one with the tallest grass, which is the reading that decides
+     * whether a crew is sent. Its max and its level travel with it rather than being maxed
+     * separately, so the three numbers on the row describe one reading and not three.
+     *
+     * <p>{@code measurement_object_key} and {@code measurement_run_id} are deliberately left
+     * alone. There is no packet for a segment cut into windows — each window has its own — and
+     * writing a key that resolves to nothing would put a link on the screen that answers 409.
+     */
+    private void rollUpWindows(UUID sessionId, int segmentIndex, Instant now) {
+        Map<String, Object> worst = jdbcTemplate.queryForList("""
+                SELECT measurement_extent95_p95_m, measurement_extent95_max_m, measurement_level
+                  FROM capture_segment_windows
+                 WHERE session_id = ? AND segment_index = ? AND measurement_state IS NOT NULL
+                 ORDER BY measurement_extent95_p95_m DESC NULLS LAST, window_index
+                 LIMIT 1
+                """, sessionId, segmentIndex).stream().findFirst().orElse(Map.of());
+        Map<String, Object> totals = jdbcTemplate.queryForList("""
+                SELECT MAX(measured_at) AS measured_at,
+                       SUM(measurement_cells_measured) AS cells_measured,
+                       SUM(measurement_cells_abstained) AS cells_abstained
+                  FROM capture_segment_windows
+                 WHERE session_id = ? AND segment_index = ? AND measurement_state IS NOT NULL
+                """, sessionId, segmentIndex).stream().findFirst().orElse(Map.of());
+
+        jdbcTemplate.update("""
+                UPDATE capture_segments
+                SET measurement_state = 'measured', measured_at = ?, updated_at = ?,
+                    measurement_extent95_p95_m = ?, measurement_extent95_max_m = ?,
+                    measurement_level = ?, measurement_cells_measured = ?,
+                    measurement_cells_abstained = ?
+                WHERE session_id = ? AND segment_index = ?
+                """,
+                totals.get("measured_at"),
+                timestamp(now),
+                number(worst.get("measurement_extent95_p95_m"), Double.class),
+                number(worst.get("measurement_extent95_max_m"), Double.class),
+                number(worst.get("measurement_level"), Integer.class),
+                number(totals.get("cells_measured"), Integer.class),
+                number(totals.get("cells_abstained"), Integer.class),
+                sessionId,
+                segmentIndex);
+    }
+
+    /**
+     * A number out of a generic row, in the type the column is read back as.
+     *
+     * <p>{@code SUM} widens to {@code BIGINT} in PostgreSQL and to {@code DECIMAL} in H2, and
+     * neither fits an {@code INTEGER} parameter without being narrowed first.
+     */
+    private static <T extends Number> T number(Object value, Class<T> type) {
+        if (!(value instanceof Number number)) {
+            return null;
+        }
+        return type.cast(type == Integer.class ? (Number) number.intValue() : (Number) number.doubleValue());
+    }
+
     @Override
     public CaptureSessionDocument completeSession(UUID sessionId, int lastSegmentIndex, Instant endedAt, Instant now) {
         jdbcTemplate.update("""
@@ -327,7 +579,7 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
     @Override
     public List<CaptureSegmentDocument> findSegments(UUID sessionId) {
         return jdbcTemplate.query(
-                "SELECT * FROM capture_segments WHERE session_id = ? ORDER BY segment_index",
+                SEGMENT_SELECT + " WHERE g.session_id = ? ORDER BY g.segment_index",
                 JdbcCaptureSessionStoreAdapter::mapSegment,
                 sessionId);
     }
@@ -354,7 +606,7 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
         paged.add(query.limit());
         paged.add(query.offset());
         List<CaptureSegmentDocument> items = jdbcTemplate.query(
-                "SELECT * FROM capture_segments" + where + " ORDER BY segment_index LIMIT ? OFFSET ?",
+                SEGMENT_SELECT + where + " ORDER BY segment_index LIMIT ? OFFSET ?",
                 JdbcCaptureSessionStoreAdapter::mapSegment,
                 paged.toArray());
         return new Page<>(items, total == null ? 0 : total, query.limit(), query.offset());
@@ -403,7 +655,10 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
      * <p>This used to hand out two hundred rows in whatever order they were measured and let the
      * browser sort them. That is only the right answer while everything fits in one request: past
      * that, the first page is the tallest of an arbitrary two hundred instead of the tallest there
-     * is, and nothing on screen admits it. V13 adds the two indexes these orders read.
+     * is, and nothing on screen admits it. V13 adds the two indexes these orders read, and V15 the
+     * matching ones on the window table.
+     *
+     * <p>A row is a window now, not a segment. See {@link #READING_SOURCE} for what that set is.
      */
     @Override
     public Page<CaptureSegmentDocument> findMeasurements(MeasurementQuery query) {
@@ -411,17 +666,56 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
         String where = whereFor(query, arguments);
 
         Long total = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM capture_segments" + where, Long.class, arguments.toArray());
+                "SELECT COUNT(*) FROM " + READING_SOURCE + where, Long.class, arguments.toArray());
 
         List<Object> paged = new ArrayList<>(arguments);
         paged.add(query.limit());
         paged.add(query.offset());
         List<CaptureSegmentDocument> items = jdbcTemplate.query(
-                "SELECT * FROM capture_segments" + where
+                "SELECT * FROM " + READING_SOURCE + where
                         + " ORDER BY " + query.sort().orderBy() + " LIMIT ? OFFSET ?",
                 JdbcCaptureSessionStoreAdapter::mapSegment,
                 paged.toArray());
         return new Page<>(items, total == null ? 0 : total, query.limit(), query.offset());
+    }
+
+    /**
+     * One window of one segment.
+     *
+     * <p>Absent means it was never measured. There is no row for a window nobody measured, because
+     * nothing outside the extractor knows how many windows a segment was cut into until the
+     * measurements arrive.
+     */
+    @Override
+    public Optional<CaptureSegmentDocument> findWindow(UUID sessionId, int segmentIndex, int windowIndex) {
+        return jdbcTemplate.query(
+                        WINDOW_SELECT
+                                + " WHERE w.session_id = ? AND w.segment_index = ? AND w.window_index = ?",
+                        JdbcCaptureSessionStoreAdapter::mapSegment,
+                        sessionId,
+                        segmentIndex,
+                        windowIndex)
+                .stream()
+                .findFirst();
+    }
+
+    /** A segment's windows, in the order the extractor cut them. */
+    @Override
+    public List<CaptureSegmentDocument> findWindows(UUID sessionId, int segmentIndex) {
+        return jdbcTemplate.query(
+                WINDOW_SELECT + " WHERE w.session_id = ? AND w.segment_index = ? ORDER BY w.window_index",
+                JdbcCaptureSessionStoreAdapter::mapSegment,
+                sessionId,
+                segmentIndex);
+    }
+
+    /** Every window of a session, for the drawing of the route. */
+    @Override
+    public List<CaptureSegmentDocument> findWindows(UUID sessionId) {
+        return jdbcTemplate.query(
+                WINDOW_SELECT + " WHERE w.session_id = ? ORDER BY w.segment_index, w.window_index",
+                JdbcCaptureSessionStoreAdapter::mapSegment,
+                sessionId);
     }
 
     /**
@@ -444,8 +738,8 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                        SUM(CASE WHEN measurement_level = 3 THEN 1 ELSE 0 END) AS level_3,
                        SUM(CASE WHEN measurement_level IN (1, 2, 3) THEN 0 ELSE 1 END) AS level_0,
                        MAX(measurement_extent95_p95_m) AS tallest
-                  FROM capture_segments
-                """
+                  FROM """
+                        + READING_SOURCE
                         + where,
                 result -> {
                     if (!result.next()) {
@@ -570,6 +864,26 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                 "DELETE FROM segment_frame_readings WHERE session_id = ? AND segment_index = ?",
                 sessionId,
                 segmentIndex);
+        insertFrameReadings(sessionId, segmentIndex, readings);
+    }
+
+    @Override
+    @Transactional
+    public void mergeFrameReadings(UUID sessionId, int segmentIndex, List<FrameReadings> readings) {
+        for (FrameReadings reading : readings) {
+            jdbcTemplate.update(
+                    """
+                    DELETE FROM segment_frame_readings
+                     WHERE session_id = ? AND segment_index = ? AND canonical_frame = ?
+                    """,
+                    sessionId,
+                    segmentIndex,
+                    reading.canonicalFrame());
+        }
+        insertFrameReadings(sessionId, segmentIndex, readings);
+    }
+
+    private void insertFrameReadings(UUID sessionId, int segmentIndex, List<FrameReadings> readings) {
         Timestamp now = Timestamp.from(Instant.now());
         for (FrameReadings reading : readings) {
             jdbcTemplate.update(
@@ -612,15 +926,15 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
     @Override
     public List<CaptureSegmentDocument> findSegmentsAwaitingFrameReadings(int limit) {
         return jdbcTemplate.query(
-                """
-                SELECT g.* FROM capture_segments g
-                 WHERE g.measurement_state IS NOT NULL
-                   AND NOT EXISTS (SELECT 1 FROM segment_frame_readings r
-                                    WHERE r.session_id = g.session_id
-                                      AND r.segment_index = g.segment_index)
-                 ORDER BY g.measured_at DESC NULLS LAST, g.segment_index
-                 LIMIT ?
-                """,
+                SEGMENT_SELECT
+                        + """
+                         WHERE g.measurement_state IS NOT NULL
+                           AND NOT EXISTS (SELECT 1 FROM segment_frame_readings r
+                                            WHERE r.session_id = g.session_id
+                                              AND r.segment_index = g.segment_index)
+                         ORDER BY g.measured_at DESC NULLS LAST, g.segment_index
+                         LIMIT ?
+                        """,
                 JdbcCaptureSessionStoreAdapter::mapSegment,
                 limit);
     }
@@ -661,6 +975,11 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                 instant(result, "measured_at"),
                 mapProjection(result),
                 mapPlace(result),
+                result.getObject("window_index", Integer.class),
+                result.getObject("window_start_meters", Double.class),
+                result.getObject("window_end_meters", Double.class),
+                result.getInt("window_count"),
+                result.getInt("measured_window_count"),
                 instant(result, "created_at"),
                 instant(result, "updated_at"));
     }
@@ -686,40 +1005,60 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                 resolvedAt);
     }
 
+    /**
+     * Readings with a coordinate and no name yet, windows included.
+     *
+     * <p>Over the same union the list reads, so a window is asked about on its own rather than
+     * inheriting whatever street its segment's middle happened to fall on.
+     */
     @Override
     public List<CaptureSegmentDocument> findSegmentsAwaitingPlace(int limit) {
         return jdbcTemplate.query(
-                """
-                SELECT * FROM capture_segments
-                 WHERE track_center_lat IS NOT NULL
-                   AND place_resolved_at IS NULL
-                 ORDER BY measured_at DESC NULLS LAST, segment_index
-                 LIMIT ?
-                """,
+                "SELECT * FROM " + READING_SOURCE
+                        + """
+                         WHERE track_center_lat IS NOT NULL
+                           AND place_resolved_at IS NULL
+                         ORDER BY measured_at DESC NULLS LAST, segment_index, window_index
+                         LIMIT ?
+                        """,
                 JdbcCaptureSessionStoreAdapter::mapSegment,
                 limit);
     }
 
     @Override
-    public void recordPlace(UUID sessionId, int segmentIndex, SegmentPlace place) {
-        jdbcTemplate.update(
-                """
-                UPDATE capture_segments
-                   SET place_label = ?, place_detail = ?, place_house_number = ?,
-                       place_road = ?, place_km = ?, place_km_offset_m = ?,
-                       place_source = ?, place_resolved_at = ?
-                 WHERE session_id = ? AND segment_index = ?
-                """,
-                place.label(),
-                place.detail(),
-                place.houseNumber(),
-                place.road(),
-                place.km(),
-                place.kmOffsetMetres(),
-                place.source(),
-                Timestamp.from(place.resolvedAt()),
-                sessionId,
-                segmentIndex);
+    public void recordPlace(UUID sessionId, int segmentIndex, Integer windowIndex, SegmentPlace place) {
+        String statement = windowIndex == null
+                ? """
+                  UPDATE capture_segments
+                     SET place_label = ?, place_detail = ?, place_house_number = ?,
+                         place_road = ?, place_km = ?, place_km_offset_m = ?,
+                         place_source = ?, place_resolved_at = ?
+                   WHERE session_id = ? AND segment_index = ?
+                  """
+                : """
+                  UPDATE capture_segment_windows
+                     SET place_label = ?, place_detail = ?, place_house_number = ?,
+                         place_road = ?, place_km = ?, place_km_offset_m = ?,
+                         place_source = ?, place_resolved_at = ?
+                   WHERE session_id = ? AND segment_index = ? AND window_index = ?
+                  """;
+        // Added one at a time rather than with List.of, which refuses a null, and every one of
+        // these columns is legitimately null when the lookup found nothing there.
+        List<Object> arguments = new ArrayList<>();
+        arguments.add(place.label());
+        arguments.add(place.detail());
+        arguments.add(place.houseNumber());
+        arguments.add(place.road());
+        arguments.add(place.km());
+        arguments.add(place.kmOffsetMetres());
+        arguments.add(place.source());
+        arguments.add(Timestamp.from(place.resolvedAt()));
+        arguments.add(sessionId);
+        arguments.add(segmentIndex);
+        if (windowIndex != null) {
+            arguments.add(windowIndex);
+        }
+        jdbcTemplate.update(statement, arguments.toArray());
     }
 
     private static MeasurementProjection mapProjection(ResultSet result) throws SQLException {

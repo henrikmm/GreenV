@@ -34,7 +34,12 @@ public final class CaptureObjectKeys {
      * built from the identity the API already knows.
      */
     public static String measurement(UUID sessionId, int segmentIndex) {
-        return measurementArtifact(sessionId, segmentIndex, "measurement-result-v1.json");
+        return measurement(sessionId, segmentIndex, null);
+    }
+
+    /** The same envelope, for one window of the segment. */
+    public static String measurement(UUID sessionId, int segmentIndex, Integer windowIndex) {
+        return measurementArtifact(sessionId, segmentIndex, windowIndex, "measurement-result-v1.json");
     }
 
     /**
@@ -45,7 +50,34 @@ public final class CaptureObjectKeys {
      * separator or a parent reference would address another session's objects.
      */
     public static String measurementArtifact(UUID sessionId, int segmentIndex, String fileName) {
-        return segmentPrefix(sessionId, segmentIndex) + "/measurement/" + safeFileName(fileName);
+        return measurementArtifact(sessionId, segmentIndex, null, fileName);
+    }
+
+    /**
+     * One file of the packet a single window produced.
+     *
+     * <p>A segment used to produce exactly one measurement and it lived at {@code measurement/}.
+     * A segment is now a row of windows, each its own reconstruction and its own reading, and each
+     * gets a directory of its own. A window index of null keeps the old path, so every packet
+     * measured before the change is still exactly where its row says it is. This mirrors
+     * {@code measurementPrefix} in {@code services/greenv-measurement-worker/src/keys.mjs}, which
+     * is what actually writes the objects; the two padding rules must stay identical.
+     */
+    public static String measurementArtifact(
+            UUID sessionId, int segmentIndex, Integer windowIndex, String fileName) {
+        return measurementPrefix(sessionId, segmentIndex, windowIndex) + "/" + safeFileName(fileName);
+    }
+
+    /** The directory a window's packet lives in: {@code .../measurement/w03}. */
+    public static String measurementPrefix(UUID sessionId, int segmentIndex, Integer windowIndex) {
+        String prefix = segmentPrefix(sessionId, segmentIndex) + "/measurement";
+        if (windowIndex == null) {
+            return prefix;
+        }
+        if (windowIndex < 0) {
+            throw new IllegalArgumentException("window index must be non-negative");
+        }
+        return prefix + "/w" + "%02d".formatted(windowIndex);
     }
 
     /** One sampled frame. Same rule as above, and the same reason. */

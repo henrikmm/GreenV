@@ -123,12 +123,14 @@ public class JdbcServiceOrderStoreAdapter implements ServiceOrderStore {
         for (SegmentReference target : order.targets()) {
             jdbcTemplate.update(
                     """
-                    INSERT INTO service_order_segments (order_id, session_id, segment_index)
-                    VALUES (?, ?, ?)
+                    INSERT INTO service_order_segments (order_id, session_id, segment_index,
+                                                        window_index)
+                    VALUES (?, ?, ?, ?)
                     """,
                     order.orderId(),
                     target.sessionId(),
-                    target.segmentIndex());
+                    target.segmentIndex(),
+                    target.windowIndex());
         }
         for (ServiceOrderEvent event : order.history()) {
             appendEvent(event);
@@ -201,13 +203,14 @@ public class JdbcServiceOrderStoreAdapter implements ServiceOrderStore {
         }
         jdbcTemplate.query(
                 "SELECT * FROM service_order_segments WHERE order_id IN (" + placeholders(orderIds)
-                        + ") ORDER BY session_id, segment_index",
+                        + ") ORDER BY session_id, segment_index, window_index",
                 result -> {
                     UUID orderId = result.getObject("order_id", UUID.class);
                     byOrder.computeIfAbsent(orderId, key -> new ArrayList<>())
                             .add(new SegmentReference(
                                     result.getObject("session_id", UUID.class),
-                                    result.getInt("segment_index")));
+                                    result.getInt("segment_index"),
+                                    result.getObject("window_index", Integer.class)));
                 },
                 orderIds.toArray());
         return byOrder;

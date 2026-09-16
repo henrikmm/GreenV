@@ -72,7 +72,7 @@ public class PlaceResolutionService {
                         segment.sessionId(), segment.segmentIndex());
                 continue;
             }
-            store.recordPlace(segment.sessionId(), segment.segmentIndex(), place);
+            store.recordPlace(segment.sessionId(), segment.segmentIndex(), segment.windowIndex(), place);
             pause();
         }
     }

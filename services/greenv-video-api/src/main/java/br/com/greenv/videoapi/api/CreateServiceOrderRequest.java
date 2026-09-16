@@ -20,5 +20,14 @@ public record CreateServiceOrderRequest(
         String notes,
         @NotEmpty List<Target> targets) {
 
-    public record Target(@NotNull UUID sessionId, @NotNull Integer segmentIndex) {}
+    /**
+     * One stretch the order covers.
+     *
+     * @param windowIndex which window of that segment, or null for the whole segment. A segment is
+     *     cut into windows of about 25 m and each is measured on its own, so a target that names
+     *     one is asking for that window's evidence — its height, its level, its position and its
+     *     length — and not for the segment's summary of all of them
+     */
+    public record Target(
+            @NotNull UUID sessionId, @NotNull Integer segmentIndex, Integer windowIndex) {}
 }
