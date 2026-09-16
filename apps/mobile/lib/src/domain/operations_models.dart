@@ -195,6 +195,12 @@ final class MeasuredStretch {
         VegetationLevel.unknown,
       );
     }
+    // Height in hand, from too few cells: the API gives a level only from 20 measured cells,
+    // because one cell of 31 cm against a barrier is no evidence for 25 m of road. The height
+    // stays on the row; "Não avaliado" beside it read as a contradiction.
+    if ((cellsMeasured ?? 0) > 0) {
+      return const Reading('Evidência insuficiente', VegetationLevel.unknown);
+    }
     if (cellsMeasured == 0 && (cellsAbstained ?? 0) > 0) {
       return const Reading(
         'Vegetação vista, sem altura',
