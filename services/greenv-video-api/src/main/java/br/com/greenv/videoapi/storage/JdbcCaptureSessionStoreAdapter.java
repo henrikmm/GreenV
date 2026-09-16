@@ -505,7 +505,8 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                 SELECT measurement_extent95_p95_m, measurement_extent95_max_m, measurement_level
                   FROM capture_segment_windows
                  WHERE session_id = ? AND segment_index = ? AND measurement_state IS NOT NULL
-                 ORDER BY measurement_extent95_p95_m DESC NULLS LAST, window_index
+                 ORDER BY CASE WHEN measurement_level IS NULL THEN 1 ELSE 0 END,
+                          measurement_extent95_p95_m DESC NULLS LAST, window_index
                  LIMIT 1
                 """, sessionId, segmentIndex).stream().findFirst().orElse(Map.of());
         Map<String, Object> totals = jdbcTemplate.queryForList("""
