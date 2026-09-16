@@ -142,6 +142,31 @@ worker fail to start with "No qualifying bean of type LegacyPipelineStore", whic
 uploaded segment sitting in `queued` — `CloudProfileApplicationTest` now boots the cloud adapter
 set to keep that from returning.
 
+## Re-cutting a segment that was already extracted
+
+**The manifest is the idempotency key.** `extract` looks for
+`<outputPrefix>/segment-manifest-v2.json` first, and when it finds one it verifies the published
+frames, marks the segment ready and re-announces the measurement from the manifest it found
+(`SegmentExtractionService:128`). It does not re-cut. That is right for a redelivered message and
+wrong for the one case that matters after the grouping rule changes: a segment already extracted
+under the old rule keeps its old groups forever, however many times it is queued again.
+
+So re-cutting is a two-step operation, and the order matters:
+
+1. **Move the manifest aside**, do not just delete it. Copying it to
+   `segment-manifest-v2.pre-25m.json` first costs nothing and is the only record of what the old
+   cut published. Between the delete and a successful extraction the segment has no manifest, and
+   the API's frame routes answer 409 for it.
+2. **Queue a `SegmentExtractionRequest`** on `greenv-segment-extract-v2` with the segment's own
+   `videoSha256` and `telemetrySha256` — they are checked against the stored objects, and a
+   mismatch fails the extraction as `source_generation_mismatch` rather than silently measuring
+   the wrong video.
+
+The source MP4 is kept (above), so this can be done as often as the cutting rule changes. **It
+also spends GPU**: extraction publishes the measurement request itself when
+`greenv.measurement.enabled` is true, so re-cutting one segment is one depth run per window it
+produces — eight or nine on a segment driven at highway speed.
+
 ## Code map
 
 | Path | Responsibility |
