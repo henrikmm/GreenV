@@ -716,7 +716,12 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                        SUM(CASE WHEN measurement_level = 2 THEN 1 ELSE 0 END) AS level_2,
                        SUM(CASE WHEN measurement_level = 3 THEN 1 ELSE 0 END) AS level_3,
                        SUM(CASE WHEN measurement_level IN (1, 2, 3) THEN 0 ELSE 1 END) AS level_0,
-                       MAX(measurement_extent95_p95_m) AS tallest
+                       MAX(measurement_extent95_p95_m) AS tallest,
+                       SUM(CASE WHEN track_location_quality = 'good' THEN 1 ELSE 0 END) AS gps_good,
+                       SUM(CASE WHEN track_location_quality = 'degraded' THEN 1 ELSE 0 END)
+                           AS gps_degraded,
+                       SUM(CASE WHEN track_location_quality IN ('good', 'degraded') THEN 0 ELSE 1 END)
+                           AS gps_unavailable
                   FROM capture_segments
                  WHERE session_id = ?
                 """,
@@ -732,7 +737,11 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                                     1, result.getLong("level_1"),
                                     2, result.getLong("level_2"),
                                     3, result.getLong("level_3")),
-                            result.wasNull() ? null : tallest);
+                            result.wasNull() ? null : tallest,
+                            Map.of(
+                                    "good", result.getLong("gps_good"),
+                                    "degraded", result.getLong("gps_degraded"),
+                                    "unavailable", result.getLong("gps_unavailable")));
                 },
                 sessionId);
     }
@@ -825,7 +834,12 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                        SUM(CASE WHEN measurement_level = 2 THEN 1 ELSE 0 END) AS level_2,
                        SUM(CASE WHEN measurement_level = 3 THEN 1 ELSE 0 END) AS level_3,
                        SUM(CASE WHEN measurement_level IN (1, 2, 3) THEN 0 ELSE 1 END) AS level_0,
-                       MAX(measurement_extent95_p95_m) AS tallest
+                       MAX(measurement_extent95_p95_m) AS tallest,
+                       SUM(CASE WHEN track_location_quality = 'good' THEN 1 ELSE 0 END) AS gps_good,
+                       SUM(CASE WHEN track_location_quality = 'degraded' THEN 1 ELSE 0 END)
+                           AS gps_degraded,
+                       SUM(CASE WHEN track_location_quality IN ('good', 'degraded') THEN 0 ELSE 1 END)
+                           AS gps_unavailable
                   FROM """
                         + READING_SOURCE
                         + where,
@@ -841,7 +855,11 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                                     1, result.getLong("level_1"),
                                     2, result.getLong("level_2"),
                                     3, result.getLong("level_3")),
-                            result.wasNull() ? null : tallest);
+                            result.wasNull() ? null : tallest,
+                            Map.of(
+                                    "good", result.getLong("gps_good"),
+                                    "degraded", result.getLong("gps_degraded"),
+                                    "unavailable", result.getLong("gps_unavailable")));
                 },
                 arguments.toArray());
     }

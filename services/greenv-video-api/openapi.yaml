@@ -1740,6 +1740,16 @@ components:
         tallestExtent95M:
           type: number
           nullable: true
+        countsByLocationQuality:
+          type: object
+          description: >-
+            Keyed by the quality of the fixes the reading was measured from:
+            "good", "degraded" and "unavailable", the last gathering the
+            readings with no position at all. Part of the reading rather than an
+            infrastructure detail - a stretch measured from eighteen-metre fixes
+            is not worth what one measured from five is.
+          additionalProperties:
+            type: integer
     SampledFrame:
       type: object
       required: [fileName, canonicalFrame, imageUrl]
