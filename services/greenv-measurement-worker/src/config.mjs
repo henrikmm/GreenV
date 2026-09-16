@@ -270,6 +270,17 @@ function build() {
       // fades a metre onto the grass beside a rail; out of the mask in every frame it starves the
       // strip of points, while the band still has to start where the grass starts.
       structureModelMask: text("GREENV_MEASUREMENT_STRUCTURE_MODEL_MASK", "always"),
+      // A third model, because no one model sees everything. On 2026-09-16 the Vistas model that
+      // places the band and vetoes a rail had no class for the bush a Cityscapes `vegetation`
+      // mask measured as 1.81 m of grass — tall grass lives in that class too, so the class
+      // cannot go — while the ADE20K model calls that bush `tree` in 84-98% of its pixels and
+      // the mown strip beside it `grass`. Its classes vote on cells like the second model's;
+      // `never` leaves both the grass mask and the band to the models that already place them.
+      // Empty runs without it, and it needs the second model to stand beside.
+      structure2Model: text("GREENV_MEASUREMENT_STRUCTURE2_MODEL", ""),
+      structure2Classes: text("GREENV_MEASUREMENT_STRUCTURE2_CLASSES", ""),
+      structure2Floor: number("GREENV_MEASUREMENT_STRUCTURE2_FLOOR", null),
+      structure2ModelMask: text("GREENV_MEASUREMENT_STRUCTURE2_MODEL_MASK", "never"),
       excludeNear: text("GREENV_MEASUREMENT_EXCLUDE_NEAR", ""),
       excludeNearPx: number("GREENV_MEASUREMENT_EXCLUDE_NEAR_PX", 1),
       // Start a re-measure from the reconstruction the depth handler left beside the frames when
@@ -372,6 +383,21 @@ function build() {
   }
   if (config.measurement.structureFloor !== null && !(config.measurement.structureFloor > 0 && config.measurement.structureFloor <= 1)) {
     throw new Error(`GREENV_MEASUREMENT_STRUCTURE_FLOOR must be a probability above 0 and at most 1, got ${config.measurement.structureFloor}`);
+  }
+  if (config.measurement.structure2Model && !config.measurement.structureModel) {
+    throw new Error("GREENV_MEASUREMENT_STRUCTURE2_MODEL needs GREENV_MEASUREMENT_STRUCTURE_MODEL to stand beside");
+  }
+  if (config.measurement.structure2Model && !config.measurement.structure2Classes) {
+    throw new Error("GREENV_MEASUREMENT_STRUCTURE2_CLASSES must name the classes GREENV_MEASUREMENT_STRUCTURE2_MODEL is asked for");
+  }
+  if (!config.measurement.structure2Model && config.measurement.structure2Classes) {
+    throw new Error("GREENV_MEASUREMENT_STRUCTURE2_CLASSES needs GREENV_MEASUREMENT_STRUCTURE2_MODEL to read them from");
+  }
+  if (!["always", "band", "never"].includes(config.measurement.structure2ModelMask)) {
+    throw new Error(`GREENV_MEASUREMENT_STRUCTURE2_MODEL_MASK must be "always", "band" or "never", got "${config.measurement.structure2ModelMask}"`);
+  }
+  if (config.measurement.structure2Floor !== null && !(config.measurement.structure2Floor > 0 && config.measurement.structure2Floor <= 1)) {
+    throw new Error(`GREENV_MEASUREMENT_STRUCTURE2_FLOOR must be a probability above 0 and at most 1, got ${config.measurement.structure2Floor}`);
   }
   if (config.measurement.cameraHeightM !== null && !(config.measurement.cameraHeightM > 0)) {
     throw new Error(`GREENV_MEASUREMENT_CAMERA_HEIGHT_M must be a positive number of metres, got ${config.measurement.cameraHeightM}`);

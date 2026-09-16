@@ -141,6 +141,39 @@ export async function measureEvery(windows, measureOne, limit) {
  * <p>The claim is deliberately not deleted when the measurement finishes. It is the record of
  * which run measured the window, and the packet beside it is what later readers check first.
  */
+/**
+ * The structure models the deployment named, in order, or null when it named none.
+ *
+ * The second model needs the first to stand beside (config.mjs refuses it alone), so the list
+ * is one or two entries and the first is always the one the packet's old four fields describe.
+ */
+export function structureModelsOf(measurement) {
+  if (!measurement.structureModel) return null;
+  const models = [{ model: measurement.structureModel, classes: measurement.structureClasses, floor: measurement.structureFloor, mask: measurement.structureModelMask }];
+  if (measurement.structure2Model) {
+    models.push({ model: measurement.structure2Model, classes: measurement.structure2Classes, floor: measurement.structure2Floor, mask: measurement.structure2ModelMask });
+  }
+  return models;
+}
+
+/**
+ * How Verge Studio is asked for them: one model under the four names it has always read, so a
+ * deployment with one model sends exactly what it sent before, and the list form only when a
+ * second stands beside it — the two forms are exclusive on that side. An unset floor is left
+ * out so Verge Studio's own default applies, as the four-field form has always done.
+ */
+function structureModelsRequest(measurement) {
+  const models = structureModelsOf(measurement);
+  if (!models) return {};
+  if (models.length === 1) {
+    const [one] = models;
+    return { structureModel: one.model, structureClasses: one.classes,
+      ...(one.floor === null ? {} : { structureFloor: one.floor }),
+      ...(one.mask === "always" ? {} : { structureModelMask: one.mask }) };
+  }
+  return { structureModels: models.map((one) => ({ model: one.model, classes: one.classes, ...(one.floor === null ? {} : { floor: one.floor }), mask: one.mask })) };
+}
+
 async function claimWindow(storage, prefix, windowIndex, timeoutMs, log) {
   const key = keys.measurementArtifact(prefix, "claim.json", windowIndex);
   const mine = Buffer.from(`${JSON.stringify({ at: new Date().toISOString(), timeoutMs })}
@@ -306,9 +339,7 @@ export function measurementPipeline({ config, storage, infer, runner, work = nul
         trackLengthM,
         groundFallback: config.measurement.groundFallback,
         ...(config.measurement.excludeNear ? { excludeNearClasses: config.measurement.excludeNear, excludeNearPx: config.measurement.excludeNearPx } : {}),
-        ...(config.measurement.structureModel ? { structureModel: config.measurement.structureModel, structureClasses: config.measurement.structureClasses,
-          ...(config.measurement.structureFloor === null ? {} : { structureFloor: config.measurement.structureFloor }),
-          ...(config.measurement.structureModelMask === "always" ? {} : { structureModelMask: config.measurement.structureModelMask }) } : {}),
+        ...structureModelsRequest(config.measurement),
         ...(Object.keys(gridOptions).length ? { gridOptions } : {}),
         classes: config.measurement.classes,
         context,
@@ -361,6 +392,8 @@ export function measurementPipeline({ config, storage, infer, runner, work = nul
           structureClasses: config.measurement.structureModel ? config.measurement.structureClasses : null,
           structureFloor: config.measurement.structureModel ? config.measurement.structureFloor : null,
           structureModelMask: config.measurement.structureModel ? config.measurement.structureModelMask : null,
+          // Every structure model that voted, in order, when there is more than the one above.
+          structureModels: structureModelsOf(config.measurement),
           datum: config.measurement.datum,
           groundFallback: config.measurement.groundFallback,
           excludeNear: config.measurement.excludeNear || null,

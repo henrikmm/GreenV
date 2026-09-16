@@ -510,3 +510,29 @@ test("a window the segment no longer has is refused", async () => {
 
   assert.equal(calls.infer, 0)
 })
+
+test("a third model stands beside the second, and both reach Verge Studio as one list", async () => {
+  // No one model sees everything: the Vistas model places the band and vetoes a rail, the ADE20K
+  // model is the one that calls a bush a tree. One model is still asked for the old way, so a
+  // deployment without the third sends byte for byte what it sent before.
+  const one = harness({ env: { GREENV_MEASUREMENT_STRUCTURE_MODEL: "vistas-r50", GREENV_MEASUREMENT_STRUCTURE_CLASSES: "Guard Rail,Barrier", GREENV_MEASUREMENT_STRUCTURE_FLOOR: "0.7", GREENV_MEASUREMENT_STRUCTURE_MODEL_MASK: "band" } });
+  const single = await one.measure({ sessionId: segmentManifest().sessionId, segmentIndex: 0 });
+  assert.deepEqual([one.request().structureModel, one.request().structureClasses, one.request().structureFloor, one.request().structureModelMask], ["vistas-r50", "Guard Rail,Barrier", 0.7, "band"]);
+  assert.equal(one.request().structureModels, undefined, "one model travels the way it always has");
+  assert.deepEqual(single.measurement.structureModels, [{ model: "vistas-r50", classes: "Guard Rail,Barrier", floor: 0.7, mask: "band" }]);
+
+  const two = harness({ env: { GREENV_MEASUREMENT_STRUCTURE_MODEL: "vistas-r50", GREENV_MEASUREMENT_STRUCTURE_CLASSES: "Guard Rail,Barrier", GREENV_MEASUREMENT_STRUCTURE_FLOOR: "0.7", GREENV_MEASUREMENT_STRUCTURE_MODEL_MASK: "band",
+    GREENV_MEASUREMENT_STRUCTURE2_MODEL: "ade20k-b4", GREENV_MEASUREMENT_STRUCTURE2_CLASSES: "tree,palm" } });
+  const both = await two.measure({ sessionId: segmentManifest().sessionId, segmentIndex: 0 });
+  assert.equal(two.request().structureModel, undefined, "the list form and the four fields are exclusive on Verge Studio's side");
+  assert.deepEqual(two.request().structureModels, [
+    { model: "vistas-r50", classes: "Guard Rail,Barrier", floor: 0.7, mask: "band" },
+    { model: "ade20k-b4", classes: "tree,palm", mask: "never" },
+  ]);
+  // The packet keeps the first under the old names and records the whole list beside them.
+  assert.deepEqual([both.measurement.structureModel, both.measurement.structureClasses], ["vistas-r50", "Guard Rail,Barrier"]);
+  assert.deepEqual(both.measurement.structureModels, [
+    { model: "vistas-r50", classes: "Guard Rail,Barrier", floor: 0.7, mask: "band" },
+    { model: "ade20k-b4", classes: "tree,palm", floor: null, mask: "never" },
+  ]);
+});

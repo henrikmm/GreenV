@@ -133,6 +133,16 @@ test("the vehicle-mount settings default to off and refuse nonsense", () => {
   assert.equal(loadConfig({ GREENV_MEASUREMENT_STRUCTURE_MODEL_MASK: "band" }).measurement.structureModelMask, "band");
   assert.throws(() => loadConfig({ GREENV_MEASUREMENT_STRUCTURE_MODEL_MASK: "sometimes" }), /STRUCTURE_MODEL_MASK/);
   assert.throws(() => loadConfig({ GREENV_MEASUREMENT_STRUCTURE_FLOOR: "1.5" }), /STRUCTURE_FLOOR/);
+  // The third model: off by default, votes only, and never alone.
+  assert.deepEqual([off.structure2Model, off.structure2Classes, off.structure2Floor, off.structure2ModelMask], ["", "", null, "never"]);
+  const beside = { GREENV_MEASUREMENT_STRUCTURE_MODEL: "vistas-r50", GREENV_MEASUREMENT_STRUCTURE_CLASSES: "Guard Rail" };
+  assert.throws(() => loadConfig({ GREENV_MEASUREMENT_STRUCTURE2_MODEL: "ade20k-b4", GREENV_MEASUREMENT_STRUCTURE2_CLASSES: "tree" }), /STRUCTURE2_MODEL needs GREENV_MEASUREMENT_STRUCTURE_MODEL/);
+  assert.throws(() => loadConfig({ ...beside, GREENV_MEASUREMENT_STRUCTURE2_MODEL: "ade20k-b4" }), /STRUCTURE2_CLASSES/);
+  assert.throws(() => loadConfig({ ...beside, GREENV_MEASUREMENT_STRUCTURE2_CLASSES: "tree" }), /STRUCTURE2_MODEL/);
+  assert.throws(() => loadConfig({ ...beside, GREENV_MEASUREMENT_STRUCTURE2_MODEL: "ade20k-b4", GREENV_MEASUREMENT_STRUCTURE2_CLASSES: "tree", GREENV_MEASUREMENT_STRUCTURE2_MODEL_MASK: "sometimes" }), /STRUCTURE2_MODEL_MASK/);
+  assert.throws(() => loadConfig({ ...beside, GREENV_MEASUREMENT_STRUCTURE2_MODEL: "ade20k-b4", GREENV_MEASUREMENT_STRUCTURE2_CLASSES: "tree", GREENV_MEASUREMENT_STRUCTURE2_FLOOR: "0" }), /STRUCTURE2_FLOOR/);
+  const two = loadConfig({ ...beside, GREENV_MEASUREMENT_STRUCTURE2_MODEL: "ade20k-b4", GREENV_MEASUREMENT_STRUCTURE2_CLASSES: "tree,palm", GREENV_MEASUREMENT_STRUCTURE2_FLOOR: "0.5" }).measurement;
+  assert.deepEqual([two.structure2Model, two.structure2Classes, two.structure2Floor, two.structure2ModelMask], ["ade20k-b4", "tree,palm", 0.5, "never"]);
 
   const car = loadConfig({
     GREENV_MEASUREMENT_OFFSET_SIDE: "auto",
