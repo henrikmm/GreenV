@@ -276,17 +276,19 @@ variable "depth_service_token" {
 
 variable "measurement_worker_max_replicas" {
   description = <<-EOT
-    Maximum number of measurement worker replicas. One, because one segment is one whole depth
-    run: a 112-frame run fills an L4 to 99.95% of its 22.03 GiB usable
-    (measurement/docs/REGISTRY.md), so a second replica cannot get a GPU and would only wait
-    inside the depth service's own lock while billing a second Container Apps replica. Raise it
-    only against a depth service that can genuinely serve more than one run at a time.
+    Maximum number of measurement worker replicas. One was right while one segment was one whole
+    depth run: a 112-frame run fills an L4 to 99.95% of its 22.03 GiB usable
+    (measurement/docs/REGISTRY.md), so a second replica could not get a GPU and would only wait
+    inside the depth service's own lock while billing a second Container Apps replica. A segment is
+    now one run per 25 m window, and most of a window's wall clock is the two segmentation models
+    on CPU rather than the GPU, so replicas do overlap usefully - keep this in step with
+    depth_workers_max, which is what decides how many of them can hold a GPU at the same time.
   EOT
   type        = number
   default     = 1
 
   validation {
-    condition     = var.measurement_worker_max_replicas >= 1 && var.measurement_worker_max_replicas <= 4
+    condition     = var.measurement_worker_max_replicas >= 1 && var.measurement_worker_max_replicas <= 8
     error_message = "measurement_worker_max_replicas must be between 1 and 4."
   }
 }
@@ -1005,6 +1007,22 @@ variable "depth_gpu_type_ids" {
   validation {
     condition     = length(var.depth_gpu_type_ids) > 0
     error_message = "An endpoint with no GPU type can never schedule a worker."
+  }
+}
+
+variable "depth_workers_max" {
+  description = <<-EOT
+    How many depth workers may run at once. One is enough while segments arrive one at a time and
+    each is a single inference. A batch - reprocessing a day of driving, where every 25 m window is
+    an inference of its own - finishes in a fraction of the time with more, at about the same
+    billed seconds plus one cold start each.
+  EOT
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.depth_workers_max >= 1 && var.depth_workers_max <= 5
+    error_message = "depth_workers_max must be between 1 and 5."
   }
 }
 
