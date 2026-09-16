@@ -1075,3 +1075,68 @@ variable "depth_image" {
   type        = string
   default     = "ghcr.io/matomomitsu/greenv-depth-runpod@sha256:98de81166e77fa96ba21e2374862db97d080d08f3e5816bce6c21d8a413ce4fa"
 }
+
+variable "measurement_structure2_model" {
+  description = <<-EOT
+    The key of a third segmentation model, standing beside `measurement_structure_model`, or
+    empty to run without it. No one model sees everything: on 2026-09-16 the Vistas model that
+    places the band and vetoes a rail had no class for the bush a Cityscapes `vegetation` mask
+    measured as 1.81 m of grass - tall grass lives in that class too, so the class cannot go -
+    while `ade20k-b4` called that bush `tree` in 84-98% of its pixels and the mown strip beside
+    it `grass`, on every one of six frames. Its classes vote on cells like the second model's.
+    About 1.3 s a frame on the worker's CPU on top of the other two models.
+  EOT
+  type        = string
+  default     = ""
+  validation {
+    condition     = contains(["", "ade20k-b4", "ade20k-b2", "clipseg", "vistas-r50"], var.measurement_structure2_model)
+    error_message = "measurement_structure2_model must be \"ade20k-b4\", \"ade20k-b2\", \"clipseg\", \"vistas-r50\" or empty."
+  }
+  validation {
+    condition     = var.measurement_structure2_model == "" || var.measurement_structure_model != ""
+    error_message = "measurement_structure2_model needs measurement_structure_model to stand beside."
+  }
+}
+
+variable "measurement_structure2_classes" {
+  description = <<-EOT
+    The classes of `measurement_structure2_model` that a crew cannot cut, in that model's own
+    names. `tree,palm` for the ADE20K model: `plant` is left out because nobody has measured
+    what it makes of tall grass. Empty only when no third model runs.
+  EOT
+  type        = string
+  default     = ""
+  validation {
+    condition     = (var.measurement_structure2_model == "") == (var.measurement_structure2_classes == "")
+    error_message = "measurement_structure2_classes must be set exactly when measurement_structure2_model is."
+  }
+}
+
+variable "measurement_structure2_floor" {
+  description = <<-EOT
+    A pixel is a structure to the third model when the probability it gives
+    `measurement_structure2_classes`, summed, reaches this. Null leaves Verge Studio's 0.5, a
+    majority of the probability, which is what the 2026-09-16 bench ran at.
+  EOT
+  type        = number
+  default     = null
+  validation {
+    condition     = var.measurement_structure2_floor == null || (var.measurement_structure2_floor > 0 && var.measurement_structure2_floor <= 1)
+    error_message = "measurement_structure2_floor must be a probability above 0 and at most 1, or null."
+  }
+}
+
+variable "measurement_structure2_model_mask" {
+  description = <<-EOT
+    What the third model's pixels do besides voting on cells, with the same three answers as
+    `measurement_structure_model_mask`. `never` on purpose: the second model already places the
+    band and takes structures out of the mask, and on 2026-09-16 letting the tree pixels leave
+    the mask pushed the band past the bush to the grass 12 m out - right by the wrong route.
+  EOT
+  type        = string
+  default     = "never"
+  validation {
+    condition     = contains(["always", "band", "never"], var.measurement_structure2_model_mask)
+    error_message = "measurement_structure2_model_mask must be \"always\", \"band\" or \"never\"."
+  }
+}

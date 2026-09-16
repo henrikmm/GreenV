@@ -346,6 +346,11 @@ locals {
     GREENV_MEASUREMENT_STRUCTURE_CLASSES    = var.measurement_structure_classes
     GREENV_MEASUREMENT_STRUCTURE_FLOOR      = var.measurement_structure_floor == null ? "" : tostring(var.measurement_structure_floor)
     GREENV_MEASUREMENT_STRUCTURE_MODEL_MASK = var.measurement_structure_model_mask
+    # A third model beside the second; see `measurement_structure2_model`.
+    GREENV_MEASUREMENT_STRUCTURE2_MODEL      = var.measurement_structure2_model
+    GREENV_MEASUREMENT_STRUCTURE2_CLASSES    = var.measurement_structure2_classes
+    GREENV_MEASUREMENT_STRUCTURE2_FLOOR      = var.measurement_structure2_floor == null ? "" : tostring(var.measurement_structure2_floor)
+    GREENV_MEASUREMENT_STRUCTURE2_MODEL_MASK = var.measurement_structure2_model_mask
 
     PORT = "8090"
   })

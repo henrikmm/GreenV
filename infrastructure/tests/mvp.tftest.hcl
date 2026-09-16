@@ -151,8 +151,8 @@ run "plans_cost_conscious_mvp_defaults" {
   }
 
   assert {
-    condition     = local.worker_environment.GREENV_QUEUE_VISIBILITY_SECONDS == "300"
-    error_message = "A failed worker attempt must become visible again after the five-minute MVP lease."
+    condition     = local.worker_environment.GREENV_QUEUE_VISIBILITY_SECONDS == "1800"
+    error_message = "A failed worker attempt must become visible again after the thirty-minute lease, which is what an extraction that publishes every group needs (4 to 5 minutes end to end on 16 September 2026, and the extractor does not renew)."
   }
 
   assert {
