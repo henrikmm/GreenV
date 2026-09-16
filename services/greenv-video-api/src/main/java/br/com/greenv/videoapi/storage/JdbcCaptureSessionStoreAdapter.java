@@ -161,7 +161,14 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
     private static final String SESSION_PLACES =
             "(SELECT session_id, place_label, place_detail, distinct_labels FROM ("
                     + " SELECT session_id, place_label, place_detail,"
-                    + " COUNT(DISTINCT place_label) OVER (PARTITION BY session_id)"
+                    // How many distinct streets, in one pass over the readings. Not
+                    // COUNT(DISTINCT ...) OVER (...): PostgreSQL refuses DISTINCT inside a window
+                    // aggregate (SQL state 0A000) while H2 accepts it, which is how the query
+                    // passed every test and failed every request on 16 September 2026. Two dense
+                    // ranks over the label, ascending and descending, sum to the distinct count
+                    // plus one - the labels are non-null here, so the identity holds.
+                    + " DENSE_RANK() OVER (PARTITION BY session_id ORDER BY place_label)"
+                    + " + DENSE_RANK() OVER (PARTITION BY session_id ORDER BY place_label DESC) - 1"
                     + "   AS distinct_labels,"
                     + " ROW_NUMBER() OVER (PARTITION BY session_id"
                     + "   ORDER BY segment_index, COALESCE(window_index, -1))"
@@ -990,7 +997,9 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
     public SessionPlace readingPlace(UUID sessionId) {
         return jdbcTemplate.query(
                 "SELECT place_label, place_detail,"
-                        + " COUNT(DISTINCT place_label) OVER () AS distinct_labels"
+                        // The same two dense ranks as SESSION_PLACES, for the same reason.
+                        + " DENSE_RANK() OVER (ORDER BY place_label)"
+                        + " + DENSE_RANK() OVER (ORDER BY place_label DESC) - 1 AS distinct_labels"
                         + " FROM " + READING_SOURCE
                         + " WHERE session_id = ? AND place_label IS NOT NULL"
                         + " ORDER BY segment_index, COALESCE(window_index, -1)",
