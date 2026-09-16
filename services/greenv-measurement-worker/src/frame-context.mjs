@@ -94,10 +94,15 @@ export function buildFrameContext(sampledFrames, telemetry, session = {}) {
  * DA3 fixes one scalar per clip, and on 2026-09-13 that scalar ran from 0.78x to 1.86x against
  * this number on neighbouring segments of one drive. Null when the manifest cannot say — an
  * older strategy, a frame without a distance — and null reaches Verge Studio as "no anchor".
+ *
+ * <p>`frames` is what the reconstruction actually saw, which is a window's frames and not the
+ * segment's since a segment became a row of 25 m windows. Measuring one window against the whole
+ * segment's distance is how the anchor silently stopped working on 16 September 2026: the ratio
+ * came out three to seven times too large, Verge Studio refused it as `factor-out-of-range`, and
+ * every window was measured at DA3's own scale - the very drift this anchor exists to remove.
  */
-export function sampledTrackLength(manifest) {
+export function sampledTrackLength(manifest, frames = manifest?.sampledFrames ?? []) {
   if (manifest?.samplingStrategy !== "distance-groups") return null;
-  const frames = manifest.sampledFrames ?? [];
   const first = frames[0]?.distanceMeters;
   const last = frames[frames.length - 1]?.distanceMeters;
   if (!Number.isFinite(first) || !Number.isFinite(last) || last < first) return null;

@@ -204,7 +204,9 @@ export function measurementPipeline({ config, storage, infer, runner, log = () =
 
     const { frameContext, positions } = buildFrameContext(sampledFrames, telemetry, request);
     const context = segmentContext(positions, request);
-    const trackLengthM = config.measurement.scaleAnchor === "telemetry" ? sampledTrackLength(manifest) : null;
+    // The window's own distance, not the segment's: `sampledFrames` above is this window's.
+    const trackLengthM =
+      config.measurement.scaleAnchor === "telemetry" ? sampledTrackLength(manifest, sampledFrames) : null;
     // Only the ceilings the deployment named; an absent one leaves Verge Studio's own default.
     const gridOptions = {
       ...(config.measurement.maxHeightM === null ? {} : { maxHeightM: config.measurement.maxHeightM }),
