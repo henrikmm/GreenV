@@ -34,7 +34,7 @@ rather than from this directory.
 ## Commands
 
 ```
-npm ci && npm test        62 tests, including the whole chain on real recorded geometry
+npm ci && npm test        64 tests, including the whole chain on real recorded geometry
 npm start                 run it
 ```
 

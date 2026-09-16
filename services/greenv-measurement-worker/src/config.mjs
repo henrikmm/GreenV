@@ -108,9 +108,13 @@ function build() {
         // The same bound as `prefetch`, for the same reason.
         maximumMessages: 1,
         // How long a received segment stays invisible to other readers. This is the deadline for
-        // the whole measurement, not for an acknowledgement, so it tracks
-        // GREENV_MEASUREMENT_TIMEOUT_MS rather than the seconds the Java services use for a poll
-        // that only queues work. Too short and Azure redelivers a segment still being measured.
+        // the measurement, not for an acknowledgement, so it tracks GREENV_MEASUREMENT_TIMEOUT_MS
+        // rather than the seconds the Java services use for a poll that only queues work. Too
+        // short and Azure redelivers a segment still being measured. It bounds one 25 m window
+        // rather than the whole segment: the worker renews the lease a third of the way through
+        // for as long as it is still measuring, so a segment with nine windows does not need a
+        // timeout nine times as long - and a worker that dies still releases its segment in half
+        // an hour.
         visibilityTimeoutSeconds: number("GREENV_MEASUREMENT_VISIBILITY_SECONDS", 30 * 60),
         pollDelayMs: number("GREENV_CLOUD_QUEUE_POLL_DELAY_MS", 1000),
       },

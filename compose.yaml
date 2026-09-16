@@ -23,6 +23,11 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: greenv
       RABBITMQ_DEFAULT_PASS: greenv-local-only
+      # RabbitMQ closes a channel whose delivery goes unacknowledged for 30 minutes, and worker 2
+      # holds one message for a whole segment - one reconstruction per 25 m window, eight or nine
+      # of them on a driven segment. Three hours, so the local stack measures the same thing the
+      # cloud does instead of dying with PRECONDITION_FAILED halfway through.
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "-rabbit consumer_timeout 10800000"
     ports:
       - "127.0.0.1:5672:5672"
       - "127.0.0.1:15672:15672"
