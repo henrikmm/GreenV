@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { MapContainer, TileLayer, GeoJSON, CircleMarker, Popup, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import { LEVELS, vegetationLevel } from '@greenv/web-core'
+import { stretchLabel } from '../api/stretch'
 import SessionRoute from './SessionRoute'
 
 /**
@@ -11,13 +12,24 @@ import SessionRoute from './SessionRoute'
  * caminhada num quintal e uma volta de carro na rodovia aparecem do mesmo jeito — o que importa,
  * porque as quatro medições existentes estão a treze quilômetros da SP-021.
  *
- * Duas camadas por segmento, ambas vindas da API já em GeoJSON: a linha é onde a câmera passou,
- * e o polígono é essa linha alargada nos cinco metros que a grade realmente mediu. O polígono é
+ * Duas camadas por trecho, ambas vindas da API já em GeoJSON: a linha é onde a câmera passou, e o
+ * polígono é essa linha alargada nos cinco metros que a grade realmente mediu. O polígono é
  * desenhado dos dois lados porque o pacote dobra os lados e nunca registrou de qual deles a
  * célula veio; escolher um seria inventar.
+ *
+ * Um trecho é uma janela de cerca de 25 m do segmento enviado, e a API manda uma feição por
+ * janela — então a cor, a etiqueta e o clique já são por trecho, e não pelos duzentos metros que
+ * o segmento cobre. Uma leitura anterior ao corte vem sem janela e continua sendo uma feição só.
  */
-export default function SessionMap({ track, frames = [], onFrameClick, height = 520 }) {
+export default function SessionMap({
+  track, frames = [], onFrameClick, onStretchClick, height = 520,
+}) {
   const [active, setActive] = useState(null)
+  // O Leaflet guarda o ouvinte que recebeu quando a camada nasceu, e a camada só nasce de novo
+  // quando a trilha muda. Sem esta referência, o clique de hoje chamaria a função de quando o
+  // mapa foi desenhado, que enxerga o estado daquele momento.
+  const stretchClick = useRef(onStretchClick)
+  stretchClick.current = onStretchClick
 
   const styleFor = useMemo(() => (feature) => {
     const level = LEVELS[vegetationLevel(feature.properties?.level)] ?? LEVELS[0]
@@ -57,7 +69,16 @@ export default function SessionMap({ track, frames = [], onFrameClick, height = 
       <KeepSized />
       <FitToTrack track={track} />
       <SessionRoute track={track} />
-      <GeoJSON key={JSON.stringify(track).length} data={track} style={styleFor} />
+      <GeoJSON
+        key={`${JSON.stringify(track).length}:${Boolean(onStretchClick)}`}
+        data={track}
+        style={styleFor}
+        onEachFeature={(feature, layer) => {
+          layer.bindTooltip(labelOf(feature.properties ?? {}), { sticky: true })
+          if (onStretchClick) {
+            layer.on('click', () => stretchClick.current?.(feature.properties ?? {}))
+          }
+        }} />
 
       {frames.filter(frame => frame.latitude != null).map(frame => (
         <CircleMarker
@@ -101,6 +122,18 @@ export default function SessionMap({ track, frames = [], onFrameClick, height = 
       ))}
     </MapContainer>
   )
+}
+
+/**
+ * Que trecho é a faixa sob o cursor.
+ *
+ * Duas faixas vizinhas têm a mesma cor com frequência, e sem a etiqueta não há como saber qual
+ * delas está sendo apontada — elas são a mesma volta, vinte e cinco metros uma da outra.
+ */
+function labelOf(properties) {
+  const where = stretchLabel(properties) ?? `segmento ${properties.segmentIndex ?? '—'}`
+  const height = properties.extent95P95M
+  return where + (height != null ? ` · ${(height * 100).toFixed(0)} cm` : '')
 }
 
 /**

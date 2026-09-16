@@ -274,19 +274,39 @@ variable "depth_service_token" {
   }
 }
 
-variable "measurement_worker_max_replicas" {
+variable "measurement_window_concurrency" {
   description = <<-EOT
-    Maximum number of measurement worker replicas. One, because one segment is one whole depth
-    run: a 112-frame run fills an L4 to 99.95% of its 22.03 GiB usable
-    (measurement/docs/REGISTRY.md), so a second replica cannot get a GPU and would only wait
-    inside the depth service's own lock while billing a second Container Apps replica. Raise it
-    only against a depth service that can genuinely serve more than one run at a time.
+    How many of a segment's 25 m windows one measurement replica measures at once. One is the
+    conservative default. Most of a window's wall clock is the depth service building and
+    uploading the 83 MB it keeps, not work here, so overlapping two or three windows fills that
+    wait with another window's segmentation - measured 16 September 2026. Past the depth
+    service's own worker count it only moves the queue from the replica to the endpoint; a
+    re-measure from kept reconstructions wakes no GPU and is bounded by these vCPU alone.
   EOT
   type        = number
   default     = 1
 
   validation {
-    condition     = var.measurement_worker_max_replicas >= 1 && var.measurement_worker_max_replicas <= 4
+    condition     = var.measurement_window_concurrency >= 1 && var.measurement_window_concurrency <= 4
+    error_message = "measurement_window_concurrency must be between 1 and 4."
+  }
+}
+
+variable "measurement_worker_max_replicas" {
+  description = <<-EOT
+    Maximum number of measurement worker replicas. One was right while one segment was one whole
+    depth run: a 112-frame run fills an L4 to 99.95% of its 22.03 GiB usable
+    (measurement/docs/REGISTRY.md), so a second replica could not get a GPU and would only wait
+    inside the depth service's own lock while billing a second Container Apps replica. A segment is
+    now one run per 25 m window, and most of a window's wall clock is the two segmentation models
+    on CPU rather than the GPU, so replicas do overlap usefully - keep this in step with
+    depth_workers_max, which is what decides how many of them can hold a GPU at the same time.
+  EOT
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.measurement_worker_max_replicas >= 1 && var.measurement_worker_max_replicas <= 8
     error_message = "measurement_worker_max_replicas must be between 1 and 4."
   }
 }
@@ -693,7 +713,14 @@ variable "worker_max_replicas" {
 variable "queue_visibility_timeout_seconds" {
   description = "Azure Queue visibility lease; keep above the slowest measured extraction attempt."
   type        = number
-  default     = 300
+  # Thirty minutes, not the five it was until 16 September 2026. An extraction publishes every
+  # group now instead of the first few, which is about 570 JPEGs for a ten-second segment against
+  # the 99 it used to write, and each one is a PUT: a segment measured 4 to 5 minutes end to end
+  # on the deployed worker that day, against roughly one before. At a five-minute lease the slower
+  # ones reappear while they are still being extracted, a second replica redoes the same segment,
+  # and the duplicate announcement pays for the same depth runs twice. The extractor does not renew
+  # its lease the way the measurement worker does, so the lease has to cover the whole attempt.
+  default = 1800
 
   validation {
     condition     = var.queue_visibility_timeout_seconds >= 30 && var.queue_visibility_timeout_seconds <= 604800
@@ -1001,6 +1028,22 @@ variable "depth_gpu_type_ids" {
   }
 }
 
+variable "depth_workers_max" {
+  description = <<-EOT
+    How many depth workers may run at once. One is enough while segments arrive one at a time and
+    each is a single inference. A batch - reprocessing a day of driving, where every 25 m window is
+    an inference of its own - finishes in a fraction of the time with more, at about the same
+    billed seconds plus one cold start each.
+  EOT
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.depth_workers_max >= 1 && var.depth_workers_max <= 5
+    error_message = "depth_workers_max must be between 1 and 5."
+  }
+}
+
 variable "depth_idle_timeout_seconds" {
   description = <<-EOT
     How long a depth worker stays warm after finishing, in seconds.
@@ -1031,4 +1074,69 @@ variable "depth_image" {
   EOT
   type        = string
   default     = "ghcr.io/matomomitsu/greenv-depth-runpod@sha256:98de81166e77fa96ba21e2374862db97d080d08f3e5816bce6c21d8a413ce4fa"
+}
+
+variable "measurement_structure2_model" {
+  description = <<-EOT
+    The key of a third segmentation model, standing beside `measurement_structure_model`, or
+    empty to run without it. No one model sees everything: on 2026-09-16 the Vistas model that
+    places the band and vetoes a rail had no class for the bush a Cityscapes `vegetation` mask
+    measured as 1.81 m of grass - tall grass lives in that class too, so the class cannot go -
+    while `ade20k-b4` called that bush `tree` in 84-98% of its pixels and the mown strip beside
+    it `grass`, on every one of six frames. Its classes vote on cells like the second model's.
+    About 1.3 s a frame on the worker's CPU on top of the other two models.
+  EOT
+  type        = string
+  default     = ""
+  validation {
+    condition     = contains(["", "ade20k-b4", "ade20k-b2", "clipseg", "vistas-r50"], var.measurement_structure2_model)
+    error_message = "measurement_structure2_model must be \"ade20k-b4\", \"ade20k-b2\", \"clipseg\", \"vistas-r50\" or empty."
+  }
+  validation {
+    condition     = var.measurement_structure2_model == "" || var.measurement_structure_model != ""
+    error_message = "measurement_structure2_model needs measurement_structure_model to stand beside."
+  }
+}
+
+variable "measurement_structure2_classes" {
+  description = <<-EOT
+    The classes of `measurement_structure2_model` that a crew cannot cut, in that model's own
+    names. `tree,palm` for the ADE20K model: `plant` is left out because nobody has measured
+    what it makes of tall grass. Empty only when no third model runs.
+  EOT
+  type        = string
+  default     = ""
+  validation {
+    condition     = (var.measurement_structure2_model == "") == (var.measurement_structure2_classes == "")
+    error_message = "measurement_structure2_classes must be set exactly when measurement_structure2_model is."
+  }
+}
+
+variable "measurement_structure2_floor" {
+  description = <<-EOT
+    A pixel is a structure to the third model when the probability it gives
+    `measurement_structure2_classes`, summed, reaches this. Null leaves Verge Studio's 0.5, a
+    majority of the probability, which is what the 2026-09-16 bench ran at.
+  EOT
+  type        = number
+  default     = null
+  validation {
+    condition     = var.measurement_structure2_floor == null || (var.measurement_structure2_floor > 0 && var.measurement_structure2_floor <= 1)
+    error_message = "measurement_structure2_floor must be a probability above 0 and at most 1, or null."
+  }
+}
+
+variable "measurement_structure2_model_mask" {
+  description = <<-EOT
+    What the third model's pixels do besides voting on cells, with the same three answers as
+    `measurement_structure_model_mask`. `never` on purpose: the second model already places the
+    band and takes structures out of the mask, and on 2026-09-16 letting the tree pixels leave
+    the mask pushed the band past the bush to the grass 12 m out - right by the wrong route.
+  EOT
+  type        = string
+  default     = "never"
+  validation {
+    condition     = contains(["always", "band", "never"], var.measurement_structure2_model_mask)
+    error_message = "measurement_structure2_model_mask must be \"always\", \"band\" or \"never\"."
+  }
 }

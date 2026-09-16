@@ -74,4 +74,33 @@ describe('a second model asked what is not grass', () => {
     expect(() => vehicleOptions({ gridOptions: { pastEnds: 'clamp' } })).toThrow(/pastEnds/);
     expect(vehicleOptions({ gridOptions: { structureFrames: 3, pastEnds: 'drop' } }).gridOptions).toMatchObject({ structureFrames: 3, pastEnds: 'drop' });
   });
+
+  it('is one entry of the list the four fields have always described', () => {
+    expect(vehicleOptions({}).structureModels).toEqual([]);
+    expect(vehicleOptions({ structureModel: 'vistas-r50', structureClasses: 'Guard Rail, Barrier', structureFloor: 0.7, structureModelMask: 'band' }).structureModels)
+      .toEqual([{ model: 'vistas-r50', classes: ['Guard Rail', 'Barrier'], floor: 0.7, mask: 'band' }]);
+  });
+
+  it('takes several models, each with its own classes, floor and mask', () => {
+    // No one model sees everything: the Vistas model places the band and vetoes a rail, and the
+    // ADE20K model is the one that calls a bush a tree. Both vote; only the first moves the band.
+    const both = vehicleOptions({ structureModels: [
+      { model: 'vistas-r50', classes: 'Guard Rail,Barrier', floor: 0.7, mask: 'band' },
+      { model: 'ade20k-b4', classes: 'tree, palm', mask: 'never' },
+    ] });
+    expect(both.structureModels).toEqual([
+      { model: 'vistas-r50', classes: ['Guard Rail', 'Barrier'], floor: 0.7, mask: 'band' },
+      { model: 'ade20k-b4', classes: ['tree', 'palm'], floor: 0.5, mask: 'never' },
+    ]);
+    // A reader of the old four fields sees the first model.
+    expect([both.structureModel, both.structureClasses, both.structureFloor, both.structureModelMask]).toEqual(['vistas-r50', ['Guard Rail', 'Barrier'], 0.7, 'band']);
+    expect(vehicleOptions({ structureModels: [] }).structureModel).toBeNull();
+    expect(() => vehicleOptions({ structureModels: [{ model: 'ade20k-b4' }] })).toThrow(/structureModels\[0\]\.structureClasses/);
+    expect(() => vehicleOptions({ structureModels: [{ classes: 'tree' }] })).toThrow(/structureModels\[0\]/);
+    expect(() => vehicleOptions({ structureModels: [{ model: 'nope', classes: 'tree' }] })).toThrow(/unknown model/);
+    expect(() => vehicleOptions({ structureModels: [{ model: 'ade20k-b4', classes: 'tree', mask: 'sometimes' }] })).toThrow(/structureModels\[0\]\.structureModelMask/);
+    expect(() => vehicleOptions({ structureModels: 'ade20k-b4' })).toThrow(/list/);
+    // Named twice is named ambiguously.
+    expect(() => vehicleOptions({ structureModels: [], structureModel: 'ade20k-b4', structureClasses: 'tree' })).toThrow(/once/);
+  });
 });

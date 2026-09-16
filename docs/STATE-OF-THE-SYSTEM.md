@@ -118,16 +118,43 @@ have been graded against a tape.** The packets say so themselves — `operationa
 This is not a documentation gap; the documentation is honest about it. It is on this list because
 it is the gap that decides whether the product works, and no amount of plumbing closes it.
 
-### 5. A driven segment measures its first 30 m, and the first driven day measured almost nothing
+### 5. A driven segment measured its first 30 m, and a stretch is now 25 m of it
 
-The extractor's `distance-groups` sampling spends its 112-frame budget on the first groups of
+The extractor's `distance-groups` sampling spent its 112-frame budget on the first groups of
 consecutive frames — 102 frames at 59 fps is 1.7 s of video. At the 63–90 km/h the seven sessions
 of 13 September 2026 were driven, a ten-second segment covers 170–250 m and its measurement
-covers the first 30–40 m. **Roughly four fifths of the road is never seen by the depth model.**
-The extractor says so in every manifest (`groups[].published`); nothing downstream reported it.
-Closing it is a decision, not a parameter: shorter segments in the app, more than one depth run
-per segment at proportional GPU cost, or sparser sampling with a baseline DA3 has not been graded
-at. Nothing has been chosen.
+covered the first 30–40 m: of **7,923 m of planned camera path the 43 segments published 1,545 m,
+19%, a median of 18% each** and never more than 21% on a segment driven at speed. **Four fifths of
+the road was never seen by the depth model.** The extractor said so in every manifest
+(`groups[].published`) and nothing downstream reported it.
+
+**Closed in the code on 15 September 2026 and deployed on the 16th**, as revision
+`windows-25m-lease-c9b7dd5`. The extractor cuts at 25 m
+rather than 10, never below 64 frames, and publishes every group; the worker packs consecutive
+groups into windows of at most 112 frames and gives each window its own reconstruction, its own
+packet under `measurement/wNN/` and its own announcement. **A stretch therefore becomes a window of
+about 25 m, not a 200 m segment** — which is also what makes an order actionable, since a crew is
+sent to the 25 m that needs mowing. Why 25 and not the 40 m a full frame budget would allow: four
+windows reconstructed on the GPU from frames already in R2 (59 s of GPU, no re-extraction) have
+their frames agreeing about a cell's height half again as well as the whole segment's
+(0.08–0.10 m of between-frame spread against 0.14 on flat grass, 0.27–0.30 against 0.41 on the
+day's tallest stretch) and their points reaching the cell's own ground far more often (50–54% of
+voxels against 36%), with DA3's scale drifting less over the shorter path
+(×1.21–1.26 against ×1.37) — `measurement/docs/evidence/2026-09-13-car-mount.md`, 15 September.
+The price is 5.2× the depth frames: the same 43 segments become **320 windows**, 22,777 frames
+against 4,384, roughly an hour and a half of GPU to reprocess that day. The API, the dashboard and the service orders
+learned what a window is in the same release; migration V15 added `capture_segment_windows`.
+
+**What the deployed cut actually did**, on the first segments reprocessed that night: a 175 m
+segment became **7 groups of exactly 25 m** holding 59 to 85 frames each, and published 549 frames
+where it used to publish 99 and cover 40 m. The worker turned a 200 m segment into 7 to 9 windows
+and measured them one at a time. The wall clock is dominated by neither CPU nor GPU: a depth job
+takes about six minutes, of which roughly twenty seconds is the GPU and the rest is building and
+uploading the 83 MB a window keeps (`scene.glb` 15 MB, `result.npz` 68 MB), so 320 windows are
+about six hours behind three depth workers - and RunPod throttled the third of them repeatedly for
+want of an L4. Both container apps sat far below their limits throughout (the extractor at 0.1 of
+its 2 vCPU, the measurement worker around 1 of its 4), which is what an I/O-bound pipeline looks
+like.
 
 What the 41 measured segments of that day did contain was wrong for three separate reasons, all
 found on a local bench that re-measures from the `scene.glb` and `result.npz` the RunPod handler
@@ -151,11 +178,13 @@ corridor rather than to wherever the vegetation ends. With all of it on, the 43 
 p50 of 2–18 cm on 37 of them, against the 16–28 cm the first pass gave a verge the photographs
 put at 10–15. The corridor now ends where each cell's own ground starts to climb — two
 consecutive rises of more than 10 cm per half-metre cell mark the embankment's foot, and 1,971
-of 17,060 cells on that day were set aside as slope — and the stretch stands for the 90th
-percentile of its cells rather than the 95th, because the top twentieth was the last half metre
-against the guardrail: by p95 the day sat at 6 / 14 / 20 stretches on levels 1 / 2 / 3, by p90
-at 9 / 21 / 10. Which aggregate and which thresholds a mowing policy should use remains the
-question `measurement/docs/GRASS-QUALITY.md` leaves to Motiva; p90 is a draft.
+of 17,060 cells on that day were set aside as slope. The stretch dropped to the 90th percentile
+of its cells for a few hours that day, because the top twentieth was the last half metre against
+the guardrail and by p95 the day sat at 6 / 14 / 20 stretches on levels 1 / 2 / 3 against
+9 / 21 / 10 by p90. It is back at the 95th: once the rail stopped being measured the two
+percentiles agreed, 0 to 6 cm apart over the 43 segments and neither reaching level 3. Which
+thresholds a mowing policy should use remains the question
+`measurement/docs/GRASS-QUALITY.md` leaves to Motiva.
 
 Two stretches still read 0.55–0.59 m over grass of 5–15 cm, and both turned out to be the
 guardrail or the concrete barrier itself: the segmentation never learned a guard rail
@@ -181,15 +210,19 @@ stretches on levels 1 / 2 / 3, from 9 / 21 / 10 the day before: what had held th
 of the cells was the guardrail. Whether a rail-side strip of tall grass is now refused with the
 rail is the open question that a tape on a real verge has to answer.
 
-### 6. The default stretch is now shorter than the graded band
+### 6. The default stretch is inside the graded band again
 
-As of 10 September 2026, `GroupPlanner.DEFAULT_GROUP_METERS` is **10.0 m**, lowered from 20 m so
-that a person walking can exercise the pipeline without a car. Verge Studio's graded evidence
-covers camera paths of roughly 14–25 m, so **at the default setting no group is graded at any
-speed**. The code says this and the envelope flag reports it, and
-`services/greenv-frame-extractor/README.md` was corrected on 11 September to describe the 10 m
-default and what it costs. The four segments measured that day confirm it: every packet reports
-`operationalStatus: "not-ready"` with the graded-envelope blocker among its seven.
+`GroupPlanner.DEFAULT_GROUP_METERS` was 20 m, then **10.0 m** from 10 September 2026 so that a
+person walking could exercise the pipeline without a car — which put the default below the
+14–25 m of camera path Verge Studio has ever graded, so no group was graded at any speed. It is
+**25.0 m since 15 September**, the far end of that band, with a floor of 64 frames that wins when
+a fast vehicle would otherwise make the window thinner than anything graded. Over the recorded
+telemetry of the 43 segments that gives 227 of 320 windows inside the graded envelope; the other
+93 run 25–35 m because the frame floor won, and a ten-second walk still becomes one group of
+eight to ten metres, below the band and reported as such. **No packet has been measured with the
+new planner yet**, so whether the envelope blocker actually clears is unobserved; the segments
+measured so far all carry `operationalStatus: "not-ready"` with the graded-envelope blocker among
+their seven.
 
 ### 7. Five cloud vendors, one MVP, and no record of which combination is real
 

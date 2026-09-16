@@ -288,6 +288,9 @@ locals {
     # GREENV_QUEUE_VISIBILITY_SECONDS, so the variable below did nothing to the deployed lease.
     # It matched only because both defaults happen to be 1800 seconds.
     GREENV_MEASUREMENT_VISIBILITY_SECONDS = tostring(var.measurement_queue_visibility_timeout_seconds)
+    # Quantas janelas de um segmento cada réplica mede ao mesmo tempo. Uma de cada vez deixa os
+    # quatro vCPU parados enquanto o serviço de profundidade monta e sobe os 83 MB de uma janela.
+    GREENV_MEASUREMENT_WINDOW_CONCURRENCY = tostring(var.measurement_window_concurrency)
 
     # Queues are infrastructure; this file declares them and the worker must not.
     GREENV_RABBITMQ_DYNAMIC = "false"
@@ -343,6 +346,11 @@ locals {
     GREENV_MEASUREMENT_STRUCTURE_CLASSES    = var.measurement_structure_classes
     GREENV_MEASUREMENT_STRUCTURE_FLOOR      = var.measurement_structure_floor == null ? "" : tostring(var.measurement_structure_floor)
     GREENV_MEASUREMENT_STRUCTURE_MODEL_MASK = var.measurement_structure_model_mask
+    # A third model beside the second; see `measurement_structure2_model`.
+    GREENV_MEASUREMENT_STRUCTURE2_MODEL      = var.measurement_structure2_model
+    GREENV_MEASUREMENT_STRUCTURE2_CLASSES    = var.measurement_structure2_classes
+    GREENV_MEASUREMENT_STRUCTURE2_FLOOR      = var.measurement_structure2_floor == null ? "" : tostring(var.measurement_structure2_floor)
+    GREENV_MEASUREMENT_STRUCTURE2_MODEL_MASK = var.measurement_structure2_model_mask
 
     PORT = "8090"
   })

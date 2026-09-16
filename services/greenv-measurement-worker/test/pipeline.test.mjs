@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { measurementPipeline, RESULT_SCHEMA } from "../src/pipeline.mjs";
+import { measurementPipeline, windowsOf, RESULT_SCHEMA, measureEvery } from "../src/pipeline.mjs";
 import { loadConfig } from "../src/config.mjs";
 
 const PREFIX = "capture-sessions/11111111-1111-7111-8111-111111111111/segments/00000000";
@@ -24,6 +24,16 @@ function fakeStorage(objects = {}) {
     async put(key, bytes) {
       store.set(key, bytes);
       return { objectKey: key, sha256: "x".repeat(64), bytes: bytes.length };
+    },
+    // The real adapters make the store decide, in one write. Here the map is the store and a
+    // single-threaded test is the serialisation, so "has then set" is the same guarantee.
+    async putIfAbsent(key, bytes) {
+      if (store.has(key)) return false;
+      store.set(key, JSON.parse(bytes.toString("utf8")));
+      return true;
+    },
+    async exists(key) {
+      return store.has(key);
     },
   };
 }
@@ -48,11 +58,11 @@ const telemetry = Array.from({ length: 4 }, (_, i) => ({
   location: { latitude: -23.5 + i / 100, longitude: -46.7, horizontalAccuracyMeters: 4 },
 }));
 
-function harness({ storageOverrides = {}, depthManifest, env = {} } = {}) {
+function harness({ storageOverrides = {}, depthManifest, env = {}, manifest, work = null } = {}) {
   const objects = {
-    [`${PREFIX}/segment-manifest-v2.json`]: segmentManifest(),
+    [`${PREFIX}/segment-manifest-v2.json`]: manifest ?? segmentManifest(),
     [`${PREFIX}/frame-metadata-v2.json`]: telemetry,
-    ...Object.fromEntries(segmentManifest().sampledFrames.map((f) => [`${PREFIX}/sampled-frames/${f.fileName}`, Buffer.from(`jpeg-${f.index}`)])),
+    ...Object.fromEntries((manifest ?? segmentManifest()).sampledFrames.map((f) => [`${PREFIX}/sampled-frames/${f.fileName}`, Buffer.from(`jpeg-${f.fileName}`)])),
     ...storageOverrides,
   };
   const storage = fakeStorage(objects);
@@ -93,7 +103,7 @@ function harness({ storageOverrides = {}, depthManifest, env = {} } = {}) {
   };
 
   const config = loadConfig({ VERGE_RUNS_ROOT: join(tmpdir(), `runs-${Math.random().toString(16).slice(2)}`), ...env });
-  return { measure: measurementPipeline({ config, storage, infer, runner }), storage, calls, config, request: () => observed };
+  return { measure: measurementPipeline({ config, storage, infer, runner, work }), storage, calls, config, request: () => observed };
 }
 
 test("a segment becomes a packet published beside its frames", async () => {
@@ -263,4 +273,266 @@ test("the 110 MB run directory does not survive the measurement", async () => {
   const { measure, config } = harness();
   const result = await measure({ sessionId: segmentManifest().sessionId, segmentIndex: 0 });
   await assert.rejects(stat(join(config.measurement.runsRoot, result.runId)), "the run is discarded once its packet is published");
+});
+
+// A segmento de 13 de setembro: quatro grupos de 10 m e 110 quadros entre eles. O empacotamento
+// devolve uma janela só, e o pacote continua onde sempre esteve.
+const grouped = (groupSizes, metresPerGroup = 25) => {
+  const frames = [];
+  const groups = [];
+  let index = 0;
+  groupSizes.forEach((count, group) => {
+    groups.push({
+      index: group,
+      published: true,
+      startMeters: group * metresPerGroup,
+      endMeters: (group + 1) * metresPerGroup,
+    });
+    for (let i = 0; i < count; i++, index++) {
+      frames.push({
+        index,
+        fileName: `frame-${String(index + 1).padStart(4, "0")}.jpg`,
+        timestampSeconds: index / 10,
+        sizeBytes: 10,
+        sha256: "b".repeat(64),
+        distanceMeters: group * metresPerGroup + (i * metresPerGroup) / count,
+        groupIndex: group,
+      });
+    }
+  });
+  return segmentManifest({ sampledFrames: frames, groups });
+};
+
+test("um segmento medido inteiro continua sendo uma janela só", () => {
+  const windows = windowsOf(grouped([28, 27, 28, 27], 10), 112);
+  assert.equal(windows.length, 1);
+  assert.equal(windows[0].windowed, false, "sem janela nomeada, o pacote fica no caminho de sempre");
+  assert.equal(windows[0].frames.length, 110);
+});
+
+test("grupos consecutivos são empacotados até o teto de uma execução", () => {
+  const windows = windowsOf(grouped([40, 40, 40]), 112);
+  assert.deepEqual(windows.map((w) => w.frames.length), [80, 40], "80 cabem, 120 não");
+  assert.deepEqual(windows.map((w) => w.groupIndices), [[0, 1], [2]]);
+  assert.deepEqual(windows.map((w) => [w.startMeters, w.endMeters]), [[0, 50], [50, 75]]);
+  assert.ok(windows.every((w) => w.windowed), "duas janelas, cada uma com o seu lugar na estrada");
+});
+
+test("um grupo por janela quando cada um já enche a execução", () => {
+  const windows = windowsOf(grouped([76, 76, 76, 76, 76, 76, 76, 76]), 112);
+  assert.equal(windows.length, 8, "200 m em janelas de 25 m, que é o que o extrator agora publica");
+  assert.deepEqual(windows[7].groupIndices, [7]);
+});
+
+test("um manifesto sem grupos é uma janela, como o extrator de tempo uniforme entrega", () => {
+  const windows = windowsOf(segmentManifest(), 112);
+  assert.equal(windows.length, 1);
+  assert.equal(windows[0].windowed, false);
+});
+
+test("cada janela vira uma execução, um pacote e um anúncio", async () => {
+  const manifest = grouped([50, 50, 50]);
+  const { measure, storage, calls } = harness({
+    storageOverrides: {
+      [`${PREFIX}/segment-manifest-v2.json`]: manifest,
+      [`${PREFIX}/frame-metadata-v2.json`]: manifest.sampledFrames.map((f, i) => ({
+        index: i,
+        presentationTimeNanos: i * 100_000_000,
+        capturedAtUtc: new Date(Date.UTC(2026, 8, 8, 10, 0, 0)).toISOString(),
+        locationQuality: "good",
+        location: { latitude: -23.5 + i / 1000, longitude: -46.7, horizontalAccuracyMeters: 4 },
+      })),
+      ...Object.fromEntries(manifest.sampledFrames.map((f) => [`${PREFIX}/sampled-frames/${f.fileName}`, Buffer.from("jpeg")])),
+    },
+  });
+
+  const result = await measure({ sessionId: segmentManifest().sessionId, segmentIndex: 0 });
+
+  assert.equal(calls.infer, 2, "50+50 cabem numa execução, o terceiro grupo pede outra");
+  assert.equal(calls.assess, 2);
+  assert.equal(result.windows.length, 2);
+  assert.deepEqual(result.windows.map((w) => w.windowIndex), [0, 1]);
+  assert.deepEqual(result.windows.map((w) => w.windowStartMeters), [0, 50]);
+  for (const name of ["assessment.json", "report.html", "SHA256SUMS"]) {
+    assert.ok(storage.written.has(`${PREFIX}/measurement/w00/${name}`), `janela 0 publicou ${name}`);
+    assert.ok(storage.written.has(`${PREFIX}/measurement/w01/${name}`), `janela 1 publicou ${name}`);
+  }
+  assert.ok(!storage.written.has(`${PREFIX}/measurement/assessment.json`), "nada no caminho do segmento inteiro");
+});
+
+test("windows are measured a few at a time and still come back in their own order", async () => {
+  let running = 0;
+  let maximum = 0;
+  const started = [];
+  const medir = async (window) => {
+    running += 1;
+    maximum = Math.max(maximum, running);
+    started.push(window.index);
+    // A later window finishing first is the whole point: the first window is the slowest here.
+    await new Promise((resolve) => setTimeout(resolve, window.index === 0 ? 20 : 1));
+    running -= 1;
+    return { windowIndex: window.index };
+  };
+
+  const windows = [0, 1, 2, 3, 4].map((index) => ({ index }));
+  const results = await measureEvery(windows, medir, 2);
+
+  assert.deepEqual(results.map((r) => r.windowIndex), [0, 1, 2, 3, 4]);
+  assert.equal(maximum, 2, "never more than the limit at once");
+  assert.deepEqual(started.slice(0, 2), [0, 1], "the first two start together");
+});
+
+test("one at a time is the default, and a single window needs no lane of its own", async () => {
+  let running = 0;
+  let maximum = 0;
+  const medir = async () => {
+    running += 1;
+    maximum = Math.max(maximum, running);
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    running -= 1;
+    return {};
+  };
+
+  await measureEvery([{ index: 0 }, { index: 1 }, { index: 2 }], medir);
+
+  assert.equal(maximum, 1);
+});
+
+/**
+ * The race that costs money: two replicas starting the same window a second apart.
+ *
+ * Neither finds a packet, because neither has finished one, so "was it measured" answers no for
+ * both and both would call the GPU. The claim is what makes exactly one of them proceed.
+ */
+test("a window already claimed elsewhere is refused instead of inferred a second time", async () => {
+  const { measure, calls } = harness({
+    storageOverrides: {
+      [`${PREFIX}/measurement/claim.json`]: { at: new Date().toISOString(), timeoutMs: 1800000 },
+    },
+  })
+
+  await assert.rejects(
+    () => measure({ sessionId: segmentManifest().sessionId, segmentIndex: 0 }),
+    (error) => error.code === 'window_claimed' && error.retryable === true)
+
+  assert.equal(calls.infer, 0, 'the GPU is never called for a window somebody else holds')
+})
+
+/**
+ * A holder can die — Container Apps replaces a revision by killing replicas — and a claim that
+ * outlived the time its own measurement was allowed belongs to nobody. Waiting on it forever
+ * would lose the window silently, which is worse than measuring it twice.
+ */
+test("a claim older than a measurement's own timeout is taken over", async () => {
+  const ancient = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString()
+  const { measure, calls, storage } = harness({
+    storageOverrides: {
+      [`${PREFIX}/measurement/claim.json`]: { at: ancient, timeoutMs: 1800000 },
+    },
+  })
+
+  const result = await measure({ sessionId: segmentManifest().sessionId, segmentIndex: 0 })
+
+  assert.equal(result.mock, false)
+  assert.equal(calls.infer, 1)
+  const claim = storage.written.get(`${PREFIX}/measurement/claim.json`)
+  const taken = JSON.parse(Buffer.isBuffer(claim) ? claim.toString('utf8') : JSON.stringify(claim))
+  assert.notEqual(taken.at, ancient, 'the claim now names this run and not the dead one')
+})
+
+/**
+ * Two groups of sixty frames: more than one depth run holds, so they are two windows.
+ *
+ * Sixty is not decoration. `windowsOf` packs consecutive groups together until the next one
+ * would not fit a single run, so two small groups are one window and this test would be
+ * asserting the opposite of what it says.
+ */
+const twoWindowManifest = () => segmentManifest({
+  groups: [
+    { index: 0, startMeters: 0, endMeters: 25, published: true },
+    { index: 1, startMeters: 25, endMeters: 50, published: true },
+  ],
+  sampledFrames: Array.from({ length: 120 }, (unused, position) => ({
+    fileName: `frame-${String(position + 1).padStart(4, '0')}.jpg`,
+    groupIndex: position < 60 ? 0 : 1,
+    distanceMeters: position * 0.4,
+  })),
+})
+
+/**
+ * A segment answers by queueing its windows, and measures nothing itself.
+ *
+ * This is the whole reason a window is a message: one replica used to own a segment's seven to
+ * nine windows for half an hour while another sat idle after a short one, and no reading
+ * reached the dashboard until the last of them finished.
+ */
+test("a segment with several windows queues them instead of measuring them", async () => {
+  const queued = []
+  const { measure, calls } = harness({
+    manifest: twoWindowManifest(),
+    work: { publish: async (request) => queued.push(request) },
+  })
+
+  const result = await measure({ sessionId: segmentManifest().sessionId, segmentIndex: 0 })
+
+  assert.equal(result.fannedOut, 2)
+  assert.equal(calls.infer, 0, 'the segment itself never calls the GPU')
+  assert.deepEqual(queued.map((request) => request.windowIndex), [0, 1])
+  assert.equal(queued[0].sessionId, segmentManifest().sessionId, 'each message still names its segment')
+})
+
+/** And the message that names a window measures that window, and only it. */
+test("a window message measures its own window", async () => {
+  const queued = []
+  const { measure, calls } = harness({
+    manifest: twoWindowManifest(),
+    work: { publish: async (request) => queued.push(request) },
+  })
+
+  const result = await measure({ sessionId: segmentManifest().sessionId, segmentIndex: 0, windowIndex: 1 })
+
+  assert.equal(queued.length, 0, 'a window queues nothing further')
+  assert.equal(calls.infer, 1)
+  assert.equal(result.windowIndex, 1)
+  assert.equal(result.windowStartMeters, 25)
+})
+
+/** A message naming a window the cut no longer has is refused, not measured as something else. */
+test("a window the segment no longer has is refused", async () => {
+  const { measure, calls } = harness({
+    manifest: twoWindowManifest(),
+    work: { publish: async () => {} },
+  })
+
+  await assert.rejects(
+    () => measure({ sessionId: segmentManifest().sessionId, segmentIndex: 0, windowIndex: 7 }),
+    (error) => error.code === 'window_absent')
+
+  assert.equal(calls.infer, 0)
+})
+
+test("a third model stands beside the second, and both reach Verge Studio as one list", async () => {
+  // No one model sees everything: the Vistas model places the band and vetoes a rail, the ADE20K
+  // model is the one that calls a bush a tree. One model is still asked for the old way, so a
+  // deployment without the third sends byte for byte what it sent before.
+  const one = harness({ env: { GREENV_MEASUREMENT_STRUCTURE_MODEL: "vistas-r50", GREENV_MEASUREMENT_STRUCTURE_CLASSES: "Guard Rail,Barrier", GREENV_MEASUREMENT_STRUCTURE_FLOOR: "0.7", GREENV_MEASUREMENT_STRUCTURE_MODEL_MASK: "band" } });
+  const single = await one.measure({ sessionId: segmentManifest().sessionId, segmentIndex: 0 });
+  assert.deepEqual([one.request().structureModel, one.request().structureClasses, one.request().structureFloor, one.request().structureModelMask], ["vistas-r50", "Guard Rail,Barrier", 0.7, "band"]);
+  assert.equal(one.request().structureModels, undefined, "one model travels the way it always has");
+  assert.deepEqual(single.measurement.structureModels, [{ model: "vistas-r50", classes: "Guard Rail,Barrier", floor: 0.7, mask: "band" }]);
+
+  const two = harness({ env: { GREENV_MEASUREMENT_STRUCTURE_MODEL: "vistas-r50", GREENV_MEASUREMENT_STRUCTURE_CLASSES: "Guard Rail,Barrier", GREENV_MEASUREMENT_STRUCTURE_FLOOR: "0.7", GREENV_MEASUREMENT_STRUCTURE_MODEL_MASK: "band",
+    GREENV_MEASUREMENT_STRUCTURE2_MODEL: "ade20k-b4", GREENV_MEASUREMENT_STRUCTURE2_CLASSES: "tree,palm" } });
+  const both = await two.measure({ sessionId: segmentManifest().sessionId, segmentIndex: 0 });
+  assert.equal(two.request().structureModel, undefined, "the list form and the four fields are exclusive on Verge Studio's side");
+  assert.deepEqual(two.request().structureModels, [
+    { model: "vistas-r50", classes: "Guard Rail,Barrier", floor: 0.7, mask: "band" },
+    { model: "ade20k-b4", classes: "tree,palm", mask: "never" },
+  ]);
+  // The packet keeps the first under the old names and records the whole list beside them.
+  assert.deepEqual([both.measurement.structureModel, both.measurement.structureClasses], ["vistas-r50", "Guard Rail,Barrier"]);
+  assert.deepEqual(both.measurement.structureModels, [
+    { model: "vistas-r50", classes: "Guard Rail,Barrier", floor: 0.7, mask: "band" },
+    { model: "ade20k-b4", classes: "tree,palm", floor: null, mask: "never" },
+  ]);
 });

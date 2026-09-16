@@ -59,12 +59,149 @@ async function keptDepth(storage, prefix, existing) {
   };
 }
 
-export function measurementPipeline({ config, storage, infer, runner, log = () => {} }) {
+/**
+ * The windows of one segment: the stretches that each become a reconstruction of their own.
+ *
+ * The extractor plans groups of about 25 m and publishes every one of them. A depth run holds at
+ * most `maxFrames`, so consecutive groups are packed into a window until the next would not fit.
+ * On a manifest from before that change - four groups of 10 m, 110 frames between them - the
+ * packing returns a single window and nothing about the measurement moves. A segment whose frames
+ * carry no group (the time-uniform fallback, when the telemetry could not decide) is one window.
+ */
+export function windowsOf(manifest, maxFrames) {
+  const frames = manifest.sampledFrames ?? [];
+  const groups = (manifest.groups ?? []).filter((group) => group.published);
+  const grouped = frames.length > 0 && frames.every((frame) => Number.isInteger(frame.groupIndex));
+  const whole = [{ index: 0, frames, startMeters: null, endMeters: null, groupIndices: [], windowed: false }];
+  if (!groups.length || !grouped) return whole;
+
+  const windows = [];
+  let current = null;
+  for (const group of groups) {
+    const own = frames.filter((frame) => frame.groupIndex === group.index);
+    if (!own.length) continue;
+    if (current && current.frames.length + own.length <= maxFrames) {
+      current.frames.push(...own);
+      current.groupIndices.push(group.index);
+      current.endMeters = group.endMeters ?? current.endMeters;
+      continue;
+    }
+    current = {
+      index: windows.length,
+      frames: [...own],
+      groupIndices: [group.index],
+      startMeters: group.startMeters ?? null,
+      endMeters: group.endMeters ?? null,
+      windowed: true,
+    };
+    windows.push(current);
+  }
+  if (!windows.length) return whole;
+  // One window is a segment measured whole, wherever its frames came from: the packet keeps the
+  // path it has always had, and nothing downstream has to learn a new one.
+  if (windows.length === 1) windows[0].windowed = false;
+  return windows;
+}
+
+/**
+ * Every window of one segment, a few at a time, in order.
+ *
+ * <p>Windows are independent - separate frames, separate reconstruction, separate packet - and
+ * most of a window's wall clock is spent waiting for the depth service rather than computing
+ * here, so running them strictly one after another leaves this replica's vCPU idle for minutes.
+ * The results keep the windows' own order whatever order they finish in, because the first one
+ * is the segment's announcement and the rest are indexed by position.
+ *
+ * <p>The first failure aborts the segment, as it did when this was a loop: a window that throws
+ * leaves the message unacknowledged and the whole segment is retried, skipping whatever already
+ * has a packet.
+ */
+export async function measureEvery(windows, measureOne, limit) {
+  const results = new Array(windows.length);
+  let next = 0;
+  const lane = async () => {
+    for (let mine = next++; mine < windows.length; mine = next++) {
+      results[mine] = await measureOne(windows[mine]);
+    }
+  };
+  const lanes = Math.max(1, Math.min(limit ?? 1, windows.length));
+  await Promise.all(Array.from({ length: lanes }, lane));
+  return results;
+}
+
+/**
+ * Takes the right to measure one window, or reports that somebody else holds it.
+ *
+ * <p>A claim is a small object written only if the key is free, so exactly one caller can win it.
+ * It carries when it was taken, because the holder can die: a claim older than a measurement's
+ * own timeout is nobody's, and is taken over rather than waited on forever. Anything short of
+ * that returns false and the message goes back to the queue to be tried again later — by then
+ * the window usually has a packet and the retry costs a read.
+ *
+ * <p>The claim is deliberately not deleted when the measurement finishes. It is the record of
+ * which run measured the window, and the packet beside it is what later readers check first.
+ */
+/**
+ * The structure models the deployment named, in order, or null when it named none.
+ *
+ * The second model needs the first to stand beside (config.mjs refuses it alone), so the list
+ * is one or two entries and the first is always the one the packet's old four fields describe.
+ */
+export function structureModelsOf(measurement) {
+  if (!measurement.structureModel) return null;
+  const models = [{ model: measurement.structureModel, classes: measurement.structureClasses, floor: measurement.structureFloor, mask: measurement.structureModelMask }];
+  if (measurement.structure2Model) {
+    models.push({ model: measurement.structure2Model, classes: measurement.structure2Classes, floor: measurement.structure2Floor, mask: measurement.structure2ModelMask });
+  }
+  return models;
+}
+
+/**
+ * How Verge Studio is asked for them: one model under the four names it has always read, so a
+ * deployment with one model sends exactly what it sent before, and the list form only when a
+ * second stands beside it — the two forms are exclusive on that side. An unset floor is left
+ * out so Verge Studio's own default applies, as the four-field form has always done.
+ */
+function structureModelsRequest(measurement) {
+  const models = structureModelsOf(measurement);
+  if (!models) return {};
+  if (models.length === 1) {
+    const [one] = models;
+    return { structureModel: one.model, structureClasses: one.classes,
+      ...(one.floor === null ? {} : { structureFloor: one.floor }),
+      ...(one.mask === "always" ? {} : { structureModelMask: one.mask }) };
+  }
+  return { structureModels: models.map((one) => ({ model: one.model, classes: one.classes, ...(one.floor === null ? {} : { floor: one.floor }), mask: one.mask })) };
+}
+
+async function claimWindow(storage, prefix, windowIndex, timeoutMs, log) {
+  const key = keys.measurementArtifact(prefix, "claim.json", windowIndex);
+  const mine = Buffer.from(`${JSON.stringify({ at: new Date().toISOString(), timeoutMs })}
+`);
+  if (await storage.putIfAbsent(key, mine)) return true;
+
+  const held = await storage.getJson(key).catch(() => null);
+  const takenAt = Date.parse(held?.at ?? "");
+  const stale = !Number.isFinite(takenAt) || Date.now() - takenAt > timeoutMs;
+  if (!stale) {
+    log({ event: "window-claimed-elsewhere", prefix, window: windowIndex, since: held?.at });
+    return false;
+  }
+  // The previous holder outlived the time its own measurement was allowed. Taking over is the
+  // only way the window ever gets measured; leaving it claimed forever would lose it silently.
+  log({ event: "claim-expired", prefix, window: windowIndex, since: held?.at ?? null });
+  await storage.put(key, mine);
+  return true;
+}
+
+export function measurementPipeline({ config, storage, infer, runner, work = null, log = () => {} }) {
   /**
-   * @param request {{sessionId: string, segmentIndex: number, outputPrefix?: string,
-   *                 rodovia?: string|null, sentido?: string|null, force?: boolean}}
+   * One window of one segment, from frames to a packet.
+   *
+   * A window that is the whole segment writes where the packet has always been written; any other
+   * writes under a directory of its own. Everything between is the measurement as it was.
    */
-  return async function measure(request) {
+  async function measureWindow(request, window) {
     const { sessionId, segmentIndex } = request;
     if (!sessionId || !Number.isInteger(segmentIndex) || segmentIndex < 0) {
       throw new MeasurementError("invalid_measurement_request", "sessionId and a non-negative segmentIndex are required");
@@ -79,19 +216,40 @@ export function measurementPipeline({ config, storage, infer, runner, log = () =
         true,
       );
     }
-    const sampledFrames = manifest.sampledFrames ?? [];
+    const windowIndex = window.windowed ? window.index : null;
+    const sampledFrames = window.frames;
     if (sampledFrames.length < 2) {
-      throw new MeasurementError("insufficient_frames", `segment published ${sampledFrames.length} sampled frame(s); depth needs at least 2`);
+      throw new MeasurementError(
+        "insufficient_frames",
+        `${window.windowed ? `window ${window.index}` : "segment"} published ${sampledFrames.length} sampled frame(s); depth needs at least 2`,
+      );
     }
 
     // Idempotency, in the extractor's own idiom: a result already computed from these exact
     // source objects is returned rather than recomputed, because recomputing means paying for
     // the GPU twice for the same answer.
-    const existing = await storage.getJson(keys.measurementResult(prefix)).catch(() => null);
+    const existing = await storage.getJson(keys.measurementResult(prefix, windowIndex)).catch(() => null);
     const sameSource = existing && existing.sourceGeneration === manifest.sourceGeneration;
     if (!request.force && sameSource) {
-      log({ event: "already-measured", prefix, runId: existing.runId });
+      log({ event: "already-measured", prefix, window: windowIndex, runId: existing.runId });
       return { ...existing, reused: true };
+    }
+
+    // Nobody else is already measuring this window.
+    //
+    // The check above answers "was it measured", which is not the same question: two replicas
+    // that start the same window a second apart both find no packet, and both pay for the GPU.
+    // Since a window became a message of its own, that race is ordinary — a redelivered fan-out
+    // publishes the same window twice — so the claim is what stands between it and a doubled
+    // bill. The store decides who wins, in one write; a read followed by a write would let both
+    // through and prove nothing.
+    const claim = await claimWindow(storage, prefix, windowIndex, config.measurement.timeoutMs, log);
+    if (!claim) {
+      throw new MeasurementError(
+        "window_claimed",
+        `window ${windowIndex ?? 0} of ${prefix} is already being measured elsewhere`,
+        true,
+      );
     }
 
     const telemetry = await storage.getJson(keys.frameMetadata(prefix)).catch(() => null);
@@ -99,7 +257,7 @@ export function measurementPipeline({ config, storage, infer, runner, log = () =
       throw new MeasurementError("frame_metadata_absent", `no frame metadata at ${keys.frameMetadata(prefix)}`, true);
     }
 
-    log({ event: "downloading", prefix, frames: sampledFrames.length });
+    log({ event: "downloading", prefix, window: windowIndex, frames: sampledFrames.length });
     const frames = [];
     for (const record of sampledFrames) {
       const key = keys.sampledFrame(prefix, record.fileName);
@@ -154,7 +312,9 @@ export function measurementPipeline({ config, storage, infer, runner, log = () =
 
     const { frameContext, positions } = buildFrameContext(sampledFrames, telemetry, request);
     const context = segmentContext(positions, request);
-    const trackLengthM = config.measurement.scaleAnchor === "telemetry" ? sampledTrackLength(manifest) : null;
+    // The window's own distance, not the segment's: `sampledFrames` above is this window's.
+    const trackLengthM =
+      config.measurement.scaleAnchor === "telemetry" ? sampledTrackLength(manifest, sampledFrames) : null;
     // Only the ceilings the deployment named; an absent one leaves Verge Studio's own default.
     const gridOptions = {
       ...(config.measurement.maxHeightM === null ? {} : { maxHeightM: config.measurement.maxHeightM }),
@@ -179,9 +339,7 @@ export function measurementPipeline({ config, storage, infer, runner, log = () =
         trackLengthM,
         groundFallback: config.measurement.groundFallback,
         ...(config.measurement.excludeNear ? { excludeNearClasses: config.measurement.excludeNear, excludeNearPx: config.measurement.excludeNearPx } : {}),
-        ...(config.measurement.structureModel ? { structureModel: config.measurement.structureModel, structureClasses: config.measurement.structureClasses,
-          ...(config.measurement.structureFloor === null ? {} : { structureFloor: config.measurement.structureFloor }),
-          ...(config.measurement.structureModelMask === "always" ? {} : { structureModelMask: config.measurement.structureModelMask }) } : {}),
+        ...structureModelsRequest(config.measurement),
         ...(Object.keys(gridOptions).length ? { gridOptions } : {}),
         classes: config.measurement.classes,
         context,
@@ -193,6 +351,11 @@ export function measurementPipeline({ config, storage, infer, runner, log = () =
         sessionId,
         segmentIndex,
         outputPrefix: prefix,
+        // Which stretch of the segment this reading covers. Null when the segment was measured
+        // whole, which is every packet written before the extractor started publishing them all.
+        windowIndex,
+        windowStartMeters: window.startMeters,
+        windowEndMeters: window.endMeters,
         // Ties the answer to the exact bytes it was computed from, so a re-uploaded segment is
         // measured again instead of silently reusing the previous reading.
         sourceGeneration: manifest.sourceGeneration,
@@ -229,6 +392,8 @@ export function measurementPipeline({ config, storage, infer, runner, log = () =
           structureClasses: config.measurement.structureModel ? config.measurement.structureClasses : null,
           structureFloor: config.measurement.structureModel ? config.measurement.structureFloor : null,
           structureModelMask: config.measurement.structureModel ? config.measurement.structureModelMask : null,
+          // Every structure model that voted, in order, when there is more than the one above.
+          structureModels: structureModelsOf(config.measurement),
           datum: config.measurement.datum,
           groundFallback: config.measurement.groundFallback,
           excludeNear: config.measurement.excludeNear || null,
@@ -236,7 +401,7 @@ export function measurementPipeline({ config, storage, infer, runner, log = () =
           contentSha256: summary.contentSha256,
           quality: summary.quality,
           timing: summary.timing,
-          artifacts: Object.fromEntries(PACKET_FILES.map((name) => [name, keys.measurementArtifact(prefix, name)])),
+          artifacts: Object.fromEntries(PACKET_FILES.map((name) => [name, keys.measurementArtifact(prefix, name, windowIndex)])),
         },
         // Verge Studio keeps exactly four road fields and cannot invent a km, so the coordinates
         // it never sees are carried here. Turning these into (rodovia, sentido, km) needs the
@@ -247,16 +412,85 @@ export function measurementPipeline({ config, storage, infer, runner, log = () =
         measuredAt: new Date().toISOString(),
       };
 
-      log({ event: "publishing", prefix, runId: run.runId });
+      log({ event: "publishing", prefix, window: windowIndex, runId: run.runId });
       for (const name of PACKET_FILES) {
-        await storage.put(keys.measurementArtifact(prefix, name), artifacts[name]);
+        await storage.put(keys.measurementArtifact(prefix, name, windowIndex), artifacts[name]);
       }
-      await storage.put(keys.measurementResult(prefix), Buffer.from(`${JSON.stringify(result, null, 2)}\n`));
+      await storage.put(keys.measurementResult(prefix, windowIndex), Buffer.from(`${JSON.stringify(result, null, 2)}\n`));
 
       return result;
     } finally {
       await rm(output, { recursive: true, force: true });
       await discardRun(run.directory);
     }
+  }
+
+  /**
+   * Every window of one segment, in order along the road.
+   *
+   * One depth run and one packet per window, because a window is a reconstruction and a segment is
+   * now several of them. They run in sequence rather than together: the GPU endpoint is one queue
+   * and the measurement is CPU-bound on this container, so overlapping them would only move the
+   * waiting around.
+   *
+   * The returned object is the first window, so a caller that predates windows still gets a
+   * result, with every window under `windows` for the one that publishes them.
+   */
+  /**
+   * One message, which is either a segment or one of its windows.
+   *
+   * <p>The message carries no new field to say which: a `windowIndex` is a window and the
+   * absence of one is the segment. A segment cuts itself into windows and puts each back on the
+   * queue, then answers with what it queued and measures nothing; a window measures itself and
+   * answers with its packet.
+   *
+   * <p>That split is the whole point. A segment held by one replica measured its seven to nine
+   * windows itself, so one replica owned a segment for half an hour while another sat idle
+   * after a short one, and the announcements only went out when the last window finished. As
+   * separate messages any replica takes any window, a failure costs one window instead of nine,
+   * and each reading reaches the dashboard as soon as it exists.
+   *
+   * <p>Without a queue to fan out to — the HTTP door, and every test — it measures the windows
+   * in place, as it did before.
+   */
+  return async function measure(request) {
+    const prefix = request.outputPrefix ?? keys.segmentPrefix(request.sessionId, request.segmentIndex);
+    const manifest = await storage.getJson(keys.segmentManifest(prefix)).catch(() => null);
+    const windows = manifest
+      ? windowsOf(manifest, config.infer.maxFrames)
+      : [{ index: 0, frames: [], startMeters: null, endMeters: null, groupIndices: [], windowed: false }];
+
+    if (request.windowIndex != null) {
+      const mine = windows.find((window) => window.index === request.windowIndex);
+      if (!mine) {
+        // The cut changed under the message: the extractor republished the segment with fewer
+        // groups. Refusing beats measuring the wrong stretch of road under the right name.
+        throw new MeasurementError(
+          "window_absent",
+          `${prefix} has ${windows.length} window(s) and the message asks for ${request.windowIndex}`,
+        );
+      }
+      const result = await measureWindow(request, mine);
+      return { ...result, windows: [result] };
+    }
+
+    if (windows.length > 1) {
+      log({ event: "windows", prefix, windows: windows.length, frames: windows.map((w) => w.frames.length) });
+    }
+
+    if (work && windows.length > 1) {
+      for (const window of windows) {
+        await work.publish({ ...request, windowIndex: window.index });
+      }
+      log({ event: "fanned-out", prefix, windows: windows.length });
+      return { fannedOut: windows.length, outputPrefix: prefix, windows: [] };
+    }
+
+    const results = await measureEvery(
+      windows,
+      (window) => measureWindow(request, window),
+      config.measurement.windowConcurrency,
+    );
+    return { ...results[0], windows: results };
   };
 }

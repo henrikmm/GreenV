@@ -31,6 +31,12 @@ public class JacksonMeasurementAnnouncementReaderAdapter implements MeasurementA
         return new SegmentMeasurementAnnouncement(
                 UUID.fromString(root.get("sessionId").asString()),
                 root.get("segmentIndex").asInt(),
+                // Absent as well as null reads as "measured whole": every packet published before
+                // the worker started cutting a segment into windows carries neither field, and
+                // those packets are still being redelivered.
+                integer(root, "windowIndex"),
+                decimal(root, "windowStartMeters"),
+                decimal(root, "windowEndMeters"),
                 text(root, "runId"),
                 root.path("mock").asBoolean(false),
                 Instant.parse(root.get("measuredAt").asString()));
@@ -39,5 +45,15 @@ public class JacksonMeasurementAnnouncementReaderAdapter implements MeasurementA
     private static String text(JsonNode root, String field) {
         JsonNode value = root.path(field);
         return value.isNull() || value.isMissingNode() ? null : value.asString();
+    }
+
+    private static Integer integer(JsonNode root, String field) {
+        JsonNode value = root.path(field);
+        return value.isNumber() ? value.asInt() : null;
+    }
+
+    private static Double decimal(JsonNode root, String field) {
+        JsonNode value = root.path(field);
+        return value.isNumber() ? value.asDouble() : null;
     }
 }

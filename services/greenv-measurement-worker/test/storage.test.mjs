@@ -198,3 +198,18 @@ test("with no key pair the SDK's own credential chain is left intact", async () 
     process.env = previous;
   }
 });
+
+test("a conditional write is won by exactly one caller", async () => {
+  const storage = localStorage({ root: await mkdtemp(join(tmpdir(), "claim-")) })
+
+  const first = await storage.putIfAbsent("a/b/claim.json", Buffer.from('{"at":"first"}'))
+  const second = await storage.putIfAbsent("a/b/claim.json", Buffer.from('{"at":"second"}'))
+
+  assert.equal(first, true)
+  assert.equal(second, false, "the second caller is told it lost, not silently overwritten")
+  assert.deepEqual(await storage.getJson("a/b/claim.json"), { at: "first" })
+
+  // A plain put is still a plain put: taking a claim over is deliberate and goes through it.
+  await storage.put("a/b/claim.json", Buffer.from('{"at":"third"}'))
+  assert.deepEqual(await storage.getJson("a/b/claim.json"), { at: "third" })
+})

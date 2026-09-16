@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion'
 import { Layers, Filter, ListTree, Maximize2 } from 'lucide-react'
 import { LEVELS, vegetationLevel } from '@greenv/web-core'
+import { stretchKey, stretchLabel, stretchRange } from '../api/stretch'
 
 /**
  * A barra lateral do mapa, no mesmo vocabulário da demonstração.
@@ -92,6 +93,9 @@ const s = {
   },
   stretchHeight: { fontSize: 11, fontWeight: 700, fontFamily: 'var(--font-mono)' },
 }
+
+/** Quantos trechos de uma sessão a barra lista antes de resumir o resto. */
+const SHOWN_STRETCHES = 8
 
 function Toggle({ label, active, onToggle }) {
   return (
@@ -185,14 +189,20 @@ export default function SessionsSidebar({
               {/* Os trechos dentro da sessão. Uma volta cruza ruas e mistura um trecho
                   limpo com um crítico, e o rótulo da sessão sozinho esconde justamente
                   isso. Aqui cada leitura aparece com a própria rua e a própria altura. */}
+              {/* Os mais altos primeiro, e só os primeiros: um segmento enviado rende vários
+                  trechos de cerca de 25 m, e uma sessão inteira não cabe numa barra de 300 px.
+                  O que a lista responde é para onde mandar a equipe, e isso está no topo. */}
               {stretches?.length > 0 && (
                 <div style={s.stretchList}>
-                  {stretches.map(({ segment, place: spot }) => {
+                  {stretches.slice(0, SHOWN_STRETCHES).map(({ segment, place: spot }) => {
                     const level = vegetationLevel(segment.measurementLevel)
                     return (
-                      <div key={segment.segmentIndex}
+                      // A janela entra na chave: um segmento enviado rende vários trechos
+                      // medidos, e o índice do segmento sozinho repete entre eles.
+                      <div key={stretchKey(segment)}
                         style={s.stretchRow(selectedId === session.sessionId)}
-                        title={spot?.detail ?? undefined}
+                        title={[spot?.detail, stretchLabel(segment)].filter(Boolean).join(' · ')
+                          || undefined}
                         onClick={(event) => {
                           event.stopPropagation()
                           onOpenSegment?.(session.sessionId, segment.segmentIndex)
@@ -200,6 +210,7 @@ export default function SessionsSidebar({
                         <span style={s.stretchDot(LEVELS[level].color)} />
                         <span style={s.stretchName}>
                           {spot?.label ?? `Trecho ${segment.segmentIndex}`}
+                          {stretchRange(segment) && <> · {stretchRange(segment)}</>}
                         </span>
                         <span style={{ ...s.stretchHeight, color: LEVELS[level].color }}>
                           {segment.measurementExtent95P95M != null
@@ -209,6 +220,11 @@ export default function SessionsSidebar({
                       </div>
                     )
                   })}
+                  {stretches.length > SHOWN_STRETCHES && (
+                    <div style={{ ...s.cardWhen, marginTop: 6 }}>
+                      e mais {stretches.length - SHOWN_STRETCHES} trechos medidos
+                    </div>
+                  )}
                 </div>
               )}
               {drawable && (() => {

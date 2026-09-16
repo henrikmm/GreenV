@@ -18,6 +18,20 @@ export const sampledFrame = (prefix, fileName) => `${prefix}/sampled-frames/${fi
 // id the depth service named. Kept, so a re-measure can start from geometry it already paid for.
 export const depthArtifact = (prefix, runId, name) => `${prefix}/depth/${runId}/${name}`;
 
-export const measurementPrefix = (prefix) => `${prefix}/measurement`;
-export const measurementArtifact = (prefix, name) => `${measurementPrefix(prefix)}/${name}`;
-export const measurementResult = (prefix) => `${measurementPrefix(prefix)}/measurement-result-v1.json`;
+/**
+ * Where one window's packet lands.
+ *
+ * <p>A segment used to produce exactly one measurement, and it lived at `measurement/`. Since the
+ * extractor stopped spending its frame budget on the first 40 m, a segment is a row of 25 m
+ * windows, each its own reconstruction and its own reading, and each gets a directory of its own.
+ * A segment with a single window keeps the old path, so every packet measured before this change
+ * is still where its row says it is.
+ */
+export const measurementPrefix = (prefix, windowIndex = null) =>
+  windowIndex === null
+    ? `${prefix}/measurement`
+    : `${prefix}/measurement/w${String(windowIndex).padStart(2, "0")}`;
+export const measurementArtifact = (prefix, name, windowIndex = null) =>
+  `${measurementPrefix(prefix, windowIndex)}/${name}`;
+export const measurementResult = (prefix, windowIndex = null) =>
+  `${measurementPrefix(prefix, windowIndex)}/measurement-result-v1.json`;

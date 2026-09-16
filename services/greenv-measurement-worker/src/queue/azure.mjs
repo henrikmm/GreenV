@@ -12,7 +12,9 @@
 //   * No push delivery. Nothing calls us; we poll. A received message is invisible to other
 //     readers for the visibility timeout instead of being held on a channel, and that timeout is
 //     the deadline for the whole measurement rather than for an acknowledgement, which is why it
-//     defaults to the measurement timeout and not to seconds.
+//     defaults to the measurement timeout and not to seconds. A segment is now as many
+//     reconstructions as it has 25 m windows, so the lease is renewed while the handler runs -
+//     see `leaseRenewal` - and the timeout bounds one window rather than the whole segment.
 //   * No ack, no nack, no delayed republish. Deleting the message is the ack. Leaving it is the
 //     nack: Azure redelivers it once the visibility timeout expires, with `dequeueCount` one
 //     higher. So the `x-measurement-attempt` header `rabbit.mjs` carries by hand is a counter the
@@ -32,6 +34,63 @@ const MAX_ATTEMPTS = Number(process.env.GREENV_MEASUREMENT_MAX_ATTEMPTS ?? 3);
 const MAX_MESSAGE_BYTES = 64 * 1024;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms).unref?.());
+
+/**
+ * Keeps one message invisible for as long as the handler is still measuring it.
+ *
+ * <p>The visibility timeout is the deadline for a whole measurement, and since 15 September 2026 a
+ * measurement is one reconstruction per 25 m window — eight or nine of them for a segment driven at
+ * highway speed, where it used to be one. Setting the timeout to the worst segment's length would
+ * also be how long a genuinely stuck worker keeps a segment nobody else can pick up, so the lease is
+ * renewed a third of the way through instead: progress extends it, a dead worker does not.
+ *
+ * <p>Each renewal mints a new pop receipt and invalidates the last, so the delete at the end has to
+ * use the one this returns rather than the one the message arrived with.
+ *
+ * <p>A renewal that fails is logged and abandoned rather than retried. Nothing here can rescue the
+ * lease, and the original timeout still stands: the worst case is the redelivery that would have
+ * happened without any of this.
+ */
+export function leaseRenewal({ inbox, message, seconds, log = () => {}, timer = setTimeout }) {
+  let receipt = message.popReceipt;
+  let handle = null;
+  let inflight = null;
+  let alive = true;
+  const period = Math.max(30_000, Math.floor((seconds * 1000) / 3));
+
+  const schedule = () => {
+    handle = timer(() => {
+      inflight = tick();
+    }, period);
+    handle?.unref?.();
+  };
+
+  const tick = async () => {
+    if (!alive) return;
+    try {
+      const updated = await inbox.updateMessage(message.messageId, receipt, undefined, seconds);
+      if (updated?.popReceipt) receipt = updated.popReceipt;
+    } catch (error) {
+      log({ event: "lease-renewal-failed", message: message.messageId, error: error.message });
+      alive = false;
+      return;
+    }
+    if (alive) schedule();
+  };
+
+  schedule();
+  return {
+    get receipt() {
+      return receipt;
+    },
+    async stop() {
+      alive = false;
+      if (handle) clearTimeout(handle);
+      // A renewal already in flight would mint a receipt after the caller read this one.
+      await inflight?.catch(() => {});
+    },
+  };
+}
 
 async function sdk() {
   try {
@@ -106,12 +165,12 @@ export async function connectAzureQueue(config, { log = () => {} } = {}) {
   let draining = false;
   let loop = null;
 
-  const poison = async (message, reason) => {
+  const poison = async (message, reason, popReceipt = message.popReceipt) => {
     // Deleting without keeping a copy would lose the segment silently, so the copy is written
     // first and the original removed only once it is somewhere else.
     try {
       if (poisonBox) await poisonBox.sendMessage(message.messageText);
-      await inbox.deleteMessage(message.messageId, message.popReceipt);
+      await inbox.deleteMessage(message.messageId, popReceipt);
       log({ event: "message-poisoned", reason, message: message.messageId, kept: Boolean(poisonBox) });
     } catch (error) {
       // Left visible again after the timeout. Better a duplicate delivery than a segment that
@@ -129,14 +188,29 @@ export async function connectAzureQueue(config, { log = () => {} } = {}) {
       await poison(message, "unparseable");
       return;
     }
+    const lease = leaseRenewal({
+      inbox,
+      message,
+      seconds: azure.visibilityTimeoutSeconds,
+      log,
+    });
     try {
       await handler(request);
-      await inbox.deleteMessage(message.messageId, message.popReceipt);
+      await lease.stop();
+      await inbox.deleteMessage(message.messageId, lease.receipt);
     } catch (error) {
+      await lease.stop();
       const attempt = message.dequeueCount ?? 1;
-      const action = nextAction(error, attempt);
+      // A measurement that failed because the worker is going away did not fail on its merits.
+      // Container Apps replaces a revision by killing replicas mid-run, and whatever they were
+      // measuring surfaces here as an aborted request - which `nextAction` reads as unretryable,
+      // because nothing marked it otherwise. Two segments went to the poison queue that way on
+      // 16 September 2026, each with two of its windows already measured. While draining, the
+      // message is left instead: it costs one visibility timeout and the next worker skips the
+      // windows whose packets are already written.
+      const action = draining ? nextAction(error, attempt) : "leave";
       log({ event: "message-failed", code: error.code ?? "unknown", attempt, action, error: error.message });
-      if (action === "poison") await poison(message, error.code ?? "unknown");
+      if (action === "poison") await poison(message, error.code ?? "unknown", lease.receipt);
       // "leave" is the whole of the retry: the message reappears when its visibility expires.
     }
   };
@@ -168,13 +242,24 @@ export async function connectAzureQueue(config, { log = () => {} } = {}) {
             await sleep(azure.pollDelayMs);
             continue;
           }
-          for (const message of received) {
-            if (!draining) break;
-            await handleOne(message, handler);
-          }
+          // Together, not one after another: the batch is only as large as this replica agreed
+          // to carry, and each message holds its own lease. Draining them in turn would leave
+          // the last one's lease ticking while the first is measured.
+          await Promise.all(received.map((message) => (draining ? handleOne(message, handler) : null)));
         }
       })();
       log({ event: "consuming", queue: azure.queue });
+    },
+
+    /**
+     * Put more work on this worker's own queue.
+     *
+     * <p>A segment answers by queueing its windows, so the inbox is both where work arrives and
+     * where it is split. Writing to the same queue rather than a second one keeps one place to
+     * watch, one lease to reason about and one poison queue to look in when something stops.
+     */
+    async publishWork(request) {
+      await inbox.sendMessage(JSON.stringify(request));
     },
 
     /** Announce a finished measurement so the API can move the segment on. */

@@ -10,6 +10,10 @@ import java.util.UUID;
  * <p>The coordinates are null for a segment that was never measured: nothing joined its images to
  * the telemetry, and a position invented from the session's average would put a photograph
  * somewhere the camera never stood.
+ *
+ * <p>{@code windowIndex} says which measured stretch the photograph belongs to. The list is a
+ * segment's -- ten seconds of video, some hundreds of metres of road -- and a screen showing one
+ * 25 m stretch has to know which of them are its own. Null when the segment was measured whole.
  */
 public record SampledFrameResponse(
         String fileName,
@@ -20,6 +24,7 @@ public record SampledFrameResponse(
         Double longitude,
         Double horizontalAccuracyMeters,
         String locationQuality,
+        Integer windowIndex,
         String imageUrl) {
 
     public static SampledFrameResponse from(
@@ -33,6 +38,7 @@ public record SampledFrameResponse(
                 frame.longitude(),
                 frame.horizontalAccuracyMeters(),
                 frame.locationQuality(),
+                frame.windowIndex(),
                 baseUrl + "/v2/capture-sessions/" + sessionId + "/segments/" + segmentIndex
                         + "/frames/" + frame.fileName());
     }

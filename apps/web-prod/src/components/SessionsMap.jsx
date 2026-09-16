@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import { MapContainer, TileLayer, GeoJSON, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import { LEVELS, vegetationLevel, BasemapTone } from '@greenv/web-core'
+import { stretchLabel } from '../api/stretch'
 import SessionRoute from './SessionRoute'
 
 /**
@@ -96,11 +97,20 @@ export default function SessionsMap({
   )
 }
 
+/**
+ * A etiqueta de uma faixa: a sessão, e qual trecho dela é esta.
+ *
+ * Cada feição é um trecho medido — uma janela de cerca de 25 m do segmento enviado —, então dizer
+ * só o segmento apontaria para duzentos metros quando o que está sob o cursor são vinte e cinco.
+ * Uma leitura anterior ao corte não tem janela e continua dizendo só o segmento.
+ */
 function tooltipOf(session, feature) {
   const when = new Date(session.startedAt).toLocaleString('pt-BR')
-  const height = feature.properties?.extent95P95M
+  const properties = feature.properties ?? {}
+  const height = properties.extent95P95M
   const road = session.rodovia ?? 'via não identificada'
-  return `<strong>${road}</strong><br/>${when}<br/>trecho ${feature.properties?.segmentIndex ?? '—'}`
+  const where = stretchLabel(properties) ?? `segmento ${properties.segmentIndex ?? '—'}`
+  return `<strong>${road}</strong><br/>${when}<br/>${where}`
     + (height != null ? `<br/>${(height * 100).toFixed(0)} cm` : '')
 }
 

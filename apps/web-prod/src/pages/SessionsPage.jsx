@@ -1,13 +1,15 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Route, Ruler, TriangleAlert, Camera, ArrowUpRight } from 'lucide-react'
+import { Route, Ruler, TriangleAlert, Camera, ArrowUpRight, ChevronRight, ChevronDown } from 'lucide-react'
 import {
   LEVELS, vegetationLevel, AnimatedNumber, Card, useAuth,
-  LevelDonut, WeeklyBarChart, bucketByWeek, dayKey, dayLabel,
+  LevelDonut, WeeklyBarChart, bucketByWeek,
 } from '@greenv/web-core'
 import { sessions as sessionsApi, measurements } from '../api/greenv'
-import { placeOfSegment, placeOfSession } from '../api/place'
+import { placeOfSegment } from '../api/place'
+import { stretchKey, stretchRange } from '../api/stretch'
 import PageShell from '../components/PageShell'
+import SessionMap from '../components/SessionMap'
 
 /**
  * Por onde o painel começa.
@@ -80,6 +82,62 @@ const s = {
     borderRadius: 20, fontSize: 11, fontWeight: 600, color, background: bg,
   }),
   empty: { padding: 34, textAlign: 'center', color: 'var(--text-muted)', fontSize: 12.5 },
+  dateLabel: { fontSize: 11.5, color: 'var(--text-muted)' },
+  pager: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+    padding: '10px 2px 14px', fontSize: 12,
+  },
+  pagerCount: { fontSize: 11.5, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' },
+  pageBtn: (enabled) => ({
+    padding: '6px 13px', fontSize: 12, fontWeight: 600, fontFamily: 'inherit',
+    borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'white',
+    color: enabled ? 'var(--text-primary)' : 'var(--text-muted)',
+    cursor: enabled ? 'pointer' : 'not-allowed', opacity: enabled ? 1 : 0.5,
+  }),
+  chevron: { color: 'var(--text-muted)', width: 26, textAlign: 'center', lineHeight: 0 },
+  openRow: { cursor: 'pointer', background: 'var(--motiva-subtle)' },
+  previewCell: { padding: '0 12px 14px', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border)' },
+  previewHead: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+    padding: '10px 0', flexWrap: 'wrap',
+  },
+  previewTitle: { fontSize: 12, color: 'var(--text-secondary)' },
+  previewState: { padding: '18px 0', fontSize: 12, color: 'var(--text-muted)' },
+  // Um ponto por nível, com a contagem ao lado. É o que a ordenação por críticos usa, então
+  // precisa estar visível na linha - ordenar por um número que não aparece é adivinhação.
+  tally: { display: 'inline-flex', alignItems: 'center', gap: 8 },
+  tallyItem: (colour) => ({
+    display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5,
+    fontFamily: 'var(--font-mono)', color: colour, fontWeight: 700,
+  }),
+  openBtn: {
+    display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 11px', fontSize: 11.5,
+    fontWeight: 700, fontFamily: 'inherit', borderRadius: 'var(--radius-sm)',
+    border: '1px solid var(--border)', background: 'white', color: 'var(--motiva)',
+    cursor: 'pointer',
+  },
+}
+
+/**
+ * Como ordenar as sessões, nos nomes que a API entende.
+ *
+ * O padrão é a pior primeiro, que é a pergunta que a tela responde: para onde mandar a equipe.
+ * A ordenação acontece no servidor, sobre todas as sessões — ordenar a página no navegador
+ * ordenaria as vinte e cinco que vieram por data, e não as piores que existem.
+ */
+const ORDENS = [
+  ['CRITICAL_DESC', 'Mais críticas primeiro'],
+  ['STARTED_DESC', 'Mais recentes primeiro'],
+  ['STARTED_ASC', 'Mais antigas primeiro'],
+]
+
+const PAGE_SIZE = 25
+
+/** O dia escolhido no campo de data vira o instante que a API espera, no fuso de quem olha. */
+function instantOfDay(value, plusDays = 0) {
+  if (!value) return undefined
+  const [year, month, day] = value.split('-').map(Number)
+  return new Date(year, month - 1, day + plusDays).toISOString()
 }
 
 export default function SessionsPage() {
@@ -87,90 +145,89 @@ export default function SessionsPage() {
   const { user } = useAuth()
   const [state, setState] = useState({ loading: true })
   const [measuredOnly, setMeasuredOnly] = useState(false)
-  const [filterDay, setFilterDay] = useState('')
+  const [ordem, setOrdem] = useState('CRITICAL_DESC')
+  const [fromDay, setFromDay] = useState('')
+  const [toDay, setToDay] = useState('')
+  const [offset, setOffset] = useState(0)
+  // Uma sessão aberta por vez, e a trilha dela buscada só quando alguém abre: são cinquenta
+  // sessões na página e quase nenhuma será olhada.
+  const [openSession, setOpenSession] = useState(null)
+  const [tracks, setTracks] = useState({})
+
+  // Trocar de filtro ou de ordem volta para a primeira página: a página três de uma pergunta
+  // não é a página três de outra, e ficar nela mostraria um pedaço arbitrário do meio.
+  useEffect(() => { setOffset(0); setOpenSession(null) }, [measuredOnly, ordem, fromDay, toDay])
 
   useEffect(() => {
     let live = true
     setState(previous => ({ ...previous, loading: true }))
-    Promise.all([sessionsApi.list({ measuredOnly, limit: 50 }), measurements.list({ limit: 200 })])
-      .then(([page, measured]) => { if (live) setState({ loading: false, page, measured }) })
+    // A lista vem do servidor já filtrada, ordenada e paginada. Os indicadores do topo vêm do
+    // resumo, que conta o conjunto inteiro; os cinco mais altos vêm de uma página de cinco.
+    // Nenhum dos três precisa das leituras todas no navegador, e baixá-las seria responder
+    // sobre o que coube na memória em vez de sobre o que foi medido.
+    Promise.all([
+      sessionsApi.list({
+        measuredOnly,
+        sort: ordem,
+        capturedFrom: instantOfDay(fromDay),
+        capturedTo: instantOfDay(toDay, 1),
+        limit: PAGE_SIZE,
+        offset,
+      }),
+      measurements.summary(),
+      measurements.list({ sort: 'HEIGHT_DESC', limit: 5 }),
+    ])
+      .then(([page, resumo, maiores]) => {
+        if (live) setState({ loading: false, page, resumo, maiores: maiores.items ?? [] })
+      })
       .catch(error => { if (live) setState({ loading: false, error }) })
     return () => { live = false }
-  }, [measuredOnly])
+  }, [measuredOnly, ordem, fromDay, toDay, offset])
 
-  const { page, measured, loading, error } = state
-  const measuredItems = useMemo(() => measured?.items ?? [], [measured])
+  const { page, resumo, maiores, loading, error } = state
 
-  const counts = useMemo(() => {
-    const byLevel = { 1: 0, 2: 0, 3: 0 }
-    for (const segment of measuredItems) {
-      const level = vegetationLevel(segment.measurementLevel)
-      if (level > 0) byLevel[level] += 1
+  // Cada número do topo é do conjunto inteiro, não da página: os níveis e a maior altura vêm do
+  // resumo que o servidor calcula sobre tudo, e os cinco mais altos vêm de uma página de cinco
+  // pedida na ordem de altura. Somar o que coube na memória responderia sobre a requisição.
+  const counts = useMemo(() => ({
+    1: Number(resumo?.countsByLevel?.['1'] ?? 0),
+    2: Number(resumo?.countsByLevel?.['2'] ?? 0),
+    3: Number(resumo?.countsByLevel?.['3'] ?? 0),
+  }), [resumo])
+
+  const tallest = useMemo(() => maiores ?? [], [maiores])
+
+  /**
+   * O lugar de uma sessão, do jeito que a API resolveu.
+   *
+   * Vem com a linha e não é montado aqui: numa lista paginada o navegador não tem as leituras
+   * das sessões que não estão na página, e dizer "sem posição" por isso seria mentira sobre o
+   * dado. Quando a volta cruzou mais de uma via, a contagem é o que permite dizer isso.
+   */
+  const placeOf = (session) => {
+    if (!session?.placeLabel) return null
+    const outras = (session.placeLabelCount ?? 1) - 1
+    return {
+      label: session.placeLabel,
+      detail: outras > 0 ? `e mais ${outras} ${outras === 1 ? 'via' : 'vias'}` : session.placeDetail,
     }
-    return byLevel
-  }, [measuredItems])
+  }
 
-  const tallest = useMemo(() => [...measuredItems]
-    .filter(segment => segment.measurementExtent95P95M != null)
-    .sort((a, b) => b.measurementExtent95P95M - a.measurementExtent95P95M)
-    .slice(0, 5), [measuredItems])
-
-  // A precisão do GPS é parte da leitura, não um detalhe de infraestrutura: um trecho medido a
-  // partir de fixes de dezoito metros nao vale o mesmo que um medido a partir de cinco.
-  const byQuality = useMemo(() => {
-    const tally = {}
-    for (const segment of measuredItems) {
-      const quality = segment.trackLocationQuality ?? 'sem posição'
-      tally[quality] = (tally[quality] ?? 0) + 1
-    }
-    return tally
-  }, [measuredItems])
-
-  // O lugar de cada sessão sai do centro dos trechos que ela mediu. O campo de via era texto
-  // livre digitado em campo, então não identifica nada — vem vazio ou vem "TESTE".
-  // Os trechos de cada sessão, para o rótulo de lugar. A API já resolveu a rua de cada um;
-  // aqui só se decide o que dizer quando uma sessão cruza mais de uma.
-  const segmentsOfSession = useMemo(() => {
-    const bySession = {}
-    for (const segment of measuredItems) {
-      bySession[segment.sessionId] = [...(bySession[segment.sessionId] ?? []), segment]
-    }
-    return bySession
-  }, [measuredItems])
-
-  const placeOf = (sessionId) => placeOfSession(segmentsOfSession[sessionId])
-
-  // Os dias em que se saiu a campo. Uma volta inteira é de um dia só, então o dia é o recorte
-  // natural de "o que foi gravado nessa saída".
-  const days = useMemo(() => {
-    const tally = new Map()
-    for (const session of page?.items ?? []) {
-      const key = dayKey(session.startedAt)
-      if (!key) continue
-      const seen = tally.get(key)
-      tally.set(key, { key, label: dayLabel(session.startedAt), count: (seen?.count ?? 0) + 1 })
-    }
-    return [...tally.values()].sort((a, b) => b.key.localeCompare(a.key))
-  }, [page])
-
-  const visibleSessions = useMemo(() => {
-    const all = page?.items ?? []
-    return filterDay ? all.filter(session => dayKey(session.startedAt) === filterDay) : all
-  }, [page, filterDay])
-
+  // As semanas saem das sessões desta página, que é o que o navegador tem. O rótulo do cartão
+  // diz isso; um gráfico que parecesse falar do histórico inteiro seria mais bonito e mentiroso.
   const weekly = useMemo(
     () => bucketByWeek((page?.items ?? []).map(session => session.startedAt), 10),
     [page])
 
   const overdue = counts[3]
-  const highest = tallest[0]?.measurementExtent95P95M ?? 0
+  const highest = resumo?.tallestExtent95M ?? 0
   const measuredTotal = counts[1] + counts[2] + counts[3]
 
   const kpis = [
     { icon: Route, label: 'Sessões capturadas', value: page?.total ?? 0 },
-    { icon: Ruler, label: 'Trechos medidos', value: measured?.total ?? 0 },
+    { icon: Ruler, label: 'Trechos medidos', value: resumo?.total ?? 0 },
     { icon: TriangleAlert, label: 'Acima de 30 cm', value: overdue },
-    { icon: Camera, label: 'Maior altura p90', value: highest * 100, decimals: 0, suffix: ' cm' },
+    { icon: Camera, label: 'Maior altura p95', value: highest * 100, decimals: 0, suffix: ' cm' },
   ]
 
   return (
@@ -211,12 +268,15 @@ export default function SessionsPage() {
 
       <Card delay={0.25} style={{ marginBottom: 12 }}>
         <div style={s.cardTitle}>Trechos mais altos</div>
-        <div style={s.cardHint}>Maior altura p90 medida — prioridade máxima</div>
+        <div style={s.cardHint}>Maior altura p95 medida — prioridade máxima</div>
         {tallest.map(segment => (
-          <div key={`${segment.sessionId}:${segment.segmentIndex}`} style={s.criticalRow}>
+          // A janela entra na chave e no rótulo: dois trechos vizinhos da mesma volta têm o mesmo
+          // segmento e a mesma rua, e o que os separa são vinte e cinco metros.
+          <div key={stretchKey(segment)} style={s.criticalRow}>
             <span style={s.criticalDot(LEVELS[vegetationLevel(segment.measurementLevel)].color)} />
             <span style={s.criticalName}>
               {placeOfSegment(segment)?.label ?? `Trecho ${segment.segmentIndex}`}
+              {stretchRange(segment) && <> · {stretchRange(segment)}</>}
             </span>
             <span style={s.criticalValue}>
               {(segment.measurementExtent95P95M * 100).toFixed(0)} cm
@@ -237,15 +297,26 @@ export default function SessionsPage() {
           <button style={s.toggle(measuredOnly)} onClick={() => setMeasuredOnly(v => !v)}>
             Somente com medição
           </button>
-          {days.length > 1 && (
-            <select style={s.daySelect} value={filterDay}
-              onChange={event => setFilterDay(event.target.value)}>
-              <option value="">Todos os dias</option>
-              {days.map(day => (
-                <option key={day.key} value={day.key}>{day.label} ({day.count})</option>
-              ))}
-            </select>
+          {/* `max` e `min` cruzados deixam o próprio campo recusar um intervalo invertido, em
+              vez de a lista voltar vazia sem explicar por quê. As datas vão para o servidor: um
+              filtro aplicado aqui recortaria as vinte e cinco que vieram, e não as que existem. */}
+          <span style={s.dateLabel}>de</span>
+          <input type="date" style={s.daySelect} value={fromDay} max={toDay || undefined}
+            onChange={event => setFromDay(event.target.value)} />
+          <span style={s.dateLabel}>até</span>
+          <input type="date" style={s.daySelect} value={toDay} min={fromDay || undefined}
+            onChange={event => setToDay(event.target.value)} />
+          {(fromDay || toDay) && (
+            <button style={s.toggle(false)} onClick={() => { setFromDay(''); setToDay('') }}>
+              limpar datas
+            </button>
           )}
+          <select style={s.daySelect} value={ordem}
+            onChange={event => setOrdem(event.target.value)}>
+            {ORDENS.map(([valor, rotulo]) => (
+              <option key={valor} value={valor}>{rotulo}</option>
+            ))}
+          </select>
         </div>
 
         {loading && <div style={s.empty}>Carregando…</div>}
@@ -255,20 +326,35 @@ export default function SessionsPage() {
           <table style={s.table}>
             <thead>
               <tr>
+                <th style={s.th} />
                 <th style={s.th}>Início</th>
                 <th style={s.th}>Onde</th>
                 <th style={s.th}>Dispositivo</th>
-                <th style={s.th}>Trechos</th>
+                <th style={s.th}>Trechos por nível</th>
                 <th style={s.th}>Medidos</th>
+                <th style={s.th} />
               </tr>
             </thead>
             <tbody>
-              {visibleSessions.map(session => (
-                <tr key={session.sessionId} style={s.row}
-                  onClick={() => navigate(`/sessoes/${session.sessionId}`)}>
+              {(page?.items ?? []).map(session => {
+                const aberta = openSession === session.sessionId
+                const niveis = {
+                  1: session.level1Count ?? 0,
+                  2: session.level2Count ?? 0,
+                  3: session.level3Count ?? 0,
+                  0: session.unratedCount ?? 0,
+                }
+                const track = tracks[session.sessionId]
+                return (
+                <Fragment key={session.sessionId}>
+                <tr style={aberta ? s.openRow : s.row}
+                  onClick={() => abrirSessao(session.sessionId)}>
+                  <td style={{ ...s.td, ...s.chevron }}>
+                    {aberta ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                  </td>
                   <td style={s.td}>{new Date(session.startedAt).toLocaleString('pt-BR')}</td>
                   <td style={s.td}>{(() => {
-                    const place = placeOf(session.sessionId)
+                    const place = placeOf(session)
                     if (!place) {
                       return <span style={{ color: 'var(--text-muted)' }}>sem posição</span>
                     }
@@ -282,7 +368,20 @@ export default function SessionsPage() {
                     )
                   })()}</td>
                   <td style={{ ...s.td, ...s.mono }}>{session.deviceId}</td>
-                  <td style={s.td}>{session.segmentCount}</td>
+                  <td style={s.td}>
+                    {niveis[3] + niveis[2] + niveis[1] + niveis[0] === 0
+                      ? <span style={{ color: 'var(--text-muted)' }}>—</span>
+                      : (
+                        <span style={s.tally}>
+                          {[3, 2, 1, 0].filter(nivel => niveis[nivel] > 0).map(nivel => (
+                            <span key={nivel} style={s.tallyItem(LEVELS[nivel].color)}
+                              title={`${LEVELS[nivel].label} · ${LEVELS[nivel].desc}`}>
+                              <span style={s.criticalDot(LEVELS[nivel].color)} />{niveis[nivel]}
+                            </span>
+                          ))}
+                        </span>
+                      )}
+                  </td>
                   <td style={s.td}>
                     {/* Cinza quando nada foi medido: um zero em verde leria como conformidade. */}
                     <span style={session.measuredSegmentCount > 0
@@ -291,16 +390,73 @@ export default function SessionsPage() {
                       {session.measuredSegmentCount} de {session.segmentCount}
                     </span>
                   </td>
+                  <td style={s.td}>
+                    <button style={s.openBtn}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        navigate(`/sessoes/${session.sessionId}`)
+                      }}>
+                      Abrir <ArrowUpRight size={13} />
+                    </button>
+                  </td>
                 </tr>
-              ))}
-              {visibleSessions.length === 0 && (
-                <tr><td style={{ ...s.td, ...s.empty }} colSpan={5}>
+                {aberta && (
+                  <tr>
+                    <td style={s.previewCell} colSpan={7}>
+                      <div style={s.previewHead}>
+                        <div style={s.previewTitle}>
+                          Cada faixa colorida é um trecho de cerca de 25 m, na cor do nível dele.
+                        </div>
+                        <button style={s.openBtn}
+                          onClick={() => navigate(`/sessoes/${session.sessionId}`)}>
+                          Ver trechos e quadros <ArrowUpRight size={13} />
+                        </button>
+                      </div>
+                      {/* O mapa aqui é para reconhecer a volta de relance; clicar num trecho
+                          pede a tela da sessão, que tem a foto e a leitura ao lado. */}
+                      {track === null && <div style={s.previewState}>Carregando o mapa…</div>}
+                      {track === false && <div style={s.previewState}>Não foi possível carregar a trilha.</div>}
+                      {track && !track.features?.length && (
+                        <div style={s.previewState}>Esta sessão ainda não tem trecho medido para desenhar.</div>
+                      )}
+                      {track && track.features?.length > 0 && (
+                        <SessionMap track={track} height={300}
+                          onStretchClick={() => navigate(`/sessoes/${session.sessionId}`)} />
+                      )}
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
+                )
+              })}
+              {(page?.items ?? []).length === 0 && (
+                <tr><td style={{ ...s.td, ...s.empty }} colSpan={7}>
                   Nenhuma sessão {measuredOnly ? 'com medição ' : ''}encontrada
-                  {filterDay ? ` em ${days.find(d => d.key === filterDay)?.label ?? ''}` : ''}.
+                  {fromDay || toDay ? ' nesse intervalo de datas' : ''}.
                 </td></tr>
               )}
             </tbody>
           </table>
+        )}
+
+        {/* O total é do conjunto que o filtro selecionou, não do que veio: é o que diz se vale
+            a pena avançar. */}
+        {page && !loading && page.total > 0 && (
+          <div style={s.pager}>
+            <span style={s.pagerCount}>
+              {offset + 1}–{offset + (page.items?.length ?? 0)} de {page.total}
+            </span>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button style={s.pageBtn(offset > 0)} disabled={offset === 0}
+                onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>
+                Anteriores
+              </button>
+              <button style={s.pageBtn(page.hasMore)} disabled={!page.hasMore}
+                onClick={() => setOffset(offset + PAGE_SIZE)}>
+                Próximas
+              </button>
+            </div>
+          </div>
         )}
       </Card>
     </PageShell>

@@ -12,7 +12,7 @@ import { measurementRunner } from "./measure.mjs";
 import { measurementPipeline } from "./pipeline.mjs";
 import { createHttpTrigger } from "./http.mjs";
 import { connectQueue } from "./queue/index.mjs";
-import { singleFlight } from "./gate.mjs";
+import { boundedFlight } from "./gate.mjs";
 
 const log = (fields) => process.stdout.write(`${JSON.stringify({ at: new Date().toISOString(), ...fields })}\n`);
 
@@ -28,17 +28,47 @@ export async function start(config = loadConfig()) {
       })
     : inferClient(config.infer);
   const runner = measurementRunner(config.measurement, (progress) => log({ event: "progress", ...progress }));
-  const measure = measurementPipeline({ config, storage, infer, runner, log });
-  // Shared by both trigger paths, so the bound holds no matter which one is used.
-  const gate = singleFlight();
+  // Shared by both trigger paths, so the bound holds no matter which one is used. How many at
+  // once is the same number that decides how many messages a replica takes off the queue: they
+  // are two halves of one decision about what this container can carry.
+  const gate = boundedFlight(config.measurement.windowConcurrency);
 
   let queue = null;
   if (config.queue.enabled) {
     queue = await connectQueue(config.queue, { log });
+  }
+  // The pipeline can put work back on the queue, which is how a segment becomes its windows.
+  // Without a queue — the HTTP door, and the tests — it measures them in place instead.
+  const measure = measurementPipeline({
+    config,
+    storage,
+    infer,
+    runner,
+    work: queue ? { publish: (request) => queue.publishWork(request) } : null,
+    log,
+  });
+
+  if (queue) {
     await queue.consume(async (request) => {
       const result = await gate.run(() => measure(request));
-      await queue.publishResult(result);
-      log({ event: "measured", segment: result.outputPrefix, runId: result.runId, mock: result.mock });
+      // A segment that fanned out measured nothing and has nothing to announce: the windows it
+      // queued will each announce their own reading when they are measured.
+      if (result.fannedOut) {
+        log({ event: "queued-windows", segment: result.outputPrefix, windows: result.fannedOut });
+        return;
+      }
+      // One announcement per window: each is a stretch of its own, with its own reading, and the
+      // control plane stores them one by one. A segment measured whole announces once, as always.
+      for (const window of result.windows ?? [result]) {
+        await queue.publishResult(window);
+      }
+      log({
+        event: "measured",
+        segment: result.outputPrefix,
+        window: result.windowIndex ?? null,
+        runId: result.runId,
+        mock: result.mock,
+      });
     });
   }
 

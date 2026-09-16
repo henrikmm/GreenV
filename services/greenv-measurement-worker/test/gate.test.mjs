@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { singleFlight } from "../src/gate.mjs";
+import { singleFlight, boundedFlight } from "../src/gate.mjs";
 
 const defer = () => { let resolve; const promise = new Promise((r) => { resolve = r; }); return { promise, resolve }; };
 
@@ -43,3 +43,38 @@ test("a failing job still releases the slot", async () => {
   assert.equal(gate.busy, false);
   assert.equal(await gate.run(async () => "next"), "next");
 });
+
+test("lets as many through at once as the bound allows, and no more", async () => {
+  const gate = boundedFlight(3);
+  let running = 0;
+  let maximum = 0;
+  const hold = async () => {
+    running += 1;
+    maximum = Math.max(maximum, running);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    running -= 1;
+  };
+
+  await Promise.all(Array.from({ length: 8 }, () => gate.run(hold)));
+
+  assert.equal(maximum, 3);
+  assert.equal(gate.inFlight, 0, "every slot comes back");
+});
+
+test("a fourth caller at the door is told no rather than queued", async () => {
+  const gate = boundedFlight(2);
+  const held = [];
+  const hold = () => new Promise((resolve) => held.push(resolve));
+
+  const first = gate.tryRun(hold);
+  const second = gate.tryRun(hold);
+  const third = gate.tryRun(hold);
+
+  assert.ok(first, "the first takes a slot");
+  assert.ok(second, "the second takes the other");
+  assert.equal(third, null, "the third is refused, not queued");
+
+  for (const release of held) release();
+  await Promise.all([first, second]);
+  assert.equal(gate.busy, false)
+})

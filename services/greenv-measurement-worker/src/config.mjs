@@ -89,9 +89,10 @@ function build() {
       // Declaring topology from a worker is convenient locally and wrong in a deployment, where
       // the queues are infrastructure. Same switch, same default, as GREENV_RABBITMQ_DYNAMIC.
       dynamic: flag("GREENV_RABBITMQ_DYNAMIC", false),
-      // One segment occupies the depth service for its whole run and the CPU for the whole
-      // assessment. Prefetching more only makes messages time out in a buffer.
-      prefetch: 1,
+      // As many messages at a time as this replica will measure at once, and no more: a message
+      // taken and left waiting is a lease ticking down in a buffer. A window is one message
+      // since 16 September 2026, so this is also how many windows a replica pulls.
+      prefetch: number("GREENV_MEASUREMENT_WINDOW_CONCURRENCY", 1),
 
       // Azure Queue Storage has no exchange, so the one exchange and two routing keys above
       // become two queue names. They are separate settings rather than reused ones because an
@@ -106,11 +107,15 @@ function build() {
         endpoint: text("GREENV_AZURE_QUEUE_ENDPOINT", null),
         connectionString: text("GREENV_AZURE_STORAGE_CONNECTION_STRING", null),
         // The same bound as `prefetch`, for the same reason.
-        maximumMessages: 1,
+        maximumMessages: number("GREENV_MEASUREMENT_WINDOW_CONCURRENCY", 1),
         // How long a received segment stays invisible to other readers. This is the deadline for
-        // the whole measurement, not for an acknowledgement, so it tracks
-        // GREENV_MEASUREMENT_TIMEOUT_MS rather than the seconds the Java services use for a poll
-        // that only queues work. Too short and Azure redelivers a segment still being measured.
+        // the measurement, not for an acknowledgement, so it tracks GREENV_MEASUREMENT_TIMEOUT_MS
+        // rather than the seconds the Java services use for a poll that only queues work. Too
+        // short and Azure redelivers a segment still being measured. It bounds one 25 m window
+        // rather than the whole segment: the worker renews the lease a third of the way through
+        // for as long as it is still measuring, so a segment with nine windows does not need a
+        // timeout nine times as long - and a worker that dies still releases its segment in half
+        // an hour.
         visibilityTimeoutSeconds: number("GREENV_MEASUREMENT_VISIBILITY_SECONDS", 30 * 60),
         pollDelayMs: number("GREENV_CLOUD_QUEUE_POLL_DELAY_MS", 1000),
       },
@@ -265,12 +270,35 @@ function build() {
       // fades a metre onto the grass beside a rail; out of the mask in every frame it starves the
       // strip of points, while the band still has to start where the grass starts.
       structureModelMask: text("GREENV_MEASUREMENT_STRUCTURE_MODEL_MASK", "always"),
+      // A third model, because no one model sees everything. On 2026-09-16 the Vistas model that
+      // places the band and vetoes a rail had no class for the bush a Cityscapes `vegetation`
+      // mask measured as 1.81 m of grass — tall grass lives in that class too, so the class
+      // cannot go — while the ADE20K model calls that bush `tree` in 84-98% of its pixels and
+      // the mown strip beside it `grass`. Its classes vote on cells like the second model's;
+      // `never` leaves both the grass mask and the band to the models that already place them.
+      // Empty runs without it, and it needs the second model to stand beside.
+      structure2Model: text("GREENV_MEASUREMENT_STRUCTURE2_MODEL", ""),
+      structure2Classes: text("GREENV_MEASUREMENT_STRUCTURE2_CLASSES", ""),
+      structure2Floor: number("GREENV_MEASUREMENT_STRUCTURE2_FLOOR", null),
+      structure2ModelMask: text("GREENV_MEASUREMENT_STRUCTURE2_MODEL_MASK", "never"),
       excludeNear: text("GREENV_MEASUREMENT_EXCLUDE_NEAR", ""),
       excludeNearPx: number("GREENV_MEASUREMENT_EXCLUDE_NEAR_PX", 1),
       // Start a re-measure from the reconstruction the depth handler left beside the frames when
       // it is there, instead of waking a GPU for geometry that has not changed. A request can
       // also ask for it per segment (`reuseDepth: true`), which is what a backfill does.
       reuseDepth: flag("GREENV_MEASUREMENT_REUSE_DEPTH", false),
+      // How many of a segment's windows this replica measures at once.
+      //
+      // One at a time leaves the four vCPU idle for most of a window: measured on 16 September
+      // 2026, a window spent about six minutes waiting for the depth service - twenty seconds of
+      // it GPU, the rest the handler building and uploading the 83 MB it keeps - against two
+      // minutes of segmentation here. Overlapping two windows fills that wait with another
+      // window's segmentation.
+      //
+      // Raising it past the depth service's own worker count only moves the queue from here to
+      // there, so the two belong together. A re-measure from kept reconstructions
+      // (`reuseDepth`) wakes no GPU at all and is bounded by these vCPU alone.
+      windowConcurrency: number("GREENV_MEASUREMENT_WINDOW_CONCURRENCY", 1),
       timeoutMs: number("GREENV_MEASUREMENT_TIMEOUT_MS", 30 * 60 * 1000),
       // A packet built on the fixture-backed mock describes the fixture's scene, not the
       // uploaded video. It is worth producing — it exercises every seam — and it must never be
@@ -355,6 +383,21 @@ function build() {
   }
   if (config.measurement.structureFloor !== null && !(config.measurement.structureFloor > 0 && config.measurement.structureFloor <= 1)) {
     throw new Error(`GREENV_MEASUREMENT_STRUCTURE_FLOOR must be a probability above 0 and at most 1, got ${config.measurement.structureFloor}`);
+  }
+  if (config.measurement.structure2Model && !config.measurement.structureModel) {
+    throw new Error("GREENV_MEASUREMENT_STRUCTURE2_MODEL needs GREENV_MEASUREMENT_STRUCTURE_MODEL to stand beside");
+  }
+  if (config.measurement.structure2Model && !config.measurement.structure2Classes) {
+    throw new Error("GREENV_MEASUREMENT_STRUCTURE2_CLASSES must name the classes GREENV_MEASUREMENT_STRUCTURE2_MODEL is asked for");
+  }
+  if (!config.measurement.structure2Model && config.measurement.structure2Classes) {
+    throw new Error("GREENV_MEASUREMENT_STRUCTURE2_CLASSES needs GREENV_MEASUREMENT_STRUCTURE2_MODEL to read them from");
+  }
+  if (!["always", "band", "never"].includes(config.measurement.structure2ModelMask)) {
+    throw new Error(`GREENV_MEASUREMENT_STRUCTURE2_MODEL_MASK must be "always", "band" or "never", got "${config.measurement.structure2ModelMask}"`);
+  }
+  if (config.measurement.structure2Floor !== null && !(config.measurement.structure2Floor > 0 && config.measurement.structure2Floor <= 1)) {
+    throw new Error(`GREENV_MEASUREMENT_STRUCTURE2_FLOOR must be a probability above 0 and at most 1, got ${config.measurement.structure2Floor}`);
   }
   if (config.measurement.cameraHeightM !== null && !(config.measurement.cameraHeightM > 0)) {
     throw new Error(`GREENV_MEASUREMENT_CAMERA_HEIGHT_M must be a positive number of metres, got ${config.measurement.cameraHeightM}`);

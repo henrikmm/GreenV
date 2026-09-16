@@ -83,7 +83,7 @@ class CaptureMeasurementIntegrationTest {
                 new ByteArrayInputStream(PACKET.getBytes(StandardCharsets.UTF_8)),
                 sha256(PACKET),
                 1024);
-        captureSessionUseCase.recordMeasurement(new SegmentMeasurementAnnouncement(
+        captureSessionUseCase.recordMeasurement(SegmentMeasurementAnnouncement.ofSegment(
                 sessionId, 0, "20260908-000000-abcdef", true, Instant.parse("2026-09-08T03:00:00Z")));
 
         HttpResponse<String> measured = get(sessionId);
@@ -125,7 +125,7 @@ class CaptureMeasurementIntegrationTest {
                 new ByteArrayInputStream(PACKET.getBytes(StandardCharsets.UTF_8)),
                 sha256(PACKET),
                 1024);
-        captureSessionUseCase.recordMeasurement(new SegmentMeasurementAnnouncement(
+        captureSessionUseCase.recordMeasurement(SegmentMeasurementAnnouncement.ofSegment(
                 sessionId, 0, "20260908-000000-abcdef", true, Instant.parse("2026-09-08T03:00:00Z")));
 
         String body = getSegment(sessionId).body();
@@ -144,7 +144,7 @@ class CaptureMeasurementIntegrationTest {
     void ignoresAnAnnouncementForASegmentThisDeploymentNeverSaw() {
         // A replayed queue, or a database that was reset under a running worker. Inventing a row
         // would be worse than forgetting, and failing would block every message behind it.
-        captureSessionUseCase.recordMeasurement(new SegmentMeasurementAnnouncement(
+        captureSessionUseCase.recordMeasurement(SegmentMeasurementAnnouncement.ofSegment(
                 UUID.randomUUID(), 0, "run", false, Instant.parse("2026-09-08T03:00:00Z")));
     }
 
@@ -288,7 +288,7 @@ class CaptureMeasurementIntegrationTest {
                 new ByteArrayInputStream(PACKET.getBytes(StandardCharsets.UTF_8)),
                 sha256(PACKET),
                 1024);
-        captureSessionUseCase.recordMeasurement(new SegmentMeasurementAnnouncement(
+        captureSessionUseCase.recordMeasurement(SegmentMeasurementAnnouncement.ofSegment(
                 sessionId, 0, "20260908-000000-abcdef", true, Instant.parse("2026-09-08T03:00:00Z")));
     }
 

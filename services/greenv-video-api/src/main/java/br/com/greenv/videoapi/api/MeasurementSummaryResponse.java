@@ -12,7 +12,11 @@ import java.util.Map;
  * @param countsByLevel keyed by level as text, because that is what JSON object keys are
  */
 public record MeasurementSummaryResponse(
-        int schemaVersion, long total, Map<String, Long> countsByLevel, Double tallestExtent95M) {
+        int schemaVersion,
+        long total,
+        Map<String, Long> countsByLevel,
+        Double tallestExtent95M,
+        Map<String, Long> countsByLocationQuality) {
 
     public static MeasurementSummaryResponse from(MeasurementSummary summary) {
         return new MeasurementSummaryResponse(
@@ -21,6 +25,7 @@ public record MeasurementSummaryResponse(
                 summary.countsByLevel().entrySet().stream()
                         .collect(java.util.stream.Collectors.toMap(
                                 entry -> String.valueOf(entry.getKey()), Map.Entry::getValue)),
-                summary.tallestM());
+                summary.tallestM(),
+                summary.countsByLocationQuality());
     }
 }

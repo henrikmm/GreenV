@@ -11,10 +11,19 @@
 // Run by scripts/verify.sh. Exits non-zero with a list of what to fix.
 
 import { readFile, readdir, stat } from "node:fs/promises";
-import { dirname, join, normalize, relative, resolve } from "node:path";
+import { dirname, join, normalize, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+
+/**
+ * A path relative to the repository, with forward slashes whatever the platform.
+ *
+ * Every path this file compares against is written with them; on Windows `relative` answers
+ * `docs\TASK.md`, which is not `docs/TASK.md`, and on 2026-09-16 the task list was failing its
+ * own exemption with sixteen problems.
+ */
+const relativeOf = (path) => relative(REPO, path).split(sep).join("/");
 const problems = [];
 const fail = (file, message) => problems.push(`${file}: ${message}`);
 
@@ -131,7 +140,7 @@ async function checkBudgets() {
 
 async function checkTaskBoxesAreContained(files) {
   for (const path of files) {
-    const rel = relative(REPO, path);
+    const rel = relativeOf(path);
     if (rel === TASK_FILE) continue;
     const lines = (await readFile(path, "utf8")).split("\n");
     lines.forEach((line, i) => {
@@ -211,7 +220,7 @@ async function checkClaudeBridgesToAgents() {
 async function checkRelativeLinks(files) {
   const linkPattern = /\[[^\]]*\]\(([^)]+)\)/g;
   for (const path of files) {
-    const rel = relative(REPO, path);
+    const rel = relativeOf(path);
     const text = await readFile(path, "utf8");
     for (const match of text.matchAll(linkPattern)) {
       const target = match[1].trim();
@@ -234,7 +243,7 @@ async function checkRelativeLinks(files) {
  */
 async function checkNoExternalPlanReferences(files) {
   for (const path of files) {
-    const rel = relative(REPO, path);
+    const rel = relativeOf(path);
     const lines = (await readFile(path, "utf8")).split("\n");
     lines.forEach((line, i) => {
       if (/~\/\.claude\/plans\//.test(line)) {

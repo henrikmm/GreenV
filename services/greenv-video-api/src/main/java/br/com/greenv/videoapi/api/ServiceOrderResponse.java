@@ -30,7 +30,8 @@ public record ServiceOrderResponse(
         List<Target> targets,
         List<Event> history) {
 
-    public record Target(UUID sessionId, int segmentIndex) {}
+    /** {@code windowIndex} is null when the order covers a segment measured whole. */
+    public record Target(UUID sessionId, int segmentIndex, Integer windowIndex) {}
 
     public record Event(ServiceOrderStatus status, String note, String recordedBy, Instant recordedAt) {}
 
@@ -53,7 +54,8 @@ public record ServiceOrderResponse(
                 order.createdAt(),
                 order.updatedAt(),
                 order.targets().stream()
-                        .map(target -> new Target(target.sessionId(), target.segmentIndex()))
+                        .map(target -> new Target(
+                                target.sessionId(), target.segmentIndex(), target.windowIndex()))
                         .toList(),
                 order.history().stream()
                         .map(event -> new Event(

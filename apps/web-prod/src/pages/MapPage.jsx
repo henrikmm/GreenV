@@ -40,7 +40,10 @@ export default function MapPage() {
     // As medições vêm junto só pelo centro de cada trecho. É a mesma fonte que a visão geral e
     // a tela da sessão usam para dizer onde a captura foi feita, e ler a mesma coisa nas três é o
     // que impede o mapa de rotular um lugar e a tabela de rotular outro, noventa metros ao lado.
-    Promise.all([sessionsApi.list({ limit: 50 }), measurements.list({ limit: 200 })])
+    // Mil e não duzentos: uma linha passou a ser uma janela de cerca de 25 m, e um dia de captura
+    // que rendia 43 leituras rende umas 320. Com duzentas, as sessões do fim da lista ficariam sem
+    // nenhuma linha e sem rótulo de lugar, que é justamente o que esta tela veio buscar.
+    Promise.all([sessionsApi.list({ limit: 50 }), measurements.list({ limit: 1000 })])
       .then(async ([page, measured]) => {
         const tracks = await Promise.all(page.items.map(session =>
           sessionsApi.track(session.sessionId)
@@ -59,8 +62,9 @@ export default function MapPage() {
     const drawable = Boolean(track?.features?.length)
     const worst = Math.max(0, ...(track?.features ?? [])
       .map(feature => vegetationLevel(feature.properties?.level)))
-    // Os trechos medidos desta sessão, cada um com o lugar que a API resolveu. A barra
-    // lateral mostra os dois níveis: a sessão e o que ela contém.
+    // Os trechos medidos desta sessão, cada um com o lugar que a API resolveu. Um trecho é uma
+    // janela de cerca de 25 m do segmento enviado, então uma sessão tem muitos — a barra lateral
+    // mostra os mais altos e conta o resto. Ela mostra os dois níveis: a sessão e o que ela contém.
     const segments = (measured ?? [])
       .filter(segment => segment.sessionId === session.sessionId)
       .sort((a, b) => (b.measurementExtent95P95M ?? -1) - (a.measurementExtent95P95M ?? -1))
@@ -73,8 +77,8 @@ export default function MapPage() {
     }
   }), [tracks, measured])
 
-  // Uma linha por trecho medido: o polígono é a mesma medição desenhada de outro jeito, e
-  // contá-lo dobraria todo número.
+  // Uma linha por trecho medido — uma feição por janela, como a API as manda. O polígono é a
+  // mesma medição desenhada de outro jeito, e contá-lo dobraria todo número.
   const counts = useMemo(() => {
     const byLevel = { 0: 0, 1: 0, 2: 0, 3: 0 }
     for (const { track } of tracks) {

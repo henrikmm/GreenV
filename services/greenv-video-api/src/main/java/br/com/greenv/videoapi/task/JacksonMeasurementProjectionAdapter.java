@@ -30,14 +30,19 @@ public class JacksonMeasurementProjectionAdapter implements MeasurementProjectio
     /**
      * The percentile of the measured cells that stands for the stretch.
      *
-     * <p>0.90 since 14 September 2026, down from 0.95. The top twentieth of a mown corridor's
-     * cells is its last half metre against the guardrail or the touceira at its far edge, and
-     * on the first driven captures that held 20 of 40 stretches at level 3 over grass of 2 to
-     * 18 cm. The top tenth is still well above the median and still catches a stretch half of
-     * which has grown. The projection's field and column keep the name {@code extent95P95M}: the
-     * installed capture app reads it, and a rename is a release, not a constant.
+     * <p>0.95, and back to it on 14 September 2026 after a few hours at 0.90. Dropping it was a
+     * way of surviving the guardrail: the top twentieth of a driven corridor's cells was the last
+     * half metre against the rail, and that alone held 20 of 40 stretches at level 3 over grass of
+     * 2 to 18 cm. The measurement stopped measuring the rail that same day, and with it gone the
+     * two percentiles tell the same story — across the 43 segments of 13 September the gap between
+     * them is 0 to 6 cm, usually 2, and no stretch reaches level 3 at either. So the aggregate goes
+     * back to the one that is actually about mowing: a stretch whose worst twentieth has grown is a
+     * stretch a crew is sent to.
+     *
+     * <p>The projection's field and column keep the name {@code extent95P95M}: the installed
+     * capture app reads it, and a rename is a release, not a constant.
      */
-    private static final double STRETCH_PERCENTILE = 0.90;
+    private static final double STRETCH_PERCENTILE = 0.95;
 
     private final ObjectMapper objectMapper;
 
@@ -54,20 +59,20 @@ public class JacksonMeasurementProjectionAdapter implements MeasurementProjectio
             JsonNode packet = objectMapper.readTree(new String(resultPacket, StandardCharsets.UTF_8));
             JsonNode quality = packet.path("measurement").path("quality");
             Track track = readTrack(packet.path("positions"));
-            Double p90 = null;
+            Double p95 = null;
             Double max = null;
             if (assessment != null && assessment.length > 0) {
                 List<Double> heights = readMeasuredHeights(assessment);
-                p90 = percentile(heights, STRETCH_PERCENTILE);
+                p95 = percentile(heights, STRETCH_PERCENTILE);
                 max = heights.isEmpty() ? null : heights.get(heights.size() - 1);
             }
             return new MeasurementProjection(
-                    p90,
+                    p95,
                     max,
                     // From a high percentile rather than the tallest cell. One reading of 3.78 m
                     // among six is a bush or a tree the mask let through, and colouring a whole
                     // stretch by it sends a crew to mow something that is not grass.
-                    MeasurementProjection.levelFor(p90),
+                    MeasurementProjection.levelFor(p95, integer(quality, "measuredCells")),
                     integer(quality, "measuredCells"),
                     integer(quality, "abstainedCells"),
                     decimal(quality, "observedCellCoverage"),

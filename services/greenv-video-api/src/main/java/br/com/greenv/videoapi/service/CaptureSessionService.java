@@ -29,10 +29,14 @@ import java.io.InputStream;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Locale;
 import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 
@@ -166,7 +170,9 @@ public class CaptureSessionService implements CaptureSessionUseCase {
                 session,
                 captureSessionStore.segmentCount(sessionId),
                 captureSessionStore.readySegmentCount(sessionId),
-                captureSessionStore.measuredSegmentCount(sessionId));
+                captureSessionStore.measuredSegmentCount(sessionId),
+                captureSessionStore.readingCounts(sessionId),
+                captureSessionStore.readingPlace(sessionId));
     }
 
     @Override
@@ -306,16 +312,42 @@ public class CaptureSessionService implements CaptureSessionUseCase {
     }
 
     @Override
-    public byte[] measurement(UUID sessionId, int segmentIndex) {
-        CaptureSegmentDocument segment = captureSessionStore.getSegment(sessionId, segmentIndex);
-        if (segment.measurementObjectKey() == null
-                || !objectStorage.exists(segment.measurementObjectKey())) {
+    public byte[] measurement(UUID sessionId, int segmentIndex, Integer windowIndex) {
+        CaptureSegmentDocument reading = readingOf(sessionId, segmentIndex, windowIndex);
+        if (reading.measurementObjectKey() == null
+                || !objectStorage.exists(reading.measurementObjectKey())) {
             throw new ApplicationException(
                     FailureKind.CONFLICT,
                     "segment_measurement_not_ready",
                     "segment measurement is not ready");
         }
-        return objectStorage.read(segment.measurementObjectKey(), MAXIMUM_MEASUREMENT_BYTES);
+        return objectStorage.read(reading.measurementObjectKey(), MAXIMUM_MEASUREMENT_BYTES);
+    }
+
+    /** A segment's windows, in the order the extractor cut them. Empty when it has none. */
+    @Override
+    public List<CaptureSegmentDocument> windows(UUID sessionId, int segmentIndex) {
+        captureSessionStore.getSegment(sessionId, segmentIndex);
+        return captureSessionStore.findWindows(sessionId, segmentIndex);
+    }
+
+    /**
+     * The row that holds one reading: the segment, or one of its windows.
+     *
+     * <p>A window that was never measured has no row, and it is refused the same way an unmeasured
+     * segment is — the stretch of road is real either way, and only the reading is missing.
+     */
+    private CaptureSegmentDocument readingOf(UUID sessionId, int segmentIndex, Integer windowIndex) {
+        CaptureSegmentDocument segment = captureSessionStore.getSegment(sessionId, segmentIndex);
+        if (windowIndex == null) {
+            return segment;
+        }
+        return captureSessionStore
+                .findWindow(sessionId, segmentIndex, windowIndex)
+                .orElseThrow(() -> new ApplicationException(
+                        FailureKind.CONFLICT,
+                        "segment_measurement_not_ready",
+                        "segment measurement is not ready"));
     }
 
     /**
@@ -331,14 +363,18 @@ public class CaptureSessionService implements CaptureSessionUseCase {
      * the measurement is real, and only this particular file is gone.
      */
     @Override
-    public CaptureObjectStorage.ObjectContent depthArtifact(UUID sessionId, int segmentIndex, String fileName) {
+    public CaptureObjectStorage.ObjectContent depthArtifact(
+            UUID sessionId, int segmentIndex, Integer windowIndex, String fileName) {
         if (!DEPTH_ARTIFACTS.contains(fileName)) {
             throw new ApplicationException(
                     FailureKind.NOT_FOUND,
                     "depth_artifact_unknown",
                     "a reconstruction is scene.glb or result.npz, nothing else");
         }
-        CaptureSegmentDocument segment = captureSessionStore.getSegment(sessionId, segmentIndex);
+        // The run id comes from the reading's own row, so a window serves the geometry its own
+        // reconstruction produced and not its neighbour's. The key stays under the segment's
+        // prefix because that is where the depth service writes it, one directory per run.
+        CaptureSegmentDocument segment = readingOf(sessionId, segmentIndex, windowIndex);
         if (segment.measurementRunId() == null) {
             throw new ApplicationException(
                     FailureKind.CONFLICT,
@@ -370,19 +406,38 @@ public class CaptureSessionService implements CaptureSessionUseCase {
         if (captureSessionStore.findSegment(announcement.sessionId(), announcement.segmentIndex()).isEmpty()) {
             return;
         }
+        UUID sessionId = announcement.sessionId();
+        int segmentIndex = announcement.segmentIndex();
+        Integer windowIndex = announcement.windowIndex();
         String packetKey =
                 // Built here, never taken from the message: see CaptureObjectKeys.measurement.
-                CaptureObjectKeys.measurement(announcement.sessionId(), announcement.segmentIndex());
-        captureSessionStore.recordMeasurement(
-                announcement.sessionId(),
-                announcement.segmentIndex(),
-                packetKey,
-                announcement.runId(),
-                announcement.mock(),
-                announcement.measuredAt(),
-                projectionOf(announcement.sessionId(), announcement.segmentIndex(), packetKey),
-                clock.instant());
-        deriveFrameReadings(announcement.sessionId(), announcement.segmentIndex());
+                CaptureObjectKeys.measurement(sessionId, segmentIndex, windowIndex);
+        MeasurementProjection projection = projectionOf(sessionId, segmentIndex, windowIndex, packetKey);
+        if (windowIndex == null) {
+            captureSessionStore.recordMeasurement(
+                    sessionId,
+                    segmentIndex,
+                    packetKey,
+                    announcement.runId(),
+                    announcement.mock(),
+                    announcement.measuredAt(),
+                    projection,
+                    clock.instant());
+        } else {
+            captureSessionStore.recordWindowMeasurement(
+                    sessionId,
+                    segmentIndex,
+                    windowIndex,
+                    announcement.windowStartMeters(),
+                    announcement.windowEndMeters(),
+                    packetKey,
+                    announcement.runId(),
+                    announcement.mock(),
+                    announcement.measuredAt(),
+                    projection,
+                    clock.instant());
+        }
+        deriveFrameReadings(sessionId, segmentIndex, windowIndex);
     }
 
     /**
@@ -393,19 +448,39 @@ public class CaptureSessionService implements CaptureSessionUseCase {
      * changes after the run is published. A failure costs the rows and not the measurement —
      * the segment is still recorded, and the backfill picks the segment up on its next pass.
      */
-    private void deriveFrameReadings(UUID sessionId, int segmentIndex) {
-        byte[] assessment =
-                readIfPresent(CaptureObjectKeys.measurementArtifact(sessionId, segmentIndex, "assessment.json"));
+    private void deriveFrameReadings(UUID sessionId, int segmentIndex, Integer windowIndex) {
+        byte[] assessment = readIfPresent(
+                CaptureObjectKeys.measurementArtifact(sessionId, segmentIndex, windowIndex, "assessment.json"));
         List<FrameReadings> readings = frameReadingsReader.readAll(assessment);
         if (readings.isEmpty()) {
             return;
         }
-        captureSessionStore.replaceFrameReadings(sessionId, segmentIndex, readings);
+        if (windowIndex == null) {
+            captureSessionStore.replaceFrameReadings(sessionId, segmentIndex, readings);
+        } else {
+            // A photograph belongs to exactly one window, so the windows of a segment describe
+            // disjoint sets of frames. Replacing wholesale here would leave the segment holding
+            // only whichever window announced last.
+            captureSessionStore.mergeFrameReadings(sessionId, segmentIndex, readings);
+        }
     }
 
+    /**
+     * Derives a segment's frame readings again, from whatever assessments it actually has.
+     *
+     * <p>A segment measured whole has one; a segment cut into windows has one per window, and the
+     * backfill has to walk them or the segment stays in its queue for ever.
+     */
     @Override
     public void deriveFrameReadingsFor(UUID sessionId, int segmentIndex) {
-        deriveFrameReadings(sessionId, segmentIndex);
+        List<CaptureSegmentDocument> windows = captureSessionStore.findWindows(sessionId, segmentIndex);
+        if (windows.isEmpty()) {
+            deriveFrameReadings(sessionId, segmentIndex, null);
+            return;
+        }
+        for (CaptureSegmentDocument window : windows) {
+            deriveFrameReadings(sessionId, segmentIndex, window.windowIndex());
+        }
     }
 
     /**
@@ -416,10 +491,11 @@ public class CaptureSessionService implements CaptureSessionUseCase {
      * summary and not the measurement: the segment is still recorded as measured, and the packet
      * is still served by {@code measurement(...)}.
      */
-    private MeasurementProjection projectionOf(UUID sessionId, int segmentIndex, String packetKey) {
+    private MeasurementProjection projectionOf(
+            UUID sessionId, int segmentIndex, Integer windowIndex, String packetKey) {
         byte[] packet = readIfPresent(packetKey);
-        byte[] assessment =
-                readIfPresent(CaptureObjectKeys.measurementArtifact(sessionId, segmentIndex, "assessment.json"));
+        byte[] assessment = readIfPresent(
+                CaptureObjectKeys.measurementArtifact(sessionId, segmentIndex, windowIndex, "assessment.json"));
         return projectionReader.project(packet, assessment);
     }
 
@@ -444,7 +520,34 @@ public class CaptureSessionService implements CaptureSessionUseCase {
         // shorter drawing, it is a wrong one, and this is one document rather than a list a
         // reader scrolls.
         captureSessionStore.getSession(sessionId);
-        return trackWriter.featureCollection(captureSessionStore.findSegments(sessionId));
+        return trackWriter.featureCollection(readingsOf(sessionId));
+    }
+
+    /**
+     * The session's readings in capture order: a window wherever there is one, the segment where
+     * there is not.
+     *
+     * <p>Drawing the segment as well as its windows would put eight overlapping bands on the map
+     * with the worst window's colour over all of them, which is the picture the windows exist to
+     * replace.
+     */
+    private List<CaptureSegmentDocument> readingsOf(UUID sessionId) {
+        Map<Integer, List<CaptureSegmentDocument>> windowsBySegment = captureSessionStore
+                .findWindows(sessionId).stream()
+                .collect(Collectors.groupingBy(
+                        CaptureSegmentDocument::segmentIndex,
+                        LinkedHashMap::new,
+                        Collectors.toList()));
+        List<CaptureSegmentDocument> readings = new ArrayList<>();
+        for (CaptureSegmentDocument segment : captureSessionStore.findSegments(sessionId)) {
+            List<CaptureSegmentDocument> windows = windowsBySegment.get(segment.segmentIndex());
+            if (windows == null || windows.isEmpty()) {
+                readings.add(segment);
+            } else {
+                readings.addAll(windows);
+            }
+        }
+        return readings;
     }
 
     @Override
@@ -455,9 +558,32 @@ public class CaptureSessionService implements CaptureSessionUseCase {
                     FailureKind.CONFLICT, "segment_manifest_not_ready", "segment manifest is not ready");
         }
         byte[] manifest = objectStorage.read(segment.manifestObjectKey(), MAXIMUM_MANIFEST_BYTES);
-        byte[] packet =
-                segment.measurementObjectKey() == null ? null : readIfPresent(segment.measurementObjectKey());
-        return frameReader.read(manifest, packet);
+        return frameReader.read(manifest, packetsOf(sessionId, segmentIndex));
+    }
+
+    /**
+     * Every packet that speaks for this segment's frames.
+     *
+     * <p>One, when the segment was measured whole. One per window otherwise, because a window's
+     * packet carries only the positions of the frames its own reconstruction used, and a segment's
+     * photographs are spread across all of them.
+     */
+    private List<byte[]> packetsOf(UUID sessionId, int segmentIndex) {
+        List<CaptureSegmentDocument> windows = captureSessionStore.findWindows(sessionId, segmentIndex);
+        List<String> keys = windows.isEmpty()
+                ? List.of(CaptureObjectKeys.measurement(sessionId, segmentIndex))
+                : windows.stream()
+                        .map(CaptureSegmentDocument::measurementObjectKey)
+                        .filter(Objects::nonNull)
+                        .toList();
+        List<byte[]> packets = new ArrayList<>();
+        for (String key : keys) {
+            byte[] packet = readIfPresent(key);
+            if (packet != null) {
+                packets.add(packet);
+            }
+        }
+        return packets;
     }
 
     /**

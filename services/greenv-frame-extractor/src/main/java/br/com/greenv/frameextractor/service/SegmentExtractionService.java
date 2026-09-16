@@ -423,11 +423,14 @@ public class SegmentExtractionService implements SegmentProcessor {
             MotionProfile profile) {
         List<FrameRecord> records = new ArrayList<>();
         List<FrameGroup> described = new ArrayList<>(groups.size());
-        int budget = MAX_SAMPLE_FRAMES;
         int published = 0;
 
+        // Every group, not the first few. The 112-frame ceiling is one depth run's, and the
+        // planner has already held each group to it; spending it once per segment instead left
+        // the first 30 to 40 m of a 200 m stretch measured and the rest never photographed —
+        // four fifths of the road, on 13 September 2026 (docs/STATE-OF-THE-SYSTEM.md, gap 5).
         for (FrameGroup group : groups) {
-            if (group.frameCount() > budget) {
+            if (group.frameCount() > MAX_SAMPLE_FRAMES) {
                 described.add(group);
                 continue;
             }
@@ -451,7 +454,6 @@ public class SegmentExtractionService implements SegmentProcessor {
                         group.index()));
                 published++;
             }
-            budget -= group.frameCount();
             described.add(group.asPublished());
         }
         return new PublishedGroups(List.copyOf(records), List.copyOf(described));

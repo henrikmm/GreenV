@@ -47,6 +47,25 @@ export function localStorage({ root }) {
       return { objectKey: key, sha256: digest(bytes), bytes: bytes.length };
     },
 
+    /**
+     * Writes only if nothing is there, and says which happened.
+     *
+     * <p>`wx` is the whole point: the check and the write are one operation, so two callers
+     * racing for the same key cannot both be told they won. A check followed by a write would
+     * let both through, which for a claim is worse than useless.
+     */
+    async putIfAbsent(key, bytes) {
+      const path = pathFor(key);
+      await mkdir(dirname(path), { recursive: true });
+      try {
+        await writeFile(path, bytes, { flag: "wx" });
+        return true;
+      } catch (error) {
+        if (error.code === "EEXIST") return false;
+        throw error;
+      }
+    },
+
     async exists(key) {
       try {
         await readFile(pathFor(key));

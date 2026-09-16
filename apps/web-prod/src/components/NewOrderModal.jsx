@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { X, Check } from 'lucide-react'
 import { LEVELS, vegetationLevel, PRIORITY_MAP, useToast } from '@greenv/web-core'
 import { serviceOrders } from '../api/greenv'
+import { stretchKey, stretchRange } from '../api/stretch'
 
 /**
  * Abrir uma ordem a partir de trechos medidos.
@@ -116,6 +117,11 @@ const s = {
  * Parece detalhe e não é: uma ordem combinada nascida da lista de trechos críticos cruza
  * sessões por definição — os dois piores trechos do dia raramente foram gravados na mesma
  * volta. A tabela `service_order_segments` guarda a sessão por linha justamente por isso.
+ *
+ * O alvo também carrega a janela. Um trecho é uma janela de cerca de 25 m do segmento enviado, e
+ * é esse recorte que a equipe atende: mandar alguém ao segmento inteiro seria mandá-lo a duzentos
+ * metros de margem por causa de vinte e cinco. Uma leitura anterior ao corte vai com janela nula,
+ * que é o segmento inteiro, e continua valendo como alvo.
  */
 export default function NewOrderModal({ segments, teams = [], onCreated, onClose }) {
   const { addToast } = useToast()
@@ -125,6 +131,9 @@ export default function NewOrderModal({ segments, teams = [], onCreated, onClose
   const [created, setCreated] = useState(null)
 
   const combined = segments.length > 1
+  // Quantos alvos são trechos de 25 m. Os demais são leituras anteriores ao corte, do segmento
+  // inteiro, e dizer isso evita prometer à equipe um recorte que aquela medição não tem.
+  const cut = segments.filter(segment => segment.windowIndex != null).length
   // Um trecho sem altura avaliada entra como 0, nunca como 1: altura desconhecida não pode virar
   // prioridade baixa. É a mesma regra do modal da demonstração.
   const worst = Math.max(0, ...segments.map(segment => vegetationLevel(segment.measurementLevel)))
@@ -140,7 +149,9 @@ export default function NewOrderModal({ segments, teams = [], onCreated, onClose
         scheduledFor: form.scheduledFor || null,
         notes: form.notes || null,
         targets: segments.map(segment => ({
-          sessionId: segment.sessionId, segmentIndex: segment.segmentIndex,
+          sessionId: segment.sessionId,
+          segmentIndex: segment.segmentIndex,
+          windowIndex: segment.windowIndex ?? null,
         })),
       })
       setCreated(order)
@@ -191,6 +202,17 @@ export default function NewOrderModal({ segments, teams = [], onCreated, onClose
         <div style={s.header}>
           <div>
             <div style={s.modalTitle}>{combined ? 'Nova OS combinada' : 'Nova ordem de serviço'}</div>
+            {/* O tamanho do que está sendo despachado. A mesma ordem, antes, mandava a equipe ao
+                segmento gravado inteiro; agora o alvo é o trecho medido. */}
+            {cut > 0 && (
+              <div style={s.subtitle}>
+                {cut === segments.length
+                  ? `${segments.length === 1 ? 'Um trecho' : `${segments.length} trechos`}`
+                    + ' de cerca de 25 m de margem.'
+                  : `${cut} de ${segments.length} alvos são trechos de cerca de 25 m;`
+                    + ' os outros foram medidos no segmento inteiro.'}
+              </div>
+            )}
           </div>
           <button style={s.closeBtn} onClick={onClose}><X size={16} /></button>
         </div>
@@ -206,7 +228,7 @@ export default function NewOrderModal({ segments, teams = [], onCreated, onClose
               <div style={{ ...s.infoValue, color: LEVELS[worst].color }}>{LEVELS[worst].label}</div>
             </div>
             <div style={s.infoBox}>
-              <div style={s.infoLabel}>Maior altura p90</div>
+              <div style={s.infoLabel}>Maior altura p95</div>
               <div style={{ ...s.infoValue, fontFamily: 'var(--font-mono)' }}>
                 {tallest > 0 ? `${(tallest * 100).toFixed(0)} cm` : '—'}
               </div>
@@ -217,11 +239,16 @@ export default function NewOrderModal({ segments, teams = [], onCreated, onClose
             {segments.map(segment => {
               const level = vegetationLevel(segment.measurementLevel)
               return (
-                <div key={`${segment.sessionId}:${segment.segmentIndex}`} style={s.trechoRow}>
+                <div key={stretchKey(segment)} style={s.trechoRow}>
                   <span style={s.trechoDot(LEVELS[level].color)} />
                   <span style={s.trechoName}>
                     {segment.placeLabel ?? `Trecho ${segment.segmentIndex}`}
                   </span>
+                  {/* Os metros ao longo do segmento: dois alvos da mesma volta podem ter o mesmo
+                      nome de rua e estar a vinte e cinco metros um do outro. */}
+                  {stretchRange(segment) && (
+                    <span style={s.trechoHeight}>{stretchRange(segment)}</span>
+                  )}
                   <span style={s.trechoHeight}>
                     {segment.measurementExtent95P95M != null
                       ? `${(segment.measurementExtent95P95M * 100).toFixed(0)} cm`

@@ -96,8 +96,21 @@ public interface CaptureSessionUseCase {
 
     byte[] manifest(UUID sessionId, int segmentIndex);
 
-    /** The packet worker 2 wrote for this segment, byte for byte. */
-    byte[] measurement(UUID sessionId, int segmentIndex);
+    /**
+     * The packet worker 2 wrote, byte for byte.
+     *
+     * @param windowIndex which window's packet, or null for a segment measured whole. A segment
+     *     cut into windows has no packet of its own: each window has one
+     */
+    byte[] measurement(UUID sessionId, int segmentIndex, Integer windowIndex);
+
+    /**
+     * The windows a segment was cut into, in the order the extractor cut them.
+     *
+     * <p>Empty for a segment measured whole, which is every segment measured before the extractor
+     * stopped spending its whole frame budget on the first few tens of metres.
+     */
+    List<CaptureSegmentDocument> windows(UUID sessionId, int segmentIndex);
 
     /**
      * One file of the reconstruction this segment was measured from, opened for streaming.
@@ -106,7 +119,8 @@ public interface CaptureSessionUseCase {
      * from; anything else is refused rather than turned into a key. Tens of megabytes each, so
      * the caller gets a stream and closes it. See {@link CaptureObjectStorage#open}.
      */
-    CaptureObjectStorage.ObjectContent depthArtifact(UUID sessionId, int segmentIndex, String fileName);
+    CaptureObjectStorage.ObjectContent depthArtifact(
+            UUID sessionId, int segmentIndex, Integer windowIndex, String fileName);
 
     /** Called when worker 2 announces that it measured a segment. */
     void recordMeasurement(SegmentMeasurementAnnouncement announcement);

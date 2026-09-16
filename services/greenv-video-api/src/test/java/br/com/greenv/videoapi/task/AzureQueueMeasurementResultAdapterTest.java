@@ -54,7 +54,7 @@ class AzureQueueMeasurementResultAdapterTest {
                 ArgumentCaptor.forClass(SegmentMeasurementAnnouncement.class);
         verify(useCase).recordMeasurement(announced.capture());
         assertThat(announced.getValue())
-                .isEqualTo(new SegmentMeasurementAnnouncement(
+                .isEqualTo(SegmentMeasurementAnnouncement.ofSegment(
                         SESSION, 3, "20260908-000000-abcdef", false, Instant.parse("2026-09-08T03:00:00Z")));
         // Deleting is the acknowledgement. Doing it before the use case ran would lose the segment.
         verify(queueClient).deleteMessage("message-1", "receipt");

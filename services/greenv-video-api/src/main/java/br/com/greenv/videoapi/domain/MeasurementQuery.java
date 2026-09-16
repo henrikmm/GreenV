@@ -36,7 +36,16 @@ public record MeasurementQuery(
     /** A screenful. Smaller than the session default because each row here carries a map and photos. */
     public static final int DEFAULT_LIMIT = 25;
 
-    public static final int MAXIMUM_LIMIT = 200;
+    /**
+     * The most a single page will return, whatever was asked for.
+     *
+     * <p>A thousand rather than the two hundred it was until a reading became a 25 m window: the
+     * map draws fifty sessions at once and labels each one from the readings it can see, and a
+     * driven day that used to produce 43 of them now produces about 320. At two hundred the
+     * sessions at the end of that list would arrive with no reading and therefore no place name,
+     * which is the one thing that screen is for.
+     */
+    public static final int MAXIMUM_LIMIT = 1000;
 
     public MeasurementQuery {
         sort = sort == null ? MeasurementSort.HEIGHT_DESC : sort;

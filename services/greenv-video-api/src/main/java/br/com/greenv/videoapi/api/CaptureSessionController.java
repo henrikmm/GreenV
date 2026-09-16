@@ -1,6 +1,7 @@
 package br.com.greenv.videoapi.api;
 
 import br.com.greenv.videoapi.domain.CaptureSessionQuery;
+import br.com.greenv.videoapi.domain.CaptureSessionSort;
 import br.com.greenv.videoapi.domain.SegmentQuery;
 import br.com.greenv.videoapi.domain.Sentido;
 import br.com.greenv.videoapi.port.CaptureObjectStorage;
@@ -17,6 +18,7 @@ import java.util.Map;
 import java.util.UUID;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.core.io.Resource;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -142,10 +144,14 @@ public class CaptureSessionController {
     }
 
     /**
-     * The sessions, newest first.
+     * The sessions, newest first unless the caller asks for another order.
      *
      * <p>Until this existed nothing could open on a list: every read path needed an id the caller
      * already had, so a dashboard had no way to discover what had been captured.
+     *
+     * <p>The day and the order are the route's job, not the client's, for the reason {@link
+     * MeasurementController} gives: a browser that filters the page it was given is answering
+     * about the request rather than about the data, and cannot tell the two apart on screen.
      */
     @GetMapping
     PageResponse<CaptureSessionResponse> listSessions(
@@ -153,10 +159,23 @@ public class CaptureSessionController {
             @RequestParam(required = false) String rodovia,
             @RequestParam(required = false) String sentido,
             @RequestParam(defaultValue = "false") boolean measuredOnly,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+                    Instant capturedFrom,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+                    Instant capturedTo,
+            @RequestParam(required = false) String sort,
             @RequestParam(defaultValue = "0") int limit,
             @RequestParam(defaultValue = "0") int offset) {
         var query = new CaptureSessionQuery(
-                state, rodovia, sentido == null ? null : Sentido.of(sentido), measuredOnly, limit, offset);
+                state,
+                rodovia,
+                sentido == null ? null : Sentido.of(sentido),
+                measuredOnly,
+                capturedFrom,
+                capturedTo,
+                CaptureSessionSort.of(sort),
+                limit,
+                offset);
         return PageResponse.from(
                 captureSessionUseCase.listSessions(query),
                 CaptureSessionResponse::from);
@@ -234,11 +253,30 @@ public class CaptureSessionController {
         return captureSessionUseCase.manifest(sessionId, segmentIndex);
     }
 
+    /**
+     * The measured stretches inside one uploaded segment.
+     *
+     * <p>A segment is 10 seconds of video and, driven, a couple of hundred metres of road. It is
+     * now cut into windows of about 25 m and each is reconstructed and measured on its own, so the
+     * trecho a crew is sent to is a window and this is the list of them. Empty for a segment
+     * measured whole.
+     */
+    @GetMapping("/{sessionId}/segments/{segmentIndex}/windows")
+    List<CaptureSegmentResponse> windows(@PathVariable UUID sessionId, @PathVariable int segmentIndex) {
+        String url = baseUrl();
+        return captureSessionUseCase.windows(sessionId, segmentIndex).stream()
+                .map(window -> CaptureSegmentResponse.from(window, url))
+                .toList();
+    }
+
     @GetMapping(
             path = "/{sessionId}/segments/{segmentIndex}/measurement",
             produces = MediaType.APPLICATION_JSON_VALUE)
-    byte[] measurement(@PathVariable UUID sessionId, @PathVariable int segmentIndex) {
-        return captureSessionUseCase.measurement(sessionId, segmentIndex);
+    byte[] measurement(
+            @PathVariable UUID sessionId,
+            @PathVariable int segmentIndex,
+            @RequestParam(required = false) Integer window) {
+        return captureSessionUseCase.measurement(sessionId, segmentIndex, window);
     }
 
     /**
@@ -253,11 +291,18 @@ public class CaptureSessionController {
             path = "/{sessionId}/segments/{segmentIndex}/depth/{fileName}",
             produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
     ResponseEntity<Resource> depthArtifact(
-            @PathVariable UUID sessionId, @PathVariable int segmentIndex, @PathVariable String fileName) {
+            @PathVariable UUID sessionId,
+            @PathVariable int segmentIndex,
+            @PathVariable String fileName,
+            @RequestParam(required = false) Integer window) {
         CaptureObjectStorage.ObjectContent content =
-                captureSessionUseCase.depthArtifact(sessionId, segmentIndex, fileName);
-        String downloadName = "%s-segmento-%d-%s"
-                .formatted(shortSession(sessionId), segmentIndex, fileName);
+                captureSessionUseCase.depthArtifact(sessionId, segmentIndex, window, fileName);
+        // The window is in the name because a segment now yields several reconstructions and a
+        // person downloading them needs to tell them apart in a folder.
+        String downloadName = window == null
+                ? "%s-segmento-%d-%s".formatted(shortSession(sessionId), segmentIndex, fileName)
+                : "%s-segmento-%d-trecho-%02d-%s"
+                        .formatted(shortSession(sessionId), segmentIndex, window, fileName);
         return ResponseEntity.ok()
                 .contentType(MediaType.APPLICATION_OCTET_STREAM)
                 .contentLength(content.bytes())

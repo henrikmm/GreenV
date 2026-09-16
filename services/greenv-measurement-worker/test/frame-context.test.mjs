@@ -99,3 +99,21 @@ test("the sampled track length is the odometer span, and null when the manifest 
   assert.equal(sampledTrackLength({ samplingStrategy: "distance-groups", sampledFrames: frames([30, 20]) }), null, "an odometer that runs backwards is not a length");
   assert.equal(sampledTrackLength(null), null);
 });
+
+test("a window is anchored to its own distance, not to the whole segment's", () => {
+  const manifest = {
+    samplingStrategy: "distance-groups",
+    sampledFrames: [
+      { fileName: "frame-0001.jpg", distanceMeters: 0 },
+      { fileName: "frame-0002.jpg", distanceMeters: 25 },
+      { fileName: "frame-0003.jpg", distanceMeters: 50 },
+      { fileName: "frame-0004.jpg", distanceMeters: 75 },
+    ],
+  };
+
+  assert.equal(sampledTrackLength(manifest), 75);
+  // The second window saw 25 m of road. Handing Verge Studio the segment's 75 m makes the anchor
+  // three times the reconstruction, which it refuses as out of range - so the clip keeps DA3's
+  // own scale and the anchor silently does nothing.
+  assert.equal(sampledTrackLength(manifest, manifest.sampledFrames.slice(1, 3)), 25);
+});

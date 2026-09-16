@@ -24,10 +24,11 @@ this file does not restate it.
 
 The middle row is the whole difficulty. Everything else is free and local.
 
-One segment is exactly one depth run, and that is not a choice: the extractor samples 10 fps
-capped at 112 frames, which is about 100 JPEGs for a ten-second segment, and an L4 runs out of
-memory above 144. Two segments cannot be merged into one inference, so there is no batching to
-design.
+**One window is exactly one depth run**, and that is not a choice: 112 frames is the ceiling the
+extractor plans to and an L4 runs out of memory above 144. A window is about 25 m of road, so a
+ten-second segment driven at highway speed is eight or nine depth runs rather than the one it was
+until 15 September 2026 — the reason is in `STATE-OF-THE-SYSTEM.md`, gap 5. Windows cannot be
+merged into one inference, so there is no batching to design.
 
 ### Where the middle row runs
 
@@ -112,7 +113,10 @@ round-trippable to `github.com/henrikmm/verge-studio`; see the rule in [`AGENTS.
 
 ## What comes back
 
-Three artifacts land under `<outputPrefix>/measurement/`, plus one envelope:
+Three artifacts land under `<outputPrefix>/measurement/`, plus one envelope. A segment cut into
+windows puts each window's four objects under `<outputPrefix>/measurement/wNN/` instead, two
+digits and zero padded; a segment measured whole keeps the unprefixed path, which is where every
+packet measured before 15 September 2026 still is:
 
 | Object | What it is |
 |---|---|
@@ -242,7 +246,7 @@ keeps beside the frames — no GPU — the causes were three, and none of them w
 | The road is not vegetation | In rain the wet asphalt reflects the trees and the segmentation calls a fifth of the frame `vegetation`; a band that folds both sides of the edge together counted the road as cells of 0 cm | The band keeps the vegetation's side of the edge only (`bandSide`, set by the auto edge), so the road is out whatever the mask says of it |
 | A grass pixel is grass | At 128×128 logits one class pixel is 4.5 by 8 photograph pixels, and the grass against a guardrail carried the rail's lower edge: the tallest cells of a mown strip were its last half metre against the rail, 40–57 cm where the strip read 3–9 | `GREENV_MEASUREMENT_EXCLUDE_NEAR=fence,wall,pole,building`, one logit pixel around: a pixel next to a structure is not measured |
 | The corridor is as wide as the band | Behind a 5 m corridor an embankment climbs, and a band that reaches it measures the brush on the slope with the strip: one segment read a p95 of 0.82 m on a strip cut short | `GREENV_MEASUREMENT_SLOPE_RISE_M=0.1`: two consecutive rises of each cell's own ground by more than that per half-metre cell mark the slope's foot, and every cell beyond is `slope`, aggregated nowhere. That segment reads 0.17 m; 1,971 of the day's 17,060 cells were slope |
-| The stretch is its top twentieth of cells | That twentieth is the last half metre against the guardrail or the touceira at the corridor's edge, and it held 20 of 40 stretches at level 3 over grass of 2–18 cm | The API projects the 90th percentile of the cells since 14 September 2026 (`STRETCH_PERCENTILE`); the field keeps its `extent95P95M` name because the installed capture app reads it. Levels 9 / 21 / 10 where p95 gave 6 / 14 / 20 |
+| The stretch is its top twentieth of cells | That twentieth was the last half metre against the guardrail, and it held 20 of 40 stretches at level 3 over grass of 2–18 cm. The aggregate dropped to the 90th percentile for a few hours of 14 September 2026 while that was true | The measurement stopped measuring the rail the same day, and with it gone the two percentiles agree: over the 43 segments the gap is 0–6 cm, usually 2, and no stretch reaches level 3 at either. So `STRETCH_PERCENTILE` is back at 0.95, the aggregate that is actually about mowing. The field keeps its `extent95P95M` name because the installed capture app reads it |
 | A structure is a structure in every frame | Cityscapes never trained on a guardrail, and a wet rail or a concrete barrier is `fence` or `wall` in some frames and `terrain` in the rest; the frames that call it grass measure it, 0.7–0.8 m agreed across twenty frames, because it is an object of that height. A pixel margin around the structure classes cannot reach a frame that saw none | `GREENV_MEASUREMENT_STRUCTURE_FRAMES=3`: each frame's structure pixels are back-projected into the same cells as its grass, and a cell that three frames saw a structure standing in is `structure`, kept with its numbers, aggregated nowhere. One stretch went from a p90 of 0.59 m to 0.20 m |
 | The grass model knows what a guardrail is | Cityscapes never trained it on one: a wet W-beam or a concrete barrier is `terrain` to it in frame after frame, and a stretch of mown lawn behind a barrier read a p90 of 0.55 m from the barrier alone | `GREENV_MEASUREMENT_STRUCTURE_MODEL=ade20k-b4`: a second SegFormer, trained on ADE20K's 150 classes (`fence`, `railing`, `wall`, `bannister` among them), asked only what is not grass; its structure pixels join the structure map. That stretch reads 0.05 m. About 0.9 s a frame of CPU |
 | The road edge spans the stretch | The edge is the camera track and stops at the last pose, while the depth reaches on down the road; a point past the end folds onto it with the overshoot turned into distance, so a guardrail one metre out filled the last along-road cell at every distance to the band's width, 65–75 cm in each | `GREENV_MEASUREMENT_PAST_ENDS=drop`: nothing before the first pose or beyond the last is measured |
@@ -254,11 +258,13 @@ kept reconstruction rather than paying for depth again: a queue message or `POST
 body carrying `force: true, reuseDepth: true` skips the GPU when `depth/<runId>/scene.glb` and
 `result.npz` are still beside the frames.
 
-**What driving has not fixed.** The extractor's `distance-groups` sampling spends its 112-frame
-budget on the first groups of consecutive frames, and at highway speed that is 30–40 m of a
-170–250 m segment. The rest of the road is never seen by the depth model. That is a decision
-about segments, frames and GPU runs, recorded as a gap in `STATE-OF-THE-SYSTEM.md`, not a setting
-here.
+**What driving exposed, and what was done about it.** The extractor's `distance-groups` sampling
+spent its 112-frame budget on the first groups of consecutive frames, and at highway speed that was
+30–40 m of a 170–250 m segment: 1,545 m of the 7,923 m the 43 segments of 13 September planned, 19%
+of the road. Since 15 September the extractor cuts at 25 m and publishes every group, and the
+worker gives each window its own reconstruction, packet and announcement, so a stretch is a window
+rather than a segment. It costs about five times the depth frames, and deployed on 16 September 2026;
+`STATE-OF-THE-SYSTEM.md`, gap 5, carries the evidence and what it measured in production.
 
 ## Limitations
 
@@ -338,6 +344,7 @@ chain carries operational traffic.
 | The probability the second model must give those classes, summed, for a pixel to be a structure | `GREENV_MEASUREMENT_STRUCTURE_FLOOR` | unset, which leaves Verge Studio's 0.5, a majority of the probability. The deployment sets 0.4: no single class need win a pixel the model spreads over fence, railing, wall and bannister, and a rail in fog it half-sees still counts |
 | What the second model's pixels do besides voting on cells | `GREENV_MEASUREMENT_STRUCTURE_MODEL_MASK` | `always`: they also leave the grass mask with the margin. A query model's mask fades a metre onto the grass beside a rail and, out of the mask in every frame, starved a median strip of two thirds of its points; `band` takes them out only of the copy that places the band, so it starts where the grass starts, and `never` leaves the mask alone |
 | That model's structure classes, in its own names | `GREENV_MEASUREMENT_STRUCTURE_CLASSES` | empty. The deployment sets `fence,railing,wall,bannister,pole,column,signboard,building,house,streetlight,step`: out of the grass mask with the exclusion margin, and into the cells the structure bar counts |
+| A third segmentation standing beside the second | `GREENV_MEASUREMENT_STRUCTURE2_MODEL`, `_CLASSES`, `_FLOOR`, `_MODEL_MASK` | empty. The deployment sets `ade20k-b4` with `tree,palm`, floor 0.5, mask `never`, because no one model sees everything: the Vistas model that places the band and vetoes a rail has no class for a bush, and on 16 September 2026 a Cityscapes `vegetation` mask measured one as 1.81 m of grass 1 m behind a barrier — tall grass lives in that class too, so the class cannot go. The ADE20K model called that bush `tree` in 84-98% of its pixels and the mown strip beside it `grass`; its classes vote on cells like the second model's and touch neither the grass mask nor the band. Verge Studio takes the two as `structureModels`, a list; one model still travels under the four names above |
 | Re-measure from the reconstruction already in the bucket | `GREENV_MEASUREMENT_REUSE_DEPTH` | `false`; a request can also ask per segment with `reuseDepth: true` |
 | Object storage | `GREENV_OBJECT_STORAGE_ADAPTER` | `local` (or `s3`) |
 | Trigger queue | `GREENV_MEASUREMENT_QUEUE` | `greenv.segment.measure.v1` |

@@ -37,8 +37,39 @@ class RabbitMqMeasurementResultAdapterTest {
         ArgumentCaptor<SegmentMeasurementAnnouncement> announced =
                 ArgumentCaptor.forClass(SegmentMeasurementAnnouncement.class);
         verify(useCase).recordMeasurement(announced.capture());
-        assertThat(announced.getValue()).isEqualTo(new SegmentMeasurementAnnouncement(
+        assertThat(announced.getValue()).isEqualTo(SegmentMeasurementAnnouncement.ofSegment(
                 sessionId, 3, "20260908-000000-abcdef", false, Instant.parse("2026-09-08T03:00:00Z")));
+    }
+
+    /**
+     * A segment is now cut into windows of about 25 m and each announces itself, so which window
+     * a result speaks for is part of the identity. An envelope without the field is a packet
+     * measured before the change, and those are still redelivered.
+     */
+    @Test
+    void readsTheWindowAStretchWasMeasuredIn() {
+        UUID sessionId = UUID.randomUUID();
+
+        adapter.onMeasured("""
+                {"schemaVersion":"greenv.measurement-result/1.0.0","sessionId":"%s","segmentIndex":3,
+                 "windowIndex":2,"windowStartMeters":50.0,"windowEndMeters":75.5,
+                 "runId":"20260908-000000-abcdef","mock":false,"measuredAt":"2026-09-08T03:00:00Z",
+                 "positions":[{"canonicalFrame":1}],"measurement":{"quality":{}}}
+                """.formatted(sessionId));
+
+        ArgumentCaptor<SegmentMeasurementAnnouncement> announced =
+                ArgumentCaptor.forClass(SegmentMeasurementAnnouncement.class);
+        verify(useCase).recordMeasurement(announced.capture());
+        assertThat(announced.getValue())
+                .isEqualTo(new SegmentMeasurementAnnouncement(
+                        sessionId,
+                        3,
+                        2,
+                        50.0,
+                        75.5,
+                        "20260908-000000-abcdef",
+                        false,
+                        Instant.parse("2026-09-08T03:00:00Z")));
     }
 
     @Test

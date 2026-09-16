@@ -8,7 +8,7 @@ package br.com.greenv.videoapi.domain;
  * reading from a thin one. Deriving it here rather than storing what the worker reports means a
  * wrong projection is repaired by re-reading object storage, never by paying for the GPU again.
  *
- * @param extent95P95M the 90th percentile of the measured cells' own {@code extent95M}, in metres.
+ * @param extent95P95M the 95th percentile of the measured cells' own {@code extent95M}, in metres.
  *     Named for the 95th it was until 14 September 2026; the name stays because the installed
  *     capture app reads it
  * @param extent95MaxM the tallest measured cell
@@ -56,8 +56,35 @@ public record MeasurementProjection(
      * {@code draft-not-motiva-approved} in the packet's own threshold exploration. They decide
      * what a screen is coloured, never whether a crew is sent.
      */
+    /**
+     * The fewest measured cells a level may rest on.
+     *
+     * <p>Twenty half-metre cells are five square metres of verge. Below that the 95th percentile
+     * is the tallest of a handful of cells rather than a description of a stretch: on the 43
+     * segments of 13 September, the 38 windows that measured 17 cells or fewer covered 4% of
+     * their corridor on average and produced 6 of the day's 17 readings above 30 cm - one of
+     * them from a single cell. Above twenty cells that rate collapses.
+     *
+     * <p>The cure is the same principle as a null height: a stretch nobody could measure is
+     * unrated, and unrated is not "low". It sorts with the other unknowns and says so on screen.
+     */
+    public static final int MINIMUM_CELLS_FOR_A_LEVEL = 20;
+
     public static Integer levelFor(Double extent95M) {
+        return levelFor(extent95M, null);
+    }
+
+    /**
+     * The level for a height, refused when too little of the stretch was actually measured.
+     *
+     * @param measuredCells cells the packet measured; null skips the check, for callers that
+     *     have a height and no idea how much evidence is behind it
+     */
+    public static Integer levelFor(Double extent95M, Integer measuredCells) {
         if (extent95M == null || extent95M.isNaN()) {
+            return null;
+        }
+        if (measuredCells != null && measuredCells < MINIMUM_CELLS_FOR_A_LEVEL) {
             return null;
         }
         if (extent95M > LEVEL_3_FLOOR_M) {

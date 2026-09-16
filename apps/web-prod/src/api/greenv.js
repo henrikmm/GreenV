@@ -56,12 +56,25 @@ function toSession(user) {
 }
 
 export const sessions = {
-  list({ limit = 50, offset = 0, measuredOnly = false, rodovia, sentido, state } = {}) {
+  /**
+   * A página de sessões que o servidor escolheu.
+   *
+   * O dia e a ordem vão junto e não são aplicados aqui: filtrar no navegador uma página que o
+   * servidor já recortou responde sobre a requisição, não sobre os dados — escolher "mais
+   * críticas primeiro" reordenaria as cinquenta que vieram por data, e não as piores que existem.
+   */
+  list({
+    limit = 25, offset = 0, measuredOnly = false, rodovia, sentido, state,
+    sort, capturedFrom, capturedTo,
+  } = {}) {
     const query = new URLSearchParams({ limit, offset })
     if (measuredOnly) query.set('measuredOnly', 'true')
     if (rodovia) query.set('rodovia', rodovia)
     if (sentido) query.set('sentido', sentido)
     if (state) query.set('state', state)
+    if (sort) query.set('sort', sort)
+    if (capturedFrom) query.set('capturedFrom', capturedFrom)
+    if (capturedTo) query.set('capturedTo', capturedTo)
     return getJson(`/v2/capture-sessions?${query}`)
   },
 
@@ -91,6 +104,18 @@ export const sessions = {
     return getJson(`/v2/capture-sessions/${sessionId}/segments/${segmentIndex}`)
   },
 
+  /**
+   * Os trechos de um segmento enviado, em ordem.
+   *
+   * O segmento é a unidade do upload — dez segundos de vídeo — e o trecho é a janela de cerca de
+   * 25 m em que ele foi medido. A lista acima continua sendo uma linha por segmento; esta abre um
+   * deles nos trechos que ele rendeu. Um segmento medido antes do corte não tem nenhum, e a
+   * resposta vem vazia.
+   */
+  windows(sessionId, segmentIndex) {
+    return getJson(`/v2/capture-sessions/${sessionId}/segments/${segmentIndex}/windows`)
+  },
+
   /** O desenho da sessão: a trilha e a faixa medida, já em GeoJSON. */
   track(sessionId) {
     return getJson(`/v2/capture-sessions/${sessionId}/track`)
@@ -111,9 +136,14 @@ export const sessions = {
       `/v2/capture-sessions/${sessionId}/segments/${segmentIndex}/frames/${fileName}/readings`)
   },
 
-  /** O pacote inteiro, para quem quiser a grade de células e a proveniência. */
-  measurement(sessionId, segmentIndex) {
-    return getJson(`/v2/capture-sessions/${sessionId}/segments/${segmentIndex}/measurement`)
+  /**
+   * O pacote inteiro, para quem quiser a grade de células e a proveniência.
+   *
+   * Com `windowIndex` é o pacote daquele trecho; sem ele, o do segmento medido inteiro.
+   */
+  measurement(sessionId, segmentIndex, windowIndex = null) {
+    return getJson(
+      `/v2/capture-sessions/${sessionId}/segments/${segmentIndex}/measurement${windowQuery(windowIndex)}`)
   },
 
   /**
@@ -124,13 +154,22 @@ export const sessions = {
    * antes de o serviço de profundidade passar a guardar o que calculou não tem arquivo nenhum —
    * e um link levaria a pessoa a uma aba com JSON de erro em vez de uma mensagem na tela.
    * Dezenas de megabytes: quem chama mostra que está baixando.
+   *
+   * Cada trecho tem a reconstrução dele: sem `windowIndex` o arquivo seria o do segmento medido
+   * inteiro, que é outra geometria.
    */
-  async depthArtifact(sessionId, segmentIndex, fileName) {
+  async depthArtifact(sessionId, segmentIndex, fileName, windowIndex = null) {
     const response = await request(
-      `/v2/capture-sessions/${sessionId}/segments/${segmentIndex}/depth/${fileName}`,
+      `/v2/capture-sessions/${sessionId}/segments/${segmentIndex}/depth/${fileName}`
+        + windowQuery(windowIndex),
       { accept: 'application/octet-stream' })
     return response.blob()
   },
+}
+
+/** `?window=2`, ou nada quando a leitura é do segmento inteiro. */
+function windowQuery(windowIndex) {
+  return windowIndex == null ? '' : `?window=${windowIndex}`
 }
 
 /**

@@ -5,6 +5,7 @@ import { LEVELS, vegetationLevel, Card } from '@greenv/web-core'
 import { measurements, teams as teamsApi } from '../api/greenv'
 import { placeOfSegment } from '../api/place'
 import { readingOf } from '../api/reading'
+import { stretchKey, stretchLabel } from '../api/stretch'
 import PageShell from '../components/PageShell'
 import NewOrderModal from '../components/NewOrderModal'
 import SegmentDetail from '../components/SegmentDetail'
@@ -12,11 +13,13 @@ import SegmentDetail from '../components/SegmentDetail'
 /**
  * Toda leitura, a mais alta primeiro.
  *
- * A visão por sessão esconde exatamente o que importa. Uma volta de carro produz oito trechos, e
- * a sessão inteira recebe um rótulo só — o pior nível, um lugar médio. Se sete estão limpos e um
- * está com três metros de mato, a sessão diz "nível 3" e não diz onde. Aqui a linha é a leitura:
- * cada trecho tem a própria altura, o próprio lugar e a própria qualidade de GPS, e a ordenação
- * padrão é pela altura, porque é assim que se decide para onde a equipe vai primeiro.
+ * A visão por sessão esconde exatamente o que importa. Uma volta de carro produz muitos trechos, e
+ * a sessão inteira recebe um rótulo só — o pior nível, um lugar médio. Se quase todos estão limpos
+ * e um está com três metros de mato, a sessão diz "nível 3" e não diz onde. Aqui a linha é a
+ * leitura: cada trecho é uma janela de cerca de 25 m com a própria altura, o próprio lugar e a
+ * própria qualidade de GPS, e a ordenação padrão é pela altura, porque é assim que se decide para
+ * onde a equipe vai primeiro — e 25 m é o que uma equipe atende, enquanto o segmento enviado
+ * inteiro não é um destino.
  *
  * Uma ordem aberta daqui atravessa sessões sem cerimônia: os dois piores trechos do dia raramente
  * foram gravados na mesma volta, e é justamente combiná-los que economiza deslocamento.
@@ -73,6 +76,7 @@ const s = {
   subDate: { fontSize: 11, color: 'var(--text-muted)', marginTop: 1 },
   place: { fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' },
   placeDetail: { fontSize: 11, color: 'var(--text-muted)', marginTop: 1 },
+  stretchRange: { fontSize: 11, color: 'var(--text-muted)', marginTop: 1, fontFamily: 'var(--font-mono)' },
   height: { fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 700 },
   bar: (fraction, colour) => ({
     height: 4, borderRadius: 2, marginTop: 4, background: colour,
@@ -112,7 +116,9 @@ const s = {
   detailCell: { padding: '0 14px', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border)' },
 }
 
-const keyOf = (segment) => `${segment.sessionId}:${segment.segmentIndex}`
+// A janela entra na chave: um segmento enviado rende vários trechos medidos, e sem ela os oito
+// da mesma volta seriam a mesma linha para marcar, abrir e comparar.
+const keyOf = stretchKey
 
 const ORDERS = [
   ['HEIGHT_DESC', 'Mais altos primeiro'],
@@ -225,8 +231,8 @@ export default function SegmentsPage() {
         <div>
           <div style={s.title}>Trechos medidos</div>
           <div style={s.subtitle}>
-            Toda leitura, a mais alta primeiro. Uma sessão mistura trecho limpo com trecho
-            crítico; aqui cada um responde por si.
+            Toda leitura, a mais alta primeiro. Cada linha é um trecho de cerca de 25 m: uma
+            sessão mistura trecho limpo com trecho crítico, e aqui cada um responde por si.
           </div>
         </div>
         <button style={s.orderBtn(chosenSegments.length > 0)}
@@ -312,7 +318,7 @@ export default function SegmentsPage() {
               <thead>
                 <tr>
                   <th style={s.th} /><th style={s.th}>#</th><th style={s.th}>Onde</th>
-                  <th style={s.th}>Altura p90</th><th style={s.th}>Nível</th>
+                  <th style={s.th}>Altura p95</th><th style={s.th}>Nível</th>
                   <th style={s.th}>Células</th><th style={s.th}>GPS</th>
                   <th style={s.th}>Capturado em</th><th style={s.th} />
                 </tr>
@@ -323,6 +329,7 @@ export default function SegmentsPage() {
                   const reading = readingOf(segment)
                   const place = placeOf(segment)
                   const height = segment.measurementExtent95P95M
+                  const stretch = stretchLabel(segment)
                   return (
                     <Fragment key={keyOf(segment)}>
                     <tr style={s.row(openKey === keyOf(segment))}
@@ -338,6 +345,11 @@ export default function SegmentsPage() {
                           {place?.label ?? <span style={{ color: 'var(--text-muted)' }}>sem posição</span>}
                         </div>
                         {place?.detail && <div style={s.placeDetail}>{place.detail}</div>}
+                        {/* Que pedaço do segmento é esta leitura. Duas linhas seguidas podem ter o
+                            mesmo nome de rua e ser vinte e cinco metros uma da outra; os metros
+                            são o que separa uma da outra. Uma leitura do segmento inteiro — as
+                            que já estavam medidas antes do corte — não mostra nada aqui. */}
+                        {stretch && <div style={s.stretchRange}>{stretch}</div>}
                       </td>
                       <td style={s.td}>
                         <div style={{ ...s.height, color: LEVELS[level].color }}>

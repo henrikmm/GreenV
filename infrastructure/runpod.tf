@@ -66,11 +66,20 @@ resource "runpod_endpoint" "depth" {
   gpu_type_ids = var.depth_gpu_type_ids
   gpu_count    = 1
 
-  # Zero at rest, and one at work. A second worker is a second cold start rather than more
-  # throughput: one segment is exactly one inference, two cannot be merged, and the depth service
-  # holds a lock of its own.
+  # Zero at rest. How many at work is a throughput decision that changed on 16 September 2026:
+  # until then one segment was exactly one inference, so a second worker was a second cold start
+  # and nothing else. A segment is now one inference per 25 m window - seven to nine of them on a
+  # driven segment - and the measurement worker runs several replicas, so the requests genuinely
+  # arrive in parallel and a single worker serialises them. RunPod bills per worker-second, so the
+  # same batch costs about the same spread over more workers; what each extra worker adds is its
+  # own cold start.
   workers_min = 0
-  workers_max = 1
+  workers_max = var.depth_workers_max
+  # Reaches the deployed endpoint only if Terraform created it, and it did not: `count` is 0 while
+  # `depth_service_endpoint_id` names an endpoint made by hand, so this line describes what a fresh
+  # one would get. The live endpoint was raised to 3 through RunPod's own API on 16 September 2026,
+  # to reprocess the 43 segments of 13 September as 320 windows; put it back to 1 when a batch is
+  # not running, since one at a time is right for segments arriving as they are captured.
 
   # The dial the whole bill hangs on. Segments arriving back to back from one drive ride a single
   # warm worker; a lone segment pays the entire tail. Short by default, to be raised deliberately

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { loadConfig } from "../src/config.mjs";
 import { connectQueue } from "../src/queue/index.mjs";
-import { nextAction } from "../src/queue/azure.mjs";
+import { leaseRenewal, nextAction } from "../src/queue/azure.mjs";
 
 const AZURE = {
   GREENV_SEGMENT_QUEUE_ADAPTER: "azure-queue",
@@ -62,4 +62,71 @@ test("a failure a retry cannot fix goes straight to the poison queue", () => {
   // ever, so it must not be left to starve everything behind it.
   assert.equal(nextAction(new Error("insufficient frames"), 1), "poison");
   assert.equal(nextAction(null, 1), "delete");
+});
+
+test("the lease is renewed while the segment is still being measured", async () => {
+  const calls = [];
+  let fire = null;
+  const lease = leaseRenewal({
+    inbox: {
+      async updateMessage(messageId, popReceipt, _text, seconds) {
+        calls.push({ messageId, popReceipt, seconds });
+        return { popReceipt: `receipt-${calls.length + 1}` };
+      },
+    },
+    message: { messageId: "m1", popReceipt: "receipt-1" },
+    seconds: 1800,
+    timer: (fn) => {
+      fire = fn;
+      return { unref() {} };
+    },
+  });
+
+  assert.equal(lease.receipt, "receipt-1");
+  fire();
+  await lease.stop();
+
+  // Renewed against the receipt it held, for the full timeout, and the new receipt is the one a
+  // delete has to use: the old one is dead the moment Azure answers.
+  assert.deepEqual(calls, [{ messageId: "m1", popReceipt: "receipt-1", seconds: 1800 }]);
+  assert.equal(lease.receipt, "receipt-2");
+});
+
+test("a renewal that fails is abandoned rather than retried", async () => {
+  const events = [];
+  let fire = null;
+  let attempts = 0;
+  const lease = leaseRenewal({
+    inbox: {
+      async updateMessage() {
+        attempts += 1;
+        throw new Error("the message is no longer invisible");
+      },
+    },
+    message: { messageId: "m1", popReceipt: "receipt-1" },
+    seconds: 600,
+    log: (event) => events.push(event),
+    timer: (fn) => {
+      fire = fn;
+      return { unref() {} };
+    },
+  });
+
+  fire();
+  await lease.stop();
+
+  assert.equal(attempts, 1);
+  assert.equal(events[0].event, "lease-renewal-failed");
+  // Nothing was rescued and nothing pretends otherwise: the caller still holds the receipt it had,
+  // and Azure redelivers the segment when the original timeout expires.
+  assert.equal(lease.receipt, "receipt-1");
+});
+
+test("a segment interrupted by a shutdown comes back instead of being poisoned", () => {
+  // `nextAction` is what decides, and it only ever leaves a message a caller marked retryable.
+  // The consumer overrides it while draining, which is what this asserts the default cannot do.
+  const aborted = Object.assign(new Error("The operation was aborted"), { code: "ABORT_ERR" });
+
+  assert.equal(nextAction(aborted, 1), "poison");
+  assert.equal(nextAction(Object.assign(new Error("depth timed out"), { retryable: true }), 1), "leave");
 });

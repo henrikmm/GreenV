@@ -197,6 +197,29 @@ class JdbcMeasurementQueryIntegrationTest {
         assertThat(summary.tallestM()).isEqualTo(0.90);
     }
 
+    /**
+     * The quality of the fixes is part of the reading, so its tally belongs to the same aggregate.
+     *
+     * <p>Counted in the browser it would describe the page, and the screen would quietly report
+     * the precision of twenty-five readings as the precision of the day.
+     */
+    @Test
+    void countsTheReadingsByTheQualityOfTheFixesBehindThem() {
+        MeasurementSummary summary = store.summariseMeasurements(
+                new MeasurementQuery(MeasurementSort.HEIGHT_DESC, null, null, null, null, 2, 0));
+
+        assertThat(summary.countsByLocationQuality())
+                .containsOnlyKeys("good", "degraded", "unavailable")
+                .containsEntry("good", 1L)
+                .containsEntry("degraded", 3L)
+                // The reading with no level never got a track either, which is neither good nor
+                // degraded — and it has to land somewhere, or the buckets would not add up.
+                .containsEntry("unavailable", 1L);
+        assertThat(summary.countsByLocationQuality().values().stream().mapToLong(Long::longValue).sum())
+                .as("every reading falls in exactly one bucket")
+                .isEqualTo(summary.total());
+    }
+
     @Test
     void countsPerLevelIgnoreTheLevelFilterSoEveryChipHasANumber() {
         MeasurementSummary summary = store.summariseMeasurements(
@@ -288,13 +311,18 @@ class JdbcMeasurementQueryIntegrationTest {
                 """
                 UPDATE capture_segments
                    SET measurement_state = 'measured', measured_at = ?,
-                       measurement_level = ?, measurement_extent95_p95_m = ?, place_label = ?
+                       measurement_level = ?, measurement_extent95_p95_m = ?, place_label = ?,
+                       track_location_quality = CASE WHEN ? = 1 THEN 'good'
+                                                     WHEN ? IS NULL THEN NULL
+                                                     ELSE 'degraded' END
                  WHERE session_id = ? AND segment_index = ?
                 """,
                 Timestamp.from(capturedAt.plus(1, ChronoUnit.HOURS)),
                 level,
                 height,
                 place,
+                level,
+                level,
                 sessionId,
                 index);
     }
