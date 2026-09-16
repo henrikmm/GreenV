@@ -33,12 +33,23 @@ enum VegetationLevel {
   };
 }
 
-/// A measured segment as the readings feed returns it.
+/// A measured stretch as the readings feed returns it.
+///
+/// A **segment** is what the phone uploaded: ten seconds of video. The extractor cuts it into
+/// windows of about 25 m, each is reconstructed and measured on its own, and the stretch a crew
+/// is sent to is the window. So one uploaded segment now yields eight or nine of these, each with
+/// its own height, level and cells.
+///
+/// [windowIndex] null is a reading taken before the cut, when the segment was measured whole.
+/// Those rows are still in the database and still read as they always did.
 final class MeasuredStretch {
   const MeasuredStretch({
     required this.sessionId,
     required this.segmentIndex,
     required this.capturedAt,
+    this.windowIndex,
+    this.windowStartMeters,
+    this.windowEndMeters,
     this.measuredAt,
     this.level,
     this.extent95P95M,
@@ -61,6 +72,9 @@ final class MeasuredStretch {
         sessionId: json['sessionId'] as String,
         segmentIndex: json['segmentIndex'] as int,
         capturedAt: DateTime.parse(json['capturedAt'] as String),
+        windowIndex: json['windowIndex'] as int?,
+        windowStartMeters: _decimal(json['windowStartMeters']),
+        windowEndMeters: _decimal(json['windowEndMeters']),
         measuredAt: _instant(json['measuredAt']),
         level: json['measurementLevel'] as int?,
         extent95P95M: _decimal(json['measurementExtent95P95M']),
@@ -81,6 +95,12 @@ final class MeasuredStretch {
   final String sessionId;
   final int segmentIndex;
   final DateTime capturedAt;
+
+  /// Which 25 m window of the segment this row is, or null for a segment measured whole.
+  final int? windowIndex;
+  final double? windowStartMeters;
+  final double? windowEndMeters;
+
   final DateTime? measuredAt;
   final int? level;
   final double? extent95P95M;
@@ -97,7 +117,28 @@ final class MeasuredStretch {
   final String? placeRoad;
   final int? placeKm;
 
-  String get key => '$sessionId:$segmentIndex';
+  /// Session, segment and window. All three, because the first two no longer name one reading:
+  /// the nine windows of a segment would share a key, and selecting one would select all nine.
+  String get key => '$sessionId:$segmentIndex:${windowIndex ?? 'inteiro'}';
+
+  /// Where the stretch starts and ends along the camera path, in metres: `0–25 m`.
+  ///
+  /// Null when the reading is of the whole segment, or when the API recorded no interval — in
+  /// neither case is there a cut to announce.
+  String? get range {
+    if (windowIndex == null) return null;
+    final start = windowStartMeters;
+    final end = windowEndMeters;
+    if (start == null || end == null) return null;
+    return '${start.round()}–${end.round()} m';
+  }
+
+  /// What tells two readings of the same segment apart: `segmento 4 · 0–25 m`.
+  String? get stretchLabel {
+    final index = windowIndex;
+    if (index == null) return null;
+    return 'segmento $segmentIndex · ${range ?? 'trecho $index'}';
+  }
 
   VegetationLevel get vegetationLevel => VegetationLevel.of(level);
 
@@ -184,6 +225,7 @@ final class SampledFrame {
     required this.fileName,
     required this.canonicalFrame,
     required this.imageUrl,
+    this.windowIndex,
     this.capturedAtUtc,
     this.horizontalAccuracyMeters,
     this.locationQuality,
@@ -193,6 +235,7 @@ final class SampledFrame {
     fileName: json['fileName'] as String,
     canonicalFrame: (json['canonicalFrame'] as num).toInt(),
     imageUrl: json['imageUrl'] as String,
+    windowIndex: json['windowIndex'] as int?,
     capturedAtUtc: _instant(json['capturedAtUtc']),
     horizontalAccuracyMeters: _decimal(json['horizontalAccuracyMeters']),
     locationQuality: json['locationQuality'] as String?,
@@ -204,6 +247,11 @@ final class SampledFrame {
   /// Absolute, and behind the same bearer the rest of the API is behind — so it is fetched with
   /// headers rather than handed to a plain image widget.
   final String imageUrl;
+
+  /// Which measured stretch the photograph belongs to. The route answers with the whole
+  /// segment's frames — all one hundred and twelve of them — and this is what narrows them to
+  /// the thirteen that went into the window on screen.
+  final int? windowIndex;
 
   final DateTime? capturedAtUtc;
   final double? horizontalAccuracyMeters;
@@ -474,9 +522,16 @@ final class OrderDraft {
               '${scheduledFor!.month.toString().padLeft(2, '0')}-'
               '${scheduledFor!.day.toString().padLeft(2, '0')}',
     'notes': (notes == null || notes!.trim().isEmpty) ? null : notes!.trim(),
+    // The window travels with the target. Without it the API reads the target as the whole
+    // segment, and an order raised over 25 m of tall grass would be written for the two hundred
+    // metres around it, at whatever height the segment's summary happens to carry.
     'targets': [
       for (final target in targets)
-        {'sessionId': target.sessionId, 'segmentIndex': target.segmentIndex},
+        {
+          'sessionId': target.sessionId,
+          'segmentIndex': target.segmentIndex,
+          'windowIndex': target.windowIndex,
+        },
     ],
   };
 }

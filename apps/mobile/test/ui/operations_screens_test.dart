@@ -134,6 +134,71 @@ void main() {
     expect(find.text('Sessões recentes'), findsOneWidget);
     expect(find.textContaining('7 de 8'), findsOneWidget);
   });
+
+  testWidgets('tells two windows of one segment apart, and opens only the '
+      'photographs of the one tapped', (tester) async {
+    // One uploaded segment, cut into two stretches of 25 m. They sit on the same street and
+    // carry the same date, so the range is the only thing that distinguishes them on the list —
+    // and before it was read, tapping either opened all four photographs of the segment.
+    final gateway = FakeOperationsGateway()
+      ..summary = const ReadingsSummary(total: 2, countsByLevel: {3: 1, 1: 1})
+      ..stretchRows = [
+        _stretch(
+          4,
+          level: 1,
+          height: 0.05,
+          place: 'Rua Vergueiro',
+          windowIndex: 0,
+          startMeters: 0,
+          endMeters: 25,
+        ),
+        _stretch(
+          4,
+          level: 3,
+          height: 0.41,
+          place: 'Rua Vergueiro',
+          windowIndex: 1,
+          startMeters: 25,
+          endMeters: 50,
+        ),
+      ]
+      ..frameRows = {
+        4: const [
+          SampledFrame(
+            fileName: 'frame-0001.jpg',
+            canonicalFrame: 1,
+            imageUrl: 'https://api.example/frames/frame-0001.jpg',
+            windowIndex: 0,
+          ),
+          SampledFrame(
+            fileName: 'frame-0002.jpg',
+            canonicalFrame: 2,
+            imageUrl: 'https://api.example/frames/frame-0002.jpg',
+            windowIndex: 0,
+          ),
+          SampledFrame(
+            fileName: 'frame-0003.jpg',
+            canonicalFrame: 3,
+            imageUrl: 'https://api.example/frames/frame-0003.jpg',
+            windowIndex: 1,
+          ),
+        ],
+      };
+
+    await _open(tester, gateway, MotivaPage.stretches);
+
+    expect(find.textContaining('segmento 4 · 0–25 m'), findsOneWidget);
+    expect(find.textContaining('segmento 4 · 25–50 m'), findsOneWidget);
+
+    await tester.tap(find.byType(StretchTile).last);
+    await tester.pumpAndSettle();
+
+    // The third photograph alone: the two that fed the first window are not this stretch's
+    // evidence, and showing them would say the 41 cm was seen in them.
+    expect(find.byType(FrameThumb), findsOneWidget);
+    expect(find.textContaining('frame-0003.jpg'), findsOneWidget);
+  });
+
   testWidgets(
     'opens a stretch into its photographs and what one of them measured',
     (tester) async {
@@ -291,10 +356,16 @@ MeasuredStretch _stretch(
   required int level,
   required double height,
   required String place,
+  int? windowIndex,
+  double? startMeters,
+  double? endMeters,
 }) => MeasuredStretch(
   sessionId: 's1',
   segmentIndex: index,
   capturedAt: DateTime.utc(2026, 9, 11, 18, 51, index),
+  windowIndex: windowIndex,
+  windowStartMeters: startMeters,
+  windowEndMeters: endMeters,
   level: level,
   extent95P95M: height,
   cellsMeasured: 10,

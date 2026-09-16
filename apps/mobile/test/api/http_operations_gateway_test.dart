@@ -75,11 +75,37 @@ void main() {
         {
           'sessionId': '01a09274-8b0c-71b8-8aa9-59a766b50711',
           'segmentIndex': 1,
+          'windowIndex': null,
         },
       ],
     });
     expect(order.reference, 'OS-ROÇ-202609-1003');
     expect(order.status, OrderStatus.pending);
+  });
+
+  test('names the window the order is for, not the whole segment', () async {
+    late http.Request seen;
+    final gateway = _gateway((request) {
+      seen = request;
+      return (_order, 201);
+    });
+
+    await gateway.openOrder(
+      OrderDraft(
+        priority: OrderPriority.high,
+        targets: [_stretch(windowIndex: 4)],
+      ),
+    );
+
+    // A window is 25 m of road. Dropping the index would raise the order over the two hundred
+    // metres of its segment, at whatever height that segment's summary carries.
+    expect((jsonDecode(seen.body) as Map<String, Object?>)['targets'], [
+      {
+        'sessionId': '01a09274-8b0c-71b8-8aa9-59a766b50711',
+        'segmentIndex': 1,
+        'windowIndex': 4,
+      },
+    ]);
   });
 
   test("reports the API's own words when it refuses", () async {
@@ -139,10 +165,11 @@ final class _StaticToken implements AuthTokenProvider {
   Future<bool> refresh() async => true;
 }
 
-MeasuredStretch _stretch() => MeasuredStretch(
+MeasuredStretch _stretch({int? windowIndex}) => MeasuredStretch(
   sessionId: '01a09274-8b0c-71b8-8aa9-59a766b50711',
   segmentIndex: 1,
   capturedAt: DateTime.utc(2026, 9, 11, 18, 51),
+  windowIndex: windowIndex,
   level: 3,
   extent95P95M: 6.5,
 );

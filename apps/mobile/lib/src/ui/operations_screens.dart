@@ -712,7 +712,16 @@ final class StretchTile extends StatelessWidget {
                     ),
                   const SizedBox(height: 4),
                   Text(
-                    '${formatDate(stretch.capturedAt)} · ${stretch.locationQuality ?? 'sem GPS'}',
+                    // The stretch first, when there is one. Nine windows of a segment sit on the
+                    // same street and carry the same date, so without it the rows read as nine
+                    // copies of one place at nine different heights.
+                    [
+                      stretch.stretchLabel,
+                      formatDate(stretch.capturedAt),
+                      stretch.locationQuality ?? 'sem GPS',
+                    ].whereType<String>().join(' · '),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontSize: 10.5, color: motivaMuted),
                   ),
                 ],
@@ -795,11 +804,25 @@ final class StretchSheet extends StatefulWidget {
   State<StretchSheet> createState() => _StretchSheetState();
 }
 
+/// The photographs of this stretch, separated from the rest of the segment's.
+///
+/// The route answers with the uploaded segment's frames, and each says which window it belongs
+/// to: a window's packet carries the positions of only the frames its reconstruction used, and
+/// the API passes that through as `windowIndex`. If none falls in this window — a segment
+/// measured before the field existed, say — the segment's own come back, because an empty strip
+/// would hide photographs that do exist.
+List<SampledFrame> _framesOfWindow(List<SampledFrame> frames, int? windowIndex) {
+  if (windowIndex == null) return frames;
+  final mine = frames
+      .where((frame) => frame.windowIndex == windowIndex)
+      .toList();
+  return mine.isNotEmpty ? mine : frames;
+}
+
 final class _StretchSheetState extends State<StretchSheet> {
-  late final Future<List<SampledFrame>> _frames = widget.operations.frames(
-    widget.stretch.sessionId,
-    widget.stretch.segmentIndex,
-  );
+  late final Future<List<SampledFrame>> _frames = widget.operations
+      .frames(widget.stretch.sessionId, widget.stretch.segmentIndex)
+      .then((frames) => _framesOfWindow(frames, widget.stretch.windowIndex));
   SampledFrame? _selected;
 
   @override
@@ -964,8 +987,12 @@ final class _StretchSheetState extends State<StretchSheet> {
               ('GPS', stretch.locationQuality ?? 'sem posição'),
               (
                 'Trecho',
-                '${stretch.segmentIndex} da sessão ${shortId(stretch.sessionId)}',
+                stretch.windowIndex == null
+                    ? 'segmento ${stretch.segmentIndex} inteiro'
+                    : '${stretch.range ?? 'trecho ${stretch.windowIndex}'}'
+                          ' do segmento ${stretch.segmentIndex}',
               ),
+              ('Sessão', shortId(stretch.sessionId)),
             ],
           ),
           const SizedBox(height: 18),
