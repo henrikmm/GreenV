@@ -37,8 +37,18 @@ export async function start(config = loadConfig()) {
     queue = await connectQueue(config.queue, { log });
     await queue.consume(async (request) => {
       const result = await gate.run(() => measure(request));
-      await queue.publishResult(result);
-      log({ event: "measured", segment: result.outputPrefix, runId: result.runId, mock: result.mock });
+      // One announcement per window: each is a stretch of its own, with its own reading, and the
+      // control plane stores them one by one. A segment measured whole announces once, as always.
+      for (const window of result.windows ?? [result]) {
+        await queue.publishResult(window);
+      }
+      log({
+        event: "measured",
+        segment: result.outputPrefix,
+        windows: (result.windows ?? [result]).length,
+        runId: result.runId,
+        mock: result.mock,
+      });
     });
   }
 

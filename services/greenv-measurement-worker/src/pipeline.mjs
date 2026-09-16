@@ -59,12 +59,58 @@ async function keptDepth(storage, prefix, existing) {
   };
 }
 
+/**
+ * The windows of one segment: the stretches that each become a reconstruction of their own.
+ *
+ * The extractor plans groups of about 25 m and publishes every one of them. A depth run holds at
+ * most `maxFrames`, so consecutive groups are packed into a window until the next would not fit.
+ * On a manifest from before that change - four groups of 10 m, 110 frames between them - the
+ * packing returns a single window and nothing about the measurement moves. A segment whose frames
+ * carry no group (the time-uniform fallback, when the telemetry could not decide) is one window.
+ */
+export function windowsOf(manifest, maxFrames) {
+  const frames = manifest.sampledFrames ?? [];
+  const groups = (manifest.groups ?? []).filter((group) => group.published);
+  const grouped = frames.length > 0 && frames.every((frame) => Number.isInteger(frame.groupIndex));
+  const whole = [{ index: 0, frames, startMeters: null, endMeters: null, groupIndices: [], windowed: false }];
+  if (!groups.length || !grouped) return whole;
+
+  const windows = [];
+  let current = null;
+  for (const group of groups) {
+    const own = frames.filter((frame) => frame.groupIndex === group.index);
+    if (!own.length) continue;
+    if (current && current.frames.length + own.length <= maxFrames) {
+      current.frames.push(...own);
+      current.groupIndices.push(group.index);
+      current.endMeters = group.endMeters ?? current.endMeters;
+      continue;
+    }
+    current = {
+      index: windows.length,
+      frames: [...own],
+      groupIndices: [group.index],
+      startMeters: group.startMeters ?? null,
+      endMeters: group.endMeters ?? null,
+      windowed: true,
+    };
+    windows.push(current);
+  }
+  if (!windows.length) return whole;
+  // One window is a segment measured whole, wherever its frames came from: the packet keeps the
+  // path it has always had, and nothing downstream has to learn a new one.
+  if (windows.length === 1) windows[0].windowed = false;
+  return windows;
+}
+
 export function measurementPipeline({ config, storage, infer, runner, log = () => {} }) {
   /**
-   * @param request {{sessionId: string, segmentIndex: number, outputPrefix?: string,
-   *                 rodovia?: string|null, sentido?: string|null, force?: boolean}}
+   * One window of one segment, from frames to a packet.
+   *
+   * A window that is the whole segment writes where the packet has always been written; any other
+   * writes under a directory of its own. Everything between is the measurement as it was.
    */
-  return async function measure(request) {
+  async function measureWindow(request, window) {
     const { sessionId, segmentIndex } = request;
     if (!sessionId || !Number.isInteger(segmentIndex) || segmentIndex < 0) {
       throw new MeasurementError("invalid_measurement_request", "sessionId and a non-negative segmentIndex are required");
@@ -79,18 +125,22 @@ export function measurementPipeline({ config, storage, infer, runner, log = () =
         true,
       );
     }
-    const sampledFrames = manifest.sampledFrames ?? [];
+    const windowIndex = window.windowed ? window.index : null;
+    const sampledFrames = window.frames;
     if (sampledFrames.length < 2) {
-      throw new MeasurementError("insufficient_frames", `segment published ${sampledFrames.length} sampled frame(s); depth needs at least 2`);
+      throw new MeasurementError(
+        "insufficient_frames",
+        `${window.windowed ? `window ${window.index}` : "segment"} published ${sampledFrames.length} sampled frame(s); depth needs at least 2`,
+      );
     }
 
     // Idempotency, in the extractor's own idiom: a result already computed from these exact
     // source objects is returned rather than recomputed, because recomputing means paying for
     // the GPU twice for the same answer.
-    const existing = await storage.getJson(keys.measurementResult(prefix)).catch(() => null);
+    const existing = await storage.getJson(keys.measurementResult(prefix, windowIndex)).catch(() => null);
     const sameSource = existing && existing.sourceGeneration === manifest.sourceGeneration;
     if (!request.force && sameSource) {
-      log({ event: "already-measured", prefix, runId: existing.runId });
+      log({ event: "already-measured", prefix, window: windowIndex, runId: existing.runId });
       return { ...existing, reused: true };
     }
 
@@ -99,7 +149,7 @@ export function measurementPipeline({ config, storage, infer, runner, log = () =
       throw new MeasurementError("frame_metadata_absent", `no frame metadata at ${keys.frameMetadata(prefix)}`, true);
     }
 
-    log({ event: "downloading", prefix, frames: sampledFrames.length });
+    log({ event: "downloading", prefix, window: windowIndex, frames: sampledFrames.length });
     const frames = [];
     for (const record of sampledFrames) {
       const key = keys.sampledFrame(prefix, record.fileName);
@@ -193,6 +243,11 @@ export function measurementPipeline({ config, storage, infer, runner, log = () =
         sessionId,
         segmentIndex,
         outputPrefix: prefix,
+        // Which stretch of the segment this reading covers. Null when the segment was measured
+        // whole, which is every packet written before the extractor started publishing them all.
+        windowIndex,
+        windowStartMeters: window.startMeters,
+        windowEndMeters: window.endMeters,
         // Ties the answer to the exact bytes it was computed from, so a re-uploaded segment is
         // measured again instead of silently reusing the previous reading.
         sourceGeneration: manifest.sourceGeneration,
@@ -236,7 +291,7 @@ export function measurementPipeline({ config, storage, infer, runner, log = () =
           contentSha256: summary.contentSha256,
           quality: summary.quality,
           timing: summary.timing,
-          artifacts: Object.fromEntries(PACKET_FILES.map((name) => [name, keys.measurementArtifact(prefix, name)])),
+          artifacts: Object.fromEntries(PACKET_FILES.map((name) => [name, keys.measurementArtifact(prefix, name, windowIndex)])),
         },
         // Verge Studio keeps exactly four road fields and cannot invent a km, so the coordinates
         // it never sees are carried here. Turning these into (rodovia, sentido, km) needs the
@@ -247,16 +302,43 @@ export function measurementPipeline({ config, storage, infer, runner, log = () =
         measuredAt: new Date().toISOString(),
       };
 
-      log({ event: "publishing", prefix, runId: run.runId });
+      log({ event: "publishing", prefix, window: windowIndex, runId: run.runId });
       for (const name of PACKET_FILES) {
-        await storage.put(keys.measurementArtifact(prefix, name), artifacts[name]);
+        await storage.put(keys.measurementArtifact(prefix, name, windowIndex), artifacts[name]);
       }
-      await storage.put(keys.measurementResult(prefix), Buffer.from(`${JSON.stringify(result, null, 2)}\n`));
+      await storage.put(keys.measurementResult(prefix, windowIndex), Buffer.from(`${JSON.stringify(result, null, 2)}\n`));
 
       return result;
     } finally {
       await rm(output, { recursive: true, force: true });
       await discardRun(run.directory);
     }
+  }
+
+  /**
+   * Every window of one segment, in order along the road.
+   *
+   * One depth run and one packet per window, because a window is a reconstruction and a segment is
+   * now several of them. They run in sequence rather than together: the GPU endpoint is one queue
+   * and the measurement is CPU-bound on this container, so overlapping them would only move the
+   * waiting around.
+   *
+   * The returned object is the first window, so a caller that predates windows still gets a
+   * result, with every window under `windows` for the one that publishes them.
+   */
+  return async function measure(request) {
+    const prefix = request.outputPrefix ?? keys.segmentPrefix(request.sessionId, request.segmentIndex);
+    const manifest = await storage.getJson(keys.segmentManifest(prefix)).catch(() => null);
+    const windows = manifest
+      ? windowsOf(manifest, config.infer.maxFrames)
+      : [{ index: 0, frames: [], startMeters: null, endMeters: null, groupIndices: [], windowed: false }];
+    if (windows.length > 1) {
+      log({ event: "windows", prefix, windows: windows.length, frames: windows.map((w) => w.frames.length) });
+    }
+    const results = [];
+    for (const window of windows) {
+      results.push(await measureWindow(request, window));
+    }
+    return { ...results[0], windows: results };
   };
 }

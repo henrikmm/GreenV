@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { measurementPipeline, RESULT_SCHEMA } from "../src/pipeline.mjs";
+import { measurementPipeline, windowsOf, RESULT_SCHEMA } from "../src/pipeline.mjs";
 import { loadConfig } from "../src/config.mjs";
 
 const PREFIX = "capture-sessions/11111111-1111-7111-8111-111111111111/segments/00000000";
@@ -263,4 +263,89 @@ test("the 110 MB run directory does not survive the measurement", async () => {
   const { measure, config } = harness();
   const result = await measure({ sessionId: segmentManifest().sessionId, segmentIndex: 0 });
   await assert.rejects(stat(join(config.measurement.runsRoot, result.runId)), "the run is discarded once its packet is published");
+});
+
+// A segmento de 13 de setembro: quatro grupos de 10 m e 110 quadros entre eles. O empacotamento
+// devolve uma janela só, e o pacote continua onde sempre esteve.
+const grouped = (groupSizes, metresPerGroup = 25) => {
+  const frames = [];
+  const groups = [];
+  let index = 0;
+  groupSizes.forEach((count, group) => {
+    groups.push({
+      index: group,
+      published: true,
+      startMeters: group * metresPerGroup,
+      endMeters: (group + 1) * metresPerGroup,
+    });
+    for (let i = 0; i < count; i++, index++) {
+      frames.push({
+        index,
+        fileName: `frame-${String(index + 1).padStart(4, "0")}.jpg`,
+        timestampSeconds: index / 10,
+        sizeBytes: 10,
+        sha256: "b".repeat(64),
+        distanceMeters: group * metresPerGroup + (i * metresPerGroup) / count,
+        groupIndex: group,
+      });
+    }
+  });
+  return segmentManifest({ sampledFrames: frames, groups });
+};
+
+test("um segmento medido inteiro continua sendo uma janela só", () => {
+  const windows = windowsOf(grouped([28, 27, 28, 27], 10), 112);
+  assert.equal(windows.length, 1);
+  assert.equal(windows[0].windowed, false, "sem janela nomeada, o pacote fica no caminho de sempre");
+  assert.equal(windows[0].frames.length, 110);
+});
+
+test("grupos consecutivos são empacotados até o teto de uma execução", () => {
+  const windows = windowsOf(grouped([40, 40, 40]), 112);
+  assert.deepEqual(windows.map((w) => w.frames.length), [80, 40], "80 cabem, 120 não");
+  assert.deepEqual(windows.map((w) => w.groupIndices), [[0, 1], [2]]);
+  assert.deepEqual(windows.map((w) => [w.startMeters, w.endMeters]), [[0, 50], [50, 75]]);
+  assert.ok(windows.every((w) => w.windowed), "duas janelas, cada uma com o seu lugar na estrada");
+});
+
+test("um grupo por janela quando cada um já enche a execução", () => {
+  const windows = windowsOf(grouped([76, 76, 76, 76, 76, 76, 76, 76]), 112);
+  assert.equal(windows.length, 8, "200 m em janelas de 25 m, que é o que o extrator agora publica");
+  assert.deepEqual(windows[7].groupIndices, [7]);
+});
+
+test("um manifesto sem grupos é uma janela, como o extrator de tempo uniforme entrega", () => {
+  const windows = windowsOf(segmentManifest(), 112);
+  assert.equal(windows.length, 1);
+  assert.equal(windows[0].windowed, false);
+});
+
+test("cada janela vira uma execução, um pacote e um anúncio", async () => {
+  const manifest = grouped([50, 50, 50]);
+  const { measure, storage, calls } = harness({
+    storageOverrides: {
+      [`${PREFIX}/segment-manifest-v2.json`]: manifest,
+      [`${PREFIX}/frame-metadata-v2.json`]: manifest.sampledFrames.map((f, i) => ({
+        index: i,
+        presentationTimeNanos: i * 100_000_000,
+        capturedAtUtc: new Date(Date.UTC(2026, 8, 8, 10, 0, 0)).toISOString(),
+        locationQuality: "good",
+        location: { latitude: -23.5 + i / 1000, longitude: -46.7, horizontalAccuracyMeters: 4 },
+      })),
+      ...Object.fromEntries(manifest.sampledFrames.map((f) => [`${PREFIX}/sampled-frames/${f.fileName}`, Buffer.from("jpeg")])),
+    },
+  });
+
+  const result = await measure({ sessionId: segmentManifest().sessionId, segmentIndex: 0 });
+
+  assert.equal(calls.infer, 2, "50+50 cabem numa execução, o terceiro grupo pede outra");
+  assert.equal(calls.assess, 2);
+  assert.equal(result.windows.length, 2);
+  assert.deepEqual(result.windows.map((w) => w.windowIndex), [0, 1]);
+  assert.deepEqual(result.windows.map((w) => w.windowStartMeters), [0, 50]);
+  for (const name of ["assessment.json", "report.html", "SHA256SUMS"]) {
+    assert.ok(storage.written.has(`${PREFIX}/measurement/w00/${name}`), `janela 0 publicou ${name}`);
+    assert.ok(storage.written.has(`${PREFIX}/measurement/w01/${name}`), `janela 1 publicou ${name}`);
+  }
+  assert.ok(!storage.written.has(`${PREFIX}/measurement/assessment.json`), "nada no caminho do segmento inteiro");
 });
