@@ -263,8 +263,8 @@ spent its 112-frame budget on the first groups of consecutive frames, and at hig
 30–40 m of a 170–250 m segment: 1,545 m of the 7,923 m the 43 segments of 13 September planned, 19%
 of the road. Since 15 September the extractor cuts at 25 m and publishes every group, and the
 worker gives each window its own reconstruction, packet and announcement, so a stretch is a window
-rather than a segment. It costs about five times the depth frames. Not deployed at the time of
-writing; `STATE-OF-THE-SYSTEM.md`, gap 5, carries the evidence and the status.
+rather than a segment. It costs about five times the depth frames, and deployed on 16 September 2026;
+`STATE-OF-THE-SYSTEM.md`, gap 5, carries the evidence and what it measured in production.
 
 ## Limitations
 

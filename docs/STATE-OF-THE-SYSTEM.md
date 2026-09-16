@@ -128,7 +128,8 @@ covered the first 30–40 m: of **7,923 m of planned camera path the 43 segments
 the road was never seen by the depth model.** The extractor said so in every manifest
 (`groups[].published`) and nothing downstream reported it.
 
-**Closed in the code on 15 September 2026, and not yet deployed.** The extractor cuts at 25 m
+**Closed in the code on 15 September 2026 and deployed on the 16th**, as revision
+`windows-25m-lease-c9b7dd5`. The extractor cuts at 25 m
 rather than 10, never below 64 frames, and publishes every group; the worker packs consecutive
 groups into windows of at most 112 frames and gives each window its own reconstruction, its own
 packet under `measurement/wNN/` and its own announcement. **A stretch therefore becomes a window of
@@ -141,9 +142,19 @@ day's tallest stretch) and their points reaching the cell's own ground far more 
 voxels against 36%), with DA3's scale drifting less over the shorter path
 (×1.21–1.26 against ×1.37) — `measurement/docs/evidence/2026-09-13-car-mount.md`, 15 September.
 The price is 5.2× the depth frames: the same 43 segments become **320 windows**, 22,777 frames
-against 4,384, roughly an hour and a half of GPU to reprocess that day. The API, the dashboard and
-the service orders are being taught what a window is; until the three images ship together the
-deployed stack still measures one stretch per segment, so nothing above is in production yet.
+against 4,384, roughly an hour and a half of GPU to reprocess that day. The API, the dashboard and the service orders
+learned what a window is in the same release; migration V15 added `capture_segment_windows`.
+
+**What the deployed cut actually did**, on the first segments reprocessed that night: a 175 m
+segment became **7 groups of exactly 25 m** holding 59 to 85 frames each, and published 549 frames
+where it used to publish 99 and cover 40 m. The worker turned a 200 m segment into 7 to 9 windows
+and measured them one at a time. The wall clock is dominated by neither CPU nor GPU: a depth job
+takes about six minutes, of which roughly twenty seconds is the GPU and the rest is building and
+uploading the 83 MB a window keeps (`scene.glb` 15 MB, `result.npz` 68 MB), so 320 windows are
+about six hours behind three depth workers - and RunPod throttled the third of them repeatedly for
+want of an L4. Both container apps sat far below their limits throughout (the extractor at 0.1 of
+its 2 vCPU, the measurement worker around 1 of its 4), which is what an I/O-bound pipeline looks
+like.
 
 What the 41 measured segments of that day did contain was wrong for three separate reasons, all
 found on a local bench that re-measures from the `scene.glb` and `result.npz` the RunPod handler
