@@ -19,27 +19,38 @@ class GroupPlannerTest {
 
     private final GroupPlanner planner = new GroupPlanner();
 
-    /** 60 km/h covers 167 m, which is seventeen 10 m stretches. */
+    /**
+     * 60 km/h covers 167 m. A phone recording at 59 fps cuts that into seven 24 m stretches, the
+     * target; this test's camera runs at 30, so 300 frames is all there is and holding 64 of them
+     * per stretch allows only four. The frame floor is the binding rule, and that is the point of
+     * it: a stretch thinner than anything Verge Studio has graded is not worth cutting.
+     */
     @Test
-    void cutsASteadyDriveIntoEvenStretches() {
-        var plan = planAt(60);
+    void cutsASteadyDriveIntoStretchesAtTheTargetOrAtTheFrameFloor() {
+        var slowCamera = planAt(60);
+        assertThat(slowCamera).hasSize(4);
+        assertThat(slowCamera).allSatisfy(group -> {
+            assertThat(group.lengthMeters()).isCloseTo(166.7 / 4, within(0.1));
+            assertThat(group.frameCount()).isGreaterThanOrEqualTo(GroupPlanner.GRADED_MINIMUM_FRAMES);
+        });
 
-        assertThat(plan).hasSize(17);
-        assertThat(plan).allSatisfy(group ->
-                assertThat(group.lengthMeters()).isCloseTo(166.7 / 17, within(0.1)));
-        assertThat(plan.getFirst().frameCount()).isBetween(15, 22);
+        var phoneCamera = planAt(60, 59);
+        assertThat(phoneCamera).hasSize(7);
+        assertThat(phoneCamera).allSatisfy(group ->
+                assertThat(group.lengthMeters()).isCloseTo(166.7 / 7, within(0.1)));
     }
 
     /**
-     * Nothing at the ten-metre target reaches the graded envelope, at any speed: Verge Studio's
-     * evidence starts at a 13.91 m camera path and a ten-metre stretch is shorter than anything
-     * ever graded. That is the price of making a walk testable, and this flag is what keeps the
-     * price visible in every manifest instead of hiding it.
+     * The twenty-five metre target is the far end of the graded range, so a stretch cut at it is
+     * inside the evidence rather than beyond it — which is what the ten-metre target never was.
+     * It holds while the camera can fill the stretch: at 30 fps a 60 km/h drive needs 42 m to
+     * reach 64 frames and leaves the range, and the same drive at 59 fps does not.
      */
     @Test
-    void reportsThatTheTenMetreTargetSitsBelowTheGradedEnvelope() {
-        assertThat(planAt(20)).noneMatch(FrameGroup::withinGradedEnvelope);
-        assertThat(planAt(30)).noneMatch(FrameGroup::withinGradedEnvelope);
+    void keepsTheStretchInsideTheGradedRangeWhileTheCameraCanFillIt() {
+        assertThat(planAt(20)).allMatch(FrameGroup::withinGradedEnvelope);
+        assertThat(planAt(30)).allMatch(FrameGroup::withinGradedEnvelope);
+        assertThat(planAt(60, 59)).allMatch(FrameGroup::withinGradedEnvelope);
         assertThat(planAt(60)).noneMatch(FrameGroup::withinGradedEnvelope);
     }
 
@@ -91,9 +102,10 @@ class GroupPlannerTest {
         var at30 = planAt(100, 30, 20.0);
         var at120 = planAt(100, 120, 20.0);
 
-        // Same road, same stretches - only the views inside them change.
-        assertThat(at120).hasSameSizeAs(at30);
-        assertThat(at120.getFirst().frameCount()).isGreaterThan(3 * at30.getFirst().frameCount());
+        // A faster camera buys shorter stretches, not merely denser ones: 64 frames arrive in less
+        // road, so the target gets to decide instead of the floor.
+        assertThat(at120.size()).isGreaterThan(3 * at30.size());
+        assertThat(at120.getFirst().lengthMeters()).isLessThan(at30.getFirst().lengthMeters() / 3);
         assertThat(at120.getFirst().medianBaselineMeters())
                 .isLessThan(at30.getFirst().medianBaselineMeters() / 3);
 
@@ -119,11 +131,18 @@ class GroupPlannerTest {
 
     /** No group may run past the longest camera path in the graded evidence. */
     @Test
-    void neverPlansAStretchLongerThanTheGradedMaximum() {
-        for (int kmh : new int[] {5, 10, 20, 30, 60, 100, 120}) {
-            assertThat(planAt(kmh)).allSatisfy(group -> assertThat(group.lengthMeters())
+    void runsPastTheGradedMaximumOnlyWhenSixtyFourFramesAskForIt() {
+        // A phone's own frame rate. The target decides at every speed a car is driven at.
+        for (int kmh : new int[] {5, 10, 20, 30, 60}) {
+            assertThat(planAt(kmh, 59)).allSatisfy(group -> assertThat(group.lengthMeters())
                     .isLessThanOrEqualTo(GroupPlanner.GRADED_MAXIMUM_METERS));
         }
+        // Past that the camera cannot fill 25 m with 64 frames, and the stretch grows rather than
+        // the count falling: a longer camera path is an extrapolation, a thinner one is a guess.
+        assertThat(planAt(120, 59)).allSatisfy(group -> {
+            assertThat(group.lengthMeters()).isGreaterThan(GroupPlanner.GRADED_MAXIMUM_METERS);
+            assertThat(group.frameCount()).isGreaterThanOrEqualTo(GroupPlanner.GRADED_MINIMUM_FRAMES);
+        });
     }
 
     @Test

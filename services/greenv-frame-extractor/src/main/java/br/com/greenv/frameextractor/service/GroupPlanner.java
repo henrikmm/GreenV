@@ -24,16 +24,22 @@ public class GroupPlanner {
 
     /**
      * Verge Studio's graded evidence covers camera paths of roughly 14–25 m
-     * ({@code measurement/MEASUREMENTS.md}, and the door fixture's 13.91 m track), and twenty
-     * metres kept a group inside it.
+     * ({@code measurement/MEASUREMENTS.md}, and the door fixture's 13.91 m track), and this is
+     * its far end.
      *
-     * <p>Ten is below that band on purpose. A ten-second segment on foot covers eight to ten
-     * metres, so a twenty-metre target rounds to one group the walk never fills, and nothing about
-     * the pipeline can be exercised without a car. Ten metres makes a walk testable at the cost of
-     * a shorter baseline than anything graded, so a reading taken from one is evidence that the
-     * pipeline ran, not evidence of a height.
+     * <p>Twenty-five rather than the ten it was until 15 September 2026, and the reason is
+     * measured. Two 25 m windows of one driven segment were reconstructed against the 41 m window
+     * the same frames produce today: the short ones disagree between frames by 8–10 cm per cell
+     * where the long one disagrees by 14, and 50–54% of their voxels touch the cell's own ground
+     * against 35%. On a stretch of tall grass the same comparison reads 27–30 cm of disagreement
+     * against 41, and the model compresses a 40 m path more than a 25 m one (×1.37 against
+     * ×1.21–1.26), which is drift accumulating along the path. Shorter window, less drift, firmer
+     * floor. Evidence: {@code measurement/docs/evidence/2026-09-13-car-mount.md}.
+     *
+     * <p>A walk still fits: a ten-second segment on foot covers eight to ten metres and becomes
+     * one group of that length, exactly as before.
      */
-    public static final double DEFAULT_GROUP_METERS = 10.0;
+    public static final double DEFAULT_GROUP_METERS = 25.0;
 
     /** Smallest frame count Verge Studio has graded — 64 frames, at {@code MEASUREMENTS.md:56}. */
     public static final int GRADED_MINIMUM_FRAMES = 64;
@@ -74,12 +80,14 @@ public class GroupPlanner {
             distances[i] = distanceOf.applyAsDouble(frames.get(i));
         }
 
-        // Aim for the target length, but never let a group run past the longest camera path
-        // Verge Studio has graded. Rounding alone would leave a 29 m segment as one 29 m group;
-        // ceiling alone would shorten every group and cost frames the camera did record.
-        int groupCount = Math.max(
-                Math.max(1, (int) Math.round(pathMeters / groupMeters)),
-                (int) Math.ceil(pathMeters / GRADED_MAXIMUM_METERS - 1e-9));
+        // Target length first, then the frame floor. Cutting at the target is what keeps the
+        // camera path short enough to stay out of the model's own drift; the floor is what stops
+        // a fast vehicle from turning that into windows thinner than anything ever graded. At
+        // 71 km/h and 59 fps a 25 m window holds 76 frames and both rules agree; at 90 km/h it
+        // would hold 62, so the second rule wins and the windows come out at about 28 m.
+        int byTarget = Math.max(1, (int) Math.ceil(pathMeters / groupMeters - 1e-9));
+        int byFrames = Math.max(1, frames.size() / GRADED_MINIMUM_FRAMES);
+        int groupCount = Math.min(byTarget, byFrames);
         double actualGroupLength = pathMeters / groupCount;
         double origin = distances[0];
 
