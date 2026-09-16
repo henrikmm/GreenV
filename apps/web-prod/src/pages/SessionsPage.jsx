@@ -225,7 +225,7 @@ export default function SessionsPage() {
 
   const kpis = [
     { icon: Route, label: 'Sessões capturadas', value: page?.total ?? 0 },
-    { icon: Ruler, label: 'Trechos medidos', value: measured?.total ?? 0 },
+    { icon: Ruler, label: 'Trechos medidos', value: resumo?.total ?? 0 },
     { icon: TriangleAlert, label: 'Acima de 30 cm', value: overdue },
     { icon: Camera, label: 'Maior altura p95', value: highest * 100, decimals: 0, suffix: ' cm' },
   ]
