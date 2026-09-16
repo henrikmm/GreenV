@@ -25,6 +25,16 @@ function fakeStorage(objects = {}) {
       store.set(key, bytes);
       return { objectKey: key, sha256: "x".repeat(64), bytes: bytes.length };
     },
+    // The real adapters make the store decide, in one write. Here the map is the store and a
+    // single-threaded test is the serialisation, so "has then set" is the same guarantee.
+    async putIfAbsent(key, bytes) {
+      if (store.has(key)) return false;
+      store.set(key, JSON.parse(bytes.toString("utf8")));
+      return true;
+    },
+    async exists(key) {
+      return store.has(key);
+    },
   };
 }
 
@@ -48,11 +58,11 @@ const telemetry = Array.from({ length: 4 }, (_, i) => ({
   location: { latitude: -23.5 + i / 100, longitude: -46.7, horizontalAccuracyMeters: 4 },
 }));
 
-function harness({ storageOverrides = {}, depthManifest, env = {} } = {}) {
+function harness({ storageOverrides = {}, depthManifest, env = {}, manifest, work = null } = {}) {
   const objects = {
-    [`${PREFIX}/segment-manifest-v2.json`]: segmentManifest(),
+    [`${PREFIX}/segment-manifest-v2.json`]: manifest ?? segmentManifest(),
     [`${PREFIX}/frame-metadata-v2.json`]: telemetry,
-    ...Object.fromEntries(segmentManifest().sampledFrames.map((f) => [`${PREFIX}/sampled-frames/${f.fileName}`, Buffer.from(`jpeg-${f.index}`)])),
+    ...Object.fromEntries((manifest ?? segmentManifest()).sampledFrames.map((f) => [`${PREFIX}/sampled-frames/${f.fileName}`, Buffer.from(`jpeg-${f.fileName}`)])),
     ...storageOverrides,
   };
   const storage = fakeStorage(objects);
@@ -93,7 +103,7 @@ function harness({ storageOverrides = {}, depthManifest, env = {} } = {}) {
   };
 
   const config = loadConfig({ VERGE_RUNS_ROOT: join(tmpdir(), `runs-${Math.random().toString(16).slice(2)}`), ...env });
-  return { measure: measurementPipeline({ config, storage, infer, runner }), storage, calls, config, request: () => observed };
+  return { measure: measurementPipeline({ config, storage, infer, runner, work }), storage, calls, config, request: () => observed };
 }
 
 test("a segment becomes a packet published beside its frames", async () => {
@@ -387,3 +397,116 @@ test("one at a time is the default, and a single window needs no lane of its own
 
   assert.equal(maximum, 1);
 });
+
+/**
+ * The race that costs money: two replicas starting the same window a second apart.
+ *
+ * Neither finds a packet, because neither has finished one, so "was it measured" answers no for
+ * both and both would call the GPU. The claim is what makes exactly one of them proceed.
+ */
+test("a window already claimed elsewhere is refused instead of inferred a second time", async () => {
+  const { measure, calls } = harness({
+    storageOverrides: {
+      [`${PREFIX}/measurement/claim.json`]: { at: new Date().toISOString(), timeoutMs: 1800000 },
+    },
+  })
+
+  await assert.rejects(
+    () => measure({ sessionId: segmentManifest().sessionId, segmentIndex: 0 }),
+    (error) => error.code === 'window_claimed' && error.retryable === true)
+
+  assert.equal(calls.infer, 0, 'the GPU is never called for a window somebody else holds')
+})
+
+/**
+ * A holder can die — Container Apps replaces a revision by killing replicas — and a claim that
+ * outlived the time its own measurement was allowed belongs to nobody. Waiting on it forever
+ * would lose the window silently, which is worse than measuring it twice.
+ */
+test("a claim older than a measurement's own timeout is taken over", async () => {
+  const ancient = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString()
+  const { measure, calls, storage } = harness({
+    storageOverrides: {
+      [`${PREFIX}/measurement/claim.json`]: { at: ancient, timeoutMs: 1800000 },
+    },
+  })
+
+  const result = await measure({ sessionId: segmentManifest().sessionId, segmentIndex: 0 })
+
+  assert.equal(result.mock, false)
+  assert.equal(calls.infer, 1)
+  const claim = storage.written.get(`${PREFIX}/measurement/claim.json`)
+  const taken = JSON.parse(Buffer.isBuffer(claim) ? claim.toString('utf8') : JSON.stringify(claim))
+  assert.notEqual(taken.at, ancient, 'the claim now names this run and not the dead one')
+})
+
+/**
+ * Two groups of sixty frames: more than one depth run holds, so they are two windows.
+ *
+ * Sixty is not decoration. `windowsOf` packs consecutive groups together until the next one
+ * would not fit a single run, so two small groups are one window and this test would be
+ * asserting the opposite of what it says.
+ */
+const twoWindowManifest = () => segmentManifest({
+  groups: [
+    { index: 0, startMeters: 0, endMeters: 25, published: true },
+    { index: 1, startMeters: 25, endMeters: 50, published: true },
+  ],
+  sampledFrames: Array.from({ length: 120 }, (unused, position) => ({
+    fileName: `frame-${String(position + 1).padStart(4, '0')}.jpg`,
+    groupIndex: position < 60 ? 0 : 1,
+    distanceMeters: position * 0.4,
+  })),
+})
+
+/**
+ * A segment answers by queueing its windows, and measures nothing itself.
+ *
+ * This is the whole reason a window is a message: one replica used to own a segment's seven to
+ * nine windows for half an hour while another sat idle after a short one, and no reading
+ * reached the dashboard until the last of them finished.
+ */
+test("a segment with several windows queues them instead of measuring them", async () => {
+  const queued = []
+  const { measure, calls } = harness({
+    manifest: twoWindowManifest(),
+    work: { publish: async (request) => queued.push(request) },
+  })
+
+  const result = await measure({ sessionId: segmentManifest().sessionId, segmentIndex: 0 })
+
+  assert.equal(result.fannedOut, 2)
+  assert.equal(calls.infer, 0, 'the segment itself never calls the GPU')
+  assert.deepEqual(queued.map((request) => request.windowIndex), [0, 1])
+  assert.equal(queued[0].sessionId, segmentManifest().sessionId, 'each message still names its segment')
+})
+
+/** And the message that names a window measures that window, and only it. */
+test("a window message measures its own window", async () => {
+  const queued = []
+  const { measure, calls } = harness({
+    manifest: twoWindowManifest(),
+    work: { publish: async (request) => queued.push(request) },
+  })
+
+  const result = await measure({ sessionId: segmentManifest().sessionId, segmentIndex: 0, windowIndex: 1 })
+
+  assert.equal(queued.length, 0, 'a window queues nothing further')
+  assert.equal(calls.infer, 1)
+  assert.equal(result.windowIndex, 1)
+  assert.equal(result.windowStartMeters, 25)
+})
+
+/** A message naming a window the cut no longer has is refused, not measured as something else. */
+test("a window the segment no longer has is refused", async () => {
+  const { measure, calls } = harness({
+    manifest: twoWindowManifest(),
+    work: { publish: async () => {} },
+  })
+
+  await assert.rejects(
+    () => measure({ sessionId: segmentManifest().sessionId, segmentIndex: 0, windowIndex: 7 }),
+    (error) => error.code === 'window_absent')
+
+  assert.equal(calls.infer, 0)
+})

@@ -242,13 +242,24 @@ export async function connectAzureQueue(config, { log = () => {} } = {}) {
             await sleep(azure.pollDelayMs);
             continue;
           }
-          for (const message of received) {
-            if (!draining) break;
-            await handleOne(message, handler);
-          }
+          // Together, not one after another: the batch is only as large as this replica agreed
+          // to carry, and each message holds its own lease. Draining them in turn would leave
+          // the last one's lease ticking while the first is measured.
+          await Promise.all(received.map((message) => (draining ? handleOne(message, handler) : null)));
         }
       })();
       log({ event: "consuming", queue: azure.queue });
+    },
+
+    /**
+     * Put more work on this worker's own queue.
+     *
+     * <p>A segment answers by queueing its windows, so the inbox is both where work arrives and
+     * where it is split. Writing to the same queue rather than a second one keeps one place to
+     * watch, one lease to reason about and one poison queue to look in when something stops.
+     */
+    async publishWork(request) {
+      await inbox.sendMessage(JSON.stringify(request));
     },
 
     /** Announce a finished measurement so the API can move the segment on. */

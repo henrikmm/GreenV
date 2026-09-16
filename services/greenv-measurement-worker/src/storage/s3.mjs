@@ -78,6 +78,32 @@ export function s3Storage({ bucket, endpoint, region, pathStyleAccess, accessKey
       return { objectKey: key, sha256: digest(bytes), bytes: bytes.length };
     },
 
+    /**
+     * Writes only if the key is free, and says which happened.
+     *
+     * <p>`If-None-Match: *` makes the store decide, in one request: exactly one of two callers
+     * racing for the same key gets the write and the other gets 412. Reading first and then
+     * writing would let both through, and a claim that both callers win is not a claim — it is
+     * two GPU runs for one window.
+     */
+    async putIfAbsent(key, bytes) {
+      assertObjectKey(key);
+      const { sdk, s3 } = await open();
+      try {
+        await s3.send(new sdk.PutObjectCommand({
+          Bucket: bucket,
+          Key: key,
+          Body: bytes,
+          IfNoneMatch: "*",
+        }));
+        return true;
+      } catch (error) {
+        const status = error?.$metadata?.httpStatusCode;
+        if (status === 412 || status === 409 || error?.name === "PreconditionFailed") return false;
+        throw error;
+      }
+    },
+
     async exists(key) {
       try {
         // Inside the try, so a refused key answers `false` here exactly as it does on the

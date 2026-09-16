@@ -129,7 +129,39 @@ export async function measureEvery(windows, measureOne, limit) {
   return results;
 }
 
-export function measurementPipeline({ config, storage, infer, runner, log = () => {} }) {
+/**
+ * Takes the right to measure one window, or reports that somebody else holds it.
+ *
+ * <p>A claim is a small object written only if the key is free, so exactly one caller can win it.
+ * It carries when it was taken, because the holder can die: a claim older than a measurement's
+ * own timeout is nobody's, and is taken over rather than waited on forever. Anything short of
+ * that returns false and the message goes back to the queue to be tried again later — by then
+ * the window usually has a packet and the retry costs a read.
+ *
+ * <p>The claim is deliberately not deleted when the measurement finishes. It is the record of
+ * which run measured the window, and the packet beside it is what later readers check first.
+ */
+async function claimWindow(storage, prefix, windowIndex, timeoutMs, log) {
+  const key = keys.measurementArtifact(prefix, "claim.json", windowIndex);
+  const mine = Buffer.from(`${JSON.stringify({ at: new Date().toISOString(), timeoutMs })}
+`);
+  if (await storage.putIfAbsent(key, mine)) return true;
+
+  const held = await storage.getJson(key).catch(() => null);
+  const takenAt = Date.parse(held?.at ?? "");
+  const stale = !Number.isFinite(takenAt) || Date.now() - takenAt > timeoutMs;
+  if (!stale) {
+    log({ event: "window-claimed-elsewhere", prefix, window: windowIndex, since: held?.at });
+    return false;
+  }
+  // The previous holder outlived the time its own measurement was allowed. Taking over is the
+  // only way the window ever gets measured; leaving it claimed forever would lose it silently.
+  log({ event: "claim-expired", prefix, window: windowIndex, since: held?.at ?? null });
+  await storage.put(key, mine);
+  return true;
+}
+
+export function measurementPipeline({ config, storage, infer, runner, work = null, log = () => {} }) {
   /**
    * One window of one segment, from frames to a packet.
    *
@@ -168,6 +200,23 @@ export function measurementPipeline({ config, storage, infer, runner, log = () =
     if (!request.force && sameSource) {
       log({ event: "already-measured", prefix, window: windowIndex, runId: existing.runId });
       return { ...existing, reused: true };
+    }
+
+    // Nobody else is already measuring this window.
+    //
+    // The check above answers "was it measured", which is not the same question: two replicas
+    // that start the same window a second apart both find no packet, and both pay for the GPU.
+    // Since a window became a message of its own, that race is ordinary — a redelivered fan-out
+    // publishes the same window twice — so the claim is what stands between it and a doubled
+    // bill. The store decides who wins, in one write; a read followed by a write would let both
+    // through and prove nothing.
+    const claim = await claimWindow(storage, prefix, windowIndex, config.measurement.timeoutMs, log);
+    if (!claim) {
+      throw new MeasurementError(
+        "window_claimed",
+        `window ${windowIndex ?? 0} of ${prefix} is already being measured elsewhere`,
+        true,
+      );
     }
 
     const telemetry = await storage.getJson(keys.frameMetadata(prefix)).catch(() => null);
@@ -354,15 +403,56 @@ export function measurementPipeline({ config, storage, infer, runner, log = () =
    * The returned object is the first window, so a caller that predates windows still gets a
    * result, with every window under `windows` for the one that publishes them.
    */
+  /**
+   * One message, which is either a segment or one of its windows.
+   *
+   * <p>The message carries no new field to say which: a `windowIndex` is a window and the
+   * absence of one is the segment. A segment cuts itself into windows and puts each back on the
+   * queue, then answers with what it queued and measures nothing; a window measures itself and
+   * answers with its packet.
+   *
+   * <p>That split is the whole point. A segment held by one replica measured its seven to nine
+   * windows itself, so one replica owned a segment for half an hour while another sat idle
+   * after a short one, and the announcements only went out when the last window finished. As
+   * separate messages any replica takes any window, a failure costs one window instead of nine,
+   * and each reading reaches the dashboard as soon as it exists.
+   *
+   * <p>Without a queue to fan out to — the HTTP door, and every test — it measures the windows
+   * in place, as it did before.
+   */
   return async function measure(request) {
     const prefix = request.outputPrefix ?? keys.segmentPrefix(request.sessionId, request.segmentIndex);
     const manifest = await storage.getJson(keys.segmentManifest(prefix)).catch(() => null);
     const windows = manifest
       ? windowsOf(manifest, config.infer.maxFrames)
       : [{ index: 0, frames: [], startMeters: null, endMeters: null, groupIndices: [], windowed: false }];
+
+    if (request.windowIndex != null) {
+      const mine = windows.find((window) => window.index === request.windowIndex);
+      if (!mine) {
+        // The cut changed under the message: the extractor republished the segment with fewer
+        // groups. Refusing beats measuring the wrong stretch of road under the right name.
+        throw new MeasurementError(
+          "window_absent",
+          `${prefix} has ${windows.length} window(s) and the message asks for ${request.windowIndex}`,
+        );
+      }
+      const result = await measureWindow(request, mine);
+      return { ...result, windows: [result] };
+    }
+
     if (windows.length > 1) {
       log({ event: "windows", prefix, windows: windows.length, frames: windows.map((w) => w.frames.length) });
     }
+
+    if (work && windows.length > 1) {
+      for (const window of windows) {
+        await work.publish({ ...request, windowIndex: window.index });
+      }
+      log({ event: "fanned-out", prefix, windows: windows.length });
+      return { fannedOut: windows.length, outputPrefix: prefix, windows: [] };
+    }
+
     const results = await measureEvery(
       windows,
       (window) => measureWindow(request, window),

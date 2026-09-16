@@ -105,6 +105,15 @@ export async function connectRabbitQueue(config, { log = () => {}, onLost } = {}
     },
 
     /** Announce a finished measurement so the API can move the segment on. */
+    /** Put more work on this worker's own queue — a segment queueing its windows. */
+    async publishWork(request) {
+      channel.publish(
+          config.exchange,
+          config.routingKey,
+          Buffer.from(JSON.stringify(request)),
+          { contentType: "application/json", persistent: true });
+    },
+
     async publishResult(result) {
       channel.publish(
         config.exchange,

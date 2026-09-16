@@ -89,9 +89,10 @@ function build() {
       // Declaring topology from a worker is convenient locally and wrong in a deployment, where
       // the queues are infrastructure. Same switch, same default, as GREENV_RABBITMQ_DYNAMIC.
       dynamic: flag("GREENV_RABBITMQ_DYNAMIC", false),
-      // One segment occupies the depth service for its whole run and the CPU for the whole
-      // assessment. Prefetching more only makes messages time out in a buffer.
-      prefetch: 1,
+      // As many messages at a time as this replica will measure at once, and no more: a message
+      // taken and left waiting is a lease ticking down in a buffer. A window is one message
+      // since 16 September 2026, so this is also how many windows a replica pulls.
+      prefetch: number("GREENV_MEASUREMENT_WINDOW_CONCURRENCY", 1),
 
       // Azure Queue Storage has no exchange, so the one exchange and two routing keys above
       // become two queue names. They are separate settings rather than reused ones because an
@@ -106,7 +107,7 @@ function build() {
         endpoint: text("GREENV_AZURE_QUEUE_ENDPOINT", null),
         connectionString: text("GREENV_AZURE_STORAGE_CONNECTION_STRING", null),
         // The same bound as `prefetch`, for the same reason.
-        maximumMessages: 1,
+        maximumMessages: number("GREENV_MEASUREMENT_WINDOW_CONCURRENCY", 1),
         // How long a received segment stays invisible to other readers. This is the deadline for
         // the measurement, not for an acknowledgement, so it tracks GREENV_MEASUREMENT_TIMEOUT_MS
         // rather than the seconds the Java services use for a poll that only queues work. Too
