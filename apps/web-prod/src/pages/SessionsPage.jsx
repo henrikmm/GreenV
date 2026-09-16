@@ -7,6 +7,7 @@ import {
 } from '@greenv/web-core'
 import { sessions as sessionsApi, measurements } from '../api/greenv'
 import { placeOfSegment, placeOfSession } from '../api/place'
+import { stretchKey, stretchRange } from '../api/stretch'
 import PageShell from '../components/PageShell'
 
 /**
@@ -213,10 +214,13 @@ export default function SessionsPage() {
         <div style={s.cardTitle}>Trechos mais altos</div>
         <div style={s.cardHint}>Maior altura p95 medida — prioridade máxima</div>
         {tallest.map(segment => (
-          <div key={`${segment.sessionId}:${segment.segmentIndex}`} style={s.criticalRow}>
+          // A janela entra na chave e no rótulo: dois trechos vizinhos da mesma volta têm o mesmo
+          // segmento e a mesma rua, e o que os separa são vinte e cinco metros.
+          <div key={stretchKey(segment)} style={s.criticalRow}>
             <span style={s.criticalDot(LEVELS[vegetationLevel(segment.measurementLevel)].color)} />
             <span style={s.criticalName}>
               {placeOfSegment(segment)?.label ?? `Trecho ${segment.segmentIndex}`}
+              {stretchRange(segment) && <> · {stretchRange(segment)}</>}
             </span>
             <span style={s.criticalValue}>
               {(segment.measurementExtent95P95M * 100).toFixed(0)} cm

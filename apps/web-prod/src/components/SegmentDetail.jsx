@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Download } from 'lucide-react'
 import { LEVELS, vegetationLevel, useToast } from '@greenv/web-core'
 import { sessions, saveBlob } from '../api/greenv'
+import { stretchRange } from '../api/stretch'
 import SessionMap from './SessionMap'
 import FramePanel from './FramePanel'
 
@@ -9,9 +10,14 @@ import FramePanel from './FramePanel'
  * Um trecho aberto dentro da lista: só a trilha dele, e as fotos dele.
  *
  * Antes o único caminho para ver um quadro era abrir a sessão inteira, o que custa a posição na
- * lista e devolve oito trechos quando a pergunta era sobre um. Aqui a trilha vem filtrada pelo
- * `segmentIndex` e os quadros vêm da rota do próprio trecho, então o que aparece é o que a
- * linha prometeu.
+ * lista e devolve todos os trechos quando a pergunta era sobre um. Aqui a trilha vem filtrada pelo
+ * segmento e pela janela, e cada quadro diz de qual janela é, então o que aparece é o que a linha
+ * prometeu.
+ *
+ * Um trecho é uma janela de cerca de 25 m do segmento enviado, e cada uma tem reconstrução
+ * própria — daí os dois downloads passarem a janela: sem ela o arquivo seria o do segmento medido
+ * inteiro, que é outra geometria. Uma leitura sem janela é anterior ao corte e continua sendo o
+ * segmento inteiro.
  *
  * A trilha da sessão é buscada uma vez e reaproveitada: abrir três trechos da mesma volta não
  * pede três vezes o mesmo GeoJSON.
@@ -76,6 +82,20 @@ function loadTrack(sessionId) {
 }
 
 /**
+ * Os quadros deste trecho, separados dos do resto do segmento.
+ *
+ * A lista é do segmento enviado, e cada quadro diz de qual janela ele é: o pacote de cada trecho
+ * carrega as posições só dos quadros que a reconstrução dele usou, e a API repassa isso em
+ * `windowIndex`. Se nenhum quadro cair neste trecho — um segmento medido antes de o campo existir,
+ * por exemplo — os do segmento inteiro voltam, porque uma tira vazia esconderia fotos que existem.
+ */
+function framesOfWindow(frames, windowIndex) {
+  if (windowIndex == null) return frames
+  const mine = frames.filter(frame => frame.windowIndex === windowIndex)
+  return mine.length > 0 ? mine : frames
+}
+
+/**
  * @param focusFileName o quadro a abrir já selecionado, quando quem abriu o trecho veio de um
  *   ponto do mapa da sessão. Sem isso o painel escolheria o primeiro quadro e a pessoa teria de
  *   reencontrar no mapa pequeno o ponto que acabou de clicar no grande.
@@ -86,11 +106,23 @@ export default function SegmentDetail({ segment, place, focusFileName }) {
   const [downloading, setDownloading] = useState(null)
   const { addToast } = useToast()
 
+  const windowIndex = segment.windowIndex ?? null
+  const range = stretchRange(segment)
+
   async function download(fileName) {
     setDownloading(fileName)
     try {
-      const blob = await sessions.depthArtifact(segment.sessionId, segment.segmentIndex, fileName)
-      saveBlob(blob, `${segment.sessionId.slice(0, 8)}-segmento-${segment.segmentIndex}-${fileName}`)
+      const blob = await sessions.depthArtifact(
+        segment.sessionId, segment.segmentIndex, fileName, windowIndex)
+      // O nome carrega a janela para que uma pasta de downloads continue legível: oito arquivos
+      // do mesmo segmento, um por trecho, seriam oito nomes iguais e sete sobrescritos. Dois
+      // dígitos, e na mesma forma que a API põe no `Content-Disposition`, para que os arquivos
+      // fiquem em ordem na pasta e o nome não dependa de quem baixou.
+      const trecho = windowIndex == null
+        ? ''
+        : `-trecho-${String(windowIndex).padStart(2, '0')}`
+      saveBlob(blob,
+        `${segment.sessionId.slice(0, 8)}-segmento-${segment.segmentIndex}${trecho}-${fileName}`)
     } catch (failure) {
       addToast({
         type: 'danger',
@@ -112,11 +144,20 @@ export default function SegmentDetail({ segment, place, focusFileName }) {
       // Um trecho sem manifesto responde 409, o que é uma resposta e não uma falha.
       sessions.frames(segment.sessionId, segment.segmentIndex).catch(() => []),
     ])
-      .then(([track, frames]) => {
+      .then(([track, framesOfSegment]) => {
         if (!live) return
+        // Só as feições deste trecho vão para o mapa.
+        const ofSegment = (track?.features ?? [])
+          .filter(f => f.properties?.segmentIndex === segment.segmentIndex)
         const onlyThis = track
-          ? { ...track, features: track.features.filter(f => f.properties?.segmentIndex === segment.segmentIndex) }
+          ? {
+            ...track,
+            features: windowIndex == null
+              ? ofSegment
+              : ofSegment.filter(f => f.properties?.windowIndex === windowIndex),
+          }
           : null
+        const frames = framesOfWindow(framesOfSegment, windowIndex)
         setState({ loading: false, track: onlyThis, frames })
         setSelected(
           (focusFileName && frames.find(frame => frame.fileName === focusFileName))
@@ -126,7 +167,7 @@ export default function SegmentDetail({ segment, place, focusFileName }) {
       })
       .catch(error => { if (live) setState({ loading: false, error }) })
     return () => { live = false }
-  }, [segment.sessionId, segment.segmentIndex, focusFileName])
+  }, [segment.sessionId, segment.segmentIndex, windowIndex, focusFileName])
 
   const { track, frames, loading, error } = state
   const level = vegetationLevel(segment.measurementLevel)
@@ -138,6 +179,9 @@ export default function SegmentDetail({ segment, place, focusFileName }) {
     <div style={s.panel}>
       <div style={s.mapColumn}>
         <div style={s.summary}>
+          {/* Onde este trecho começa e termina ao longo do caminho da câmera. Aberto a partir da
+              lista de leituras, é o que diz qual pedaço do segmento está na tela. */}
+          {range && <span>trecho <span style={s.summaryValue}>{range}</span></span>}
           <span>altura p95 <span style={{ ...s.summaryValue, color: LEVELS[level].color }}>
             {segment.measurementExtent95P95M != null
               ? `${(segment.measurementExtent95P95M * 100).toFixed(0)} cm`
