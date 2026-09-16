@@ -87,31 +87,66 @@ export function vehicleOptions(request) {
   const excludeNearPx = request.excludeNearPx ?? 1;
   if (!Number.isInteger(excludeNearPx) || excludeNearPx < 0 || excludeNearPx > 8) throw new Error("excludeNearPx must be a whole number of logit pixels, 0 to 8");
   const bandSidePinned = request.gridOptions?.bandSide !== undefined;
-  // A second segmentation, asked only what is NOT grass. The grass model is Cityscapes-trained
-  // and Cityscapes never taught it a guardrail, so a wet W-beam or a concrete barrier is
-  // `terrain` to it in many frames; ADE20K knows `fence`, `railing`, `wall` and `bannister`.
-  // Its named classes join the structure map: taken out of the grass mask with the same margin,
-  // and handed to the grid so a cell one stands in can be refused. Null runs one model only.
-  const structureModel = request.structureModel ?? null;
-  if (structureModel !== null && typeof structureModel !== "string") throw new Error("structureModel must be the key of a registered segmentation model, or null");
-  if (structureModel !== null) findModel(structureModel);
-  const structureClasses = [...new Set(String(request.structureClasses ?? "").split(",").map((v) => v.trim()).filter(Boolean))];
-  if (structureModel !== null && !structureClasses.length) throw new Error("structureClasses must name at least one class of the structure model");
-  if (structureModel === null && structureClasses.length) throw new Error("structureClasses needs a structureModel to read them from");
-  // The second model spreads a guardrail over `fence`, `railing`, `wall` and `bannister`, so no
-  // one class need win a pixel: it is a structure when the probability it gives its structure
-  // classes, summed, reaches this floor. 0.5 is a majority of the probability.
-  const structureFloor = request.structureFloor ?? 0.5;
-  if (!(structureFloor > 0 && structureFloor <= 1)) throw new Error("structureFloor must be a probability above 0 and at most 1");
-  // Whether the second model's structure pixels also leave the grass mask, with the margin, or
-  // only vote on cells. A query model's mask fades a metre onto the grass beside a rail; taken
-  // out of the mask in every frame that starves the strip of points, while as votes alone it
-  // refuses the rail's cells and leaves the strip its evidence.
-  const structureModelMask = request.structureModelMask === true || request.structureModelMask === undefined ? "always"
-    : request.structureModelMask === false ? "never" : request.structureModelMask;
-  if (!["always", "band", "never"].includes(structureModelMask)) throw new Error(`structureModelMask must be "always", "band" or "never", got ${JSON.stringify(request.structureModelMask)}`);
+  // Further segmentations, each asked only what is NOT grass. The grass model is
+  // Cityscapes-trained and Cityscapes never taught it a guardrail, so a wet W-beam or a concrete
+  // barrier is `terrain` to it in many frames; ADE20K knows `fence`, `railing`, `wall` and
+  // `bannister`, and Mapillary Vistas a `Guard Rail`. Each model's named classes join the
+  // structure map: taken out of the grass mask with the same margin, and handed to the grid so a
+  // cell one stands in can be refused. A request names them either the old way — one model in
+  // four fields — or as `structureModels`, a list of `{ model, classes, floor, mask }`, because
+  // no one model sees everything: on 2026-09-16 the Vistas model that places the band and vetoes
+  // a rail had no class for the bush a Cityscapes `vegetation` mask measured as 1.8 m of grass,
+  // and the ADE20K model that calls that bush `tree` misses the rail. Empty runs one model only.
+  const { list: structureModels, first } = structureModelsOf(request);
   return { offsetSide, minTrackM, cameraHeightM, trackLengthM, minProbability, gridOptions, widthPinned, groundFallback, excludeNear, excludeNearPx, bandSidePinned,
-    structureModel, structureClasses, structureFloor, structureModelMask };
+    structureModels,
+    // The first model under the names the packet has always carried, so a reader of one is not
+    // surprised by a list. Null and empty when there is none, with the floor and the mask the
+    // request asked for, or their defaults.
+    structureModel: first.model, structureClasses: first.classes, structureFloor: first.floor, structureModelMask: first.mask };
+}
+
+/** A request's structure models, in one shape whichever way they were named. */
+function structureModelsOf(request) {
+  const legacy = request.structureModel !== undefined || request.structureClasses !== undefined
+    || request.structureFloor !== undefined || request.structureModelMask !== undefined;
+  if (request.structureModels !== undefined) {
+    if (legacy) throw new Error("name the structure models once: either structureModels or structureModel/structureClasses/structureFloor/structureModelMask, not both");
+    if (!Array.isArray(request.structureModels)) throw new Error("structureModels must be a list of { model, classes, floor, mask }");
+    const list = request.structureModels.map((entry, index) => {
+      if (!entry || typeof entry !== "object") throw new Error(`structureModels[${index}] must be an object naming a model and its classes`);
+      const one = structureModelOf({ structureModel: entry.model, structureClasses: entry.classes, structureFloor: entry.floor, structureModelMask: entry.mask }, `structureModels[${index}].`);
+      if (one.model === null) throw new Error(`structureModels[${index}].model must be the key of a registered segmentation model`);
+      return one;
+    });
+    return { list, first: list[0] ?? structureModelOf({}, "") };
+  }
+  const one = structureModelOf(request, "");
+  return { list: one.model === null ? [] : [one], first: one };
+}
+
+/** The four fields of one structure model, validated; `model` is null when none is named. */
+function structureModelOf(fields, prefix) {
+  const structureModel = fields.structureModel ?? null;
+  if (structureModel !== null && typeof structureModel !== "string") throw new Error(`${prefix}structureModel must be the key of a registered segmentation model, or null`);
+  if (structureModel !== null) findModel(structureModel);
+  const structureClasses = [...new Set(String(fields.structureClasses ?? "").split(",").map((v) => v.trim()).filter(Boolean))];
+  if (structureModel !== null && !structureClasses.length) throw new Error(`${prefix}structureClasses must name at least one class of the structure model`);
+  if (structureModel === null && structureClasses.length) throw new Error(`${prefix}structureClasses needs a structureModel to read them from`);
+  // A model spreads a guardrail over `fence`, `railing`, `wall` and `bannister`, so no one class
+  // need win a pixel: it is a structure when the probability the model gives its structure
+  // classes, summed, reaches this floor. 0.5 is a majority of the probability.
+  const structureFloor = fields.structureFloor ?? 0.5;
+  if (!(structureFloor > 0 && structureFloor <= 1)) throw new Error(`${prefix}structureFloor must be a probability above 0 and at most 1`);
+  // Whether the model's structure pixels also leave the grass mask, with the margin, or only
+  // vote on cells. A query model's mask fades a metre onto the grass beside a rail; taken out of
+  // the mask in every frame that starves the strip of points, while as votes alone it refuses
+  // the rail's cells and leaves the strip its evidence. `band` takes them out of a copy of the
+  // mask that only places the band.
+  const structureModelMask = fields.structureModelMask === true || fields.structureModelMask === undefined ? "always"
+    : fields.structureModelMask === false ? "never" : fields.structureModelMask;
+  if (!["always", "band", "never"].includes(structureModelMask)) throw new Error(`${prefix}structureModelMask must be "always", "band" or "never", got ${JSON.stringify(fields.structureModelMask)}`);
+  return { model: structureModel, classes: structureClasses, floor: structureFloor, mask: structureModelMask };
 }
 
 /**
@@ -166,15 +201,19 @@ export async function runGrassPipeline(request, onProgress = () => {}, signal) {
   const unknownNear = vehicle.excludeNear.filter((label) => !T.CITYSCAPES_LABELS.includes(label));
   if (unknownNear.length) throw new Error(`unknown Cityscapes label(s) in excludeNearClasses: ${unknownNear.join(", ")}`);
   const excludeNearIds = new Set(vehicle.excludeNear.map((label) => T.CITYSCAPES_LABELS.indexOf(label)));
-  // The second model's classes are read from its own checkpoint, so a request is checked against
-  // what the model actually predicts rather than against a list kept here.
-  const secondModel = vehicle.structureModel === null ? null : findModel(vehicle.structureModel);
-  let secondIds = null;
-  if (secondModel && secondModel.kind !== "prompted") {
-    const labels = await modelLabels(secondModel);
-    const unknown = vehicle.structureClasses.filter((label) => !labels.includes(label));
-    if (unknown.length) throw new Error(`unknown ${secondModel.key} label(s) in structureClasses: ${unknown.join(", ")}`);
-    secondIds = new Set(vehicle.structureClasses.map((label) => labels.indexOf(label)));
+  // Each structure model's classes are read from its own checkpoint, so a request is checked
+  // against what the model actually predicts rather than against a list kept here.
+  const structureModels = [];
+  for (const entry of vehicle.structureModels) {
+    const model = findModel(entry.model);
+    let ids = null;
+    if (model.kind !== "prompted") {
+      const labels = await modelLabels(model);
+      const unknown = entry.classes.filter((label) => !labels.includes(label));
+      if (unknown.length) throw new Error(`unknown ${model.key} label(s) in structureClasses: ${unknown.join(", ")}`);
+      ids = new Set(entry.classes.map((label) => labels.indexOf(label)));
+    }
+    structureModels.push({ ...entry, model, ids });
   }
   progress("reading", 0, 0);
   const arrays = await readArrays(run);
@@ -261,23 +300,26 @@ export async function runGrassPipeline(request, onProgress = () => {}, signal) {
       // the frames that called it grass. Two sources paint it: the grass model's own structure
       // classes, and the second model's when one is asked for.
       let structure = null;
-      // What the grid is told stands in a cell. The same map as the margin's unless the second
-      // model is asked to vote without touching the mask, in which case it gets its own copy.
+      // What the grid is told stands in a cell. The same map as the margin's unless a model is
+      // asked to vote without touching the mask, in which case the votes get their own copy.
       let votes = null;
       let bandMask = null;
-      let second = null;
-      if (excludeNearIds.size || secondModel) {
+      const seconds = [];
+      if (excludeNearIds.size || structureModels.length) {
         const map = T.classMapFromLogits(result.logits);
         const w = map.width, h = map.height, r = vehicle.excludeNearPx;
         structure = new Uint8Array(w * h);
         for (let p = 0; p < w * h; p++) if (excludeNearIds.has(map.classIds[p])) structure[p] = 1;
-        votes = structure;
-        if (secondModel) {
-          // How much of a structure the second model makes of each pixel, 0 to 1, on its own grid.
+        // Pixels that vote on cells but stay in the grass mask, and of those the ones that also
+        // leave the copy that places the band. Both null until a model asks for them.
+        let voteOnly = null, bandOnly = null;
+        for (const entry of structureModels) {
+          const model = entry.model;
+          // How much of a structure this model makes of each pixel, 0 to 1, on its own grid.
           let opinion, structureMass, h2, w2;
-          if (secondModel.kind === "prompted") {
+          if (model.kind === "prompted") {
             // A prompted model: as much as the phrase that fits the pixel best says it is.
-            opinion = await promptFrame(files[i], vehicle.structureClasses, secondModel);
+            opinion = await promptFrame(files[i], entry.classes, model);
             check();
             ({ height: h2, width: w2 } = opinion);
             const stride2 = h2 * w2;
@@ -286,23 +328,23 @@ export async function runGrassPipeline(request, onProgress = () => {}, signal) {
               const v = opinion.probabilities[k * stride2 + p];
               if (v > structureMass[p]) structureMass[p] = v;
             }
-          } else if (secondModel.kind === "queries") {
+          } else if (model.kind === "queries") {
             // A query model: the structure classes' share of the mass every query lays on the pixel.
-            opinion = await queriesFrame(files[i], secondModel);
+            opinion = await queriesFrame(files[i], model);
             check();
             ({ height: h2, width: w2 } = opinion);
             const stride2 = h2 * w2;
             structureMass = new Float32Array(stride2);
             for (let p = 0; p < stride2; p++) {
               let total = 0, mass = 0;
-              for (let c = 0; c < opinion.classes; c++) { const v = opinion.mass[c * stride2 + p]; total += v; if (secondIds.has(c)) mass += v; }
+              for (let c = 0; c < opinion.classes; c++) { const v = opinion.mass[c * stride2 + p]; total += v; if (entry.ids.has(c)) mass += v; }
               structureMass[p] = total > 0 ? mass / total : 0;
             }
           } else {
-            opinion = await segmentFrame(files[i], secondModel);
+            opinion = await segmentFrame(files[i], model);
             check();
-            // The probability the second model gives its structure classes, summed per pixel: a
-            // softmax over its logits, with the maximum subtracted first so the exponentials cannot
+            // The probability the model gives its structure classes, summed per pixel: a softmax
+            // over its logits, with the maximum subtracted first so the exponentials cannot
             // overflow. No one class need win — a rail is spread over four of them.
             const { data, classes } = opinion.logits;
             ({ height: h2, width: w2 } = opinion.logits);
@@ -312,32 +354,47 @@ export async function runGrassPipeline(request, onProgress = () => {}, signal) {
               let max = -Infinity;
               for (let c = 0; c < classes; c++) { const v = data[c * stride2 + p]; if (v > max) max = v; }
               let sum = 0, mass = 0;
-              for (let c = 0; c < classes; c++) { const e = Math.exp(data[c * stride2 + p] - max); sum += e; if (secondIds.has(c)) mass += e; }
+              for (let c = 0; c < classes; c++) { const e = Math.exp(data[c * stride2 + p] - max); sum += e; if (entry.ids.has(c)) mass += e; }
               structureMass[p] = mass / sum;
             }
           }
           let pixels = 0;
-          const target = vehicle.structureModelMask === "always" ? structure : (votes = new Uint8Array(structure));
+          let target = structure;
+          if (entry.mask !== "always") {
+            voteOnly ??= new Uint8Array(w * h);
+            target = voteOnly;
+          }
+          if (entry.mask === "band") bandOnly ??= new Uint8Array(w * h);
           // The two logit grids agree in size for the 512-input SegFormers; a different one is
           // sampled nearest onto the grass model's grid, the same rule the grid applies to a mask.
           for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
             const p2 = Math.floor(y * h2 / h) * w2 + Math.floor(x * w2 / w);
-            if (structureMass[p2] >= vehicle.structureFloor) { target[y * w + x] = 1; pixels += 1; }
+            if (structureMass[p2] >= entry.floor) {
+              target[y * w + x] = 1;
+              if (bandOnly && entry.mask === "band") bandOnly[y * w + x] = 1;
+              pixels += 1;
+            }
           }
-          second = { modelId: secondModel.id, modelRevision: secondModel.revision, runtime: secondModel.runtime, kind: secondModel.kind ?? "classes",
-            ...(secondModel.dtype ? { dtype: secondModel.dtype } : {}), classes: vehicle.structureClasses,
-            floor: vehicle.structureFloor, maskedGrass: vehicle.structureModelMask, logitsWidth: w2, logitsHeight: h2, structurePixels: pixels,
-            inferenceMs: opinion.timing.inferMs, modelLoadMs: opinion.timing.loadMs };
+          seconds.push({ modelId: model.id, modelRevision: model.revision, runtime: model.runtime, kind: model.kind ?? "classes",
+            ...(model.dtype ? { dtype: model.dtype } : {}), classes: entry.classes,
+            floor: entry.floor, maskedGrass: entry.mask, logitsWidth: w2, logitsHeight: h2, structurePixels: pixels,
+            inferenceMs: opinion.timing.inferMs, modelLoadMs: opinion.timing.loadMs });
         }
         // Everything the mask's own structure map holds, grown by `excludeNearPx`, taken out of it.
         droppedNearStructure = dropNear(mask.mask, structure, w, h, r);
         mask.counts.kept -= droppedNearStructure;
-        // `band`: the second model's pixels leave a copy of the mask that only places the band, so
-        // the band starts where the grass starts rather than at a barrier the grass model called
+        // The votes: the margin's map, plus what the models that leave the mask alone saw.
+        votes = structure;
+        if (voteOnly) {
+          votes = new Uint8Array(structure);
+          for (let p = 0; p < w * h; p++) if (voteOnly[p]) votes[p] = 1;
+        }
+        // `band`: a model's pixels leave a copy of the mask that only places the band, so the
+        // band starts where the grass starts rather than at a barrier the grass model called
         // grass, while the measurement keeps every point the grass model gave it.
-        if (vehicle.structureModelMask === "band" && votes !== structure) {
+        if (bandOnly) {
           bandMask = new Uint8Array(mask.mask);
-          dropNear(bandMask, votes, w, h, r);
+          dropNear(bandMask, bandOnly, w, h, r);
         }
       }
       frame.status = mask.counts.kept ? "segmented" : "no-grass-detected";
@@ -346,7 +403,9 @@ export async function runGrassPipeline(request, onProgress = () => {}, signal) {
         runtime: DEFAULT_MODEL.runtime, device: "cpu", probabilityFloor: mask.minProbability, classes: semanticClasses,
         excludedNear: structure ? { classes: vehicle.excludeNear, radiusPx: vehicle.excludeNearPx, dropped: droppedNearStructure,
           structurePixels: structure.reduce((n, v) => n + v, 0) } : null,
-        structureModel: second,
+        // The first under the name the packet has always carried, and all of them beside it.
+        structureModel: seconds[0] ?? null,
+        structureModels: seconds,
         counts: mask.counts, inferenceMs: result.timing.inferMs, modelLoadMs: result.timing.loadMs };
       inputs.push({ frameIndex: i, geometryFrame: geometryFrames[i], grassMask: mask.mask, maskWidth: mask.width, maskHeight: mask.height,
         ...(votes ? { structureMask: votes } : {}), ...(bandMask ? { bandMask } : {}) });

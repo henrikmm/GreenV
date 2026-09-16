@@ -913,6 +913,50 @@ speed, so four fifths of the road never reaches the model; the manifest's per-fr
 `process.argv[1].endsWith('/…')` guard never fires on Windows, where the checker has to be called
 through its export.
 
+### A third model refuses the tree a vegetation mask measured as grass — 2026-09-16
+
+**The day's tallest stretch — `10/3` window 4, p95 1.81 m — was a bush a metre behind a
+concrete barrier, inside the 5 m corridor, and nothing in the pipeline could tell it from
+grass.** The deployment measures `terrain,vegetation` because tall grass lives in `vegetation`
+(the class policy entry below); a bush lives there too, its foliage reaches its own ground
+(`gapM` 0.02 m, so `canopyGapM` cannot fire) and its extent of 1.66–1.99 m sits under
+`canopyExtentM`. The Mapillary model that places the band and vetoes a rail has no class for it.
+Asked on the six frames that voted the tallest cells, `ade20k-b4` called 84–98% of the
+Cityscapes `vegetation` pixels `tree` and 59–66% of the `terrain` pixels `grass`
+(`D:\greenv-runs\classes-w04.mjs`); CLIPSeg's "a bush" reached 21% of one frame, and
+Mapillary Vistas has only `Vegetation`.
+
+So `runGrassPipeline` takes **`structureModels`, a list**: each entry `{ model, classes, floor,
+mask }` with the same three mask answers, and the votes of all of them reach the grid. The four
+old fields are one entry, the two forms are exclusive, and every frame records
+`semantic.structureModels` while keeping `semantic.structureModel` as the first. Replacing the
+Mapillary model with the ADE20K one instead is why it is a list: votes only, the band moved from
+−7.55 to −5.50 m and the window measured nothing; masks and votes, the band went to the 12 m cap
+and measured 194 cells of grass 12 m out at 4 cm — right by the wrong route
+(`D:\greenv-runs\local\w04-ade-votes`, `w04-ade-mask`).
+
+The bench (`D:\greenv-runs\bench.mjs`, `comparar-bench.mjs`, the table in
+`local\bench-arvore-tabela.txt`): the deployed configuration plus `ade20k-b4` voting `tree,palm`
+at floor 0.5 with mask `never`, re-measured from the reconstructions in R2 on 29 windows of 13
+September — the 17 at level 3 and 12 at levels 1–2 with 89–417 cells — against their production
+packets. The local reproduction of `10/3` window 4 matches production first: 61 cells, p95
+1.805 m, band −7.554 m, scale ×1.0807.
+
+| | windows | level 3 before → after | measured cells before → after | p95 up by more than 2 cm |
+|---|---:|---:|---:|---:|
+| level 1–2 | 12 | 0 → 0 | 3,142 → 3,140 | 0 |
+| level 3 | 17 | 11 → 8 | 1,341 → 1,259 | 0 |
+
+Levels under the API's rule (20 measured cells; > 0.30 m is 3). The three that left level 3 are
+trees: `10/3` window 4 181 → 4 cm (54 of its 61 cells `structure`, level 1), `7e/3` window 6
+85 → 15 cm (a crown over the verge behind a rail, frame 409) and `7e/3` window 0 32 → 23 cm
+(a low-branched tree on the verge, frame 39). The eight that stayed are the rail and slope
+stretches, and their numbers did not move by a cell. `plant` is not in the list because nobody
+has measured what the model makes of tall grass; the veto is recorded cell by cell, so the day
+that shows one can be audited. About 1.3 s a frame on top of the other two models. Evidence:
+the section "A third model that knows a tree" in
+[evidence/2026-09-13-car-mount.md](evidence/2026-09-13-car-mount.md).
+
 ### The grid measures from each cell's own ground, not from the plane — 2026-09-05
 
 **The default reading is now an extent: `extent50M`, `extent90M`, `extent95M`, from a low
