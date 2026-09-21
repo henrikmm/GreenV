@@ -168,24 +168,20 @@ resource "azurerm_container_app" "api" {
       concurrent_requests = "80"
     }
 
-    # A finished measurement is announced on a queue the API polls, and the API scales to zero
-    # on HTTP traffic alone. On 14 September 2026 four results arrived a minute after KEDA had
-    # deactivated the API's only replica and sat in the queue, invisible to the dashboard, until
-    # a request happened to wake it. A pending result is a reason to be awake, so the queue is a
-    # scale source too: same form as the workers' rules, for the same reason (see the measurement
-    # app below), and the identity already holds Message Processor on this queue. queueLength = 1
-    # wakes one replica per pending result; max_replicas bounds it as before.
-    custom_scale_rule {
-      name             = "measurement-results"
-      custom_rule_type = "azure-queue"
-      identity_id      = azurerm_user_assigned_identity.api.id
-
-      metadata = {
-        accountName = azurerm_storage_account.queue.name
-        queueLength = "1"
-        queueName   = azurerm_storage_queue.measurement_result.name
-      }
-    }
+    # There is deliberately no queue rule here, and the cost of that is worth writing down.
+    #
+    # The API consumes the measurement-result queue, and it used to scale on that queue too. The
+    # reason was concrete: on 14 September 2026 four results arrived a minute after KEDA had
+    # deactivated the API's only replica, and they sat unread - invisible to the dashboard -
+    # until some request happened to wake it. The rule was removed on 21 September 2026 by the
+    # owner's decision, so that behaviour is back: a finished measurement now waits for the next
+    # HTTP request before anyone sees it.
+    #
+    # It was not what cost money. An empty queue asks for nothing, and the queues were empty
+    # through the whole episode that put this app at three replicas; the ceiling and the request
+    # threshold above are what bound the bill. Restoring it means a custom_scale_rule with
+    # custom_rule_type "azure-queue" over azurerm_storage_queue.measurement_result, using
+    # azurerm_user_assigned_identity.api, which already holds Message Processor on it.
   }
 
   depends_on = [azurerm_role_assignment.api_queue_sender, azurerm_role_assignment.api_measurement_result_processor]
