@@ -1,7 +1,8 @@
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { LayoutDashboard, Map, ClipboardList, Sprout, Users } from 'lucide-react'
+import { LayoutDashboard, Map, ClipboardList, Users } from 'lucide-react'
 import UserMenu from './UserMenu'
+import { MotivaWordmark } from './Wordmark'
 
 const s = {
   nav: {
@@ -11,11 +12,6 @@ const s = {
   },
   left: { display: 'flex', alignItems: 'center', gap: 28 },
   brand: { display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' },
-  brandIcon: {
-    width: 26, height: 26, borderRadius: 7, background: 'rgba(255,255,255,0.16)',
-    display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white',
-  },
-  brandText: { fontSize: 15, fontWeight: 800, color: 'white', letterSpacing: '-0.01em' },
   tabs: { display: 'flex', gap: 2, position: 'relative' },
   tab: (active) => ({
     position: 'relative', display: 'flex', alignItems: 'center', gap: 7,
@@ -54,8 +50,7 @@ export default function NavBar({ currentPage, tabs = DEMO_TABS, roadTag = 'SP-02
     <nav style={s.nav}>
       <div style={s.left}>
         <div style={s.brand} onClick={() => navigate('/')}>
-          <div style={s.brandIcon}><Sprout size={15} /></div>
-          <span style={s.brandText}>MOTIVA</span>
+          <MotivaWordmark height={18} tone="white" />
         </div>
 
         <div style={s.tabs}>

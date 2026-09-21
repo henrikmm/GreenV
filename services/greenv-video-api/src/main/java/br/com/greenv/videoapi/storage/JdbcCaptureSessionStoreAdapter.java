@@ -161,7 +161,14 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
     private static final String SESSION_PLACES =
             "(SELECT session_id, place_label, place_detail, distinct_labels FROM ("
                     + " SELECT session_id, place_label, place_detail,"
-                    + " COUNT(DISTINCT place_label) OVER (PARTITION BY session_id)"
+                    // How many distinct streets, in one pass over the readings. Not
+                    // COUNT(DISTINCT ...) OVER (...): PostgreSQL refuses DISTINCT inside a window
+                    // aggregate (SQL state 0A000) while H2 accepts it, which is how the query
+                    // passed every test and failed every request on 16 September 2026. Two dense
+                    // ranks over the label, ascending and descending, sum to the distinct count
+                    // plus one - the labels are non-null here, so the identity holds.
+                    + " DENSE_RANK() OVER (PARTITION BY session_id ORDER BY place_label)"
+                    + " + DENSE_RANK() OVER (PARTITION BY session_id ORDER BY place_label DESC) - 1"
                     + "   AS distinct_labels,"
                     + " ROW_NUMBER() OVER (PARTITION BY session_id"
                     + "   ORDER BY segment_index, COALESCE(window_index, -1))"
@@ -498,7 +505,8 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                 SELECT measurement_extent95_p95_m, measurement_extent95_max_m, measurement_level
                   FROM capture_segment_windows
                  WHERE session_id = ? AND segment_index = ? AND measurement_state IS NOT NULL
-                 ORDER BY measurement_extent95_p95_m DESC NULLS LAST, window_index
+                 ORDER BY CASE WHEN measurement_level IS NULL THEN 1 ELSE 0 END,
+                          measurement_extent95_p95_m DESC NULLS LAST, window_index
                  LIMIT 1
                 """, sessionId, segmentIndex).stream().findFirst().orElse(Map.of());
         Map<String, Object> totals = jdbcTemplate.queryForList("""
@@ -730,6 +738,7 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                         return MeasurementSummary.empty();
                     }
                     double tallest = result.getDouble("tallest");
+                    boolean noTallest = result.wasNull();
                     return new MeasurementSummary(
                             result.getLong("total"),
                             Map.of(
@@ -737,11 +746,16 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                                     1, result.getLong("level_1"),
                                     2, result.getLong("level_2"),
                                     3, result.getLong("level_3")),
-                            result.wasNull() ? null : tallest,
+                            noTallest ? null : tallest,
                             Map.of(
                                     "good", result.getLong("gps_good"),
                                     "degraded", result.getLong("gps_degraded"),
-                                    "unavailable", result.getLong("gps_unavailable")));
+                                    "unavailable", result.getLong("gps_unavailable")),
+                            // This query counts segments, and a range belongs to a window. Summing
+                            // window metres beside a segment count would put two units in one
+                            // record, and every reader would have to know which was which.
+                            null,
+                            0);
                 },
                 sessionId);
     }
@@ -839,7 +853,10 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                        SUM(CASE WHEN track_location_quality = 'degraded' THEN 1 ELSE 0 END)
                            AS gps_degraded,
                        SUM(CASE WHEN track_location_quality IN ('good', 'degraded') THEN 0 ELSE 1 END)
-                           AS gps_unavailable
+                           AS gps_unavailable,
+                       SUM(window_end_meters - window_start_meters) AS measured_metres,
+                       SUM(CASE WHEN window_start_meters IS NULL OR window_end_meters IS NULL
+                                THEN 0 ELSE 1 END) AS with_range
                   FROM """
                         + READING_SOURCE
                         + where,
@@ -848,6 +865,9 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                         return MeasurementSummary.empty();
                     }
                     double tallest = result.getDouble("tallest");
+                    boolean noTallest = result.wasNull();
+                    double covered = result.getDouble("measured_metres");
+                    Double metres = result.wasNull() ? null : covered;
                     return new MeasurementSummary(
                             result.getLong("total"),
                             Map.of(
@@ -855,11 +875,13 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                                     1, result.getLong("level_1"),
                                     2, result.getLong("level_2"),
                                     3, result.getLong("level_3")),
-                            result.wasNull() ? null : tallest,
+                            noTallest ? null : tallest,
                             Map.of(
                                     "good", result.getLong("gps_good"),
                                     "degraded", result.getLong("gps_degraded"),
-                                    "unavailable", result.getLong("gps_unavailable")));
+                                    "unavailable", result.getLong("gps_unavailable")),
+                            metres,
+                            result.getLong("with_range"));
                 },
                 arguments.toArray());
     }
@@ -990,7 +1012,9 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
     public SessionPlace readingPlace(UUID sessionId) {
         return jdbcTemplate.query(
                 "SELECT place_label, place_detail,"
-                        + " COUNT(DISTINCT place_label) OVER () AS distinct_labels"
+                        // The same two dense ranks as SESSION_PLACES, for the same reason.
+                        + " DENSE_RANK() OVER (ORDER BY place_label)"
+                        + " + DENSE_RANK() OVER (ORDER BY place_label DESC) - 1 AS distinct_labels"
                         + " FROM " + READING_SOURCE
                         + " WHERE session_id = ? AND place_label IS NOT NULL"
                         + " ORDER BY segment_index, COALESCE(window_index, -1)",

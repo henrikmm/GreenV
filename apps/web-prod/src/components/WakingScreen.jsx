@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { MotivaMark } from '@greenv/web-core'
 
 /**
  * A espera enquanto a API acorda.
@@ -12,23 +13,32 @@ import { useEffect, useState } from 'react'
  * cobrem o caso comum, em que a resposta chega antes de valer a pena explicar qualquer coisa. Só
  * depois disso é que a tela admite que está esperando o servidor subir, e aí conta quanto tempo
  * faz, porque um número que anda é a diferença entre esperar e achar que travou.
+ *
+ * O fundo roxo com a marca é a abertura do aplicativo de campo, trazida para cá: a primeira coisa
+ * que aparece é a mesma nos dois, e uma espera com identidade lê como parte do produto.
  */
 const s = {
   wrap: {
-    minHeight: '100vh', display: 'grid', placeItems: 'center',
-    background: 'var(--bg-secondary)', padding: 24,
+    minHeight: '100vh', display: 'grid', placeItems: 'center', position: 'relative',
+    background: 'var(--motiva-gradient)', padding: 24, overflow: 'hidden',
   },
-  card: { textAlign: 'center', maxWidth: 340 },
+  dots: {
+    position: 'absolute', inset: 0, opacity: 0.15,
+    backgroundImage: 'radial-gradient(rgba(255,255,255,0.9) 1.5px, transparent 1.5px)',
+    backgroundSize: '28px 28px',
+  },
+  card: { textAlign: 'center', maxWidth: 340, position: 'relative' },
+  mark: { margin: '0 auto 28px' },
   bar: {
     width: 180, height: 3, margin: '0 auto 16px', borderRadius: 2,
-    background: 'var(--border)', overflow: 'hidden', position: 'relative',
+    background: 'rgba(255,255,255,0.22)', overflow: 'hidden', position: 'relative',
   },
   fill: {
     position: 'absolute', inset: 0, width: '40%', borderRadius: 2,
-    background: 'var(--motiva)', animation: 'greenv-waking 1.1s ease-in-out infinite',
+    background: 'white', animation: 'greenv-waking 1.1s ease-in-out infinite',
   },
-  title: { fontSize: 13.5, color: 'var(--text-secondary)', fontWeight: 600 },
-  note: { fontSize: 11.5, color: 'var(--text-muted)', marginTop: 6, lineHeight: 1.6 },
+  title: { fontSize: 13.5, color: 'white', fontWeight: 600 },
+  note: { fontSize: 11.5, color: 'rgba(255,255,255,0.72)', marginTop: 6, lineHeight: 1.6 },
   seconds: { fontFamily: 'var(--font-mono)' },
 }
 
@@ -52,7 +62,9 @@ export default function WakingScreen() {
   return (
     <div style={s.wrap}>
       <style>{KEYFRAMES}</style>
+      <div style={s.dots} />
       <div style={s.card}>
+        <MotivaMark size={104} style={s.mark} />
         <div style={s.bar}><div style={s.fill} /></div>
         <div style={s.title}>
           {waking ? 'Acordando o servidor…' : 'Verificando sessão…'}

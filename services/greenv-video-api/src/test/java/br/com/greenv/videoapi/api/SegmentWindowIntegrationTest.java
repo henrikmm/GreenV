@@ -6,6 +6,7 @@ import br.com.greenv.videoapi.domain.CaptureObjectKeys;
 import br.com.greenv.videoapi.domain.CaptureSegmentDocument;
 import br.com.greenv.videoapi.domain.CaptureSessionDocument;
 import br.com.greenv.videoapi.domain.MeasurementQuery;
+import br.com.greenv.videoapi.domain.MeasurementSummary;
 import br.com.greenv.videoapi.domain.SegmentMeasurementAnnouncement;
 import br.com.greenv.videoapi.domain.SegmentQuery;
 import br.com.greenv.videoapi.domain.SegmentReference;
@@ -167,6 +168,47 @@ class SegmentWindowIntegrationTest {
                 .isNull();
     }
 
+    /**
+     * A window too thin to have a level does not take the segment's level with it.
+     *
+     * <p>The rollup used to copy the level of the tallest window whatever it was. Once a level
+     * needed twenty measured cells, a window of five cells at 0.55 m — tall, but nobody's idea of
+     * evidence for 25 m — became the tallest window of its segment with no level at all, and the
+     * segment went "não avaliado" over six windows that were rated. The tallest <em>rated</em>
+     * window is the segment's; the unrated ones still count their cells and still appear in the
+     * readings, and only when no window is rated is the segment unrated too.
+     */
+    @Test
+    void anUnratedWindowDoesNotEraseTheSegmentsLevel() {
+        UUID sessionId = givenASegment();
+        givenAMeasuredWindow(sessionId, 0, 0.0, 25.0, 0.55, "20260914-000000-aaaaaa", 5);
+        givenAMeasuredWindow(sessionId, 1, 25.0, 50.0, 0.12, "20260914-000000-bbbbbb", 40);
+        givenAMeasuredWindow(sessionId, 2, 50.0, 75.0, 0.06, "20260914-000000-cccccc", 40);
+
+        CaptureSegmentDocument segment = store.getSegment(sessionId, 0);
+
+        assertThat(segment.measurement().level())
+                .as("the tallest rated window, not the tallest window")
+                .isEqualTo(2);
+        assertThat(segment.measurement().extent95P95M())
+                .as("and its height, so the level and the height on the segment tell one story")
+                .isEqualTo(0.12);
+        assertThat(segment.measurement().cellsMeasured())
+                .as("the thin window's cells are still counted")
+                .isEqualTo(85);
+        assertThat(store.findWindows(sessionId, 0).get(0).measurement().level())
+                .as("the window itself stays unrated; the segment's summary is what changed")
+                .isNull();
+
+        UUID onlyThin = givenASegment();
+        givenAMeasuredWindow(onlyThin, 0, 0.0, 25.0, 0.55, "20260914-000000-dddddd", 5);
+        givenAMeasuredWindow(onlyThin, 1, 25.0, 50.0, 0.31, "20260914-000000-eeeeee", 3);
+        assertThat(store.getSegment(onlyThin, 0).measurement().level())
+                .as("no rated window, no level: an unknown height is not a short one")
+                .isNull();
+        assertThat(store.getSegment(onlyThin, 0).measurement().extent95P95M()).isEqualTo(0.55);
+    }
+
     /** The worker republishes the same result when a delivery is retried. */
     @Test
     void recordingTheSameWindowTwiceChangesNothing() {
@@ -209,6 +251,43 @@ class SegmentWindowIntegrationTest {
                 .noneMatch(r -> r.sessionId().equals(windowed) && r.windowIndex() == null);
         assertThat(captures.summariseMeasurements(MeasurementQuery.tallestFirst()).total())
                 .isEqualTo(3);
+    }
+
+    /**
+     * How much roadside the set covers, and how much of it the number can speak for.
+     *
+     * <p>A reading from before the extractor cut segments into windows carries no range at all.
+     * Counting it as zero metres would be the quiet kind of wrong: the dashboard would report a
+     * shorter road than was driven and nothing on screen would say so. It is left out of the sum
+     * and counted separately, so the screen can say what the figure covers.
+     */
+    @Test
+    void addsUpTheRoadsideTheWindowsCoverAndSaysHowManyCarriedARange() {
+        UUID windowed = givenASegment();
+        givenAMeasuredWindow(windowed, 0, 0.0, 25.0, 0.12, "20260914-000000-aaaaaa");
+        givenAMeasuredWindow(windowed, 1, 25.0, 50.0, 0.48, "20260914-000000-bbbbbb");
+
+        UUID whole = givenASegment();
+        givenASegmentMeasuredWhole(whole, 0.31);
+
+        MeasurementSummary summary = captures.summariseMeasurements(MeasurementQuery.tallestFirst());
+
+        assertThat(summary.measuredMetres()).isEqualTo(50.0);
+        assertThat(summary.readingsWithRange())
+                .as("two of the three readings have a range; the one measured whole has none")
+                .isEqualTo(2);
+        assertThat(summary.total()).isEqualTo(3);
+    }
+
+    /** With nothing but whole-segment readings there is no length to report, and none is claimed. */
+    @Test
+    void reportsNoLengthAtAllWhenNoReadingCarriesARange() {
+        givenASegmentMeasuredWhole(givenASegment(), 0.31);
+
+        MeasurementSummary summary = captures.summariseMeasurements(MeasurementQuery.tallestFirst());
+
+        assertThat(summary.measuredMetres()).isNull();
+        assertThat(summary.readingsWithRange()).isZero();
     }
 
     /** A session is still a list of uploads, with the shape of its window set on each row. */
@@ -469,7 +548,13 @@ class SegmentWindowIntegrationTest {
      */
     private void givenAMeasuredWindow(
             UUID sessionId, int windowIndex, double startMeters, double endMeters, double height, String runId) {
-        put(CaptureObjectKeys.measurement(sessionId, 0, windowIndex), packet(height));
+        givenAMeasuredWindow(sessionId, windowIndex, startMeters, endMeters, height, runId, 40);
+    }
+
+    private void givenAMeasuredWindow(
+            UUID sessionId, int windowIndex, double startMeters, double endMeters, double height, String runId,
+            int measuredCells) {
+        put(CaptureObjectKeys.measurement(sessionId, 0, windowIndex), packet(height, measuredCells));
         put(
                 CaptureObjectKeys.measurementArtifact(sessionId, 0, windowIndex, "assessment.json"),
                 assessment(height));
@@ -493,14 +578,18 @@ class SegmentWindowIntegrationTest {
 
     /** Shaped after the packets in storage: two measured cells, one that abstained, two fixes. */
     private static String packet(double height) {
+        return packet(height, 40);
+    }
+
+    private static String packet(double height, int measuredCells) {
         return ("""
                 {"schemaVersion":"greenv.measurement-result/1.0.0","runId":"r","mock":false,\
                 "positions":[\
                 {"canonicalFrame":1,"latitude":-23.6365,"longitude":-46.6834,"locationQuality":"good"},\
                 {"canonicalFrame":2,"latitude":-23.6366,"longitude":-46.6835,"locationQuality":"good"}],\
-                "measurement":{"quality":{"measuredCells":40,"abstainedCells":20,\
+                "measurement":{"quality":{"measuredCells":%d,"abstainedCells":20,\
                 "observedCellCoverage":0.667,"operationalStatus":"not-ready"},"height":%s}}""")
-                .formatted(height);
+                .formatted(measuredCells, height);
     }
 
     private static String assessment(double height) {

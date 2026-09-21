@@ -51,5 +51,19 @@ export function readingOf(segment) {
       level: 0,
     }
   }
+  // O terceiro caso, desde 16/09/2026: há altura, mas de poucas células. A API só dá nível a um
+  // trecho com pelo menos 20 células medidas (`MeasurementProjection.MINIMUM_CELLS_FOR_A_LEVEL`),
+  // porque uma célula de 31 cm encostada numa mureta não é evidência para pintar 25 m de
+  // vermelho — e "Não avaliado" ao lado de "31 cm" lia como contradição.
+  if (measured > 0) {
+    return {
+      label: 'Evidência insuficiente',
+      title: `Altura medida em ${measured} ${measured === 1 ? 'célula' : 'células'}; um trecho só `
+        + 'ganha nível com 20 ou mais. A altura fica registrada, mas não classifica o trecho.',
+      colour: LEVELS[0].color,
+      background: LEVELS[0].bg,
+      level: 0,
+    }
+  }
   return { label: LEVELS[0].label, colour: LEVELS[0].color, background: LEVELS[0].bg, level: 0 }
 }

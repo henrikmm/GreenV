@@ -16,7 +16,13 @@ public record MeasurementSummaryResponse(
         long total,
         Map<String, Long> countsByLevel,
         Double tallestExtent95M,
-        Map<String, Long> countsByLocationQuality) {
+        Map<String, Long> countsByLocationQuality,
+        // How much roadside the set covers, and over how many of its readings. The second
+        // number is not decoration: a reading from before the window cut has no recorded
+        // length, and a screen showing the first without the second would quietly report a
+        // shorter road than was driven.
+        Double measuredMetres,
+        long readingsWithRange) {
 
     public static MeasurementSummaryResponse from(MeasurementSummary summary) {
         return new MeasurementSummaryResponse(
@@ -26,6 +32,8 @@ public record MeasurementSummaryResponse(
                         .collect(java.util.stream.Collectors.toMap(
                                 entry -> String.valueOf(entry.getKey()), Map.Entry::getValue)),
                 summary.tallestM(),
-                summary.countsByLocationQuality());
+                summary.countsByLocationQuality(),
+                summary.measuredMetres(),
+                summary.readingsWithRange());
     }
 }

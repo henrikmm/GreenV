@@ -1,6 +1,8 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Route, Ruler, TriangleAlert, Camera, ArrowUpRight, ChevronRight, ChevronDown } from 'lucide-react'
+import {
+  Route, Ruler, TriangleAlert, Camera, Milestone, ArrowUpRight, ChevronRight, ChevronDown,
+} from 'lucide-react'
 import {
   LEVELS, vegetationLevel, AnimatedNumber, Card, useAuth,
   LevelDonut, WeeklyBarChart, bucketByWeek,
@@ -20,19 +22,20 @@ import SessionMap from '../components/SessionMap'
  * porque é o mesmo produto. O que muda é a origem: aqui cada número sai de uma medição que
  * existe, e nenhum é semeado.
  */
-const KPI_ACCENTS = ['#5e22f3', '#0ea5a0', '#dc2626', '#ca8a04']
+const KPI_ACCENTS = ['#5e22f3', '#0ea5a0', '#dc2626', '#ca8a04', '#2563eb']
 
 const s = {
   header: { marginBottom: 22 },
   greeting: { fontSize: 22, fontWeight: 700 },
   subtitle: { fontSize: 13, color: 'var(--text-secondary)', marginTop: 3 },
-  kpiGrid: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 12 },
+  kpiGrid: { display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 12 },
   kpiIcon: (bg, c) => ({
     width: 32, height: 32, borderRadius: 9, background: bg, color: c,
     display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 12,
   }),
   kpiValue: { fontSize: 25, fontWeight: 700, fontFamily: 'var(--font-mono)' },
   kpiLabel: { fontSize: 11.5, color: 'var(--text-muted)', marginTop: 3 },
+  kpiNote: { fontSize: 11, color: 'var(--text-muted)', marginBottom: 12, lineHeight: 1.5 },
   chartsGrid: { display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 12, marginBottom: 12 },
   cardTitle: { fontSize: 13, fontWeight: 700, marginBottom: 2 },
   cardHint: { fontSize: 11, color: 'var(--text-muted)', marginBottom: 14 },
@@ -223,9 +226,28 @@ export default function SessionsPage() {
   const highest = resumo?.tallestExtent95M ?? 0
   const measuredTotal = counts[1] + counts[2] + counts[3]
 
+  /**
+   * Quanta beira de estrada as leituras cobrem.
+   *
+   * O extrator corta cada segmento em janelas de cerca de 25 m e grava onde cada uma começa e
+   * termina, então somar isso é a única medida de extensão que o sistema tem sem inventar nada.
+   * Uma leitura anterior ao corte não tem recorte nenhum: ela fica de fora da soma, e a linha
+   * abaixo dos indicadores diz quantas ficaram, porque contá-las como zero encurtaria a estrada
+   * em silêncio.
+   */
+  const metres = resumo?.measuredMetres ?? null
+  const withRange = resumo?.readingsWithRange ?? 0
+  const withoutRange = Math.max(0, (resumo?.total ?? 0) - withRange)
+  const extent = metres == null
+    ? { value: 0, decimals: 0, suffix: ' m' }
+    : metres >= 1000
+      ? { value: metres / 1000, decimals: 1, suffix: ' km' }
+      : { value: metres, decimals: 0, suffix: ' m' }
+
   const kpis = [
     { icon: Route, label: 'Sessões capturadas', value: page?.total ?? 0 },
     { icon: Ruler, label: 'Trechos medidos', value: resumo?.total ?? 0 },
+    { icon: Milestone, label: 'Extensão medida', ...extent },
     { icon: TriangleAlert, label: 'Acima de 30 cm', value: overdue },
     { icon: Camera, label: 'Maior altura p95', value: highest * 100, decimals: 0, suffix: ' cm' },
   ]
@@ -252,6 +274,16 @@ export default function SessionsPage() {
           )
         })}
       </div>
+
+      {withoutRange > 0 && (
+        <div style={s.kpiNote}>
+          A extensão cobre {withRange} {withRange === 1 ? 'leitura' : 'leituras'}.
+          {' '}{withoutRange} {withoutRange === 1 ? 'foi medida' : 'foram medidas'} antes do corte em
+          janelas e não {withoutRange === 1 ? 'tem' : 'têm'} recorte gravado, então
+          {withoutRange === 1 ? ' ficou' : ' ficaram'} de fora da soma em vez de
+          {withoutRange === 1 ? ' entrar' : ' entrarem'} como zero metro.
+        </div>
+      )}
 
       <div style={s.chartsGrid}>
         <Card delay={0.15}>
