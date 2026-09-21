@@ -6,6 +6,7 @@ import br.com.greenv.videoapi.domain.CaptureObjectKeys;
 import br.com.greenv.videoapi.domain.CaptureSegmentDocument;
 import br.com.greenv.videoapi.domain.CaptureSessionDocument;
 import br.com.greenv.videoapi.domain.MeasurementQuery;
+import br.com.greenv.videoapi.domain.MeasurementSummary;
 import br.com.greenv.videoapi.domain.SegmentMeasurementAnnouncement;
 import br.com.greenv.videoapi.domain.SegmentQuery;
 import br.com.greenv.videoapi.domain.SegmentReference;
@@ -250,6 +251,43 @@ class SegmentWindowIntegrationTest {
                 .noneMatch(r -> r.sessionId().equals(windowed) && r.windowIndex() == null);
         assertThat(captures.summariseMeasurements(MeasurementQuery.tallestFirst()).total())
                 .isEqualTo(3);
+    }
+
+    /**
+     * How much roadside the set covers, and how much of it the number can speak for.
+     *
+     * <p>A reading from before the extractor cut segments into windows carries no range at all.
+     * Counting it as zero metres would be the quiet kind of wrong: the dashboard would report a
+     * shorter road than was driven and nothing on screen would say so. It is left out of the sum
+     * and counted separately, so the screen can say what the figure covers.
+     */
+    @Test
+    void addsUpTheRoadsideTheWindowsCoverAndSaysHowManyCarriedARange() {
+        UUID windowed = givenASegment();
+        givenAMeasuredWindow(windowed, 0, 0.0, 25.0, 0.12, "20260914-000000-aaaaaa");
+        givenAMeasuredWindow(windowed, 1, 25.0, 50.0, 0.48, "20260914-000000-bbbbbb");
+
+        UUID whole = givenASegment();
+        givenASegmentMeasuredWhole(whole, 0.31);
+
+        MeasurementSummary summary = captures.summariseMeasurements(MeasurementQuery.tallestFirst());
+
+        assertThat(summary.measuredMetres()).isEqualTo(50.0);
+        assertThat(summary.readingsWithRange())
+                .as("two of the three readings have a range; the one measured whole has none")
+                .isEqualTo(2);
+        assertThat(summary.total()).isEqualTo(3);
+    }
+
+    /** With nothing but whole-segment readings there is no length to report, and none is claimed. */
+    @Test
+    void reportsNoLengthAtAllWhenNoReadingCarriesARange() {
+        givenASegmentMeasuredWhole(givenASegment(), 0.31);
+
+        MeasurementSummary summary = captures.summariseMeasurements(MeasurementQuery.tallestFirst());
+
+        assertThat(summary.measuredMetres()).isNull();
+        assertThat(summary.readingsWithRange()).isZero();
     }
 
     /** A session is still a list of uploads, with the shape of its window set on each row. */

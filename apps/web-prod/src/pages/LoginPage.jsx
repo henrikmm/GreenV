@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Eye, EyeOff, Mail, Lock, ArrowRight, Route, Ruler, Camera } from 'lucide-react'
-import { useAuth, useToast, GrassHorizon } from '@greenv/web-core'
+import { useAuth, useToast, GrassHorizon, MotivaWordmark, GreenVWordmark } from '@greenv/web-core'
 
 /**
  * Entrar de verdade.
@@ -26,7 +26,7 @@ const s = {
     backgroundImage: 'radial-gradient(rgba(255,255,255,0.9) 1.5px, transparent 1.5px)',
     backgroundSize: '28px 28px',
   },
-  wordmark: { fontSize: 22, fontWeight: 800, letterSpacing: '-0.01em', position: 'relative' },
+  wordmark: { position: 'relative' },
   heroText: { position: 'relative' },
   heroTitle: { fontSize: 34, fontWeight: 700, lineHeight: 1.25, marginBottom: 14, maxWidth: 420 },
   heroSubtitle: { fontSize: 14.5, lineHeight: 1.6, color: 'rgba(255,255,255,0.78)', maxWidth: 400 },
@@ -102,7 +102,7 @@ export default function LoginPage() {
         transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
       >
         <div style={s.brandDots} />
-        <div style={s.wordmark}>MOTIVA</div>
+        <div style={s.wordmark}><MotivaWordmark height={22} tone="white" /></div>
 
         <div style={s.heroText}>
           <div style={s.heroTitle}>Altura de vegetação medida a partir do vídeo de campo</div>
@@ -137,6 +137,8 @@ export default function LoginPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.45, delay: 0.1, ease: [0.16, 1, 0.3, 1] }}
         >
+          {/* A assinatura do produto fica do lado claro: o verde não vive sobre o roxo. */}
+          <GreenVWordmark height={26} style={{ marginBottom: 18 }} />
           <div style={s.title}>Entrar</div>
           <div style={s.subtitle}>Acesse o painel de gestão de vegetação.</div>
 

@@ -14,6 +14,12 @@ import java.util.Map;
  * @param tallestM the highest reading in the filtered set, or null when none was measurable
  * @param countsByLocationQuality how many came from fixes of each quality, the readings with no
  *     position gathered under {@code unavailable}
+ * @param measuredMetres how much roadside the filtered readings cover, summed from each window's
+ *     own start and end along the camera path. Null when none of them carried a range
+ * @param readingsWithRange how many of {@code total} contributed to {@code measuredMetres}. A
+ *     reading taken before the extractor cut segments into windows has no range, and its length
+ *     was never recorded - counting it as zero metres would understate the total silently, so it
+ *     is excluded and counted here instead
  */
 public record MeasurementSummary(
         long total,
@@ -23,7 +29,9 @@ public record MeasurementSummary(
         // reading and not an infrastructure detail: a stretch measured from eighteen-metre
         // fixes is not worth what one measured from five is, and a screen that shows heights
         // without showing this invites a decision the data cannot carry.
-        Map<String, Long> countsByLocationQuality) {
+        Map<String, Long> countsByLocationQuality,
+        Double measuredMetres,
+        long readingsWithRange) {
 
     public MeasurementSummary {
         countsByLevel = Map.copyOf(countsByLevel);
@@ -31,6 +39,6 @@ public record MeasurementSummary(
     }
 
     public static MeasurementSummary empty() {
-        return new MeasurementSummary(0, Map.of(0, 0L, 1, 0L, 2, 0L, 3, 0L), null, Map.of());
+        return new MeasurementSummary(0, Map.of(0, 0L, 1, 0L, 2, 0L, 3, 0L), null, Map.of(), null, 0);
     }
 }

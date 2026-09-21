@@ -1,5 +1,6 @@
+import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Layers, Filter, ListTree, Maximize2 } from 'lucide-react'
+import { Layers, Filter, ListTree, Maximize2, Search } from 'lucide-react'
 import { LEVELS, vegetationLevel } from '@greenv/web-core'
 import { stretchKey, stretchLabel, stretchRange } from '../api/stretch'
 
@@ -21,6 +22,15 @@ const s = {
     display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, fontWeight: 700,
     color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em',
     marginBottom: 10,
+  },
+  searchWrap: {
+    display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px', height: 38,
+    background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+    borderRadius: 'var(--radius-sm)', marginBottom: 10,
+  },
+  searchInput: {
+    flex: 1, border: 'none', background: 'transparent', outline: 'none',
+    fontSize: 13, fontFamily: 'inherit', color: 'var(--text-primary)', minWidth: 0,
   },
   statsGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 },
   statBox: (c) => ({
@@ -111,6 +121,27 @@ export default function SessionsSidebar({
   layers, onToggleLayer, filterLevel, onFilterLevel,
   loading, error,
 }) {
+  const [busca, setBusca] = useState('')
+
+  /**
+   * A busca do aplicativo de campo, sobre o que esta tela realmente tem.
+   *
+   * Lá ela procura rota ou área; aqui procura pelo lugar que a API resolveu, pelo aparelho que
+   * gravou e pela data, que são os três jeitos de alguém se lembrar de uma volta. Ela filtra a
+   * lista e não o mapa: esconder traçado do mapa por causa de um texto digitado faria a malha
+   * parecer menor do que é.
+   */
+  const visiveis = useMemo(() => {
+    const termo = busca.trim().toLowerCase()
+    if (!termo) return entries
+    return entries.filter(({ session, place }) => [
+      place?.label,
+      place?.detail,
+      session.deviceId,
+      new Date(session.startedAt).toLocaleString('pt-BR'),
+    ].some(campo => campo?.toLowerCase().includes(termo)))
+  }, [entries, busca])
+
   const drawableCount = entries.filter(entry => entry.drawable).length
 
   return (
@@ -161,11 +192,23 @@ export default function SessionsSidebar({
 
         <div style={s.section}>
           <div style={s.sectionTitle}><ListTree size={12} /> Sessões</div>
+
+          <div style={s.searchWrap}>
+            <Search size={14} color="var(--text-muted)" />
+            <input
+              style={s.searchInput} value={busca} onChange={event => setBusca(event.target.value)}
+              placeholder="Buscar via, aparelho ou data" aria-label="Buscar sessão"
+            />
+          </div>
+
           {loading && <div style={s.state}>Carregando sessões…</div>}
           {error && <div style={{ ...s.state, color: LEVELS[3].color }}>{error.message}</div>}
           {!loading && entries.length === 0 && <div style={s.state}>Nenhuma sessão capturada ainda.</div>}
+          {!loading && entries.length > 0 && visiveis.length === 0 && (
+            <div style={s.state}>Nenhuma sessão casa com “{busca}”.</div>
+          )}
 
-          {entries.map(({ session, track, worst, drawable, place, stretches }) => (
+          {visiveis.map(({ session, track, worst, drawable, place, stretches }) => (
             <motion.div key={session.sessionId} whileTap={{ scale: 0.99 }}
               style={s.card(selectedId === session.sessionId)}
               onClick={() => onSelect(drawable ? session.sessionId : null)}>

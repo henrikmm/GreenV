@@ -1750,6 +1750,19 @@ components:
             is not worth what one measured from five is.
           additionalProperties:
             type: integer
+        measuredMetres:
+          description: >-
+            How much roadside the selected readings cover, summed from each
+            window's own start and end along the camera path. Null when none of
+            them carried a range.
+          type: [number, 'null']
+        readingsWithRange:
+          description: >-
+            How many of `total` contributed to `measuredMetres`. A reading taken
+            before the extractor cut segments into windows has no recorded
+            length; counting it as zero would understate the road silently, so
+            it is excluded and counted here instead.
+          type: integer
     SampledFrame:
       type: object
       required: [fileName, canonicalFrame, imageUrl]

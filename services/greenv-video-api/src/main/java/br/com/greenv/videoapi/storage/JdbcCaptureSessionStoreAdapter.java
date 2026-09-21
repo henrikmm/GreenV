@@ -738,6 +738,7 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                         return MeasurementSummary.empty();
                     }
                     double tallest = result.getDouble("tallest");
+                    boolean noTallest = result.wasNull();
                     return new MeasurementSummary(
                             result.getLong("total"),
                             Map.of(
@@ -745,11 +746,16 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                                     1, result.getLong("level_1"),
                                     2, result.getLong("level_2"),
                                     3, result.getLong("level_3")),
-                            result.wasNull() ? null : tallest,
+                            noTallest ? null : tallest,
                             Map.of(
                                     "good", result.getLong("gps_good"),
                                     "degraded", result.getLong("gps_degraded"),
-                                    "unavailable", result.getLong("gps_unavailable")));
+                                    "unavailable", result.getLong("gps_unavailable")),
+                            // This query counts segments, and a range belongs to a window. Summing
+                            // window metres beside a segment count would put two units in one
+                            // record, and every reader would have to know which was which.
+                            null,
+                            0);
                 },
                 sessionId);
     }
@@ -847,7 +853,10 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                        SUM(CASE WHEN track_location_quality = 'degraded' THEN 1 ELSE 0 END)
                            AS gps_degraded,
                        SUM(CASE WHEN track_location_quality IN ('good', 'degraded') THEN 0 ELSE 1 END)
-                           AS gps_unavailable
+                           AS gps_unavailable,
+                       SUM(window_end_meters - window_start_meters) AS measured_metres,
+                       SUM(CASE WHEN window_start_meters IS NULL OR window_end_meters IS NULL
+                                THEN 0 ELSE 1 END) AS with_range
                   FROM """
                         + READING_SOURCE
                         + where,
@@ -856,6 +865,9 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                         return MeasurementSummary.empty();
                     }
                     double tallest = result.getDouble("tallest");
+                    boolean noTallest = result.wasNull();
+                    double covered = result.getDouble("measured_metres");
+                    Double metres = result.wasNull() ? null : covered;
                     return new MeasurementSummary(
                             result.getLong("total"),
                             Map.of(
@@ -863,11 +875,13 @@ public class JdbcCaptureSessionStoreAdapter implements CaptureSessionStore {
                                     1, result.getLong("level_1"),
                                     2, result.getLong("level_2"),
                                     3, result.getLong("level_3")),
-                            result.wasNull() ? null : tallest,
+                            noTallest ? null : tallest,
                             Map.of(
                                     "good", result.getLong("gps_good"),
                                     "degraded", result.getLong("gps_degraded"),
-                                    "unavailable", result.getLong("gps_unavailable")));
+                                    "unavailable", result.getLong("gps_unavailable")),
+                            metres,
+                            result.getLong("with_range"));
                 },
                 arguments.toArray());
     }
