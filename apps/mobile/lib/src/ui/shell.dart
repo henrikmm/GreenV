@@ -81,7 +81,7 @@ final class AppHeader extends StatelessWidget {
     ),
     child: Row(
       children: [
-        GreenVLogo(fontSize: 26),
+        GreenVLogo(height: 26),
         SizedBox(width: 10),
         EnvironmentBadge(),
         Spacer(),
@@ -525,45 +525,31 @@ final class NavigationItem extends StatelessWidget {
   );
 }
 
+/// A assinatura do produto, o arquivo oficial do `sprint-cross-plataform`.
+///
+/// Era desenhada aqui: "Green" numa serifada com um "V" itálico ao lado. Passava de longe e não
+/// era a marca de perto. O verde não sobrevive sobre o roxo, então [light] achata o desenho em
+/// branco em vez de trocar de arquivo — o traço é o mesmo, só a cor muda.
 final class GreenVLogo extends StatelessWidget {
-  const GreenVLogo({this.fontSize = 21, this.light = false, super.key});
+  const GreenVLogo({this.height = 22, this.light = false, super.key});
 
-  final double fontSize;
+  final double height;
   final bool light;
 
   @override
-  Widget build(BuildContext context) => Semantics(
-    label: 'GreenV',
-    child: ExcludeSemantics(
-      child: Text.rich(
-        TextSpan(
-          children: [
-            TextSpan(
-              text: 'Green',
-              style: TextStyle(
-                color: light ? Colors.white : const Color(0xFF075D37),
-                fontSize: fontSize,
-                fontFamily: 'serif',
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            TextSpan(
-              text: 'V',
-              style: TextStyle(
-                color: light
-                    ? const Color(0xFF8ED081)
-                    : const Color(0xFF5E9A38),
-                fontSize: fontSize + 1,
-                fontFamily: 'serif',
-                fontStyle: FontStyle.italic,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
-        ),
-      ),
-    ),
-  );
+  Widget build(BuildContext context) {
+    final logo = Image.asset(
+      'assets/brand/greenv-wordmark.png',
+      height: height,
+      fit: BoxFit.contain,
+      color: light ? Colors.white : null,
+      colorBlendMode: light ? BlendMode.srcIn : null,
+    );
+    return Semantics(
+      label: 'GreenV',
+      child: ExcludeSemantics(child: logo),
+    );
+  }
 }
 
 final class FieldRoutePainter extends CustomPainter {

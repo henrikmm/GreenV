@@ -312,7 +312,7 @@ final class _SplashScreen extends StatelessWidget {
               SizedBox(height: 22),
               SizedBox(width: 44, child: Divider(color: Color(0x66FFFFFF))),
               SizedBox(height: 16),
-              GreenVLogo(fontSize: 28, light: true),
+              GreenVLogo(height: 30, light: true),
               SizedBox(height: 12),
               Text(
                 'Tecnologia para cuidar de cada trecho',
@@ -356,10 +356,28 @@ final class _AuthPattern extends StatelessWidget {
     child: Stack(
       fit: StackFit.expand,
       children: [
-        CustomPaint(painter: _PatternPainter()),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 32, 20, 24),
-          child: child,
+        // O mesmo padrão de ondas que o aplicativo de campo põe atrás do login, alinhado ao topo
+        // e cortado embaixo: o desenho vai do roxo ao verde de cima para baixo, e centralizá-lo
+        // deixaria de fora justamente essa passagem.
+        Image.asset(
+          'assets/brand/auth-backdrop.png',
+          fit: BoxFit.cover,
+          alignment: Alignment.topCenter,
+        ),
+        const ColoredBox(color: Color(0x8CF3F6F2)),
+        // O cartão flutua no meio do padrão em vez de ocupar a tela, que é como o aplicativo de
+        // campo o desenha. A rolagem é daqui e não de dentro do cartão: assim ele encolhe até o
+        // tamanho do conteúdo e, quando o teclado sobe e o que sobra não cabe, a tela rola.
+        LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 32, 20, 24),
+            // O mínimo é a altura da moldura, e não um número: é ele que faz o `Center` centrar
+            // de verdade em vez de empurrar o cartão para o topo de uma caixa baixa demais.
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight - 56),
+              child: Center(child: child),
+            ),
+          ),
         ),
       ],
     ),
@@ -388,24 +406,18 @@ final class _AuthCard extends StatelessWidget {
     ),
     padding: const EdgeInsets.fromLTRB(26, 30, 26, 18),
     child: Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        const Row(
-          mainAxisAlignment: MainAxisAlignment.center,
+        const Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
             _MotivaLogo(color: motivaPurple),
-            SizedBox(height: 34, child: VerticalDivider(width: 28)),
-            GreenVLogo(fontSize: 22),
+            SizedBox(height: 8),
+            GreenVLogo(height: 30),
           ],
         ),
-        // Centred while it fits, scrollable when it does not. A fixed-height column here overflows
-        // as soon as anything is added - an error message, or a short screen on a small phone.
-        Expanded(
-          child: Center(
-            child: SingleChildScrollView(
-              child: Column(mainAxisSize: MainAxisSize.min, children: children),
-            ),
-          ),
-        ),
+        const SizedBox(height: 28),
+        ...children,
         footer ?? const SizedBox.shrink(),
       ],
     ),
@@ -557,6 +569,9 @@ class _LoginScreenState extends State<_LoginScreen> {
         const SizedBox(height: 18),
         FilledButton(
           key: const Key('login-button'),
+          // Roxo, como no aplicativo de campo. O verde do tema continua valendo em todo o resto;
+          // trocá-lo no tema repintaria telas que não têm nada a ver com esta.
+          style: FilledButton.styleFrom(backgroundColor: motivaPurple),
           onPressed: _busy ? null : _submit,
           child: _busy
               ? const SizedBox(
@@ -1326,6 +1341,12 @@ final class _GnssWarningCard extends StatelessWidget {
   );
 }
 
+/// A marca da Motiva, o arquivo oficial do `sprint-cross-plataform`.
+///
+/// Havia aqui um pintor que desenhava quatro barras inclinadas e escrevia "motiva" ao lado numa
+/// fonte qualquer. O arquivo roxo é o único horizontal, então a versão branca sai dele por
+/// mistura de cor, e a empilhada — que só a abertura usa — é um arquivo à parte porque tem outra
+/// proporção.
 final class _MotivaLogo extends StatelessWidget {
   const _MotivaLogo({required this.color, this.large = false});
 
@@ -1333,97 +1354,23 @@ final class _MotivaLogo extends StatelessWidget {
   final bool large;
 
   @override
-  Widget build(BuildContext context) => Semantics(
-    label: 'motiva',
-    child: ExcludeSemantics(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          CustomPaint(
-            size: Size(large ? 82 : 48, large ? 46 : 28),
-            painter: _MotivaMarkPainter(color),
-          ),
-          SizedBox(height: large ? 7 : 3),
-          Text(
-            'motiva',
-            style: TextStyle(
-              color: color,
-              fontSize: large ? 34 : 19,
-              height: 1,
-              letterSpacing: -0.7,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ],
+  Widget build(BuildContext context) {
+    final branca = color == Colors.white;
+    return Semantics(
+      label: 'motiva',
+      child: ExcludeSemantics(
+        child: large && branca
+            ? Image.asset('assets/brand/motiva-mark-white.png', width: 132, fit: BoxFit.contain)
+            : Image.asset(
+                'assets/brand/motiva-wordmark.png',
+                height: large ? 46 : 26,
+                fit: BoxFit.contain,
+                color: branca ? Colors.white : null,
+                colorBlendMode: branca ? BlendMode.srcIn : null,
+              ),
       ),
-    ),
-  );
-}
-
-final class _MotivaMarkPainter extends CustomPainter {
-  const _MotivaMarkPainter(this.color);
-
-  final Color color;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()..color = color;
-    final width = size.width / 4.4;
-    for (var index = 0; index < 4; index++) {
-      final left = index * width * .92;
-      final top = index.isEven ? size.height * .22 : size.height * .05;
-      final path = Path()
-        ..moveTo(left + width * .12, top + size.height * .42)
-        ..lineTo(left + width * .50, top)
-        ..lineTo(left + width, top)
-        ..lineTo(left + width * .62, top + size.height * .58)
-        ..lineTo(left + width * .12, top + size.height * .58)
-        ..close();
-      canvas.drawPath(path, paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _MotivaMarkPainter oldDelegate) =>
-      oldDelegate.color != color;
-}
-
-final class _PatternPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    canvas.drawCircle(
-      Offset(size.width * .86, size.height * .08),
-      size.width * .34,
-      Paint()..color = const Color(0x176546D7),
     );
-    canvas.drawCircle(
-      Offset(size.width * .08, size.height * .92),
-      size.width * .46,
-      Paint()..color = const Color(0x192D8A62),
-    );
-    final line = Paint()
-      ..color = const Color(0x184E34B5)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.2;
-    for (var index = 0; index < 4; index++) {
-      final inset = index * 18.0;
-      canvas.drawArc(
-        Rect.fromLTWH(
-          size.width - 150 + inset,
-          -80 + inset,
-          220 - inset,
-          220 - inset,
-        ),
-        .7,
-        2.1,
-        false,
-        line,
-      );
-    }
   }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 final class _FieldPreviewPainter extends CustomPainter {
