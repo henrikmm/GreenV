@@ -691,7 +691,19 @@ variable "container_registry" {
 variable "api_max_replicas" {
   description = "Maximum number of API replicas."
   type        = number
-  default     = 3
+
+  # Two, because the ceiling is the whole bill.
+  #
+  # Unlike the two workers, the API has an HTTP scale rule, and an HTTP rule only ever scales
+  # down to what the requests allow. On 21 September 2026 it sat at three replicas for hours with
+  # every one of the six queues empty and both workers at zero - nobody was using the system and
+  # three machines were being paid for. The ceiling is what bounds that: whatever the ingress
+  # miscounts next time, it can cost twice and never three times.
+  #
+  # Two rather than one so a single machine failing its readiness probe does not take the API
+  # with it. Above the ceiling the answer is a slower response, which is the failure worth having
+  # here.
+  default = 2
 
   validation {
     condition     = var.api_max_replicas >= 1 && var.api_max_replicas <= 10

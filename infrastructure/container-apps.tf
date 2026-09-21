@@ -151,9 +151,21 @@ resource "azurerm_container_app" "api" {
       }
     }
 
+    # A second replica needs real request volume behind it, not the mere existence of traffic.
+    #
+    # This threshold is how many requests have to be in flight at once before KEDA asks for
+    # another replica. At ten it asked for a third on 21 September 2026 with every queue empty
+    # and nobody using the system, which is how the API spent hours at three replicas. Eighty
+    # means one replica carries everything a dashboard and a handful of phones produce, and a
+    # second one appears only under load that a single machine genuinely cannot hold.
+    #
+    # Deliberately not a CPU rule. Container Apps will not scale an app to zero while a CPU or
+    # memory rule is attached, so that rule would replace an occasional extra replica with one
+    # replica billed every hour of every day - the opposite of the point. Requests in flight
+    # keep the floor at zero.
     http_scale_rule {
-      name                = "http-concurrency"
-      concurrent_requests = "10"
+      name                = "http-volume"
+      concurrent_requests = "80"
     }
 
     # A finished measurement is announced on a queue the API polls, and the API scales to zero
