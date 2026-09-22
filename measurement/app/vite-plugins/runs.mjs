@@ -18,6 +18,11 @@ import { homedir, tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import { cloudStatus } from "./cloud.mjs";
+import {
+  IMPORTED_GLB_NAME,
+  IMPORTED_NPZ_NAME,
+  describeImportedRun,
+} from "./imported-run.mjs";
 import { FRAME_ROOT } from "./temp-store.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -234,6 +239,102 @@ export async function registerRun(repoRoot, entry) {
 }
 
 /**
+ * Take a reconstruction computed somewhere else and make it a run on this disk.
+ *
+ * The other two ways in both assume this app paid for the run: `registerRun` requires the
+ * configured Cloud Run service to vouch for the artifacts, and the built-ins are compiled in. A
+ * `.glb` and a `.npz` from anywhere else — the GreenV worker, another machine, a session whose
+ * service is long gone — had no route at all, although every stage downstream reads precisely
+ * those two files.
+ *
+ * Imported runs are PERSISTED from the moment they exist, which is the one place they depart from
+ * the storage policy. The policy makes a run transient because its bytes are somewhere else and
+ * cheap to fetch again; these bytes arrived by hand and there is nowhere to fetch them from. So
+ * they are written, counted in the pane's disk total, and deletable like any other saved run.
+ *
+ * Frames are optional. Without them the GLB cloud, the floor fit and the measurement all still
+ * work; what stops working is photograph colour and painting a mask on a real image, because
+ * those read the JPEGs. `loadFrameColors` already treats an absent frame as a colourless one, so
+ * the degradation is the app's existing behaviour rather than a new path.
+ */
+export async function importRun({ glb, npz, glbName, npzName, frames = [], label, clipName, fps }) {
+  const runs = await readIndex();
+  const description = describeImportedRun({
+    glb,
+    npz,
+    glbName: glbName || "scene.glb",
+    npzName: npzName || "result.npz",
+    fps: Number.isFinite(fps) && fps > 0 ? Number(fps) : 10,
+    /**
+     * Free means free in both places. A directory with no index entry is what a half-finished
+     * import leaves behind, and handing that id out again would write the new run's manifest
+     * over the old run's artifacts.
+     */
+    taken: (candidate) => runs.some((run) => run.id === candidate) || existsSync(join(RUNS_ROOT, candidate)),
+  });
+  const { runId, npzDigest, manifest, shape } = description;
+  if (!safeRunId(runId)) throw new Error(`generated run id is invalid: ${runId}`);
+
+  const directory = join(RUNS_ROOT, runId);
+  const frameDirectory = join(directory, "frames");
+  await mkdir(frameDirectory, { recursive: true });
+  await writeFile(join(directory, IMPORTED_GLB_NAME), glb);
+  await writeFile(join(directory, IMPORTED_NPZ_NAME), npz);
+  await writeFile(join(directory, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+
+  /**
+   * Renumbered 1..N in NPZ order, exactly as `saveRun` renumbers a cloud run's.
+   *
+   * `recordedDescriptors` addresses frame *i* as `frame-000(i+1).jpg` and nothing else, so an
+   * upload keeping its own names would resolve to 404s. Sorting by name first is what makes the
+   * order the NPZ's: every extractor this project has ever used writes zero-padded names, so
+   * lexical order is capture order.
+   */
+  const ordered = [...frames].sort((a, b) => a.name.localeCompare(b.name));
+  if (ordered.length > 0 && ordered.length < shape.frameCount) {
+    throw new Error(
+      `the npz describes ${shape.frameCount} frames but ${ordered.length} image${ordered.length === 1 ? " was" : "s were"} ` +
+        "uploaded. Import them all, or none — a partial set silently pairs depth with the wrong picture.",
+    );
+  }
+  for (const [index, frame] of ordered.slice(0, shape.frameCount).entries()) {
+    await writeFile(join(frameDirectory, `frame-${String(index + 1).padStart(4, "0")}.jpg`), frame.bytes);
+  }
+
+  const next = {
+    id: runId,
+    label: label || `Imported · ${shape.frameCount}f · ${manifest.params.process_res} px`,
+    clipName: clipName || "",
+    /**
+     * The npz's own digest, because this field decides which runs share a set of measurement
+     * targets (`panes/objects.tsx`) and metric scale does not transfer between reconstructions.
+     * An imported run has no source clip to hash, and leaving it empty would file every import
+     * ever made under one key — so two unrelated scenes would offer each other's targets.
+     */
+    clipSha256: `imported:${npzDigest}`,
+    createdAt: new Date().toISOString(),
+    source: "import",
+    builtin: false,
+    persisted: true,
+    frameCount: shape.frameCount,
+    processRes: manifest.params.process_res,
+    gpuSeconds: 0,
+    serviceUrl: "",
+    // This run's frames are its own, contiguous 1..N — never the door fixtures' shared
+    // 256-frame extraction. Getting this wrong desynchronises RGB from depth without erroring.
+    canonicalFrames: false,
+    /** False when the pair arrived without its images. The pane says so; it is not a failure. */
+    framesAvailable: ordered.length > 0,
+    manifest: manifestToApp(manifest),
+    framePaths: [],
+    artifactBase: `/api/run-artifact?path=${encodeURIComponent(runId)}%2F`,
+    framesBase: `/api/run-artifact?path=${encodeURIComponent(runId)}%2Fframes%2F`,
+  };
+  await writeIndex([...runs, next]);
+  return next;
+}
+
+/**
  * Bring a run's artifacts home. Delegates to scripts/save-run.sh rather than reimplementing
  * the download: that script already does the range-chunked fetch Cloud Run's 32 MiB response
  * cap forces, plus sha256 verification, and having two implementations of that would mean one
@@ -320,6 +421,75 @@ export function toWireManifest(manifest) {
     transient: manifest.transient,
     expires_after_days: manifest.expiresAfterDays,
     mock: manifest.mock === true,
+  };
+}
+
+/**
+ * Wire shape back to the app's, so an imported manifest can be stored the way every other
+ * registry record stores one.
+ *
+ * The third copy of this mapping, and the reason for it is the module boundary: the authority is
+ * `manifestFromWire` in `app/src/lib/infer-client.ts`, which is TypeScript the browser compiles
+ * and this middleware cannot import. Kept next to `toWireManifest` so the pair is read together —
+ * and complete rather than partial, because that function's second bug was written by somebody
+ * emitting only the fields the immediate caller happened to need.
+ */
+export function manifestToApp(w) {
+  return {
+    schemaVersion: w.schema_version,
+    runId: w.run_id,
+    modelRepositoryId: w.model_repository_id,
+    modelRevision: w.model_revision,
+    depthMode: w.depth_mode,
+    linearUnit: w.linear_unit,
+    params: {
+      fps: w.params.fps,
+      sourceDurationS: w.params.source_duration_s ?? undefined,
+      processRes: w.params.process_res,
+      processResMethod: w.params.process_res_method,
+      refViewStrategy: w.params.ref_view_strategy,
+      maxFrames: w.params.max_frames,
+    },
+    frames: {
+      count: w.frames.count,
+      requestedCount: w.frames.requested_count,
+      width: w.frames.width,
+      height: w.frames.height,
+      capped: w.frames.capped,
+      effectiveFps: w.frames.effective_fps ?? undefined,
+    },
+    timing: {
+      gpuSeconds: w.timing.gpu_seconds,
+      wallSeconds: w.timing.wall_seconds,
+      modelLoadSeconds: w.timing.model_load_seconds ?? undefined,
+    },
+    vram: {
+      peakBytes: w.vram.peak_bytes,
+      currentBytes: w.vram.current_bytes,
+      totalBytes: w.vram.total_bytes,
+      deviceName: w.vram.device_name,
+      torchPeakBytes: w.vram.torch_peak_bytes ?? 0,
+      baselineBytes: w.vram.baseline_bytes ?? 0,
+    },
+    artifacts: (w.artifacts ?? []).map((a) => ({
+      kind: a.kind,
+      name: a.name,
+      sizeBytes: a.size_bytes,
+      sha256: a.sha256,
+      url: a.url,
+      gsUri: a.gs_uri ?? undefined,
+    })),
+    diagnostics: w.diagnostics
+      ? {
+          nativeNpz: w.diagnostics.native_npz ?? {},
+          exportDirListing: w.diagnostics.export_dir_listing ?? [],
+          publishMode: w.diagnostics.publish_mode ?? undefined,
+          publishErrors: w.diagnostics.publish_errors ?? undefined,
+        }
+      : undefined,
+    transient: w.transient,
+    expiresAfterDays: w.expires_after_days,
+    mock: w.mock === true,
   };
 }
 

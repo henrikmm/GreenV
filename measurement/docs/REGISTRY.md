@@ -905,6 +905,69 @@ speed, so four fifths of the road never reaches the model; the manifest's per-fr
 `process.argv[1].endsWith('/…')` guard never fires on Windows, where the checker has to be called
 through its export.
 
+### A reconstruction computed elsewhere can be opened here — 2026-09-18
+
+**Verge Studio now takes a `.glb` and a `.npz` directly.** Drop the pair on the Runs pane's import
+zone and it becomes an ordinary run: selectable, measurable, deletable, counted in the pane's disk
+total. The frames they were computed from are optional.
+
+The registry had two doors before this and both assumed the run was ours. `registerRun` requires
+the configured Cloud Run service to vouch for every artifact, and the three door fixtures are
+compiled in. So a reconstruction produced anywhere else — by the GreenV worker, on another
+machine, in a session whose service is long gone — could not be opened at all, even though every
+stage downstream reads exactly those two files and nothing else.
+
+**The gap was never the geometry; it was the manifest.** `loadRunDepthField` needs one and an
+uploaded pair does not carry it, so `imported-run.mjs` builds one. Which fields are measured and
+which are taken on the importer's word is the whole design:
+
+| Field | Where it comes from |
+|---|---|
+| `frames.count`, `frames.width/height` | the npz's own `depth` shape — exact |
+| `params.process_res` | the long edge of that shape: the door run's `(112, 504, 280)` is 504 px |
+| `artifacts[].size_bytes`, `sha256` | the uploaded bytes — exact |
+| `diagnostics.native_npz` | the arrays the file carries, under the name it arrived with |
+| `params.fps`, `frames.effective_fps` | declared by whoever imported, never observed |
+| `timing.*`, `vram.*` | **zero**, because no GPU ran on this machine |
+| `model_repository_id`, `model_revision` | **empty**, because the file does not say |
+
+Zero and empty are deliberate. A plausible GPU time nobody measured is the failure this
+repository's claims rule exists to prevent, and those two fields are never rendered for a recorded
+run — `setup.tsx`'s "Current run" panel reads the live `da3-depth` output only.
+
+The shapes are read from the zip's central directory and the first 8 KB of each member, so
+describing a 105 MB bundle costs four short reads instead of inflating 105 MB
+(`npz-meta.mjs`; `fixtures/door/504px-112f/verge-result.npz` reports `depth (112, 504, 280)` this
+way). `readNpzMeta` decodes no array — the moment a caller needs floats it uses the browser
+reader, which `scripts/inspect/bridge.ts` already shares.
+
+**Three things refused before anything is written**, each a silent wrong measurement rather than a
+visible failure: a truncated GLB, caught by comparing the header's declared length to the bytes
+that arrived; an npz whose `depth`, `intrinsics` and `extrinsics` disagree on frame count, which
+would pair one frame's depth with another frame's camera; and a partial frame set, for the same
+reason. DA3's own native export is refused by name, because both files are called `.npz` and only
+one carries the keys `npz.ts` reads.
+
+**A run id is the timestamp plus the npz's own digest**, so two imports of one file are visibly the
+same geometry — and because that makes the id a function of the file and the *second*, uniqueness
+is settled against the registry rather than against a clock. Re-importing to attach frames that
+were missing the first time is a real thing to do and must not overwrite what was measured against
+the first. `clipSha256` is `imported:<digest>` for the same reason: it decides which runs share a
+set of measurement targets, and an empty string would file every import ever made under one key,
+so two unrelated scenes would offer each other's targets.
+
+**Frames are optional and the degradation is the app's existing behaviour.** `loadFrameColors`
+already treats an absent frame as a colourless one and falls back to the height ramp, and DA3's
+GLB carries its own vertex colours, so the exported cloud is coloured either way. What is lost is
+photograph colour on the rebuilt npz cloud and painting a mask on a real image. The run record
+carries `framesAvailable` and the pane says "imported · no frames".
+
+Exercised on a real GreenV segment on 2026-09-18: `01a09b15-segmento-1-trecho-00`, 86 frames at
+504 px, 52 MB npz and 16 MB GLB, imported without frames. It loaded, rendered, and a painted verge
+measured 25.627 m of extent — measurable, with no tape truth to grade it against. The Depth 2D
+pane still reports a frameless run as "could not load RGB frame 1", which is honest but reads as a
+fault rather than as the documented state it is.
+
 ### The grid measures from each cell's own ground, not from the plane — 2026-09-05
 
 **The default reading is now an extent: `extent50M`, `extent90M`, `extent95M`, from a low

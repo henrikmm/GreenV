@@ -24,7 +24,8 @@ export interface RunRecord {
    *  this is what decides which measurement targets a run may be graded against. */
   clipSha256: string;
   createdAt: string;
-  source: "cloud" | "fixture";
+  /** `import` is a reconstruction computed elsewhere and uploaded as a `.glb` + `.npz` pair. */
+  source: "cloud" | "fixture" | "import";
   /** Built-ins are the recorded door fixtures: read-only and not deletable. */
   builtin: boolean;
   /**
@@ -37,6 +38,13 @@ export interface RunRecord {
   canonicalFrames?: boolean;
   /** True once the artifacts are on this disk rather than only on a cloud instance. */
   persisted: boolean;
+  /**
+   * False when an imported run arrived without the frames it was computed from. The geometry is
+   * complete either way; what is missing is photograph colour and anything painted on an image.
+   * Absent on every record written before importing existed, which is why the pane reads it as
+   * "not an import" rather than "no frames".
+   */
+  framesAvailable?: boolean;
   /** False when a stub's instance is gone, or a fixture payload was never regenerated. */
   available: boolean;
   frameCount?: number;
@@ -87,6 +95,96 @@ export async function registerRun(entry: {
       headers: localApiHeaders({ "content-type": "application/json" }),
       body: JSON.stringify(entry),
     }),
+  )) as RunRecord;
+}
+
+export interface ImportSelection<T> {
+  glb: T[];
+  npz: T[];
+  frames: T[];
+  /** Anything that is none of the three, kept so the pane can name what it is ignoring. */
+  ignored: T[];
+}
+
+/**
+ * Sort a dropped or picked set of files into the three things an import is made of.
+ *
+ * By extension, because that is all a browser reliably offers: a dropped file has a name and
+ * bytes, and the bytes are not read here. The real check on what a file IS happens in the
+ * middleware, which reads the glTF header and the npz directory — so a `.glb` that is not one is
+ * refused there with a reason, rather than accepted here on the strength of its name.
+ */
+export function sortImportFiles<T extends { name: string }>(files: readonly T[]): ImportSelection<T> {
+  const selection: ImportSelection<T> = { glb: [], npz: [], frames: [], ignored: [] };
+  for (const file of files) {
+    const extension = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
+    if (extension === ".glb") selection.glb.push(file);
+    else if (extension === ".npz") selection.npz.push(file);
+    else if (extension === ".jpg" || extension === ".jpeg") selection.frames.push(file);
+    else selection.ignored.push(file);
+  }
+  return selection;
+}
+
+/**
+ * Whether a selection can be imported, and what to say when it cannot.
+ *
+ * Separate from the pane so the wording is asserted rather than eyeballed. Every branch here is
+ * a mistake somebody will actually make — dropping one file of the pair, dropping two runs at
+ * once, dropping the frames folder and forgetting the geometry.
+ */
+export function importReadiness<T extends { name: string }>(
+  selection: ImportSelection<T>,
+): { ready: boolean; detail: string } {
+  const { glb, npz, frames, ignored } = selection;
+  if (glb.length === 0 && npz.length === 0) {
+    return { ready: false, detail: "Drop a .glb and a .npz — the frames they were computed from are optional." };
+  }
+  if (glb.length === 0) return { ready: false, detail: "No .glb. The point cloud and its alignment live in that file." };
+  if (npz.length === 0) return { ready: false, detail: "No .npz. Depth, intrinsics and extrinsics live in that file, and nothing can be measured without them." };
+  if (glb.length > 1 || npz.length > 1) {
+    return { ready: false, detail: "One run at a time: this selection holds more than one .glb or .npz." };
+  }
+  const extra = ignored.length > 0 ? ` Ignoring ${ignored.length} other file${ignored.length === 1 ? "" : "s"}.` : "";
+  const images = frames.length > 0
+    ? `${frames.length} frame${frames.length === 1 ? "" : "s"}`
+    : "no frames — photo colour and mask painting will be unavailable";
+  return { ready: true, detail: `${glb[0].name} + ${npz[0].name}, ${images}.${extra}` };
+}
+
+/**
+ * What an import is allowed to declare about itself. Everything else about the run is read out
+ * of the files — see `vite-plugins/imported-run.mjs` for which fields are measured and which
+ * are taken on the importer's word.
+ */
+export interface ImportDeclaration {
+  label?: string;
+  clipName?: string;
+  /**
+   * Sampling rate of the frames behind the reconstruction. Nothing in a `.npz` records it, so it
+   * is declared rather than observed; it sets the per-frame timestamps and nothing measured.
+   */
+  fps?: number;
+}
+
+/**
+ * Upload a reconstruction computed somewhere else and register it as a run.
+ *
+ * `frames` is optional and all-or-nothing: the geometry works without them, but a partial set
+ * would pair depth with the wrong picture, so the middleware refuses one.
+ */
+export async function importRun(
+  files: { glb: File; npz: File; frames?: File[] },
+  meta: ImportDeclaration = {},
+): Promise<RunRecord> {
+  const form = new FormData();
+  form.append("glb", files.glb, files.glb.name);
+  form.append("npz", files.npz, files.npz.name);
+  for (const frame of files.frames ?? []) form.append("frames", frame, frame.name);
+  form.append("meta", JSON.stringify(meta));
+
+  return (await expectOk(
+    await fetch(`${BASE}/runs/import`, { method: "POST", headers: localApiHeaders(), body: form }),
   )) as RunRecord;
 }
 

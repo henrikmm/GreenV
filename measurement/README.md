@@ -228,6 +228,26 @@ A bundled mock reconstruction drives the complete interface with no cloud accoun
 The mock returns the same bundled four-frame reconstruction for every input. It exercises the
 interface and the local geometry; it is never evidence about your clip, and the app says so.
 
+### Open a reconstruction computed somewhere else
+
+A run is two files: `scene.glb` holds the point cloud the model exported and the alignment that
+puts it the right way up, and `result.npz` holds the depth map, the camera intrinsics and the
+camera pose for every frame. If you already have a pair — from another machine, from a worker, or
+from a session whose GPU service is long gone — **Runs → Import a run** takes them directly.
+
+1. Open the **Runs** pane and drop both files on the import zone, or press **Choose files**.
+2. Add the source frames as `.jpg` alongside them if you have them. All of them or none: a partial
+   set would pair depth with the wrong picture, and is refused.
+3. The run is written under `~/verge-runs`, selected, and measurable like any other.
+
+Frame count, depth resolution and the file digests are read out of the files themselves. **GPU time
+and VRAM are recorded as zero** — no GPU ran here, and those are numbers this machine never
+measured rather than numbers that went missing.
+
+Without the frames the cloud, the floor fit and the measurement all still work, and DA3's export
+carries its own colour. What needs the frames is photograph colour on the rebuilt npz cloud, and
+painting a mask on a real image.
+
 **Supported:** macOS (checked with a clean-clone procedure), Linux (CI target), Windows via WSL 2
 (experimental). Native Windows is not supported — the operational scripts need Bash. The browser
 needs WebGL 2; browser-local segmentation uses WebGPU where available and reports when it is not.

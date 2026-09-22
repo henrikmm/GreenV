@@ -7,9 +7,18 @@
  * during the exact window when a GPU instance is billing.
  */
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { refreshRuns, useRuns } from "../lib/runs-store";
-import { deleteRun, estimateSaveBytes, formatBytes, saveRun, type RunRecord } from "../lib/runs";
+import {
+  deleteRun,
+  estimateSaveBytes,
+  formatBytes,
+  importReadiness,
+  importRun,
+  saveRun,
+  sortImportFiles,
+  type RunRecord,
+} from "../lib/runs";
 import { removeObservationsForRun } from "../measurement/measurement-store";
 import { setNodeParam, runAuto, useGraph } from "../graph/graph-store";
 import { FIXTURE_RUN_ID } from "../graph/nodes";
@@ -56,7 +65,15 @@ function RunRow({
         <span className="run-label">
           <b>{run.label}</b>
           <small>
-            {run.clipName || "—"}
+            {/*
+              An imported run has no clip to name — it arrived as geometry, not as video — so it
+              says where it came from instead of showing an em dash. "no frames" is on the same
+              line rather than marked like a degraded run, because it is a property of the run
+              and not something to act on: the geometry is complete, the photographs are absent.
+            */}
+            {run.source === "import"
+              ? run.clipName || (run.framesAvailable === false ? "imported · no frames" : "imported")
+              : run.clipName || "—"}
             {run.frameCount ? ` · ${run.frameCount}f` : ""}
             {run.processRes ? ` · ${run.processRes} px` : ""}
           </small>
@@ -113,11 +130,94 @@ function RunRow({
   );
 }
 
+/**
+ * Bring in a reconstruction this app did not compute.
+ *
+ * Until this existed the registry had two doors, and both assumed the run was ours: the app paid
+ * for it on a GPU, or it was one of the three door fixtures compiled in. A `.glb` and a `.npz`
+ * produced anywhere else — by the GreenV worker, on another machine, in a session whose service
+ * is long gone — could not be opened at all, although every stage downstream reads exactly those
+ * two files.
+ *
+ * Both files at once, not one control each. They are halves of one reconstruction and importing
+ * a mismatched pair is the failure worth designing against, so the selection is made in a single
+ * gesture and reported as a whole before anything is written.
+ */
+function ImportZone({ busy, onImport }: { busy: boolean; onImport: (files: File[]) => void }) {
+  const [dropping, setDropping] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  return (
+    <div
+      className={`run-import${dropping ? " dropping" : ""}`}
+      onDragOver={(event) => {
+        event.preventDefault();
+        setDropping(true);
+      }}
+      onDragLeave={() => setDropping(false)}
+      onDrop={(event) => {
+        event.preventDefault();
+        setDropping(false);
+        onImport([...event.dataTransfer.files]);
+      }}
+    >
+      <input
+        ref={fileInput}
+        type="file"
+        multiple
+        accept=".glb,.npz,.jpg,.jpeg"
+        style={{ display: "none" }}
+        onChange={(event) => {
+          onImport([...(event.target.files ?? [])]);
+          // Clearing lets the same selection be picked again after a failure.
+          event.target.value = "";
+        }}
+      />
+      <span className="run-import-label">
+        Import a run
+        <HelpDot label="Importing a .glb and a .npz">
+          <p>
+            A reconstruction is two files: <b>scene.glb</b> carries the point cloud the model
+            exported and the alignment that puts it the right way up, and <b>result.npz</b>{" "}
+            carries the depth map, the camera intrinsics and the camera pose for every frame.
+            Measurement reads the npz; the viewport can show either.
+          </p>
+          <p>
+            Drop both here, with the frames they were computed from if you have them. The frames
+            are optional: without them the cloud, the floor fit and the measurement all still
+            work, but points lose the photograph&apos;s colour and a mask cannot be painted on a
+            real image.
+          </p>
+          <p>
+            Frame count, depth resolution and the file digests are read out of the files
+            themselves. <b>GPU time and VRAM are recorded as zero</b>, because no GPU ran here —
+            they are not missing numbers, they are numbers this machine never measured.
+          </p>
+        </HelpDot>
+      </span>
+      <button className="pane-btn" disabled={busy} onClick={() => fileInput.current?.click()}>
+        Choose files
+      </button>
+    </div>
+  );
+}
+
 export function RunsPane() {
   const runs = useRuns();
   const graph = useGraph();
   const [busy, setBusy] = useState(false);
-  const [note, setNote] = useState<string | null>(null);
+  /**
+   * The pane's one status line, with the tone it should be read in.
+   *
+   * It used to be a bare string rendered in the amber warning style whatever it said, so
+   * "Deleted Door · 504 px" and a failed save arrived looking identically alarming. Importing
+   * made that worse rather than revealing it: the common outcome of an import is success, and a
+   * success reported in the colour reserved for things needing attention teaches an operator to
+   * stop reading the line.
+   */
+  const [note, setNote] = useState<{ text: string; tone: "info" | "warn" } | null>(null);
+  const say = (text: string) => setNote({ text, tone: "info" });
+  const warn = (text: string) => setNote({ text, tone: "warn" });
 
   const fixture = graph.nodes.find((node) => node.id === FIXTURE_RUN_ID);
   const activeId = String(fixture?.params.runId ?? DEFAULT_RUN_ID);
@@ -136,10 +236,44 @@ export function RunsPane() {
       await fn();
       await refreshRuns();
     } catch (e) {
-      setNote(e instanceof Error ? e.message : String(e));
+      warn(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
+  };
+
+  /**
+   * Sort a selection, refuse it with a reason, or import it — and then SELECT it.
+   *
+   * Selecting is not a convenience. Somebody who has just imported a run has said what they want
+   * to look at as plainly as it can be said, and leaving the measurement branch pointed at
+   * whatever it was showing before is the mistake the Source control already made once: the
+   * viewers kept displaying the door fixture while the operator believed they were looking at
+   * their own run.
+   */
+  const take = (files: File[]) => {
+    if (files.length === 0) return;
+    const selection = sortImportFiles(files);
+    const { ready, detail } = importReadiness(selection);
+    if (!ready) {
+      warn(detail);
+      return;
+    }
+    void act(async () => {
+      say(`Importing ${detail}`);
+      const run = await importRun(
+        { glb: selection.glb[0], npz: selection.npz[0], frames: selection.frames },
+        { label: selection.glb[0].name.replace(/\.glb$/i, "") },
+      );
+      setNodeParam(FIXTURE_RUN_ID, "runId", run.id);
+      setNodeParam(FIXTURE_RUN_ID, "source", "recorded");
+      void runAuto();
+      say(
+        `Imported ${run.label} · ${run.frameCount ?? 0}f${
+          run.framesAvailable === false ? " · no frames, so points keep the height ramp" : ""
+        }`,
+      );
+    });
   };
 
   return (
@@ -179,8 +313,9 @@ export function RunsPane() {
         <div className="runs-root mono" title="Runs live outside the repository so a 135 MB artifact can never be staged by accident.">
           {runs.root || "~/verge-runs"}
         </div>
+        <ImportZone busy={busy} onImport={take} />
         {runs.error && <div className="evidence-warning">{runs.error}</div>}
-        {note && <div className="evidence-warning">{note}</div>}
+        {note && <div className={note.tone === "warn" ? "evidence-warning" : "pane-hint"}>{note.text}</div>}
         {/*
           The way back to the live run, because this pane now owns the choice entirely — the
           Source control in Setup became a readout, so without this a recorded run would be a
@@ -224,7 +359,7 @@ export function RunsPane() {
             onSave={() =>
               void act(async () => {
                 const { output } = await saveRun(run.id);
-                setNote(output.slice(-400));
+                say(output.slice(-400));
               })
             }
             onDelete={() =>
@@ -240,7 +375,7 @@ export function RunsPane() {
                 // The rows outlived the run: no run left to select them under, nothing to remove
                 // them, and the export still counting them. Their packets are in the archive.
                 const dropped = removeObservationsForRun(run.id);
-                setNote(
+                say(
                   archived || dropped.length
                     ? `Deleted ${run.label}; archived ${archived} recorded trial${archived === 1 ? "" : "s"}`
                     : `Deleted ${run.label}`,

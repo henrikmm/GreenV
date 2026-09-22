@@ -1852,6 +1852,34 @@ canvas {
   white-space: nowrap;
 }
 
+/* Mirrors .clip-drop deliberately: dropping files on a dashed rectangle already means one thing
+   in this app, and inventing a second look for the same gesture would make the two read as
+   different mechanisms. */
+.run-import {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 7px;
+  padding: 8px;
+  border: 1px dashed var(--border);
+  border-radius: 3px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.run-import.dropping {
+  border-color: var(--emph-hi);
+  border-style: solid;
+}
+
+.run-import-label {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
 .run-row {
   display: flex;
   align-items: center;

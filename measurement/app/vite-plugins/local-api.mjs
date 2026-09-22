@@ -16,6 +16,7 @@ import {
   RUNS_ROOT,
   archiveMeasurementEvidence,
   deleteRun,
+  importRun,
   listMeasurementEvidence,
   listRuns,
   removeMeasurementEvidence,
@@ -338,6 +339,57 @@ export function localApi(options = {}) {
             : null;
           if (jobKind && req.method === "GET") {
             return json(res, 200, { job: getRunningJob(jobKind) });
+          }
+
+          /**
+           * Import a reconstruction computed elsewhere: a `.glb` and a `.npz`, optionally with
+           * the frames they were computed from.
+           *
+           * Ahead of the per-run routes below because `/api/runs/import` also matches their id
+           * pattern, and a route whose meaning depends on falling through two regexes is one
+           * rename away from being silently wrong.
+           *
+           * Multipart, and the whole body is buffered — ~120 MB for a 112-frame pair. That is in
+           * line with what this app already does with the same bytes: `fetchArtifactBuffer`
+           * assembles the entire npz in the browser before parsing it. A streaming import would
+           * be worth writing the day a run stops fitting in memory, not before.
+           */
+          if (url.pathname === "/api/runs/import" && req.method === "POST") {
+            const contentType = String(req.headers["content-type"] ?? "");
+            if (!contentType.startsWith("multipart/form-data")) {
+              return json(res, 400, { detail: "import expects multipart/form-data" });
+            }
+            const form = await new Request("http://local/api/runs/import", {
+              method: "POST",
+              headers: { "content-type": contentType },
+              body: await readRawBody(req),
+            }).formData();
+
+            const bytesOf = async (entry) => Buffer.from(await entry.arrayBuffer());
+            const glbEntry = form.get("glb");
+            const npzEntry = form.get("npz");
+            if (!glbEntry || typeof glbEntry === "string") return json(res, 400, { detail: "no .glb uploaded" });
+            if (!npzEntry || typeof npzEntry === "string") return json(res, 400, { detail: "no .npz uploaded" });
+
+            const meta = JSON.parse(String(form.get("meta") ?? "{}"));
+            const frames = await Promise.all(
+              form
+                .getAll("frames")
+                .filter((entry) => typeof entry !== "string")
+                .map(async (entry) => ({ name: basename(entry.name || ""), bytes: await bytesOf(entry) })),
+            );
+
+            const run = await importRun({
+              glb: await bytesOf(glbEntry),
+              npz: await bytesOf(npzEntry),
+              glbName: basename(glbEntry.name || "scene.glb"),
+              npzName: basename(npzEntry.name || "result.npz"),
+              frames,
+              label: meta.label,
+              clipName: meta.clipName,
+              fps: meta.fps,
+            });
+            return json(res, 200, run);
           }
 
           // Per-run routes carry an id in the path, so they cannot be exact-matched below.
