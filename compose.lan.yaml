@@ -1,0 +1,16 @@
+# Exposes the local API to the network, so a phone can reach it during a capture.
+#
+#   docker compose -f compose.yaml -f compose.lan.yaml \
+#     --env-file ~/greenv-toolchain/local.env up -d
+#
+# `compose.yaml` binds 127.0.0.1 deliberately: this stack ships local-only credentials, no TLS
+# and a shared bearer token, so whatever it listens on is readable by anyone sharing the network.
+# This overlay is opt-in for that reason - it is never merged unless a `-f` names it - and it
+# belongs on a network you trust, for as long as a capture is being exercised and no longer.
+#
+# `!override` replaces the port list rather than appending to it; both bindings would otherwise
+# claim host port 8080 and the container would fail to start.
+services:
+  video-api:
+    ports: !override
+      - "8080:8080"

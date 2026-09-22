@@ -2039,3 +2039,153 @@ Kept because each one was paid for once.
   label with an empty value once contact had been made. None of the four was ever wrong when it was
   written; each stopped being true and nothing was watching. A blank in a comparison is not neutral
   — it reads as a claim the comparison ran and came back empty.
+
+
+### Road reconstruction investigation: sky admission and unresolved geometry — 2026-09-10
+
+**The sky shell is a confirmed display defect; removing it does not repair the road geometry.**
+A local investigation replayed fifteen newly saved road/drone runs and the Test_Grass2 garden
+control, inspected the existing Verge UI with Computer Use, and built a temporary comparison
+using the saved depth and camera poses. No GPU service was deployed, contacted or woken. No
+production geometry, model wrapper, recorded trial or automatic GreenV worker was changed.
+
+**Scope and identity.** These runs are locally saved under `~/verge-runs`, not new payloads under
+`measurement/fixtures/`. Their manifests pin DA3NESTED-GIANT-LARGE-1.1 at
+`b2359bdf726fb44ef62acca04d629dcf158053e7`, metric mode, `middle` reference and
+`upper_bound_resize`. The inspection started from GreenV commit `c35d320` on its fixture branch.
+The inferred coordinates are not surveyed truth. The clips are edited internet footage, including
+HUD (heads-up display) graphics, not controlled phone captures. No trustworthy `sentido`, `km` or
+`capturado_em` is available to attach; road names are clip labels only. This investigation must not
+supply fabricated telemetry or operational measurements.
+
+**The inference-to-viewer mechanism.** The pinned upstream
+[`NestedDepthAnything3Net._handle_sky_regions`](https://github.com/ByteDance-Seed/Depth-Anything-3/blob/3d835ec1a5802d64a8b8b15f817a1ab54809bfe4/src/depth_anything_3/model/da3.py#L381)
+replaces predicted sky with one artificial distance. Its
+[`set_sky_regions_to_max_depth`](https://github.com/ByteDance-Seed/Depth-Anything-3/blob/3d835ec1a5802d64a8b8b15f817a1ab54809bfe4/src/depth_anything_3/utils/alignment.py#L126)
+sets confidence to **1.0**, despite comments calling it high confidence. The ordinary GLB export
+rejects pixels below its pooled confidence threshold; that threshold exceeds 1 in the main road
+runs inspected. Verge's `server/main.py::_run_inference` saves depth, confidence and cameras but
+no explicit sky mask. `app/src/graph/nodes/point-cloud.ts` then calls `buildCloud` with
+`confidence: { kind: "none" }` for the display. Its finite-depth and 8% edge checks admit the
+interior of the constant-depth sky sheet. Increasing the point budget cannot fix that.
+
+The August observation that sky filling was absent in two older fixtures remains an observation
+about those fixtures. It does not generalize to the new highway runs. The earlier decision to keep
+low-confidence surfaces restored real coverage; it also admits this distinct artificial sentinel.
+A blanket return to pooled confidence filtering would reintroduce the known missing-frame problem.
+
+**Observed run inventory.** Sky is the dominant constant depth among confidence=1 pixels, accepted
+as a diagnostic sentinel only when that pair occupies over 1% of the entire run. This is not an
+independent semantic annotation. Path and step come from camera centres `-Rᵀt`. Agreement means
+median across twelve temporal pairs of the fraction with projected depth within 5% of the other
+view, after excluding sentinel pixels and out-of-frame projections. It is self-consistency, not
+accuracy; a collapsed static prediction can pass. Values below use adjacent input frames, hence
+different time intervals at different rates.
+
+| Run id | Clip | Depth grid / frames | fps | Sky pixels | Predicted path / median step (m) | Adjacent agreement |
+|---|---|---|---:|---:|---:|---:|
+| `20260814-174814-b245bc` | Test_Grass2.mp4 | 280×504 / 94 | 5.00 | 0.0% | 13.91 / 0.16 | 97.0% |
+| `20260910-163802-d92d07` | clip01_dutra_vegetacao.mp4 | 504×280 / 112 | 2.04 | 49.1% | 558.30 / 4.23 | 28.5% |
+| `20260910-163959-9dc583` | clip02_dutra_placas.mp4 | 504×280 / 112 | 2.04 | 41.0% | 946.73 / 5.03 | 10.8% |
+| `20260910-164037-dbb8b5` | clip03_dutra_acostamento.mp4 | 504×280 / 112 | 2.04 | 49.4% | 621.57 / 5.00 | 15.6% |
+| `20260910-164113-7ae3d3` | clip04_fernao_arvores.mp4 | 504×280 / 112 | 2.04 | 29.9% | 3.71 / 0.03 | 84.5% |
+| `20260910-164150-9f26fe` | clip05_fernao_relevo.mp4 | 504×280 / 112 | 2.04 | 26.7% | 3.10 / 0.03 | 72.9% |
+| `20260910-164227-918c33` | clip06_dutra_pista_limpa.mp4 | 504×280 / 112 | 2.04 | 45.9% | 642.68 / 3.28 | 20.5% |
+| `20260910-164304-e84763` | clip07_buracos_br116_padre_paraiso.mp4 | 504×280 / 112 | 2.04 | 22.3% | 915.85 / 3.41 | 46.2% |
+| `20260910-164343-24bc54` | clip08_buracos_br116_b.mp4 | 504×280 / 112 | 2.04 | 23.7% | 555.46 / 4.83 | 40.4% |
+| `20260910-164423-a1f077` | clip09_drone_imigrantes.mp4 | 280×504 / 112 | 2.33 | 20.8% | 3.60 / 0.02 | 81.7% |
+| `20260910-164500-cd608c` | clip10_drone_dutra_fernao.mp4 | 504×280 / 112 | 2.04 | 5.8% | 12.07 / 0.09 | 89.5% |
+| `20260910-164649-c58368` | clip06_dutra_pista_limpa.mp4 | 252×140 / 384 | 6.98 | 46.3% | 1209.48 / 2.38 | 17.5% |
+| `20260910-164627-8b5718` | clip07_buracos_br116_padre_paraiso.mp4 | 252×140 / 256 | 4.65 | 22.2% | 864.20 / 1.71 | 22.9% |
+| `20260910-164755-daf418` | clip07_buracos_br116_padre_paraiso.mp4 | 350×196 / 256 | 4.65 | 22.2% | 915.91 / 1.39 | 44.1% |
+| `20260910-164720-9d0b91` | clip07_buracos_br116_padre_paraiso.mp4 | 252×140 / 384 | 6.98 | 22.2% | 969.49 / 1.35 | 22.1% |
+| `20260910-164841-9c4bd9` | clip07_buracos_br116_padre_paraiso.mp4 | 252×140 / 512 | 9.31 | 22.2% | 1092.08 / 1.12 | 31.9% |
+
+**What the temporary rebuild established.** Its generator imports the app's actual NPZ parser,
+`framesFromArrays`, `backprojectFrame` and `transformPoints`; it preserves the GLB alignment and
+all input frames. Python independently counts the same finite/non-edge candidates. Both counts
+agree exactly for all four demonstrations:
+
+| Example | Current display candidates | Artificial sky candidates removed | Other candidates retained |
+|---|---:|---:|---:|
+| Dutra vegetation | 15,247,936 | 7,672,194 | 7,575,742 |
+| Fernão relief | 15,556,258 | 4,108,379 | 11,447,879 |
+| BR-116 clip07 | 15,318,811 | 3,400,624 | 11,918,187 |
+| Test_Grass2 control | 13,232,221 | 0 | 13,232,221 |
+
+The demonstration removes only this conjunction of constant depth and confidence=1. No retained
+coordinate is adjusted, so removal of the identified sentinel preserves all other candidates.
+This does not establish that every retained pixel is a true surface, or that DA3's sky boundary
+never consumes vegetation tips. First/middle/last source overlays were inspected for the four
+examples. Dutra shows the large sky region, while Fernão additionally shows picture-in-picture,
+map and caption content that the sentinel does not remove. The candidate count is pre-budget;
+the interactive preview samples every sixth pixel in both image axes from every frame. It is not
+a second inference or a claim that the display contains millions of rendered points.
+
+Computer Use verified the current Verge DA3/Ours contrast on Dutra: Ours adds the white shell.
+It also showed the app refusing a ground plane at only 0.66% support on the DA3 cloud and 0.74%
+on the rebuilt measurement cloud. The temporary matched-camera comparison removes the sky shell
+and exposes the road surfaces. The Fernão comparison remains a compact, distorted accumulation
+with the driver's inset reconstructed as geometry. Sky removal is therefore useful but insufficient.
+
+**Hypotheses ranked by the available evidence.**
+
+1. **Confirmed: artificial sky admitted by the display's validity rule.** The depth/confidence
+   signature, current code, source overlays and matched-camera ablation agree. Next production
+   work should exclude explicitly invalid/sky pixels without dropping all low-confidence surfaces.
+   Prefer preserving the model's sky mask when a future server rebuild is approved. A compatibility
+   rule for existing NPZs needs model-specific detection and tests, not an unconditional depth cap.
+2. **Strong, unproven for Fernão: overlays corrupt pose/depth inference.** Clip04 and clip05 have
+   only 3.71 m and 3.10 m predicted path over about 55 seconds. The saved imagery visibly advances
+   through a highway, while fixed screen graphics occupy the same pixels. In clip05, 5th–95th
+   percentile non-sky depth spans just 3.9–8.3 m. The demo reconstructs those overlays as surfaces.
+   Filtering their pixels after inference cannot correct poses already estimated from them. A
+   clean-source versus overlay-contaminated, whole-clip inference comparison is still required;
+   no measured ground-truth travel distance is available here.
+3. **Supported risk: too little repeat observation of nearby vegetation.** The default frame
+   budget is 112. `scripts/extract-frames.mjs::planSampling` reduces requested rate to
+   `maxFrames / durationS` over the whole clip; the batch's submitted manifests record the already
+   reduced rate and therefore say `capped:false`. The 55-second road inputs have about half a
+   second between frames. Dutra vegetation's median inferred step is 4.23 m, versus 0.16 m in the
+   close garden control. This changes overlap and parallax (view-dependent displacement), not
+   just the number of points. New footage would need clean, close, oblique views of the roadside
+   and measured travel/targets. Keep rate sampling across the full clip; do not hide the issue by
+   trimming a favorable temporal window.
+4. **Supported limitation: lower spatial detail and inconsistent depth between views.** Landscape
+   road maps are 504×280 and vegetation is frequently distant and oblique. Under the pinhole model,
+   a 10 m distance and 400 px focal length imply about 2.5 cm transverse spacing per depth pixel;
+   30 m implies 7.5 cm. The garden's approximately 3 m and 529 px imply 5.7 mm. These are geometric
+   illustrations, not measured vegetation resolution or uncertainty. The adjacent-view audit finds
+   28.5% agreement in Dutra versus 97.0% in the garden. Occlusions, vehicle motion, poses and depth
+   all contribute; this statistic does not identify which component is wrong.
+5. **Not established: more frames alone solve highway reconstruction.** The saved ladders change
+   resolution as well as rate. Clip07 at 256 frames improves adjacent agreement from 22.9% at
+   252×140 to 44.1% at 350×196, with the same frame rate. At fixed 252×140, 256/384/512 frames give
+   22.9/22.1/31.9%, while the inferred path changes 864/969/1092 m for the same clip. Comparisons
+   at roughly 0.5-second lags give 17.9/23.2/11.1%; there is no monotonic improvement in this
+   diagnostic. These twelve-pair samples are exploratory, not a benchmark or a ranking of accuracy.
+
+**Additional filters remain demonstrations.** A 40 m camera-depth bound hides distant surfaces,
+including valid vegetation. A next-view 5% agreement filter removes many road points and is biased
+by construction toward its own agreement criterion. It also accepts much of the collapsed Fernão
+cloud. Neither establishes improved metric reconstruction; neither was promoted into measurement.
+The viewer's optional eleven-frame window only isolates contributions from an already computed
+whole-run result, making ghosting inspectable without changing inference.
+
+**Evidence and reproduction.** Temporary artifacts live in `.inspect/road-investigation/` and are
+not committed: `PLAN.md` states the gate before the experiments; `audit.py` writes `audit.json`
+with NPZ/manifest hashes and per-pair observations; `build-demo.mjs` writes `demo.json`, source/sky
+overlays and point buffers; `index.html` provides four run choices and four filter variants.
+`serve.mjs` binds only to loopback at port 5175. Source payloads remain under `~/verge-runs`.
+Run from the subtree root:
+
+```
+.venv/bin/python .inspect/road-investigation/audit.py
+node .inspect/road-investigation/build-demo.mjs
+node .inspect/road-investigation/serve.mjs
+```
+
+A copy of the small experimental source files is archived with the evidence packet so a later
+session on this disk can reconstruct the comparison. No semantic masks, ground truth or calibrated
+camera telemetry were invented. The production pipeline remains unchanged; the follow-up gates
+are in TASK under the road reconstruction investigation.
