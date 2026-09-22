@@ -11,11 +11,13 @@ Built for the [Motiva](https://www.motiva.com.br) challenge · FIAP 2CCPW · gro
 
 </div>
 
-<!--
-  HERO — deliberately empty. It will be one roadside reconstruction from the Motiva clip
-  fixtures, chosen after they have been reviewed by eye. Until then, no picture rather than a
-  picture of something other than a road.
--->
+<p align="center">
+  <img src="docs/readme/hero-trecho.jpg" alt="A driven road stretch reconstructed as a 3D point cloud seen from above: roadside vegetation along the top, the carriageway below, the camera's path in pink" width="100%">
+</p>
+
+<sub>One <i>trecho</i> of a real GreenV capture — session <code>01a09b15</code>, segment 1, window 00 —
+as the deployed chain reconstructed it, seen from above. Vegetation along the top, the carriageway
+below, the camera's own path in pink.</sub>
 
 ---
 
@@ -39,7 +41,7 @@ crew is needed, with the frame each decision came from attached to it.
 <td width="50%" valign="top"><b>1 · Capture.</b> The Flutter client records video, GNSS and motion
 together and keeps each capture in a restart-safe queue on the device until the API has accepted
 it — a dead zone on the <i>rodovia</i> costs a delay, not a capture.</td>
-<td width="50%"><!-- screenshot: apps/mobile capture screen --><i>screenshot pending</i></td>
+<td width="50%" align="center"><img src="docs/readme/mobile-home.jpg" alt="The capture app's home screen: start a new capture, and a summary of measured trechos" width="240"><br><sub>Presentation preview build — the numbers are placeholder data.</sub></td>
 </tr>
 <tr>
 <td valign="top"><b>2 · Reconstruct.</b> Frames go to a depth model <b>together</b>, not one at a
@@ -61,8 +63,9 @@ first, with the photo behind every point.</td>
 </tr>
 </table>
 
-<sub>Every picture on this page is rendered from a real run of this pipeline, as it is in
-[Verge Studio's README](measurement/README.md). Nothing is an illustration.</sub>
+<sub>Every reconstruction on this page is a real run of this pipeline, as in
+[Verge Studio's README](measurement/README.md); nothing is an illustration. App screenshots say
+where their data comes from.</sub>
 
 ## How it works
 
@@ -212,13 +215,13 @@ Cloudflare R2 and Neon · RunPod and Google Cloud Run GPUs
 
 ## Team
 
-<!-- Names from git history; roles and any missing members still to be confirmed. -->
+FIAP 2CCPW, group 27:
 
-| | Owns |
-|---|---|
-| **Henrique Mandrick** | Verge Studio, the depth pipeline and its GPU cloud |
-| **Mateus Tomomitsu** | The capture client, identity and the RunPod depth deployment |
-| **Thomas Kobayashi** | The web dashboard |
+- Helena Barbosa Costa
+- Henrique Mandrick
+- Mateus Scandiuzzi Valente Tomomitsu
+- Ryan Amorim de Castro Santana
+- Thomas Joh Kobayashi
 
 ---
 
