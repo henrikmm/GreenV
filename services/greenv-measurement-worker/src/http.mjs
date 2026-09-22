@@ -40,6 +40,13 @@ export function createHttpTrigger({ measure, gate, log = () => {} }) {
     }
   };
 
+  // What a poller is answered with, named field by field rather than serialising the job itself.
+  // `retire` parks a live Timeout on the job to expire it, and a Node timer is circular
+  // (_idlePrev -> TimersList -> _idleNext), so stringifying the raw job threw at exactly the
+  // moment the result existed. Naming the fields fixes that and keeps the polled contract from
+  // drifting again the next time the job grows internal bookkeeping.
+  const view = ({ id, status, startedAt, result, error }) => ({ id, status, startedAt, result, error });
+
   const json = (response, status, body) => {
     const payload = JSON.stringify(body);
     response.writeHead(status, { "content-type": "application/json", "content-length": Buffer.byteLength(payload) });
@@ -76,10 +83,22 @@ export function createHttpTrigger({ measure, gate, log = () => {} }) {
         }
         const id = randomUUID();
         jobs.set(id, { id, status: "running", startedAt: new Date().toISOString(), result: null, error: null });
-        // Deliberately not awaited: the response is the receipt, the work outlives it.
+        // Deliberately not awaited: the response is the receipt, the work outlives it. Which is
+        // also why both continuations log: nothing is left to report a failure to, so a job that
+        // failed here left no trace at all on stdout and looked exactly like a hang. Same shape as
+        // the queue path's own terminal events, so one grep covers both entrances.
         gate.tryRun(() => measure(body))?.then(
-          (result) => { jobs.set(id, { ...jobs.get(id), status: "done", result }); retire(id); },
-          (error) => { jobs.set(id, { ...jobs.get(id), status: "failed", error: { code: error.code ?? "unknown", message: error.message } }); retire(id); },
+          (result) => {
+            jobs.set(id, { ...jobs.get(id), status: "done", result });
+            retire(id);
+            log({ event: "measured", id, segment: result.outputPrefix, runId: result.runId, mock: result.mock });
+          },
+          (error) => {
+            const code = error.code ?? "unknown";
+            jobs.set(id, { ...jobs.get(id), status: "failed", error: { code, message: error.message } });
+            retire(id);
+            log({ event: "measurement-failed", id, code, error: error.message });
+          },
         ) ?? (() => { forget(id); })();
         return json(response, 202, { id, status: "running" });
       }
@@ -87,7 +106,7 @@ export function createHttpTrigger({ measure, gate, log = () => {} }) {
       const job = /^GET \/measurements\/([0-9a-f-]{36})$/.exec(route);
       if (job) {
         const found = jobs.get(job[1]);
-        return found ? json(response, 200, found) : json(response, 404, { error: "no such measurement job" });
+        return found ? json(response, 200, view(found)) : json(response, 404, { error: "no such measurement job" });
       }
 
       return json(response, 404, { error: "unknown route" });
