@@ -1636,6 +1636,41 @@ It held 113.6 MiB at teardown, about 1.1 cents a month, and empties itself in th
 
 ---
 
+### The service image moved to CUDA 12.8, and an RTX PRO 6000 runs DA3 2.7× faster — 2026-10-17
+
+**The new image measures what the old one measured, on both cards: nine painted trials on
+`20260811-161356-d387ec`, resent as the same 112 frames with the same parameters, moved by at most
+0.3 mm on an L4 and 0.4 mm on an RTX PRO 6000.** That is what allowed the old image to be deleted.
+
+The image is `da3-service:src-72503b7885b12c8b`: PyTorch 2.8 / CUDA 12.8 (the first CUDA with
+Blackwell kernels), DA3 installed `--no-deps` without xformers, so attention runs on PyTorch's
+SDPA. Cloud Build took 14 min 21 s; the import check printed `2.8.0+cu128 12.8`. The card is now
+`VERGE_GPU` in `scripts/deploy.sh` (`nvidia-l4` or `nvidia-rtx-pro-6000`, the latter at 20 vCPU /
+80 GiB), and switching is a redeploy with the same image — 38 s for L4 → PRO 6000.
+
+Measured with `node scripts/regress-run.mjs <run> --label <name>` (frames resent from the saved
+run, artifacts downloaded over home broadband, trials replayed on both sides with a
+refitted floor). "Request" is the whole `/infer` round trip as the client saw it; "GPU" is the
+server's own `timing.gpu_seconds`.
+
+| Card | Frames | State | Request | GPU | Model load | npz + glb down |
+|---|---:|---|---:|---:|---:|---:|
+| L4 | 112 | first request after deploy | 127.3 s | 35.9 s | 41.7 s | 104.7 MB in 9.8 s + 16.1 MB in 3.4 s |
+| L4 | 112 | warm | 41.6 s | 30.6 s | — | 9.7 s + 2.7 s |
+| L4 | 106 (phone) | warm | 38.8 s | 28.0 s | — | 100.6 MB in 8.6 s + 2.5 s |
+| L4 | 63 (phone) | warm | 22.0 s | 14.6 s | — | 59.8 MB in 5.9 s + 2.6 s |
+| RTX PRO 6000 | 112 | first request after deploy | 73.8 s | 11.2 s | 34.2 s | 8.9 s + 3.3 s |
+| RTX PRO 6000 | 112 | warm | 16.2 s | 7.8 s | — | 9.0 s + 3.2 s |
+| RTX PRO 6000 | 106 (phone) | warm | 16.5 s | 7.4 s | — | 9.1 s + 2.7 s |
+| RTX PRO 6000 | 63 (phone) | warm, ×3 | 9.7 / 9.8 / 25.6 s | 4.1–4.3 s | — | 5.9 s + 3.3 s |
+
+- The 25.6 s request ran once and did not repeat; its GPU time was the same 4.3 s. Cause unknown.
+- On a warm PRO 6000 the server spends ~4 s beyond the GPU at 63 frames (`wall_seconds` 8.2 vs
+  `gpu_seconds` 4.1) — exporting and publishing the artifacts — and the client then spends
+  ~9 s downloading them. **At 63 frames the download is now longer than the inference.**
+- The phone frames are 576×1024 portrait (73 KB each), not the 280×504 of the graded clip; 106
+  of them peaked at 22.0 GiB on the PRO 6000 and 21.6 GiB on the L4, which is the L4's ceiling.
+
 ## 4. Decisions that hold
 
 1. **Selection happens on a 2D image, not in the 3D cloud.** Clicking individual points in a

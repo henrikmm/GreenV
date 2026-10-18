@@ -131,7 +131,7 @@ export async function cloudStatus(repoRoot, { refresh = false } = {}) {
       auth: { active: false, account: null, hint: configError },
       project: "",
       region: REGION,
-      service: { name: SERVICE, exists: false, url: null },
+      service: { name: SERVICE, exists: false, url: null, gpuType: null },
       image: { uri: "", tag: null, present: false },
       deploy: { willSkipBuild: false, estimate: "unconfigured", detail: configError },
     };
@@ -147,7 +147,7 @@ export async function cloudStatus(repoRoot, { refresh = false } = {}) {
       auth: { active: false, account: null },
       project: PROJECT_ID,
       region: REGION,
-      service: { name: SERVICE, exists: false, url: null },
+      service: { name: SERVICE, exists: false, url: null, gpuType: null },
       image: { uri: IMAGE_URI, tag: null, present: false },
       deploy: { willSkipBuild: false, estimate: "unknown — gcloud unavailable" },
     };
@@ -164,14 +164,17 @@ export async function cloudStatus(repoRoot, { refresh = false } = {}) {
       SERVICE,
       `--region=${REGION}`,
       `--project=${PROJECT_ID}`,
-      "--format=value(status.url)",
+      // The card is part of the template, so a describe answers "which GPU" for free.
+      "--format=value(status.url,spec.template.spec.nodeSelector['run.googleapis.com/accelerator'])",
     ]),
     // The exact predicate deploy.sh branches on. Same image URI, same tag, same command.
     gcloud(["artifacts", "docker", "images", "describe", `${IMAGE_URI}:${tag}`, `--project=${PROJECT_ID}`]),
   ]);
 
   const authed = account.ok && account.out.length > 0;
-  const serviceUrl = service.ok && service.out.startsWith("http") ? service.out : null;
+  const [serviceUrlField, gpuField] = service.ok ? service.out.split(/\s+/) : [];
+  const serviceUrl = serviceUrlField?.startsWith("http") ? serviceUrlField : null;
+  const gpuType = serviceUrl && gpuField ? gpuField : null;
 
   cached = {
     checkedAt: Date.now(),
@@ -185,7 +188,7 @@ export async function cloudStatus(repoRoot, { refresh = false } = {}) {
     },
     project: PROJECT_ID,
     region: REGION,
-    service: { name: SERVICE, exists: serviceUrl !== null, url: serviceUrl },
+    service: { name: SERVICE, exists: serviceUrl !== null, url: serviceUrl, gpuType },
     image: { uri: IMAGE_URI, tag, present: image.ok },
     deploy: {
       willSkipBuild: image.ok,

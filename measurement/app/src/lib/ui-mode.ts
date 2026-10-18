@@ -27,7 +27,13 @@
 
 import { useSyncExternalStore } from "react";
 
-export type UiMode = "standard" | "advanced";
+/**
+ * **Demo** (added 2026-10-17 for the FIAP Next event) is the other direction: a subset of
+ * Standard for an audience watching a capture arrive from the phone. It hides plumbing and
+ * replaces the Setup pane with a live view of the capture's stages. It must obey the same rule
+ * as Standard: nothing only exists in Demo, and switching back loses nothing.
+ */
+export type UiMode = "standard" | "advanced" | "demo";
 
 /** Versioned with the same reasoning as the dock layout: a stored value this build cannot read
  *  must fall back to the default rather than wedge the app. */
@@ -35,7 +41,8 @@ const STORAGE_KEY = "verge.ui-mode/1";
 
 function load(): UiMode {
   try {
-    return window.localStorage.getItem(STORAGE_KEY) === "advanced" ? "advanced" : "standard";
+    const stored = window.localStorage.getItem(STORAGE_KEY);
+    return stored === "advanced" || stored === "demo" ? stored : "standard";
   } catch {
     // A disabled or full localStorage must never take the app down with it.
     return "standard";
@@ -78,4 +85,8 @@ export function useUiMode(): UiMode {
 /** Sugar for the common test, so panes read as prose: `if (advanced) …`. */
 export function useAdvanced(): boolean {
   return useUiMode() === "advanced";
+}
+
+export function useDemo(): boolean {
+  return useUiMode() === "demo";
 }

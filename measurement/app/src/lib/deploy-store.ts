@@ -21,6 +21,8 @@
 
 import { useSyncExternalStore } from "react";
 import {
+  DEFAULT_GPU,
+  GPU_TYPES,
   PROXY_BASE,
   fetchCloudStatus,
   runningJob,
@@ -28,6 +30,7 @@ import {
   startTeardown,
   streamJob,
   type CloudStatus,
+  type GpuType,
   type JobView,
 } from "./cloud-control";
 import {
@@ -66,6 +69,19 @@ export interface DeployState {
   /** Local wall time the current job started, for the elapsed readout. */
   jobStartedAt: number | null;
   error: string | null;
+  /** The card the next deploy asks for. Remembered per browser; the deployed one is in status. */
+  gpuChoice: GpuType;
+}
+
+const GPU_CHOICE_KEY = "verge.deploy.gpu";
+
+function readGpuChoice(): GpuType {
+  try {
+    const stored = localStorage.getItem(GPU_CHOICE_KEY);
+    return (GPU_TYPES as readonly string[]).includes(stored ?? "") ? (stored as GpuType) : DEFAULT_GPU;
+  } catch {
+    return DEFAULT_GPU;
+  }
 }
 
 const state: DeployState = {
@@ -77,6 +93,7 @@ const state: DeployState = {
   log: [],
   jobStartedAt: null,
   error: null,
+  gpuChoice: readGpuChoice(),
 };
 
 let snapshot: DeployState = { ...state };
@@ -181,8 +198,24 @@ async function follow(id: string): Promise<{ ok: boolean; detail: string | null 
  * It deliberately does NOT warm the instance. Deploying is free; the first request is what starts
  * the meter, and that stays an act the operator chooses.
  */
+/** The card frames are being planned for: the deployed one if a service exists, else the choice. */
+export function activeGpu(deploy: DeployState = state): GpuType {
+  const running = deploy.status?.service.exists ? deploy.status.service.gpuType : null;
+  return (GPU_TYPES as readonly string[]).includes(running ?? "") ? (running as GpuType) : deploy.gpuChoice;
+}
+
+export function setGpuChoice(gpu: GpuType): void {
+  state.gpuChoice = gpu;
+  try {
+    localStorage.setItem(GPU_CHOICE_KEY, gpu);
+  } catch {
+    // private mode: the choice lasts for this page only
+  }
+  emit();
+}
+
 export async function deploy(): Promise<void> {
-  const { job } = await startDeploy();
+  const { job } = await startDeploy(state.gpuChoice);
   beginJob("deploy", job);
   let failure: string | null = null;
   try {

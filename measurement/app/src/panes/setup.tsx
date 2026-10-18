@@ -51,10 +51,10 @@ import {
   setCloudState,
   useCloud,
 } from "../lib/cloud-store";
-import { PROXY_BASE } from "../lib/cloud-control";
+import { GPU_FRAME_CEILING, GPU_LABEL, PROXY_BASE } from "../lib/cloud-control";
 // Deleting the service lives on the status bar's control, which owns the whole lifecycle. A
 // second delete button here would be a second place to get the confirmation wording wrong.
-import { deploy, lifecycle, loadStatus, useDeploy } from "../lib/deploy-store";
+import { activeGpu, deploy, lifecycle, loadStatus, useDeploy } from "../lib/deploy-store";
 import {
   ENV_INFER_BASE,
   ENV_INFER_TOKEN,
@@ -64,8 +64,11 @@ import {
 } from "../lib/infer-client";
 import { localApiHeaders } from "../lib/local-api";
 import { update, useSession } from "../lib/session-store";
-import { useAdvanced } from "../lib/ui-mode";
-import { FRAME_SOURCE_ID, extractClipFrames, loadClip } from "../lib/load-clip";
+import { useAdvanced, useDemo } from "../lib/ui-mode";
+import { FRAME_SOURCE_ID, extractClipFrames, loadClip, setFrameCap } from "../lib/load-clip";
+import { DemoPanel } from "./demo-panel";
+import { GpuChoice } from "./gpu-choice";
+import { PhoneSection } from "./phone-captures";
 import { isRunActive, useRunPhase } from "../lib/run-phase";
 import { setMockTargetAllowed, useMockTargetAllowed } from "../lib/dev-target";
 import { clearRunReadout, preconditions, runInference } from "../lib/run-inference";
@@ -76,6 +79,7 @@ import {
   isNodeStale,
   nodeById,
   runNode,
+  scheduleAutoRun,
   setNodeAuto,
   setNodeParamAndRun,
   useGraph,
@@ -249,6 +253,13 @@ function ClipSection() {
   const durationS = Number(source?.params.durationS ?? 0);
   const fps = Number(source?.params.fps ?? 10);
   const maxFrames = Number(source?.params.maxFrames ?? 112);
+  const deployState = useDeploy();
+  const gpuForPlan = activeGpu(deployState);
+  const frameCeiling = GPU_FRAME_CEILING[gpuForPlan];
+  const setMaxFrames = (n: number) => {
+    setFrameCap(n);
+    scheduleAutoRun();
+  };
   const width = Number(source?.params.width ?? 0);
   const height = Number(source?.params.height ?? 0);
 
@@ -391,9 +402,10 @@ function ClipSection() {
               <HelpTerm
                 help={
                   <p>
-                    The ceiling on frames sent to the GPU. 112 is deliberately below the measured
-                    ceiling: 144 frames ran at 21.88 GiB of the card's 22.03, and 160 ran out of
-                    memory. 112 measured 17.23 GiB — about 15% headroom.
+                    The ceiling on frames sent to the GPU. 112 is the default and is deliberately
+                    below the L4's measured ceiling: 144 frames ran at 21.88 GiB of the card's
+                    22.03, and 160 ran out of memory. On an RTX PRO 6000 the slider reaches 256;
+                    112 frames peaked at 23 GiB of its 96, and 256 has not been run yet.
                   </p>
                 }
               >
@@ -403,11 +415,10 @@ function ClipSection() {
             <input
               type="range"
               min={2}
-              max={144}
+              max={frameCeiling}
               value={maxFrames}
-              onChange={(e) =>
-                setNodeParamAndRun(FRAME_SOURCE_ID, "maxFrames", Number(e.target.value))
-              }
+              title={`Up to ${frameCeiling} on the ${GPU_LABEL[gpuForPlan]}`}
+              onChange={(e) => setMaxFrames(Number(e.target.value))}
             />
             <span className="v num">{maxFrames}</span>
           </div>
@@ -557,6 +568,8 @@ function RunSection({ onDeploy }: { onDeploy: () => void }) {
           </p>
         </HelpDot>
       </h3>
+
+      <GpuChoice />
 
       <PreconditionList
         steps={steps}
@@ -714,6 +727,7 @@ function InstanceClock({ since }: { since: number }) {
 
 export function SetupPane() {
   const advanced = useAdvanced();
+  const demo = useDemo();
   const session = useSession();
   const graph = useGraph();
   const cloud = useCloud();
@@ -813,6 +827,18 @@ export function SetupPane() {
     }
   };
 
+  // Demo replaces the inspector with the live stages. Nothing is lost: Auto runs in
+  // `lib/phone-auto.ts`, not here, and Standard brings every control back.
+  if (demo) {
+    return (
+      <div className="pane">
+        <div className="inspector">
+          <DemoPanel />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="pane">
       <div className="pane-status">
@@ -830,6 +856,7 @@ export function SetupPane() {
         <PaneShare />
       </div>
       <div className="pane-body inspector">
+        <PhoneSection />
         <ClipSection />
 
         <RunSection

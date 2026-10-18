@@ -2440,3 +2440,334 @@ canvas {
 .grass-offset input[type="range"] {
   width: 72px;
 }
+
+/*
+  Phone — captures from the demo app. Rows are buttons so the whole line opens the detail; the
+  loaded capture keeps the bright border the studio uses for "current".
+*/
+.phone-auto {
+  display: flex;
+  gap: 10px;
+  padding: 4px 8px 6px;
+  font-size: 11px;
+  color: var(--text);
+}
+
+.phone-auto label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.phone-auto label.disabled {
+  color: var(--text-dim);
+}
+
+.phone-auto label.spend {
+  color: var(--accent-busy);
+}
+
+.phone-empty {
+  padding: 4px 8px 8px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.phone-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 8px 8px;
+}
+
+.phone-capture {
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-node);
+}
+
+.phone-capture.active {
+  border-color: var(--emph-hi);
+}
+
+.phone-head {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 6px;
+  background: none;
+  border: 0;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.phone-head .when,
+.phone-timeline .num {
+  font-family: var(--font-mono);
+}
+
+.phone-head .what {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--emph);
+}
+
+.phone-head .state {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.phone-head .state.failed {
+  color: var(--accent-err);
+}
+
+.phone-body {
+  border-top: 1px solid var(--border);
+  padding-bottom: 2px;
+}
+
+.phone-truth input {
+  min-width: 0;
+  background: var(--bg-app);
+  color: var(--emph-hi);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 4px;
+}
+
+.phone-truth button {
+  background: var(--bg-node);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.phone-truth button:disabled {
+  color: var(--text-dim);
+  cursor: default;
+}
+
+.phone-timeline {
+  margin: 4px 8px;
+  padding: 4px 0;
+  border-top: 1px dashed var(--border);
+}
+
+.phone-event {
+  display: grid;
+  grid-template-columns: 96px 1fr 52px;
+  gap: 6px;
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.phone-event .phase {
+  font-family: var(--font-mono);
+  color: var(--text);
+}
+
+.phone-event .extra {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+}
+
+.phone-event .t {
+  text-align: right;
+  color: var(--emph);
+}
+
+.phone-event.failed .phase,
+.phone-event.failed .extra {
+  color: var(--accent-err);
+}
+
+.phone-event.total {
+  border-top: 1px solid var(--border);
+  margin-top: 2px;
+}
+
+.phone-event.total .t {
+  color: var(--emph-hi);
+}
+
+/* The card selector sits in a label — control — value row like the sliders. */
+.gpu-choice select {
+  min-width: 0;
+  background: var(--bg-app);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  padding: 1px 2px;
+}
+
+/*
+  Demo — the live stages a visitor watches. Larger type than the inspector's 11 px, because it
+  is read from a step back; the same palette, one accent per state: amber while a stage runs,
+  bright white when it is done, red if it failed. Green stays reserved for the point cloud.
+*/
+.demo-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 14px 18px;
+}
+
+.demo-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.demo-live {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: var(--text-dim);
+}
+
+.demo-live.on {
+  color: var(--accent-busy);
+  animation: demo-pulse 1.2s ease-in-out infinite;
+}
+
+.demo-total {
+  font-family: var(--font-mono);
+  font-size: 28px;
+  color: var(--emph-hi);
+}
+
+.demo-idle {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.demo-stages {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.demo-stage {
+  display: grid;
+  grid-template-columns: 14px 1fr auto;
+  column-gap: 10px;
+  align-items: center;
+  font-size: 14px;
+  color: var(--text-dim);
+  transition: color 300ms ease;
+}
+
+.demo-stage .mark {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+}
+
+.demo-stage.active {
+  color: var(--emph-hi);
+}
+
+.demo-stage.active .mark {
+  border-color: var(--accent-busy);
+  background: var(--accent-busy);
+  animation: demo-pulse 0.9s ease-in-out infinite;
+}
+
+.demo-stage.done {
+  color: var(--text);
+}
+
+.demo-stage.done .mark {
+  border-color: var(--emph-hi);
+  background: var(--emph-hi);
+}
+
+.demo-stage.failed,
+.demo-stage.failed .t {
+  color: var(--accent-err);
+}
+
+.demo-stage.failed .mark {
+  border-color: var(--accent-err);
+  background: var(--accent-err);
+}
+
+.demo-stage .t {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--emph);
+}
+
+.demo-stage .detail {
+  grid-column: 2 / 4;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.demo-frames {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 3px;
+}
+
+.demo-frames img {
+  width: 100%;
+  aspect-ratio: 9 / 16;
+  object-fit: cover;
+  border-radius: 2px;
+  opacity: 0;
+  animation: demo-frame-in 320ms ease-out forwards;
+}
+
+.demo-error {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent-err);
+}
+
+.demo-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+@keyframes demo-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+@keyframes demo-frame-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .demo-live.on,
+  .demo-stage.active .mark { animation: none; }
+  .demo-frames img { animation: none; opacity: 1; }
+}

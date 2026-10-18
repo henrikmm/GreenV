@@ -132,6 +132,7 @@ function ViewBar() {
 const MODES: readonly { id: UiMode; label: string }[] = [
   { id: "standard", label: "Standard" },
   { id: "advanced", label: "Advanced" },
+  { id: "demo", label: "Demo" },
 ];
 
 function ModeSwitch() {
@@ -159,8 +160,13 @@ function ModeSwitch() {
           layers, the cloud rebuild controls, the trial ledger and the cloud plumbing.
         </p>
         <p>
-          Nothing is only in Standard, and warnings about the current run show in both. Your choice
-          is remembered.
+          <b>Demo</b> is for an audience: the Setup pane becomes a live view of the capture
+          arriving from the phone, and the pane headers drop their timings. Auto keeps running
+          underneath; switch back to Standard to operate.
+        </p>
+        <p>
+          Nothing is only in Standard, and warnings about the current run show in every mode. Your
+          choice is remembered.
         </p>
       </HelpDot>
     </span>

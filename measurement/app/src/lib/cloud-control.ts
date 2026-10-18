@@ -17,7 +17,8 @@ export interface CloudStatus {
   auth: { active: boolean; account: string | null; hint?: string | null };
   project: string;
   region: string;
-  service: { name: string; exists: boolean; url: string | null };
+  /** `gpuType` is the card the deployed template asks for, e.g. `nvidia-l4`; null when absent. */
+  service: { name: string; exists: boolean; url: string | null; gpuType?: string | null };
   /** `present` is deploy.sh's own build-skip predicate, evaluated against the live registry. */
   image: { uri: string; tag: string | null; present: boolean };
   deploy: { willSkipBuild: boolean; estimate: string; detail?: string };
@@ -60,16 +61,42 @@ export async function fetchCloudStatus(refresh = false): Promise<CloudStatus> {
   )) as CloudStatus;
 }
 
-async function startJob(path: string): Promise<{ job: JobView; attached: boolean }> {
-  return (await expectOk(await fetch(path, { method: "POST", headers: localApiHeaders() }))) as {
+async function startJob(path: string, body?: unknown): Promise<{ job: JobView; attached: boolean }> {
+  const init: RequestInit =
+    body === undefined
+      ? { method: "POST", headers: localApiHeaders() }
+      : { method: "POST", headers: localApiHeaders({ "content-type": "application/json" }), body: JSON.stringify(body) };
+  return (await expectOk(await fetch(path, init))) as {
     job: JobView;
     attached: boolean;
   };
 }
 
 /** Deploy. Returns as soon as the job exists — the build itself takes minutes. */
-export function startDeploy(): Promise<{ job: JobView; attached: boolean }> {
-  return startJob("/api/cloud/deploy");
+export const GPU_TYPES = ["nvidia-l4", "nvidia-rtx-pro-6000"] as const;
+export type GpuType = (typeof GPU_TYPES)[number];
+
+/** The card a deploy asks for unless told otherwise. Mirrors VERGE_GPU's default in deploy.sh. */
+export const DEFAULT_GPU: GpuType = "nvidia-rtx-pro-6000";
+
+/**
+ * The most frames the studio will plan for each card. The L4's is the slider's long-standing
+ * top: 144 ran at 21.88 GiB of 22.03 and 160 ran out of memory. The RTX PRO 6000's is a choice,
+ * not a measurement: 112 frames peaked at 23 GiB of its 96 (REGISTRY, 2026-10-17), and the
+ * allocator fit of 0.07 GiB per frame puts 256 near 27 GiB — but 256 has never been run.
+ */
+export const GPU_FRAME_CEILING: Record<GpuType, number> = {
+  "nvidia-l4": 144,
+  "nvidia-rtx-pro-6000": 256,
+};
+
+export const GPU_LABEL: Record<GpuType, string> = {
+  "nvidia-l4": "L4",
+  "nvidia-rtx-pro-6000": "RTX PRO 6000",
+};
+
+export function startDeploy(gpu: GpuType = DEFAULT_GPU): Promise<{ job: JobView; attached: boolean }> {
+  return startJob("/api/cloud/deploy", { gpu });
 }
 
 /** Delete the service. The only action that stops the meter. */
