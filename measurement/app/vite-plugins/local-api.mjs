@@ -11,6 +11,7 @@ import { basename, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { extractFrames, probeVideo } from "../../scripts/extract-frames.mjs";
 import { cloudStatus, invalidateCloudStatus, proxyToService } from "./cloud.mjs";
+import { studioPhoneRoute } from "./phone-intake.mjs";
 import { getJob, getRunningJob, killAllJobs, startJob, subscribeJob } from "./jobs.mjs";
 import {
   RUNS_ROOT,
@@ -267,7 +268,12 @@ export function localApi(options = {}) {
         const url = new URL(req.url, "http://localhost");
         if (!url.pathname.startsWith("/api/")) return next();
 
-        const privileged = url.pathname.startsWith("/api/cloud/svc/") || MUTATING_METHODS.has(req.method);
+        // /api/phone/ is privileged even for reads: the listing carries the pairing code and a
+        // stranger's video, and only this dev session's page should see either.
+        const privileged =
+          url.pathname.startsWith("/api/cloud/svc/") ||
+          url.pathname.startsWith("/api/phone/") ||
+          MUTATING_METHODS.has(req.method);
         if (privileged) {
           if (!isLocalOrigin(requestOrigin(req), localPort)) {
             return reject(res, `local API requires a loopback origin on port ${localPort}`);
@@ -278,6 +284,15 @@ export function localApi(options = {}) {
         }
 
         try {
+          if (url.pathname.startsWith("/api/phone/")) {
+            const answer = await studioPhoneRoute({
+              method: req.method,
+              pathname: url.pathname,
+              readBody: () => readJsonBody(req),
+              probe: probeVideo,
+            });
+            if (answer) return json(res, answer.status, answer.body);
+          }
           if (url.pathname === "/api/grass-quality" && req.method === "POST") {
             return json(res, 202, await startGrassQuality(await readJsonBody(req)));
           }
@@ -452,10 +467,18 @@ export function localApi(options = {}) {
              * do, so it is not plumbed — a rebuild is a deliberate act at a terminal.
              */
             case "POST /api/cloud/deploy": {
+              // The card is the only thing a request may choose, and only from this list; the
+              // script refuses anything else as well.
+              const body = await readJsonBody(req).catch(() => ({}));
+              const gpu = body?.gpu ?? "nvidia-rtx-pro-6000";
+              if (!["nvidia-l4", "nvidia-rtx-pro-6000"].includes(gpu)) {
+                return json(res, 400, { detail: `unknown GPU type ${gpu}` });
+              }
               const started = startJob({
                 kind: "deploy",
                 command: join(REPO_ROOT, "scripts/deploy.sh"),
                 cwd: REPO_ROOT,
+                env: { VERGE_GPU: gpu },
                 timeoutMs: 45 * 60_000,
               });
               invalidateCloudStatus();

@@ -25,6 +25,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { GPU_LABEL, type GpuType } from "../lib/cloud-control";
 import { useCloud } from "../lib/cloud-store";
 import {
   deploy,
@@ -37,6 +38,11 @@ import {
   useDeploy,
 } from "../lib/deploy-store";
 import { DEPLOY_CONFIRM, TEARDOWN_CONFIRM } from "./setup";
+
+function gpuSuffix(gpuType: string | null | undefined): string {
+  if (!gpuType) return "";
+  return ` · ${GPU_LABEL[gpuType as GpuType] ?? gpuType}`;
+}
 
 function clock(ms: number): string {
   const total = Math.floor(ms / 1000);
@@ -148,7 +154,7 @@ export function DeployControl() {
         title="The service exists and nothing has woken an instance yet, so nothing is billing. Click to delete it. The ~12 GB image is kept, so redeploying takes about a minute."
         onClick={() => void startTeardown()}
       >
-        <span className="dot" /> Deployed · not billing
+        <span className="dot" /> Deployed{gpuSuffix(deployState.status?.service.gpuType)} · not billing
       </button>
     );
   }
@@ -161,7 +167,7 @@ export function DeployControl() {
       title="An instance is awake and Cloud Run is billing its whole lifetime, whatever this app is doing. Click to delete the service — the only action that stops the meter."
       onClick={() => void startTeardown()}
     >
-      <span className="dot" /> Live ·{" "}
+      <span className="dot" /> Live{gpuSuffix(deployState.status?.service.gpuType)} ·{" "}
       <span className="mono">{since === null ? "0:00" : clock(Date.now() - since)}</span>
     </button>
   );

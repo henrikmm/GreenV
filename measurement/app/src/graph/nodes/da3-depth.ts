@@ -87,7 +87,7 @@ export const da3DepthSpec: NodeSpec = {
       key: "maxFrames",
       label: "Max frames",
       min: 2,
-      max: 144,
+      max: 256,
       help:
         "A second ceiling, applied by the service after the frames arrive. Frame Source has " +
         "already capped the upload, so this normally does nothing — it is the backstop for a " +

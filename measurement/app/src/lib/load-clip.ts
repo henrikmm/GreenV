@@ -24,8 +24,10 @@
  * the plan needs. Extracting is a press. The arithmetic in between is free.
  */
 
-import { runNode, setNodeParams } from "../graph/graph-store";
+import { getGraph, runNode, setNodeParams } from "../graph/graph-store";
+import type { FramesValue } from "../graph/nodes/frame-source";
 import { uploadVideo } from "./infer-client";
+import { clearActivePhoneCapture, reportPhonePhase } from "./phone-link";
 
 export const FRAME_SOURCE_ID = "frame-source";
 
@@ -37,6 +39,7 @@ export const FRAME_SOURCE_ID = "frame-source";
  */
 export async function loadClip(file: File): Promise<void> {
   const source = await uploadVideo(file);
+  clearActivePhoneCapture();
   setNodeParams(FRAME_SOURCE_ID, {
     videoPath: source.path,
     videoName: source.name,
@@ -49,11 +52,26 @@ export async function loadClip(file: File): Promise<void> {
 }
 
 /**
+ * Set the frame cap in both places it lives: Frame Source caps what is extracted, DA3 Depth caps
+ * what the service accepts. Raising one alone would have the service refuse the extra frames.
+ */
+export function setFrameCap(maxFrames: number): void {
+  setNodeParams("da3-depth", { maxFrames });
+  setNodeParams(FRAME_SOURCE_ID, { maxFrames });
+}
+
+/**
  * Sample the clip. This is the ffmpeg pass, and the only expensive thing on this side.
  *
  * Clears exactly one manual node — Frame Source. DA3 is manual too and stays stale, so this can
  * never be the thing that spends GPU time, whatever the badges say.
  */
 export async function extractClipFrames(): Promise<void> {
+  const started = performance.now();
+  reportPhonePhase("extracting");
   await runNode(FRAME_SOURCE_ID);
+  const runtime = getGraph().runtime[FRAME_SOURCE_ID];
+  const frames = runtime?.outputs?.frames?.value as FramesValue | undefined;
+  if (runtime?.error) reportPhonePhase("failed", { error: runtime.error, failedIn: "extracting" });
+  else reportPhonePhase("extracted", { frames: frames?.paths?.length ?? null, ms: Math.round(performance.now() - started) });
 }

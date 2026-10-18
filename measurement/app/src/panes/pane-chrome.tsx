@@ -9,6 +9,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { hidePane, toggleFocus, useDock, useSashDragging } from "../lib/dock-store";
+import { useDemo } from "../lib/ui-mode";
 
 /**
  * How much of the window this pane is taking — shown only while a sash is being dragged.
@@ -112,12 +113,15 @@ export function PaneControls({
   extra?: ReactNode;
 }) {
   const dock = useDock();
+  const demo = useDemo();
   const focused = paneId !== undefined && dock.focusedId === paneId;
 
   return (
     <div className="pane-controls">
-      <span className={paused ? "paused" : "running"}>{paused ? "Paused" : status}</span>
-      <span className="ms">{elapsedMs.toFixed(1)} ms</span>
+      {/* Frame timings are for whoever is debugging the pane, not an audience. `extra` stays: a
+          pane may put a warning there, and warnings show in every mode. */}
+      {!demo && <span className={paused ? "paused" : "running"}>{paused ? "Paused" : status}</span>}
+      {!demo && <span className="ms">{elapsedMs.toFixed(1)} ms</span>}
       {extra}
       <span className="spacer" />
       <PaneShare />

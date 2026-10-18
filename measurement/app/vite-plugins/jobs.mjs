@@ -10,9 +10,11 @@
 //
 // 1. **Single-flight per kind.** Two concurrent `gcloud run deploy`s would race over one
 //    service. A second start attaches to the running job instead of spawning.
-// 2. **Nothing from the browser reaches the child's argv or env.** The routes pass fixed
-//    scripts and fixed environments. FORCE_BUILD and PURGE_IMAGE are the two variables that
-//    could cost 20 minutes or destroy the cached image, and neither is settable from a click.
+// 2. **Nothing free-form from the browser reaches the child's argv or env.** The routes pass
+//    fixed scripts and fixed environments. The one exception is the deploy's VERGE_GPU, which the
+//    route checks against a two-item list before it gets here. FORCE_BUILD and PURGE_IMAGE are
+//    the two variables that could cost 20 minutes or destroy the cached image, and neither is
+//    settable from a click.
 // 3. **Output is redacted before it leaves this process.** gcloud is not expected to print a
 //    credential, but a log streamed to a browser is the wrong place to find out otherwise.
 
@@ -120,7 +122,7 @@ export function startJob({ kind, command, args = [], cwd, env = {}, timeoutMs = 
   try {
     child = spawn(command, args, {
       cwd,
-      // A fixed environment plus a fixed allowlist. Nothing from a request body lands here.
+      // A fixed environment plus a fixed allowlist. Only allowlisted values from a request land here.
       env: { ...process.env, ...env },
       stdio: ["ignore", "pipe", "pipe"],
     });

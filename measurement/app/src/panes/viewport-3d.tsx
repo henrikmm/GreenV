@@ -54,7 +54,7 @@ import {
   type PointCloudValue,
   type SelectionValue,
 } from "../graph/nodes";
-import { useAdvanced } from "../lib/ui-mode";
+import { useAdvanced, useDemo } from "../lib/ui-mode";
 import { DEFAULT_RUN_ID } from "../graph/nodes/fixture-run";
 import type { RunId } from "../lib/runs";
 import { closestFrame, type DepthFieldValue } from "../measurement/depth-field";
@@ -448,6 +448,9 @@ export function Viewport3D() {
   const [trackError, setTrackError] = useState<string | null>(null);
 
   const advanced = useAdvanced();
+  const demo = useDemo();
+  const demoRef = useRef(demo);
+  demoRef.current = demo;
   const graph = useGraph();
   const grassRun = useGrassRun();
   const incoming = resolveInput(graph, VIEWER_3D_ID, "points");
@@ -899,6 +902,31 @@ export function Viewport3D() {
     scene.add(cloud.object);
     mountedRef.current = cloud.object;
     frameCloud();
+
+    // Demo only: draw the cloud in over a couple of seconds instead of all at once. DA3 writes
+    // its points frame by frame, so growing the draw range shows the scene assembling view by
+    // view — the reconstruction an audience came to see. The geometry is untouched; only how
+    // much of it is drawn changes, and the full range is restored however the effect ends.
+    if (!demoRef.current) return;
+    const points: THREE.Points[] = [];
+    cloud.object.traverse((child) => {
+      if (child instanceof THREE.Points) points.push(child);
+    });
+    const counts = points.map((p) => p.geometry.getAttribute("position")?.count ?? 0);
+    const started = performance.now();
+    const REVEAL_MS = 2500;
+    let raf = 0;
+    const step = (now: number) => {
+      const t = Math.min(1, (now - started) / REVEAL_MS);
+      const eased = 1 - Math.pow(1 - t, 2);
+      points.forEach((p, i) => p.geometry.setDrawRange(0, Math.ceil(counts[i]! * eased)));
+      if (t < 1) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => {
+      cancelAnimationFrame(raf);
+      points.forEach((p, i) => p.geometry.setDrawRange(0, counts[i]!));
+    };
   }, [cloud, frameCloud]);
 
   /**
@@ -1357,7 +1385,7 @@ export function Viewport3D() {
         paused={paused}
         paneId="viewport"
         onPause={() => setPaused((p) => !p)}
-        extra={<span className="pane-note">{status}</span>}
+        extra={demo ? undefined : <span className="pane-note">{status}</span>}
       />
       {/*
         The one row Standard has, and it answers one question: where am I standing.
@@ -1465,26 +1493,28 @@ export function Viewport3D() {
           </>
         }
       />
+      {/*
+        Which cloud is being measured, switchable from the pane that shows it. Shown in Standard
+        too since 2026-10-17, so the rebuilt cloud can be chosen without entering Advanced; DA3's
+        export stays the default.
+        It is a parameter of the Point Cloud node, and it is still editable there — but the
+        node lives in a graph pane the measurement layout keeps small, and a switch you have to
+        go and find is a switch nobody A/Bs. The hint carries the number that makes the two
+        clouds different: the share of its own pixels that the LEANEST frame contributed.
+      */}
+      <OutputRow
+        label="CLOUD"
+        choices={CLOUD_SOURCES}
+        active={requestedSource}
+        onSelect={(id) => setNodeParamAndRun(POINT_CLOUD_ID, "source", id)}
+        hint={
+          cloud?.leanestFrameShare == null
+            ? undefined
+            : `leanest frame ${(cloud.leanestFrameShare * 100).toFixed(0)}%`
+        }
+      />
       {advanced && (
         <>
-          {/*
-            Which cloud is being measured, switchable from the pane that shows it.
-            It is a parameter of the Point Cloud node, and it is still editable there — but the
-            node lives in a graph pane the measurement layout keeps small, and a switch you have to
-            go and find is a switch nobody A/Bs. The hint carries the number that makes the two
-            clouds different: the share of its own pixels that the LEANEST frame contributed.
-          */}
-          <OutputRow
-            label="CLOUD"
-            choices={CLOUD_SOURCES}
-            active={requestedSource}
-            onSelect={(id) => setNodeParamAndRun(POINT_CLOUD_ID, "source", id)}
-            hint={
-              cloud?.leanestFrameShare == null
-                ? undefined
-                : `leanest frame ${(cloud.leanestFrameShare * 100).toFixed(0)}%`
-            }
-          />
           {/*
             Colour and budget belong to the rebuilt cloud only. DA3's export carries its own vertex
             colours and its own fixed 1,000,000, so offering either against it would be a control

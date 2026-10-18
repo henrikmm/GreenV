@@ -23,7 +23,9 @@ import type { FramesValue } from "../graph/nodes/frame-source";
 import { getCloud } from "./cloud-store";
 import { mockTargetAllowed } from "./dev-target";
 import { FRAME_SOURCE_ID } from "./load-clip";
-import { beginRun, failRun, finishRun, resetRun } from "./run-phase";
+import type { InferManifest } from "./contract";
+import { reportPhonePhase } from "./phone-link";
+import { beginRun, failRun, finishRun, getRunPhase, resetRun } from "./run-phase";
 
 export type PreconditionId = "clip" | "frames" | "target";
 
@@ -165,8 +167,22 @@ export async function runInference(): Promise<void> {
      * downstream; DA3's own key is untouched, so it is reused rather than re-executed, and
      * `allowManual: false` would refuse it even if it were not.
      */
+    // The GPU has answered; what follows is the artifact fetch and the cloud built from it,
+    // which is the stretch a slow network stretches. Both are reported, so the phone's
+    // timeline separates the two.
+    const manifest = (getGraph().runtime["da3-depth"]?.outputs?.depth?.value as { manifest?: InferManifest } | undefined)
+      ?.manifest;
+    reportPhonePhase("inferred", {
+      gpu: getRunPhase().gpu?.deviceName ?? null,
+      frames: manifest?.frames.count ?? null,
+      gpuSeconds: manifest?.timing.gpuSeconds ?? null,
+      serverWallSeconds: manifest?.timing.wallSeconds ?? null,
+      mock: manifest?.mock ?? false,
+    });
+    const fetchStarted = performance.now();
     setNodeParams(FIXTURE_RUN_ID, { source: "live" });
     await runAuto();
+    reportPhonePhase("fetched", { ms: Math.round(performance.now() - fetchStarted) });
     finishRun();
   } catch (e) {
     failRun(e instanceof Error ? e.message : String(e));

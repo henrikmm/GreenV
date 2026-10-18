@@ -114,15 +114,26 @@ EOF
   exit 1
 fi
 
-echo "== deploy =="
+# Which card. The RTX PRO 6000 is the default since 2026-10-17: it ran DA3 2.7x faster than the L4
+# on the same frames (REGISTRY, "The service image moved to CUDA 12.8"). Redeploying with another
+# value replaces the revision in place; the image is the
+# same for both, so switching never rebuilds. Cloud Run sets a floor of CPU and memory per card
+# (RTX PRO 6000: 20 vCPU, 80 GiB), so those follow the card rather than being set separately.
+VERGE_GPU="${VERGE_GPU:-nvidia-rtx-pro-6000}"
+case "${VERGE_GPU}" in
+  nvidia-l4)           GPU_CPU=8;  GPU_MEMORY=32Gi ;;
+  nvidia-rtx-pro-6000) GPU_CPU=20; GPU_MEMORY=80Gi ;;
+  *) echo "REFUSING TO DEPLOY: VERGE_GPU must be nvidia-l4 or nvidia-rtx-pro-6000, not '${VERGE_GPU}'" >&2; exit 1 ;;
+esac
+echo "== deploy on ${VERGE_GPU} (${GPU_CPU} vCPU, ${GPU_MEMORY}) =="
 gcloud run deploy "${SERVICE}" \
   --image="${IMAGE_URI}@${DIGEST}" \
   --region="${REGION}" \
   --gpu=1 \
-  --gpu-type=nvidia-l4 \
+  --gpu-type="${VERGE_GPU}" \
   --no-gpu-zonal-redundancy \
-  --cpu=8 \
-  --memory=32Gi \
+  --cpu="${GPU_CPU}" \
+  --memory="${GPU_MEMORY}" \
   --no-cpu-throttling \
   --min-instances=0 \
   --max-instances=1 \

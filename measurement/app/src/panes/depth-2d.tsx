@@ -43,7 +43,7 @@ import {
 import { percentile, type NpyArray } from "../lib/npz";
 import { turbo } from "../lib/turbo";
 import { OutputRow, PaneControls } from "./pane-chrome";
-import { useAdvanced } from "../lib/ui-mode";
+import { useAdvanced, useDemo } from "../lib/ui-mode";
 import { useGrassRun } from "../measurement/grass-grid-store";
 import { ProvenanceBanner } from "./provenance";
 
@@ -132,6 +132,10 @@ export function Depth2D() {
   const field = incoming?.value as DepthFieldValue | undefined;
   const descriptor = field ? closestFrame(field, ui.canonicalFrame) : undefined;
   const advanced = useAdvanced();
+  // Demo keeps what a person measuring needs — the outputs, Extent, Brush and Erase, the frame
+  // and the confidence cut — and drops the rest of the toolbar. A control is only hidden while it
+  // sits at its default, so Demo can never strand a setting it no longer shows.
+  const demo = useDemo();
   const grassRun = useGrassRun();
 
   /**
@@ -603,7 +607,7 @@ export function Depth2D() {
         extra={
           error ? (
             <span style={{ color: "var(--accent-err)" }}>{error}</span>
-          ) : (
+          ) : demo ? undefined : (
             <span className="pane-note">{status}</span>
           )
         }
@@ -643,8 +647,8 @@ export function Depth2D() {
         </div>
       )}
       <div className="brush-toolbar">
-        <span className="tool-context"><b>{object.code}</b> {object.name}</span>
-        {namedObject && !object.temporary && <button
+        {!demo && <span className="tool-context"><b>{object.code}</b> {object.name}</span>}
+        {!demo && namedObject && !object.temporary && <button
           className={`chip-toggle${tool === "segment" ? " on" : ""}`}
           disabled={segmentBusy}
           title="Load SlimSAM locally, then left-click the object and right-click exclusions"
@@ -657,10 +661,10 @@ export function Depth2D() {
             className={`chip-toggle${object.mode === "vertical_extent" ? " on" : ""}`}
             onClick={() => setFreeMeasurementMode("vertical_extent")}
           >Extent</button>
-          <button
+          {(!demo || object.mode === "top_above_floor") && <button
             className={`chip-toggle${object.mode === "top_above_floor" ? " on" : ""}`}
             onClick={() => setFreeMeasurementMode("top_above_floor")}
-          >Above floor</button>
+          >Above floor</button>}
         </span>}
         <button className={`chip-toggle${tool === "brush" ? " on" : ""}`} onClick={() => { setTool("brush"); setErasing(false); }}>Brush</button>
         <button className={`chip-toggle${tool === "erase" ? " on" : ""}`} onClick={() => { setTool("erase"); setErasing(true); }}>Erase</button>
@@ -682,8 +686,8 @@ export function Depth2D() {
             syncMeasurementGraph();
           }}
         >Clear</button>
-        <label>Mask <input aria-label="Mask opacity" type="range" min="0.1" max="0.9" step="0.05" value={ui.overlayOpacity} onChange={(event) => setOverlayOpacity(Number(event.target.value))} /></label>
-        <label>Zoom <input aria-label="Canvas zoom" type="range" min="1" max="4" step="0.25" value={ui.zoom} onChange={(event) => setMeasurementZoom(Number(event.target.value))} /></label>
+        {!demo && <label>Mask <input aria-label="Mask opacity" type="range" min="0.1" max="0.9" step="0.05" value={ui.overlayOpacity} onChange={(event) => setOverlayOpacity(Number(event.target.value))} /></label>}
+        {(!demo || ui.zoom !== 1) && <label>Zoom <input aria-label="Canvas zoom" type="range" min="1" max="4" step="0.25" value={ui.zoom} onChange={(event) => setMeasurementZoom(Number(event.target.value))} /></label>}
       </div>
       {(tool === "segment" || mask?.segmentation || segmentError) && (
         <div className="segment-toolbar">

@@ -79,7 +79,8 @@ export const frameSourceSpec: NodeSpec = {
       key: "maxFrames",
       label: "Max frames",
       min: 2,
-      max: 144,
+      // The RTX PRO 6000's ceiling; the Setup pane narrows it to the card actually in use.
+      max: 256,
       help:
         "The ceiling on frames sent to the GPU, because the card's memory is finite and the " +
         "model imposes no limit of its own. 112 is the default and it is deliberately below " +

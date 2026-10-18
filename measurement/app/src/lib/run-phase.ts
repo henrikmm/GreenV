@@ -115,6 +115,11 @@ function subscribe(listener: () => void): () => void {
   };
 }
 
+/** For code outside React that follows the run, such as the phone link reporting phases back. */
+export function subscribeRunPhase(listener: () => void): () => void {
+  return subscribe(listener);
+}
+
 export function useRunPhase(): RunPhaseState {
   return useSyncExternalStore(subscribe, () => snapshot, () => snapshot);
 }
