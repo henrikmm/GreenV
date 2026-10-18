@@ -4,4 +4,10 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!-- Same reason as the debug variant: the local Compose stack serves plain HTTP and Android
+         has refused cleartext by default since API 28. A profile build is the one to walk a road
+         with - it is AOT-compiled, so camera encoding and per-segment hashing run at real speed,
+         which a debug build does not. Release still keeps the platform default. -->
+    <application android:usesCleartextTraffic="true" />
 </manifest>

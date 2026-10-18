@@ -16,6 +16,18 @@ network summary and full-route map screens. The upload screen starts the native 
 dashboard and map data shown today are local presentation fixtures until their API contracts are
 defined.
 
+## The demo build (test only)
+
+`lib/main_demo.dart` is a second entry point for the FIAP Next demo on 24 Oct 2026: one Verge
+Studio–styled screen that films an object and sends it to a gateway (`lib/src/demo/`). It shares
+no screen, queue or upload path with the field app below, and nothing in the field app changed
+for it. Specification, wire contract and deployment handoff: [`docs/NEXT-DEMO.md`](../../docs/NEXT-DEMO.md).
+
+```
+flutter run -t lib/main_demo.dart --dart-define=VERGE_GATEWAY_URL=http://<mac-ip>:8790 \
+  --dart-define=VERGE_GATEWAY_CODE=<code>
+```
+
 ## Current scope
 
 Implemented:

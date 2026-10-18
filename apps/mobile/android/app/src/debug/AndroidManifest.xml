@@ -4,4 +4,10 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!-- Debug builds only. Android has blocked cleartext HTTP by default since API 28, and the
+         local Compose stack serves plain http://<workstation>:8080 with no TLS - so without this
+         a phone on the same network fails every upload. Gradle merges this file into the debug
+         variant alone, so release builds keep the platform default and refuse cleartext. -->
+    <application android:usesCleartextTraffic="true" />
 </manifest>
