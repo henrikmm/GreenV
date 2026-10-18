@@ -5,7 +5,24 @@
       "name": "web",
       "cwd": "apps/web",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
+      "port": 5173
+    },
+    {
+      "name": "verge-phone",
+      "cwd": "measurement",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "VERGE_PHONE_INTAKE=1",
+        "npm",
+        "run",
+        "dev",
+        "--prefix",
+        "app"
+      ],
       "port": 5173
     }
   ]
