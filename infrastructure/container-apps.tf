@@ -51,6 +51,23 @@ resource "azurerm_container_app" "api" {
     }
   }
 
+  # The demo's two credentials, present only while the demo is on (demo.tf).
+  dynamic "secret" {
+    for_each = var.demo_enabled ? [1] : []
+    content {
+      name  = "demo-pairing-code"
+      value = var.demo_pairing_code
+    }
+  }
+
+  dynamic "secret" {
+    for_each = var.demo_enabled ? [1] : []
+    content {
+      name  = "demo-runpod-api-key"
+      value = local.demo_runpod_api_key
+    }
+  }
+
   dynamic "registry" {
     for_each = local.registry_enabled ? [1] : []
     content {
@@ -87,7 +104,7 @@ resource "azurerm_container_app" "api" {
   }
 
   template {
-    min_replicas = 0
+    min_replicas = var.api_min_replicas
     max_replicas = var.api_max_replicas
 
     # Container Apps does not retry a revision it has already marked ActivationFailed, so a bad

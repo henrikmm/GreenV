@@ -699,6 +699,21 @@ variable "api_max_replicas" {
   }
 }
 
+variable "api_min_replicas" {
+  description = <<-EOT
+    API replicas kept running at rest. Zero is the MVP: the API scales to zero and a cold request
+    pays the start. One keeps a replica billed around the clock, so raise it only for a window
+    that needs an instant answer - the demo on event day - and put it back afterwards.
+  EOT
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.api_min_replicas >= 0 && var.api_min_replicas <= var.api_max_replicas
+    error_message = "api_min_replicas must be between 0 and api_max_replicas."
+  }
+}
+
 variable "worker_max_replicas" {
   description = "Maximum number of FFmpeg worker replicas."
   type        = number

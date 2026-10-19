@@ -963,3 +963,234 @@ run "omits_the_certificate_without_a_custom_hostname" {
     error_message = "A deployment without a custom hostname must not request a certificate."
   }
 }
+
+# The FIAP Next demo (demo.tf). Off, it must leave the plan exactly as it was: no demo variable,
+# no demo secret, no extra origin, no bucket CORS policy, no extra firewall rule.
+# Both demo runs name api_allowed_origins, so a local terraform.tfvars that lists other origins
+# cannot change their answer.
+run "the_demo_off_changes_nothing" {
+  command = plan
+
+  variables {
+    cloudflare_account_id               = "00000000000000000000000000000000"
+    cloudflare_zone_id                  = "11111111111111111111111111111111"
+    api_hostname                        = "api.example.com"
+    dashboard_hostname                  = "greenv.example.com"
+    api_allowed_origins                 = []
+    cloudflare_zone_firewall_ruleset_id = "22222222222222222222222222222222"
+    r2_bucket_name                      = "greenv-mvp-captures-test"
+    r2_access_key_id                    = "test-access-key"
+    r2_secret_access_key                = "test-secret-key"
+    api_image                           = "ghcr.io/example/greenv-video-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    worker_image                        = "ghcr.io/example/greenv-frame-extractor@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    measurement_worker_image            = "ghcr.io/example/greenv-measurement-worker@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  }
+
+  assert {
+    condition = (
+      length([for name in keys(local.api_environment) : name if startswith(name, "GREENV_DEMO_")]) == 0 &&
+      length([for name in keys(local.api_secret_environment) : name if startswith(name, "GREENV_DEMO_")]) == 0 &&
+      length([for secret in azurerm_container_app.api.secret : secret.name if startswith(secret.name, "demo-")]) == 0
+    )
+    error_message = "With the demo off the API must carry no demo setting and no demo credential."
+  }
+
+  assert {
+    condition     = local.api_environment.GREENV_ALLOWED_ORIGINS == "https://greenv.example.com"
+    error_message = "With the demo off the demo site's origin must not be allowed."
+  }
+
+  assert {
+    condition     = length(cloudflare_r2_bucket_cors.demo_reads) == 0
+    error_message = "With the demo off the bucket's CORS policy must be left alone."
+  }
+
+  assert {
+    condition = (
+      length(cloudflare_ruleset.zone_firewall[0].rules) == 5 &&
+      cloudflare_ruleset.zone_firewall[0].rules[3].description == "GreenV dashboard" &&
+      cloudflare_ruleset.zone_firewall[0].rules[3].expression == "http.host eq \"greenv.example.com\""
+    )
+    error_message = "With the demo off the zone firewall must hold exactly the rules it held before."
+  }
+
+  assert {
+    condition     = azurerm_container_app.api.template[0].min_replicas == 0
+    error_message = "The API must still scale to zero unless api_min_replicas says otherwise."
+  }
+}
+
+run "plans_the_demo_when_enabled" {
+  command = plan
+
+  variables {
+    cloudflare_account_id               = "00000000000000000000000000000000"
+    cloudflare_zone_id                  = "11111111111111111111111111111111"
+    api_hostname                        = "api.example.com"
+    dashboard_hostname                  = "greenv.example.com"
+    api_allowed_origins                 = []
+    cloudflare_zone_firewall_ruleset_id = "22222222222222222222222222222222"
+    r2_bucket_name                      = "greenv-mvp-captures-test"
+    r2_access_key_id                    = "test-access-key"
+    r2_secret_access_key                = "test-secret-key"
+    api_image                           = "ghcr.io/example/greenv-video-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    worker_image                        = "ghcr.io/example/greenv-frame-extractor@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    measurement_worker_image            = "ghcr.io/example/greenv-measurement-worker@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    demo_enabled                        = true
+    demo_pairing_code                   = "test-pairing-code"
+    demo_runpod_endpoint_id             = "demo0endpoint1"
+    demo_runpod_api_key                 = "test-demo-runpod-key"
+    api_min_replicas                    = 1
+  }
+
+  assert {
+    condition = (
+      local.api_environment.GREENV_DEMO_ENABLED == "true" &&
+      local.api_environment.GREENV_DEMO_DEPTH_ADAPTER == "runpod" &&
+      local.api_environment.GREENV_DEMO_RUNPOD_ENDPOINT_ID == "demo0endpoint1" &&
+      local.api_environment.GREENV_DEMO_MAX_FRAMES == "112"
+    )
+    error_message = "The demo must reach the API enabled, on RunPod, at its own endpoint and with the 112-frame cap."
+  }
+
+  # Credentials travel as secrets, never as plain environment values a revision listing shows.
+  assert {
+    condition = (
+      local.api_secret_environment.GREENV_DEMO_PAIRING_CODE == "demo-pairing-code" &&
+      local.api_secret_environment.GREENV_DEMO_RUNPOD_API_KEY == "demo-runpod-api-key" &&
+      !contains(keys(local.api_environment), "GREENV_DEMO_PAIRING_CODE") &&
+      !contains(keys(local.api_environment), "GREENV_DEMO_RUNPOD_API_KEY") &&
+      anytrue([for secret in azurerm_container_app.api.secret : secret.name == "demo-pairing-code" && secret.value == "test-pairing-code"]) &&
+      anytrue([for secret in azurerm_container_app.api.secret : secret.name == "demo-runpod-api-key" && secret.value == "test-demo-runpod-key"])
+    )
+    error_message = "The pairing code and the demo's RunPod key must be mounted as Container Apps secrets."
+  }
+
+  assert {
+    condition = (
+      local.api_environment.GREENV_ALLOWED_ORIGINS == "https://greenv.example.com" &&
+      local.api_environment.GREENV_DEMO_ALLOWED_ORIGINS == "https://greenv-demo.matomomitsu.com"
+    )
+    error_message = "The demo site's origin must reach the API on its own, non-credentialed list."
+  }
+
+  # Order is the whole behaviour: a skip after the blanket block is never reached. And the count
+  # is a limit, not a style: the free plan allows five custom rules in this phase.
+  assert {
+    condition = (
+      length(cloudflare_ruleset.zone_firewall[0].rules) == 5 &&
+      cloudflare_ruleset.zone_firewall[0].rules[3].description == "GreenV dashboard" &&
+      cloudflare_ruleset.zone_firewall[0].rules[3].action == "skip" &&
+      cloudflare_ruleset.zone_firewall[0].rules[3].expression == "http.host in {\"greenv.example.com\" \"greenv-demo.matomomitsu.com\"}" &&
+      cloudflare_ruleset.zone_firewall[0].rules[4].action == "block"
+    )
+    error_message = "The demo site must join the dashboard's skip, before the zone's final block, without a sixth rule."
+  }
+
+  assert {
+    condition = (
+      cloudflare_r2_bucket_cors.demo_reads[0].bucket_name == "greenv-mvp-captures-test" &&
+      tolist(cloudflare_r2_bucket_cors.demo_reads[0].rules[0].allowed.origins) == tolist(["https://greenv-demo.matomomitsu.com"]) &&
+      tolist(cloudflare_r2_bucket_cors.demo_reads[0].rules[0].allowed.methods) == tolist(["GET", "HEAD"]) &&
+      length(setsubtract(["Content-Range", "Accept-Ranges", "Content-Length", "ETag"], cloudflare_r2_bucket_cors.demo_reads[0].rules[0].expose_headers)) == 0
+    )
+    error_message = "The bucket must let the demo origin, and only it, read objects and see the headers a ranged read needs."
+  }
+
+  assert {
+    condition     = azurerm_container_app.api.template[0].min_replicas == 1
+    error_message = "api_min_replicas must reach the API's scale settings."
+  }
+}
+
+# One RunPod account, one key: with no demo key of its own the demo borrows the depth stage's.
+run "the_demo_borrows_the_depth_stage_runpod_key" {
+  command = plan
+
+  variables {
+    cloudflare_account_id               = "00000000000000000000000000000000"
+    cloudflare_zone_id                  = "11111111111111111111111111111111"
+    cloudflare_zone_firewall_ruleset_id = "22222222222222222222222222222222"
+    r2_bucket_name                      = "greenv-mvp-captures-test"
+    r2_access_key_id                    = "test-access-key"
+    r2_secret_access_key                = "test-secret-key"
+    api_image                           = "ghcr.io/example/greenv-video-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    worker_image                        = "ghcr.io/example/greenv-frame-extractor@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    measurement_worker_image            = "ghcr.io/example/greenv-measurement-worker@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    depth_service_adapter               = "runpod"
+    depth_service_endpoint_id           = "abc123def456"
+    depth_service_token                 = "test-runpod-api-key"
+    demo_enabled                        = true
+    demo_pairing_code                   = "test-pairing-code"
+    demo_runpod_endpoint_id             = "demo0endpoint1"
+  }
+
+  assert {
+    condition     = anytrue([for secret in azurerm_container_app.api.secret : secret.name == "demo-runpod-api-key" && secret.value == "test-runpod-api-key"])
+    error_message = "Without a key of its own the demo must use the depth stage's RunPod key."
+  }
+
+  assert {
+    condition     = local.api_environment.GREENV_DEMO_RUNPOD_ENDPOINT_ID != local.measurement_environment.GREENV_INFER_RUNPOD_ENDPOINT_ID
+    error_message = "The demo must never address the field pipeline's endpoint."
+  }
+}
+
+run "rejects_the_demo_without_a_pairing_code" {
+  command = plan
+
+  variables {
+    cloudflare_account_id               = "00000000000000000000000000000000"
+    cloudflare_zone_id                  = "11111111111111111111111111111111"
+    cloudflare_zone_firewall_ruleset_id = "22222222222222222222222222222222"
+    r2_bucket_name                      = "greenv-mvp-captures-test"
+    r2_access_key_id                    = "test-access-key"
+    r2_secret_access_key                = "test-secret-key"
+    api_image                           = "ghcr.io/example/greenv-video-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    worker_image                        = "ghcr.io/example/greenv-frame-extractor@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    measurement_worker_image            = "ghcr.io/example/greenv-measurement-worker@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    demo_enabled                        = true
+    demo_runpod_endpoint_id             = "demo0endpoint1"
+    demo_runpod_api_key                 = "test-demo-runpod-key"
+  }
+
+  expect_failures = [var.demo_enabled]
+}
+
+run "rejects_a_short_demo_pairing_code" {
+  command = plan
+
+  variables {
+    cloudflare_account_id    = "00000000000000000000000000000000"
+    r2_bucket_name           = "greenv-mvp-captures-test"
+    r2_access_key_id         = "test-access-key"
+    r2_secret_access_key     = "test-secret-key"
+    api_image                = "ghcr.io/example/greenv-video-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    worker_image             = "ghcr.io/example/greenv-frame-extractor@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    measurement_worker_image = "ghcr.io/example/greenv-measurement-worker@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    demo_pairing_code        = "123456"
+  }
+
+  expect_failures = [var.demo_pairing_code]
+}
+
+# The zone's last rule blocks every host, so without the adopted ruleset the site would answer 403.
+run "rejects_the_demo_without_the_zone_firewall" {
+  command = plan
+
+  variables {
+    cloudflare_account_id    = "00000000000000000000000000000000"
+    r2_bucket_name           = "greenv-mvp-captures-test"
+    r2_access_key_id         = "test-access-key"
+    r2_secret_access_key     = "test-secret-key"
+    api_image                = "ghcr.io/example/greenv-video-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    worker_image             = "ghcr.io/example/greenv-frame-extractor@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    measurement_worker_image = "ghcr.io/example/greenv-measurement-worker@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    demo_enabled             = true
+    demo_pairing_code        = "test-pairing-code"
+    demo_runpod_endpoint_id  = "demo0endpoint1"
+    demo_runpod_api_key      = "test-demo-runpod-key"
+  }
+
+  expect_failures = [var.demo_enabled]
+}

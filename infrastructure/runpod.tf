@@ -29,8 +29,12 @@ data "external" "depth_template" {
   # The image the depth stage runs, pinned here beside the other three rather than defaulted
   # inside the script. `query` reaches the program on stdin and is visible in the plan, which an
   # image reference may be and a credential may not - the credentials stay in the environment.
+  #
+  # The template is named explicitly because the script refuses to guess one for an image other
+  # than its own default: a hand run with the demo's image must never land on this template.
   query = {
-    image = var.depth_image
+    image         = var.depth_image
+    template_name = "greenv-depth"
   }
 }
 

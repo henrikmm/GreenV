@@ -251,6 +251,12 @@ that name; do not rename the other side.
 | `GREENV_AZURE_MEASURED_QUEUE_NAME` | `greenv-segment-measured-v1` | set unconditionally. Empty here leaves the API deaf to measurements: no listener is created, the queue fills and nothing reads it |
 | `GREENV_AZURE_MEASURED_POISON_QUEUE_NAME` | `greenv-segment-measured-poison` | named explicitly, because the API's own default pointed at a queue this stack never created |
 | `GREENV_RABBITMQ_DYNAMIC` | `false` | — |
+| `GREENV_DEMO_ENABLED` | `true`, only while `demo_enabled` | the FIAP Next demo's `/v1/demo/*` routes. With the demo off none of the `GREENV_DEMO_*` names is set at all |
+| `GREENV_DEMO_PAIRING_CODE` | secret, `demo_pairing_code` | the Bearer code every demo write needs; reads are public |
+| `GREENV_DEMO_RUNPOD_ENDPOINT_ID` | `demo_runpod_endpoint_id` | the demo's own endpoint, `greenv-demo-depth`; never the field pipeline's |
+| `GREENV_DEMO_RUNPOD_API_KEY` | secret, `demo_runpod_api_key`, else the RunPod `depth_service_token`, else `runpod_api_key` | one account, one key |
+| `GREENV_DEMO_DEPTH_ADAPTER` | `runpod` | — |
+| `GREENV_DEMO_MAX_FRAMES` | `demo_max_frames`, default 112 | must match the demo template's `GREENV_DEPTH_MAX_FRAMES` |
 
 `GREENV_JWT_EPHEMERAL_KEY` is deliberately absent, and `tests/mvp.tftest.hcl` asserts its
 absence. A deployment must never fall back to a signing key that dies with the process.
@@ -454,6 +460,22 @@ az containerapp revision list -n ca-greenv-mvp-worker -g rg-greenv-mvp -o table
 | `api_allowed_origins` | `[]` | exact origins, port included |
 | `cloudflare_proxy_enabled`, `restrict_api_origin_to_cloudflare` | `false` | phase two |
 | `budget_amount`, `budget_contact_emails` | `30`, `[]` | the subscription's billing currency, not necessarily USD |
+| `api_min_replicas` | `0` | `1` keeps a replica billed around the clock; only for the hours of an event |
+| `demo_enabled` | `false` | the FIAP Next demo. Needs `demo_pairing_code`, `demo_runpod_endpoint_id`, a RunPod key and `cloudflare_zone_firewall_ruleset_id` |
+| `demo_pairing_code`, `demo_runpod_api_key` | `null` | `TF_VAR_*` only, never a file. The code needs eight characters or more |
+| `demo_runpod_endpoint_id` | `null` | the hand-made `greenv-demo-depth` endpoint ([recipe](../services/greenv-depth-runpod/README.md#the-demo-endpoint)) |
+| `demo_site_hostname` | `greenv-demo.matomomitsu.com` | joins the dashboard's zone firewall skip (the free plan caps that phase at five rules, all in use), the API's demo-only CORS origin (`GREENV_DEMO_ALLOWED_ORIGINS`, never the credentialed list) and the bucket's CORS rule |
+| `demo_max_frames` | `112` | — |
+
+With the demo on, `cloudflare_r2_bucket_cors.demo_reads` lets the site's origin `GET`/`HEAD` the
+bucket through the API's presigned links. It owns the bucket's **whole** CORS policy, so list
+what is there first (`npx wrangler r2 bucket cors list <bucket>`) and fold any rule found into
+it; the Cloudflare token needs R2 edit permission. None of this has been applied.
+
+The site polls the API every two seconds from each viewer's browser. If
+`cloudflare_api_rate_limit_enabled` is on, that counts per client address, and an event's visitors
+usually share one Wi-Fi address with the phone that uploads: a few open tabs reach the default 120
+requests a minute. Raise the ceiling or leave the rule off for the event.
 
 ---
 

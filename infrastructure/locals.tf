@@ -59,13 +59,6 @@ locals {
 
   api_certificate_name = var.api_hostname == null ? "" : "mc-${replace(var.api_hostname, ".", "-")}"
 
-  # Everything under the dashboard host. Unlike the API, which exposes a known set of route
-  # prefixes, a single-page app serves whatever path the router invented plus hashed asset names,
-  # so the host is the whole rule.
-  dashboard_host_expression = (
-    var.dashboard_hostname == null ? "" : "http.host eq \"${var.dashboard_hostname}\""
-  )
-
   # The routes that must survive the zone's blanket block. `/v1` and `/v2` are the capture and
   # control-plane APIs; the other two are here because leaving them out breaks things that are
   # easy to forget. Without `/.well-known/*` no client can fetch the JWKS and therefore no access
@@ -204,7 +197,7 @@ locals {
 
     # GREENV_JWT_EPHEMERAL_KEY is deliberately absent and asserted absent in tests/mvp.tftest.hcl.
     # A deployment must never fall back to a key that dies with the process.
-  })
+  }, local.demo_api_environment)
 
   worker_environment = merge(local.common_environment, {
     AZURE_CLIENT_ID                            = azurerm_user_assigned_identity.worker.client_id
@@ -380,7 +373,7 @@ locals {
     GREENV_API_TOKEN       = "api-bearer-token"
     GREENV_JWT_PRIVATE_KEY = "jwt-signing-key"
     SPRING_FLYWAY_PASSWORD = "database-password"
-  })
+  }, local.demo_api_secret_environment)
 
   measurement_secret_environment = merge(
     local.shared_secret_environment,

@@ -205,14 +205,19 @@ resource "cloudflare_ruleset" "zone_firewall" {
         enabled = true
       }
     },
-    ], var.dashboard_hostname == null ? [] : [
+    ], length(local.site_hosts) == 0 ? [] : [
     {
       # The dashboard, for the same reason as the rule above it. A single-page app cannot be
       # described by path: the router serves /sessoes/<uuid> from the same index.html as /, and
       # the asset names carry a content hash that changes on every build.
+      #
+      # The public demo site joins this rule rather than getting its own: the free plan allows
+      # five custom rules in this phase and the zone already uses all five (Cloudflare answered
+      # 50001 "6 out of 5" on 19 Oct 2026). The demo's API routes need nothing here: they live
+      # under /v1 on the API host, which the API rule already skips.
       action      = "skip"
-      expression  = local.dashboard_host_expression
-      description = "GreenV dashboard"
+      expression  = local.site_host_expression
+      description = var.dashboard_hostname == null ? "GreenV demo site" : "GreenV dashboard"
       enabled     = true
 
       action_parameters = {
