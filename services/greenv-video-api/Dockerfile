@@ -5,6 +5,11 @@ RUN gradle --no-daemon clean bootJar
 
 FROM eclipse-temurin:21-jre
 WORKDIR /app
+# ffmpeg and ffprobe sample the FIAP Next demo's videos (DemoPipelineService). Unused while
+# GREENV_DEMO_ENABLED is off, which costs only image size.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
 RUN useradd --system --uid 10001 --home-dir /app greenv \
     && mkdir -p /data/pipeline /data/saved \
     && chown -R greenv /data

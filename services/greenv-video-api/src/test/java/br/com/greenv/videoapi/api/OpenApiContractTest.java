@@ -24,7 +24,15 @@ import org.yaml.snakeyaml.Yaml;
  * trusts it. This asks Spring for the routes it actually serves and compares both directions: no
  * endpoint may go undocumented, and nothing may be documented that does not exist.
  */
-@SpringBootTest(properties = "greenv.security.api-token=greenv-test-only-bearer-token-000000000000")
+// The demo is switched on so its routes are served and compared too; with local storage, which is
+// what a test runs on, that includes the routes that stream its objects.
+@SpringBootTest(properties = {
+    "greenv.security.api-token=greenv-test-only-bearer-token-000000000000",
+    "greenv.demo.enabled=true",
+    "greenv.demo.pairing-code=openapi-test-pairing-code",
+    "greenv.demo.depth-adapter=mock",
+    "greenv.demo.poll-initial-delay-ms=3600000"
+})
 class OpenApiContractTest {
 
     private static final String TEST_ID = UUID.randomUUID().toString();
@@ -60,7 +68,9 @@ class OpenApiContractTest {
                         "POST /v2/oauth/token",
                         "GET /.well-known/jwks.json",
                         "POST /v2/identity/users",
-                        "PUT /v2/capture-sessions/{sessionId}/segments/{segmentIndex}/video");
+                        "PUT /v2/capture-sessions/{sessionId}/segments/{segmentIndex}/video",
+                        "PUT /v1/demo/captures/{captureId}/video",
+                        "GET /v1/demo/captures/{captureId}/files/depth/{runId}/{name}");
     }
 
     @Test

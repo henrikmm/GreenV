@@ -1,0 +1,52 @@
+{
+  "schema_version": "verge.infer-manifest/0.1.0",
+  "run_id": "",
+  "model_repository_id": "depth-anything/DA3NESTED-GIANT-LARGE-1.1",
+  "model_revision": "b2359bdf726fb44ef62acca04d629dcf158053e7",
+  "depth_mode": "metric",
+  "linear_unit": "metre",
+  "params": {
+    "fps": 10,
+    "source_duration_s": 10,
+    "process_res": 504,
+    "process_res_method": "upper_bound_resize",
+    "ref_view_strategy": "middle",
+    "infer_gs": false,
+    "max_frames": 112
+  },
+  "frames": {
+    "count": 0,
+    "requested_count": 0,
+    "width": 1024,
+    "height": 576,
+    "capped": false,
+    "effective_fps": 10
+  },
+  "timing": { "gpu_seconds": 21.9, "wall_seconds": 41.2, "model_load_seconds": null },
+  "vram": {
+    "peak_bytes": 15294529536,
+    "current_bytes": 7134511104,
+    "total_bytes": 23659151360,
+    "device_name": "mock (no GPU)",
+    "torch_peak_bytes": 12483241472,
+    "baseline_bytes": 7134511104
+  },
+  "artifacts": [],
+  "diagnostics": {
+    "native_npz": { "result.npz": ["depth", "conf", "extrinsics", "intrinsics", "images"] },
+    "export_dir_listing": ["export.glb", "result.npz", "verge-result.npz"],
+    "publish_mode": "local",
+    "publish_errors": []
+  },
+  "transient": true,
+  "expires_after_days": 3,
+  "published": {
+    "handler_contract": "greenv.depth-job/1",
+    "bucket": null,
+    "prefix": "",
+    "signed_url_ttl_seconds": 43200,
+    "frame_ceiling": 112,
+    "skipped": ["result.npz (npz_native)"]
+  },
+  "mock": true
+}

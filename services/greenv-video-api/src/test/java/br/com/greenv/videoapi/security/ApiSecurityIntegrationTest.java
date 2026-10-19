@@ -63,6 +63,13 @@ class ApiSecurityIntegrationTest {
         assertThat(response.statusCode()).isEqualTo(404);
     }
 
+    /** The FIAP Next demo is off by default, and then its routes are as closed as any unknown one. */
+    @Test
+    void keepsTheDemoClosedWhileItIsDisabled() throws Exception {
+        assertThat(send("/v1/demo/health", null).statusCode()).isEqualTo(401);
+        assertThat(send("/v1/demo/captures", null).statusCode()).isEqualTo(401);
+    }
+
     private HttpResponse<String> send(String path, String token) throws Exception {
         HttpRequest.Builder request = HttpRequest.newBuilder(
                         URI.create("http://127.0.0.1:" + port + path))

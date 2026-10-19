@@ -14,6 +14,7 @@ import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
@@ -115,6 +116,17 @@ public class S3CaptureObjectStorageAdapter implements CaptureObjectStorage {
             return new ObjectContent(key, object.bytes(), input);
         } catch (SdkException exception) {
             throw unavailable("could not read " + key, exception);
+        }
+    }
+
+    @Override
+    public void delete(String objectKey) {
+        String key = CloudStorageSupport.requireObjectKey(objectKey);
+        try {
+            // S3 answers a delete of a missing key with success, which is the contract here.
+            s3Client.deleteObject(DeleteObjectRequest.builder().bucket(bucket).key(key).build());
+        } catch (SdkException exception) {
+            throw unavailable("could not delete " + key, exception);
         }
     }
 

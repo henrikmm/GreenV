@@ -113,6 +113,16 @@ public class AzureBlobCaptureObjectStorageAdapter implements CaptureObjectStorag
         }
     }
 
+    @Override
+    public void delete(String objectKey) {
+        String key = CloudStorageSupport.requireObjectKey(objectKey);
+        try {
+            containerClient.getBlobClient(key).deleteIfExists();
+        } catch (RuntimeException exception) {
+            throw unavailable("could not delete " + key, exception);
+        }
+    }
+
     private Optional<StoredObject> find(String objectKey) {
         try {
             BlobClient blob = containerClient.getBlobClient(objectKey);

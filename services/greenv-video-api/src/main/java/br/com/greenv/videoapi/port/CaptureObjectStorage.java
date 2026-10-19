@@ -32,6 +32,12 @@ public interface CaptureObjectStorage {
      */
     ObjectContent open(String objectKey, long maximumBytes);
 
+    /**
+     * Removes the object. Removing one that does not exist is not an error: retention runs on
+     * every replica, and the second to arrive finds nothing left to do.
+     */
+    void delete(String objectKey);
+
     record StoredObject(String objectKey, String sha256, long bytes) {
     }
 

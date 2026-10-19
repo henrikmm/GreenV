@@ -449,6 +449,42 @@ When state is `frames_ready`, read `/v1/jobs/{jobId}/manifest`. Results remain t
 `POST /v1/jobs/{jobId}/save` is called. `DELETE /v1/jobs/{jobId}` removes transient and saved
 copies. The full v1 lifecycle is defined in `openapi.yaml`.
 
+## FIAP Next demo, `/v1/demo/`
+
+The phone ↔ gateway contract v1 (`docs/NEXT-DEMO.md`), served by this API instead of by the Mac.
+Off unless `GREENV_DEMO_ENABLED=true`; while off, no demo bean exists and no demo route is served.
+The phone announces a capture, PUTs its video (at most 95 MiB, because Cloudflare cuts a body at
+100 MB), and `DemoPipelineService` walks it `received → extracting → extracted →
+uploading-frames → waking → inferring → inferred → fetched`, or `failed {error, failedIn}`.
+Writes need `Authorization: Bearer $GREENV_DEMO_PAIRING_CODE` (401 missing, 403 wrong); reads are
+public. Objects go to `demo/<id>/video.<ext>` and `demo/<id>/sampled-frames/frame-NNNN.jpg`; the
+depth handler publishes beside them under `demo/<id>/depth/<run_id>/`. Captures and their objects
+are removed after `GREENV_DEMO_RETENTION_DAYS` (3).
+
+| Setting | Variable | Default |
+|---|---|---|
+| Enable | `GREENV_DEMO_ENABLED` | `false` |
+| Pairing code | `GREENV_DEMO_PAIRING_CODE` | Required when enabled, at least 6 characters |
+| Depth adapter | `GREENV_DEMO_DEPTH_ADAPTER` | `runpod`; `mock` publishes placeholder artifacts marked `"mock": true` |
+| RunPod endpoint / key | `GREENV_DEMO_RUNPOD_ENDPOINT_ID`, `GREENV_DEMO_RUNPOD_API_KEY` | Required with `runpod` |
+| Frame budget | `GREENV_DEMO_MAX_FRAMES` | `112`, the demo endpoint's `GREENV_DEPTH_MAX_FRAMES` |
+| Sampling | `GREENV_DEMO_FPS`, `GREENV_DEMO_LONG_EDGE` | `10` fps (the phone's `sampling.fps` wins), `1024` px |
+| Job deadline | `GREENV_DEMO_JOB_DEADLINE` | `PT20M`, then the RunPod job is cancelled |
+| Signed URL lifetime | `GREENV_DEMO_SIGNED_URL_TTL` | `PT1H` |
+
+With `s3` storage the site gets presigned GETs to the bucket, so the bucket needs CORS for the
+site's origin. With `local` storage the API serves the objects itself under
+`/v1/demo/captures/{id}/files/...`, which is what lets the whole demo run on one laptop:
+
+```bash
+GREENV_DEMO_ENABLED=true GREENV_DEMO_PAIRING_CODE=local-demo-code GREENV_DEMO_DEPTH_ADAPTER=mock \
+GREENV_ALLOWED_ORIGINS=http://localhost:5173 GREENV_API_TOKEN=greenv-local-only-bearer-token-000000000000 \
+./gradlew bootRun
+```
+
+Sampling needs `ffmpeg` and `ffprobe` on the `PATH` (`GREENV_FFMPEG`, `GREENV_FFPROBE`); the
+container image installs them.
+
 ## Build and test
 
 From this directory:

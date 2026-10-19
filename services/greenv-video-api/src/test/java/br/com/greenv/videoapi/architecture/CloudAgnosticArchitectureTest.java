@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import br.com.greenv.videoapi.api.AuthController;
 import br.com.greenv.videoapi.api.CaptureSessionController;
+import br.com.greenv.videoapi.api.DemoCaptureController;
+import br.com.greenv.videoapi.api.DemoObjectController;
 import br.com.greenv.videoapi.api.MeasurementController;
 import br.com.greenv.videoapi.api.ServiceOrderController;
 import br.com.greenv.videoapi.api.TeamController;
@@ -21,6 +23,11 @@ import br.com.greenv.videoapi.port.AuthenticationUseCase;
 import br.com.greenv.videoapi.port.CaptureObjectStorage;
 import br.com.greenv.videoapi.port.CaptureSessionStore;
 import br.com.greenv.videoapi.port.CaptureSessionUseCase;
+import br.com.greenv.videoapi.port.DemoCaptureStore;
+import br.com.greenv.videoapi.port.DemoCaptureUseCase;
+import br.com.greenv.videoapi.port.DemoFrameSampler;
+import br.com.greenv.videoapi.port.DepthJobRunner;
+import br.com.greenv.videoapi.port.ObjectUrlSigner;
 import br.com.greenv.videoapi.port.IdentifierGenerator;
 import br.com.greenv.videoapi.port.IdentityAdminUseCase;
 import br.com.greenv.videoapi.port.JwkSetProvider;
@@ -40,6 +47,9 @@ import br.com.greenv.videoapi.port.SegmentMessageSerializer;
 import br.com.greenv.videoapi.security.ResponseSessionCookieWriterAdapter;
 import br.com.greenv.videoapi.service.AuthenticationService;
 import br.com.greenv.videoapi.service.CaptureSessionService;
+import br.com.greenv.videoapi.service.DemoCaptureService;
+import br.com.greenv.videoapi.service.DemoCleanupService;
+import br.com.greenv.videoapi.service.DemoPipelineService;
 import br.com.greenv.videoapi.service.IdentityAdminService;
 import br.com.greenv.videoapi.service.JobService;
 import br.com.greenv.videoapi.service.FrameReadingsBackfillService;
@@ -48,6 +58,9 @@ import br.com.greenv.videoapi.service.PlaceResolutionService;
 import br.com.greenv.videoapi.service.TransientCleanupService;
 import br.com.greenv.videoapi.storage.JdbcAuthSessionStoreAdapter;
 import br.com.greenv.videoapi.storage.JdbcCaptureSessionStoreAdapter;
+import br.com.greenv.videoapi.storage.JdbcDemoCaptureStoreAdapter;
+import br.com.greenv.videoapi.storage.LocalDemoObjectUrlAdapter;
+import br.com.greenv.videoapi.storage.S3PresignedUrlAdapter;
 import br.com.greenv.videoapi.storage.JdbcOAuthClientStoreAdapter;
 import br.com.greenv.videoapi.storage.JdbcServiceOrderStoreAdapter;
 import br.com.greenv.videoapi.storage.JdbcTeamStoreAdapter;
@@ -57,6 +70,9 @@ import br.com.greenv.videoapi.storage.S3CaptureObjectStorageAdapter;
 import br.com.greenv.videoapi.storage.AzureBlobCaptureObjectStorageAdapter;
 import br.com.greenv.videoapi.task.AzureQueueMeasurementResultAdapter;
 import br.com.greenv.videoapi.task.AzureQueueSegmentWorkQueueAdapter;
+import br.com.greenv.videoapi.task.FfmpegDemoFrameSamplerAdapter;
+import br.com.greenv.videoapi.task.MockDepthJobAdapter;
+import br.com.greenv.videoapi.task.RunPodDepthJobAdapter;
 import br.com.greenv.videoapi.token.BCryptSecretHasherAdapter;
 import br.com.greenv.videoapi.token.NimbusAccessTokenIssuerAdapter;
 import br.com.greenv.videoapi.token.NimbusAccessTokenVerifierAdapter;
@@ -88,11 +104,14 @@ class CloudAgnosticArchitectureTest {
         assertInboundDependencies(IdentityAdminController.class);
         assertInboundDependencies(ServiceOrderController.class);
         assertInboundDependencies(TeamController.class);
+        assertInboundDependencies(DemoCaptureController.class);
+        assertInboundDependencies(DemoObjectController.class);
         assertThat(CaptureSessionUseCase.class).isAssignableFrom(CaptureSessionService.class);
         assertThat(LegacyJobUseCase.class).isAssignableFrom(JobService.class);
         assertThat(AuthenticationUseCase.class).isAssignableFrom(AuthenticationService.class);
         assertThat(IdentityAdminUseCase.class).isAssignableFrom(IdentityAdminService.class);
         assertThat(OperationsUseCase.class).isAssignableFrom(OperationsService.class);
+        assertThat(DemoCaptureUseCase.class).isAssignableFrom(DemoCaptureService.class);
     }
 
     @Test
@@ -102,6 +121,7 @@ class CloudAgnosticArchitectureTest {
         assertNoMethodTypeFromPackage(AuthenticationUseCase.class, "br.com.greenv.videoapi.api");
         assertNoMethodTypeFromPackage(IdentityAdminUseCase.class, "br.com.greenv.videoapi.api");
         assertNoMethodTypeFromPackage(OperationsUseCase.class, "br.com.greenv.videoapi.api");
+        assertNoMethodTypeFromPackage(DemoCaptureUseCase.class, "br.com.greenv.videoapi.api");
     }
 
     @Test
@@ -125,6 +145,12 @@ class CloudAgnosticArchitectureTest {
         assertThat(TeamStore.class).isAssignableFrom(JdbcTeamStoreAdapter.class);
         assertThat(ServiceOrderStore.class).isAssignableFrom(JdbcServiceOrderStoreAdapter.class);
         assertThat(PlaceNameResolver.class).isAssignableFrom(NominatimPlaceNameAdapter.class);
+        assertThat(DemoCaptureStore.class).isAssignableFrom(JdbcDemoCaptureStoreAdapter.class);
+        assertThat(DemoFrameSampler.class).isAssignableFrom(FfmpegDemoFrameSamplerAdapter.class);
+        assertThat(DepthJobRunner.class).isAssignableFrom(RunPodDepthJobAdapter.class);
+        assertThat(DepthJobRunner.class).isAssignableFrom(MockDepthJobAdapter.class);
+        assertThat(ObjectUrlSigner.class).isAssignableFrom(S3PresignedUrlAdapter.class);
+        assertThat(ObjectUrlSigner.class).isAssignableFrom(LocalDemoObjectUrlAdapter.class);
         assertThat(FrameReadingsReader.class).isAssignableFrom(JacksonFrameReadingsAdapter.class);
         assertThat(AccessTokenIssuer.class).isAssignableFrom(NimbusAccessTokenIssuerAdapter.class);
         assertThat(AccessTokenVerifier.class).isAssignableFrom(NimbusAccessTokenVerifierAdapter.class);
@@ -155,6 +181,12 @@ class CloudAgnosticArchitectureTest {
         assertThat(ResponseSessionCookieWriterAdapter.class.getSimpleName()).endsWith("Adapter");
         assertThat(JacksonMeasurementAnnouncementReaderAdapter.class.getSimpleName()).endsWith("Adapter");
         assertThat(AzureQueueMeasurementResultAdapter.class.getSimpleName()).endsWith("Adapter");
+        assertThat(JdbcDemoCaptureStoreAdapter.class.getSimpleName()).endsWith("Adapter");
+        assertThat(FfmpegDemoFrameSamplerAdapter.class.getSimpleName()).endsWith("Adapter");
+        assertThat(RunPodDepthJobAdapter.class.getSimpleName()).endsWith("Adapter");
+        assertThat(MockDepthJobAdapter.class.getSimpleName()).endsWith("Adapter");
+        assertThat(S3PresignedUrlAdapter.class.getSimpleName()).endsWith("Adapter");
+        assertThat(LocalDemoObjectUrlAdapter.class.getSimpleName()).endsWith("Adapter");
     }
 
     @Test
@@ -183,6 +215,15 @@ class CloudAgnosticArchitectureTest {
         assertThat(FrameReadingsBackfillService.class.getDeclaredFields())
                 .extracting(field -> field.getType().getPackageName())
                 .noneMatch(this::isAdapterPackage);
+        assertThat(DemoCaptureService.class.getDeclaredFields())
+                .extracting(field -> field.getType().getPackageName())
+                .noneMatch(this::isAdapterPackage);
+        assertThat(DemoPipelineService.class.getDeclaredFields())
+                .extracting(field -> field.getType().getPackageName())
+                .noneMatch(this::isAdapterPackage);
+        assertThat(DemoCleanupService.class.getDeclaredFields())
+                .extracting(field -> field.getType().getPackageName())
+                .noneMatch(this::isAdapterPackage);
     }
 
     @Test
@@ -193,6 +234,7 @@ class CloudAgnosticArchitectureTest {
         assertAdapterValue(AzureQueueSegmentWorkQueueAdapter.class, "azure-queue");
         assertAdapterValue(AzureServiceBusSegmentWorkQueueAdapter.class, "azure-service-bus");
         assertAdapterValue(AzureQueueMeasurementResultAdapter.class, "azure-queue");
+        assertAdapterValue(S3PresignedUrlAdapter.class, "s3");
     }
 
     @Test

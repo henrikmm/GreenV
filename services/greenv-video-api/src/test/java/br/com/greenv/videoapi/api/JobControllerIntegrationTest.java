@@ -31,6 +31,12 @@ class JobControllerIntegrationTest {
     static void properties(DynamicPropertyRegistry registry) {
         registry.add("greenv.pipeline.root", () -> TEST_ROOT.resolve("pipeline").toString());
         registry.add("greenv.pipeline.saved-root", () -> TEST_ROOT.resolve("saved").toString());
+        // Its own in-memory database, like every other Spring test here. The default is a file
+        // in the temporary directory shared with anything else on the machine that runs this API,
+        // and a migration applied there by another checkout fails this suite's validation.
+        registry.add(
+                "spring.datasource.url",
+                () -> "jdbc:h2:mem:jobs-" + TEST_ROOT.getFileName() + ";MODE=PostgreSQL;DB_CLOSE_DELAY=-1");
     }
 
     @LocalServerPort

@@ -136,6 +136,18 @@ public class LocalCaptureObjectStorageAdapter implements CaptureObjectStorage {
         }
     }
 
+    @Override
+    public void delete(String objectKey) {
+        try {
+            Files.deleteIfExists(resolve(objectKey));
+        } catch (IOException exception) {
+            throw new ApplicationException(
+                    FailureKind.INTERNAL_ERROR,
+                    "capture_storage_failure",
+                    "could not delete capture object");
+        }
+    }
+
     private Path resolve(String objectKey) {
         if (objectKey == null || objectKey.isBlank() || objectKey.contains(":")) {
             throw new ApplicationException(

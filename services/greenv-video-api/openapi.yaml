@@ -15,7 +15,8 @@ info:
       Every state-changing request must also carry `X-CSRF-Token` matching the readable
       `greenv_csrf` cookie.
 
-    Only `/actuator/health`, the sign-in routes and the JWK set are public.
+    Only `/actuator/health`, the sign-in routes and the JWK set are public - and, while the demo is
+    enabled, `/v1/demo/**`, which checks its own pairing code (`demoPairingCode`) on writes.
 servers:
   - url: http://127.0.0.1:8080
   - url: https://greenvapi.matomomitsu.com
@@ -28,6 +29,12 @@ tags:
     description: Segmented mobile captures.
   - name: jobs
     description: Legacy single-video jobs.
+  - name: demo
+    description: |
+      The FIAP Next demo: a phone sends a short video, the API samples it, a RunPod endpoint
+      reconstructs it, and a public site shows every step. Served only when
+      `GREENV_DEMO_ENABLED=true`. The two writes need the demo's pairing code; the reads are
+      public.
 paths:
   /v2/auth/login:
     post:
@@ -1012,6 +1019,267 @@ paths:
       responses:
         '204':
           description: Cancelled
+  /v1/demo/health:
+    get:
+      operationId: demoHealth
+      tags: [demo]
+      summary: Whether the demo intake is up and the pairing code is right
+      description: |
+        The phone calls this before it offers to record, with the pairing code it holds, so a
+        wrong code is caught before a visitor films anything. Never refuses: `authorised` is the
+        answer.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/DemoPairingCode'
+      responses:
+        '200':
+          description: The intake answers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DemoHealth'
+  /v1/demo/captures:
+    post:
+      operationId: announceDemoCapture
+      tags: [demo]
+      summary: Announce a capture with the phone's metadata
+      description: |
+        The body is the phone's `verge-phone-capture/1` document, at most 64 KiB. `schema` and
+        `capturedAt` are required and `settings`, when present, must be an object; every other
+        field is kept as sent.
+      security:
+        - demoPairingCode: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DemoCaptureMeta'
+      responses:
+        '201':
+          description: Announced; upload the video to `uploadPath`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DemoAnnounce'
+        '400':
+          description: Not JSON, or not a `verge-phone-capture/1` document
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          $ref: '#/components/responses/DemoPairingCodeMissing'
+        '403':
+          $ref: '#/components/responses/DemoPairingCodeWrong'
+        '413':
+          description: Metadata over 64 KiB
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+    get:
+      operationId: listDemoCaptures
+      tags: [demo]
+      summary: The newest captures, as the public site lists them
+      description: |
+        Each item is `PhoneCapture` from `measurement/app/src/lib/phone-link.ts`, field for field;
+        `events` is the timeline the phone calls `phases`. Public and never cached.
+      security: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Newest first
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DemoCaptureList'
+  /v1/demo/captures/{captureId}:
+    get:
+      operationId: getDemoCapture
+      tags: [demo]
+      summary: One capture's state and timeline, as the phone polls it
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/DemoCaptureId'
+      responses:
+        '200':
+          description: Current state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DemoCaptureStatus'
+        '404':
+          description: No such capture
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /v1/demo/captures/{captureId}/video:
+    put:
+      operationId: uploadDemoVideo
+      tags: [demo]
+      summary: Stream the capture's video
+      description: |
+        Once per capture. `Content-Length` is required and may not exceed 95 MiB
+        (`GREENV_DEMO_MAX_VIDEO_BYTES`): Cloudflare cuts a request body at 100 MB, and refusing
+        first gives the phone an answer it can show. The body is streamed to disk and hashed on
+        the way; nothing holds a whole video in memory. A body that does not match its declared
+        length, or one that breaks off, is refused and the capture is marked `failed`
+        (`failedIn: uploading`). Such a capture takes the video again: the phone retries a broken
+        upload under the same id, as it does against the Mac.
+      security:
+        - demoPairingCode: []
+      parameters:
+        - $ref: '#/components/parameters/DemoCaptureId'
+      requestBody:
+        required: true
+        content:
+          video/mp4:
+            schema:
+              type: string
+              format: binary
+          video/quicktime:
+            schema:
+              type: string
+              format: binary
+          video/webm:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '200':
+          description: Stored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DemoUpload'
+        '400':
+          description: The body did not match its declared length
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          $ref: '#/components/responses/DemoPairingCodeMissing'
+        '403':
+          $ref: '#/components/responses/DemoPairingCodeWrong'
+        '404':
+          description: No such capture
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: This capture's video was already received, or is arriving now
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '411':
+          description: No `Content-Length`
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '413':
+          description: Over 95 MiB
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '415':
+          description: Not `video/mp4`, `video/quicktime` or `video/webm`
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /v1/demo/captures/{captureId}/run:
+    get:
+      operationId: getDemoRun
+      tags: [demo]
+      summary: The frames and the reconstruction the site draws a capture from
+      description: |
+        `frames` appear once the sampled frames are in storage, after `extracted`; `manifest`
+        once the capture is `fetched`. Every URL is absolute and signed at the moment of this
+        answer, from object keys: presigned GETs to the bucket with S3-compatible storage, links
+        to `/v1/demo/captures/{captureId}/files/...` with local storage. A link is reused for half
+        its lifetime, so polling does not change it on every answer.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/DemoCaptureId'
+      responses:
+        '200':
+          description: What exists so far
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DemoRun'
+        '404':
+          description: No such capture
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /v1/demo/captures/{captureId}/files/{name}:
+    get:
+      operationId: getDemoVideoFile
+      tags: [demo]
+      summary: A capture's video, served by the API (local storage only)
+      description: |
+        Exists only with `GREENV_OBJECT_STORAGE_ADAPTER=local`, where there is no bucket to sign
+        links for. With a bucket the site is given presigned links instead and this route is not
+        served.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/DemoCaptureId'
+        - $ref: '#/components/parameters/DemoFileName'
+      responses:
+        '200':
+          $ref: '#/components/responses/DemoFile'
+        '404':
+          description: No such object
+  /v1/demo/captures/{captureId}/files/sampled-frames/{name}:
+    get:
+      operationId: getDemoFrameFile
+      tags: [demo]
+      summary: One sampled frame, served by the API (local storage only)
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/DemoCaptureId'
+        - $ref: '#/components/parameters/DemoFileName'
+      responses:
+        '200':
+          $ref: '#/components/responses/DemoFile'
+        '404':
+          description: No such object
+  /v1/demo/captures/{captureId}/files/depth/{runId}/{name}:
+    get:
+      operationId: getDemoDepthFile
+      tags: [demo]
+      summary: One reconstruction artifact, served by the API (local storage only)
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/DemoCaptureId'
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/DemoFileName'
+      responses:
+        '200':
+          $ref: '#/components/responses/DemoFile'
+        '404':
+          description: No such object
 components:
   securitySchemes:
     bearerAuth:
@@ -1038,7 +1306,55 @@ components:
         `__Host-greenv_fgp` cookie must be present too - the token carries only its SHA-256, so a
         token lifted from a log is useless without it. State-changing requests must also carry
         `X-CSRF-Token` matching the readable `greenv_csrf` cookie.
+    demoPairingCode:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+      description: |
+        The demo's pairing code, `GREENV_DEMO_PAIRING_CODE`, typed into the phone by the
+        operator. Opens only the two demo writes. Compared in constant time. Missing is a 401,
+        wrong is a 403.
+  responses:
+    DemoPairingCodeMissing:
+      description: No pairing code was presented
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    DemoPairingCodeWrong:
+      description: The pairing code presented is not the demo's
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    DemoFile:
+      description: The object's bytes
+      content:
+        application/octet-stream:
+          schema:
+            type: string
+            format: binary
   parameters:
+    DemoPairingCode:
+      name: Authorization
+      in: header
+      required: false
+      description: '`Bearer <pairing code>`.'
+      schema:
+        type: string
+    DemoCaptureId:
+      name: captureId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^cap-\d{8}-\d{6}-[a-z0-9]{4}$'
+    DemoFileName:
+      name: name
+      in: path
+      required: true
+      schema:
+        type: string
     OrderId:
       name: orderId
       in: path
@@ -2053,3 +2369,229 @@ components:
         detail:
           type: string
 
+    DemoHealth:
+      type: object
+      required: [service, contract, authorised]
+      properties:
+        service:
+          type: string
+          const: greenv-demo-intake
+        contract:
+          type: integer
+          const: 1
+        authorised:
+          type: boolean
+          description: Whether the `Authorization` header carried the pairing code.
+    DemoCaptureMeta:
+      type: object
+      required: [schema, capturedAt]
+      additionalProperties: true
+      properties:
+        schema:
+          type: string
+          const: verge-phone-capture/1
+        capturedAt:
+          type: string
+          format: date-time
+          description: The phone's own clock. Recorded, never subtracted from the server's.
+        durationMs:
+          type: integer
+        settings:
+          type: object
+          additionalProperties: true
+        applied:
+          type: object
+          additionalProperties: true
+        orbit:
+          type: object
+          additionalProperties: true
+        truth:
+          type: object
+          additionalProperties: true
+        sampling:
+          type: object
+          description: |
+            How the phone asked for this capture to be sampled. `fps` replaces the default 10 and
+            `maxFrames` is capped at `GREENV_DEMO_MAX_FRAMES` (112).
+          properties:
+            fps:
+              type: number
+            maxFrames:
+              type: integer
+    DemoAnnounce:
+      type: object
+      required: [id, uploadPath]
+      properties:
+        id:
+          type: string
+          pattern: '^cap-\d{8}-\d{6}-[a-z0-9]{4}$'
+        uploadPath:
+          type: string
+          examples: ['/v1/demo/captures/cap-20261024-143000-a1b2/video']
+    DemoUpload:
+      type: object
+      required: [id, bytes, sha256, transferMs]
+      properties:
+        id:
+          type: string
+        bytes:
+          type: integer
+          format: int64
+        sha256:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        transferMs:
+          type: integer
+          format: int64
+          description: First byte to last, measured on the server.
+    DemoPhase:
+      type: object
+      required: [phase, at, tMs]
+      properties:
+        phase:
+          type: string
+          enum:
+            - created
+            - uploading
+            - received
+            - extracting
+            - extracted
+            - uploading-frames
+            - waking
+            - inferring
+            - inferred
+            - fetched
+            - failed
+          description: |
+            `waking` is the depth job queued at RunPod (`IN_QUEUE`), `inferring` running
+            (`IN_PROGRESS`). `fetched` means the artifacts are published and signable, ready for
+            the site. `failed` carries `{error, failedIn}`, where `failedIn` is the phase that was
+            in progress. `inferred` carries `{gpu, frames, gpuSeconds, serverWallSeconds, mock}`.
+        at:
+          type: string
+          format: date-time
+        tMs:
+          type: integer
+          format: int64
+          description: Milliseconds since the capture was announced, on the server's clock.
+        detail:
+          type: object
+          additionalProperties: true
+    DemoCaptureStatus:
+      type: object
+      required: [id, state, phases]
+      properties:
+        id:
+          type: string
+        state:
+          type: string
+          description: The last phase written.
+        phases:
+          type: array
+          items:
+            $ref: '#/components/schemas/DemoPhase'
+        video:
+          type: [object, 'null']
+          properties:
+            bytes:
+              type: integer
+              format: int64
+            transferMs:
+              type: integer
+              format: int64
+        result:
+          type: [object, 'null']
+          description: Null until `fetched`; then `{runId, frames, gpu, gpuSeconds, mock}`.
+          additionalProperties: true
+    DemoVideoProbe:
+      type: object
+      description: What ffprobe said the file is; `PhoneProbe` in the site.
+      properties:
+        codec:
+          type: [string, 'null']
+        storedWidth:
+          type: [integer, 'null']
+        storedHeight:
+          type: [integer, 'null']
+        rotation:
+          type: integer
+        avgFps:
+          type: [number, 'null']
+        videoBitRate:
+          type: [integer, 'null']
+        hdr:
+          type: boolean
+        colorTransfer:
+          type: [string, 'null']
+        durationS:
+          type: [number, 'null']
+    DemoPhoneCapture:
+      type: object
+      required: [id, state, events]
+      properties:
+        id:
+          type: string
+        state:
+          type: string
+        capturedAt:
+          type: [string, 'null']
+        durationMs:
+          type: [integer, 'null']
+        settings:
+          type: [object, 'null']
+        applied:
+          type: [object, 'null']
+        orbit:
+          type: [object, 'null']
+        truth:
+          type: [object, 'null']
+        sampling:
+          type: [object, 'null']
+        video:
+          type: [object, 'null']
+          properties:
+            bytes:
+              type: integer
+              format: int64
+            transferMs:
+              type: integer
+              format: int64
+            megabytesPerSecond:
+              type: [number, 'null']
+            probe:
+              oneOf:
+                - $ref: '#/components/schemas/DemoVideoProbe'
+                - type: 'null'
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/DemoPhase'
+    DemoCaptureList:
+      type: object
+      required: [captures]
+      properties:
+        captures:
+          type: array
+          items:
+            $ref: '#/components/schemas/DemoPhoneCapture'
+    DemoRun:
+      type: object
+      required: [frames, manifest]
+      properties:
+        frames:
+          type: array
+          description: Signed links to the sampled JPEGs, in order. Empty before they exist.
+          items:
+            type: string
+            format: uri
+        manifest:
+          type: [object, 'null']
+          description: |
+            The depth handler's manifest in its own wire form (`verge.infer-manifest/0.1.0`,
+            snake_case), every artifact `url` re-signed from its `object_key`. Null until
+            `fetched`. A mock run says `"mock": true`.
+          additionalProperties: true
+        gpu:
+          type: [string, 'null']
+        gpuSeconds:
+          type: [number, 'null']

@@ -20,6 +20,7 @@ import software.amazon.awssdk.http.urlconnection.UrlConnectionHttpClient;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.sqs.SqsClient;
 
 @Configuration
@@ -31,6 +32,26 @@ public class CloudClientConfiguration {
         requireText(properties.bucket(), "greenv.storage.s3.bucket");
         var builder = S3Client.builder()
                 .httpClientBuilder(UrlConnectionHttpClient.builder())
+                .region(Region.of(valueOrDefault(properties.region(), "us-east-1")))
+                .credentialsProvider(credentials(properties.accessKey(), properties.secretKey()))
+                .serviceConfiguration(S3Configuration.builder()
+                        .pathStyleAccessEnabled(properties.pathStyleAccess())
+                        .build());
+        if (hasText(properties.endpoint())) {
+            builder.endpointOverride(URI.create(properties.endpoint()));
+        }
+        return builder.build();
+    }
+
+    /**
+     * Signs GET links to the same bucket {@link #s3Client} writes to, with the same credentials.
+     * Signing is a local computation: nothing is sent to the bucket until a browser follows a link.
+     */
+    @Bean
+    @ConditionalOnProperty(name = "greenv.adapters.object-storage", havingValue = "s3")
+    S3Presigner s3Presigner(S3StorageProperties properties) {
+        requireText(properties.bucket(), "greenv.storage.s3.bucket");
+        var builder = S3Presigner.builder()
                 .region(Region.of(valueOrDefault(properties.region(), "us-east-1")))
                 .credentialsProvider(credentials(properties.accessKey(), properties.secretKey()))
                 .serviceConfiguration(S3Configuration.builder()

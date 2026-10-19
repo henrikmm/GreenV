@@ -16,6 +16,8 @@ class ApplicationExceptionHandlerTest {
                 FailureKind.NOT_FOUND, 404,
                 FailureKind.CONFLICT, 409,
                 FailureKind.PAYLOAD_TOO_LARGE, 413,
+                FailureKind.LENGTH_REQUIRED, 411,
+                FailureKind.UNSUPPORTED_MEDIA_TYPE, 415,
                 FailureKind.DEPENDENCY_UNAVAILABLE, 503,
                 FailureKind.INTERNAL_ERROR, 500);
         var handler = new ApplicationExceptionHandler();
