@@ -129,6 +129,11 @@ final class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserv
     return GatewayClient(baseUri: uri, pairingCode: settings.pairingCode);
   }
 
+  bool get _onMac {
+    final uri = Uri.tryParse(_settings.gatewayUrl.trim());
+    return uri != null && uri.hasScheme && GatewayClient.isMacBase(uri);
+  }
+
   Future<GatewayHealth> _healthOf(DemoSettings s) async {
     final client = _client(s);
     if (client == null) return const GatewayHealth.unreachable('nenhum gateway configurado');
@@ -248,6 +253,13 @@ final class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserv
     if (bytes == 0) {
       unawaited(file.delete().catchError((_) => file));
       return _fail('A câmera devolveu um vídeo vazio. Grave de novo.');
+    }
+    // Checked before announcing, so the gateway never holds a capture whose video cannot arrive.
+    final tooLarge = videoSizeProblem(bytes);
+    if (tooLarge != null) {
+      unawaited(file.delete().catchError((_) => file));
+      _meta = null;
+      return _fail(tooLarge);
     }
     final previous = _video;
     if (previous != null && previous.path != file.path) unawaited(previous.delete().catchError((_) => previous));
@@ -524,7 +536,7 @@ final class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserv
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('ENVIANDO PARA O MAC', style: Verge.label),
+              Text('ENVIANDO O VÍDEO', style: Verge.label),
               const SizedBox(height: 10),
               LinearProgressIndicator(value: fraction, color: Verge.busy, backgroundColor: Verge.border, minHeight: 6),
               const SizedBox(height: 8),
@@ -566,7 +578,7 @@ final class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserv
                 )
               else if (status != null)
                 PhaseSummary(phases: status.phases, busy: busy),
-              if (status?.state == 'received')
+              if (status?.state == 'received' && _onMac)
                 Padding(
                   padding: const EdgeInsets.only(top: 6),
                   child: Text('O vídeo está no Mac. Abra-o no Verge Studio.', style: Verge.body.copyWith(color: Verge.textDim)),

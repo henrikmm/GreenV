@@ -217,5 +217,102 @@ void main() {
       );
       await dir.delete(recursive: true);
     });
+
+    test('a base with a path is the prefix, slash or not; a bare host is the Mac\'s /v1/', () {
+      String norm(String s) => GatewayClient.normaliseBase(Uri.parse(s)).toString();
+      expect(norm('https://greenvapi.matomomitsu.com/v1/demo/'), 'https://greenvapi.matomomitsu.com/v1/demo/');
+      expect(norm('https://greenvapi.matomomitsu.com/v1/demo'), 'https://greenvapi.matomomitsu.com/v1/demo/');
+      expect(norm('http://192.168.0.10:8790'), 'http://192.168.0.10:8790/v1/');
+      expect(norm('http://192.168.0.10:8790/'), 'http://192.168.0.10:8790/v1/');
+      expect(norm('https://host/v1/demo/?x=1#y'), 'https://host/v1/demo/');
+      expect(GatewayClient.isMacBase(Uri.parse('http://192.168.0.10:8790')), isTrue);
+      expect(GatewayClient.isMacBase(Uri.parse('https://greenvapi.matomomitsu.com/v1/demo')), isFalse);
+    });
+
+    test('every call stays under a prefixed base', () async {
+      final dir = await Directory.systemTemp.createTemp('demo-upload');
+      final video = File('${dir.path}/v.mp4')..writeAsBytesSync([1, 2, 3]);
+      final seen = <String>[];
+      final client = GatewayClient(
+        baseUri: Uri.parse('https://greenvapi.matomomitsu.com/v1/demo'),
+        pairingCode: '1',
+        client: MockClient.streaming((request, body) async {
+          await body.drain<void>();
+          seen.add('${request.method} ${request.url}');
+          final json = switch (request.url.path) {
+            '/v1/demo/health' => {'contract': 1, 'authorised': true},
+            '/v1/demo/captures/cap-1' => {'id': 'cap-1', 'state': 'fetched', 'phases': <Object?>[]},
+            _ => {'id': 'cap-1'},
+          };
+          final code = request.method == 'POST' ? 201 : 200;
+          return http.StreamedResponse(Stream.value(utf8.encode(jsonEncode(json))), code);
+        }),
+      );
+
+      expect((await client.health()).ready, isTrue);
+      final id = await client.announce({'schema': 'verge-phone-capture/1'});
+      await client.uploadVideo(id, video);
+      expect((await client.status(id)).finished, isTrue);
+
+      expect(seen, [
+        'GET https://greenvapi.matomomitsu.com/v1/demo/health',
+        'POST https://greenvapi.matomomitsu.com/v1/demo/captures',
+        'PUT https://greenvapi.matomomitsu.com/v1/demo/captures/cap-1/video',
+        'GET https://greenvapi.matomomitsu.com/v1/demo/captures/cap-1',
+      ]);
+      await dir.delete(recursive: true);
+    });
+
+    test('a base with no path still reaches the Mac gateway under /v1/', () async {
+      final seen = <String>[];
+      final client = GatewayClient(
+        baseUri: base,
+        pairingCode: '1',
+        client: MockClient((request) async {
+          seen.add(request.url.toString());
+          return http.Response(jsonEncode({'id': 'cap-1', 'state': 'received', 'contract': 1, 'authorised': true}), 200);
+        }),
+      );
+      await client.health();
+      await client.status('cap-1');
+      expect(seen, ['http://gateway.test:8790/v1/health', 'http://gateway.test:8790/v1/captures/cap-1']);
+    });
+
+    test('a video over the limit is refused on the phone, before a byte is sent', () async {
+      final dir = await Directory.systemTemp.createTemp('demo-upload');
+      final video = File('${dir.path}/v.mp4')..writeAsBytesSync(List<int>.filled(1001, 0));
+      var requests = 0;
+      final client = GatewayClient(
+        baseUri: base,
+        pairingCode: '1',
+        maxBytes: 1000,
+        client: MockClient.streaming((request, body) async {
+          requests++;
+          await body.drain<void>();
+          return http.StreamedResponse(const Stream.empty(), 200);
+        }),
+      );
+      await expectLater(
+        client.uploadVideo('cap-1', video),
+        throwsA(isA<GatewayException>().having((e) => e.statusCode, 'status', 413).having((e) => e.message, 'message', contains('limite'))),
+      );
+      expect(requests, 0);
+      await dir.delete(recursive: true);
+    });
+
+    test('the limit is 95 MiB, and the refusal names both sizes in Portuguese', () {
+      expect(maxVideoBytes, 95 * 1024 * 1024);
+      expect(GatewayClient(baseUri: base, pairingCode: '1').maxBytes, maxVideoBytes);
+      expect(videoSizeProblem(maxVideoBytes), isNull);
+      final message = videoSizeProblem(120000000);
+      expect(message, contains('120,0 MB'));
+      expect(message, contains('99,6 MB'));
+      expect(message, contains('Grave por menos tempo'));
+    });
+  });
+
+  test('without a dart-define the demo talks to the cloud API\'s demo prefix', () {
+    expect(DemoSettings.cloudGatewayUrl, 'https://greenvapi.matomomitsu.com/v1/demo/');
+    expect(const DemoSettings().gatewayUrl, DemoSettings.cloudGatewayUrl);
   });
 }

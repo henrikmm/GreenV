@@ -220,7 +220,7 @@ final class Chip2 extends StatelessWidget {
 const Map<String, String> phaseLabels = {
   'created': 'Captura anunciada',
   'uploading': 'Enviando o vídeo',
-  'received': 'Recebido no Mac',
+  'received': 'Vídeo recebido',
   'loaded': 'Carregado no Verge Studio',
   'extracting': 'Extraindo quadros',
   'extracted': 'Quadros extraídos',
@@ -413,7 +413,7 @@ final class _SettingsSheetState extends State<SettingsSheet> {
               controller: _url,
               keyboardType: TextInputType.url,
               autocorrect: false,
-              decoration: const InputDecoration(labelText: 'Gateway', hintText: 'http://192.168.0.10:8790'),
+              decoration: const InputDecoration(labelText: 'Gateway', hintText: 'https://…/v1/demo/ ou http://<mac>:8790'),
             ),
             TextField(
               controller: _code,

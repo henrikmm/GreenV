@@ -38,8 +38,10 @@ final class DemoSettings {
     this.maxFrames = 112,
   });
 
-  /// Baked in with `--dart-define`, so a build made for a given Mac needs no typing on the phone.
-  static const String defaultGatewayUrl = String.fromEnvironment('VERGE_GATEWAY_URL');
+  /// Baked in with `--dart-define`, so a build needs no typing on the phone. Without one it is the
+  /// cloud API's demo prefix; `http://<mac>:8790` still works and is read as `/v1/`.
+  static const String cloudGatewayUrl = 'https://greenvapi.matomomitsu.com/v1/demo/';
+  static const String defaultGatewayUrl = String.fromEnvironment('VERGE_GATEWAY_URL', defaultValue: cloudGatewayUrl);
   static const String defaultPairingCode = String.fromEnvironment('VERGE_GATEWAY_CODE');
 
   static const List<int> fpsChoices = [30, 60];

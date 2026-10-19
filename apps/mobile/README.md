@@ -23,9 +23,42 @@ Studio–styled screen that films an object and sends it to a gateway (`lib/src/
 no screen, queue or upload path with the field app below, and nothing in the field app changed
 for it. Specification, wire contract and deployment handoff: [`docs/NEXT-DEMO.md`](../../docs/NEXT-DEMO.md).
 
+The gateway is either the cloud API's demo routes or the Mac intake, which stays the fallback.
+`VERGE_GATEWAY_URL` is a base: every call is a path under it (`health`, `captures`,
+`captures/<id>/video`, `captures/<id>`). A base with a path is used as the prefix, with a trailing
+`/` added if missing; a base with no path is the Mac and is read as `/v1/`. Without the
+dart-define the build points at `https://greenvapi.matomomitsu.com/v1/demo/`. Both values can be
+changed on the phone in the operator sheet (hold the title for two seconds).
+
+The release APK against the cloud API, from this directory:
+
+```
+flutter build apk --release -t lib/main_demo.dart \
+  --dart-define=VERGE_GATEWAY_URL=https://greenvapi.matomomitsu.com/v1/demo/ \
+  --dart-define=VERGE_GATEWAY_CODE=<code>
+adb install -r build/app/outputs/flutter-apk/app-release.apk
+```
+
+`<code>` is the API's `GREENV_DEMO_PAIRING_CODE`; reads are public, but every write needs it. It
+is compiled into the APK, so treat the file like the code. The release build is signed with the
+debug key (`android/app/build.gradle.kts`), which is enough for `adb install`.
+
+A release build refuses cleartext HTTP, so it cannot reach the Mac intake at `http://`. The Mac
+fallback is a debug or profile build, whose manifests allow it:
+
 ```
 flutter run -t lib/main_demo.dart --dart-define=VERGE_GATEWAY_URL=http://<mac-ip>:8790 \
   --dart-define=VERGE_GATEWAY_CODE=<code>
+```
+
+The phone refuses a video over 95 MiB before announcing it, with a message on screen: Cloudflare
+cuts a request at 100 MB in front of the API. At typical phone bitrates 1080p for 15 s is roughly
+20–40 MB and 4K for 30 s is over the limit; those are estimates, not measurements.
+`tool/gateway_smoke.dart` drives the same client from a workstation, against either base; `--wait`
+polls until the capture is fetched, measured or failed, and exits non-zero unless it ended well:
+
+```
+dart run tool/gateway_smoke.dart http://localhost:8080/v1/demo/ <code> <video.mp4> --wait
 ```
 
 ## Current scope

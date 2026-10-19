@@ -1,6 +1,7 @@
 // The FIAP Next demo build: one screen that records an object and hands the video to a Verge
 // Studio gateway. It is a test build beside the field app, not a replacement for it — see
-// docs/NEXT-DEMO.md. Run it with:
+// docs/NEXT-DEMO.md. Without VERGE_GATEWAY_URL it talks to the cloud API's demo prefix,
+// https://greenvapi.matomomitsu.com/v1/demo/; the Mac gateway is still one dart-define away:
 //
 //   flutter run -t lib/main_demo.dart --dart-define=VERGE_GATEWAY_URL=http://<mac>:8790 \
 //     --dart-define=VERGE_GATEWAY_CODE=<code>
