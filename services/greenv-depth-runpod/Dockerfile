@@ -1,7 +1,7 @@
 # The RunPod serverless image: the DA3 service, plus the handler that feeds it from a bucket.
 #
 # Built FROM the image `measurement/server/Dockerfile` produces, not from a copy of its steps.
-# That image is ~12 GB of CUDA, xformers, Depth Anything 3 and a 6.7 GB checkpoint pinned to one
+# That image is ~12 GB of CUDA, Depth Anything 3 and a 6.7 GB checkpoint pinned to one
 # revision, and duplicating those pins here is how two records start disagreeing about which
 # model is deployed. So:
 #

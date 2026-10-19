@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { drift, provision, settings, templateBody, updateBody } from "./provision.mjs";
+import { DEMO_MAX_FRAMES, drift, MVP_DEFAULT_IMAGE, provision, settings, templateBody, updateBody } from "./provision.mjs";
 
 const ENV = {
   RUNPOD_API_KEY: "runpod-test-key",
@@ -97,11 +97,11 @@ test("a changed setting is applied rather than left drifting", async () => {
   const tfvars = capture();
   await provision(settings(ENV), { fetchImpl: api.fetchImpl, log: silent, write: tfvars.write });
 
-  await provision(settings({ ...ENV, GREENV_DEPTH_IMAGE: "ghcr.io/example/depth:next" }), {
-    fetchImpl: api.fetchImpl,
-    log: silent,
-    write: tfvars.write,
-  });
+  // Named on purpose: moving the field pipeline's template to a new image is allowed, by name.
+  await provision(
+    settings({ ...ENV, GREENV_DEPTH_IMAGE: "ghcr.io/example/depth:next", RUNPOD_TEMPLATE_NAME: "greenv-depth" }),
+    { fetchImpl: api.fetchImpl, log: silent, write: tfvars.write },
+  );
 
   assert.equal(api.templates[0].imageName, "ghcr.io/example/depth:next");
   assert.equal(api.calls.filter((call) => call.method === "PATCH").length, 1);
@@ -181,4 +181,57 @@ test("a template whose env RunPod will not disclose is not patched on every run"
 
   // A disclosed env that disagrees is still drift.
   assert.ok(drift({ ...withoutEnv, env: { AWS_ACCESS_KEY_ID: "stale" } }, desired));
+});
+
+// The script is idempotent by name, so a defaulted name with another image is a PATCH of the field
+// pipeline's template, and greenv-mvp-depth would start running the demo's image.
+test("a run that departs from the mvp defaults must name its template", () => {
+  const unnamed = /RUNPOD_TEMPLATE_NAME is required/;
+  assert.throws(() => settings({ ...ENV, GREENV_DEPTH_IMAGE: "ghcr.io/example/depth:demo" }), unnamed);
+  assert.throws(() => settings(ENV, { image: "ghcr.io/example/depth@sha256:abc" }), unnamed);
+  assert.throws(() => settings({ ...ENV, GREENV_DEPTH_MAX_FRAMES: "112" }), unnamed);
+  assert.throws(() => settings(ENV, {}, { demo: true }), unnamed);
+
+  // The field pipeline's own defaults still need nothing extra.
+  assert.equal(settings(ENV).name, "greenv-depth");
+  assert.equal(settings(ENV).image, MVP_DEFAULT_IMAGE);
+});
+
+test("--demo never targets the field pipeline's template, even when named", () => {
+  assert.throws(
+    () => settings({ ...ENV, RUNPOD_TEMPLATE_NAME: "greenv-depth" }, {}, { demo: true }),
+    /--demo must not target the field pipeline's template "greenv-depth"/,
+  );
+});
+
+test("Terraform names its template in the query, so its pinned digest is accepted", () => {
+  const config = settings(ENV, { image: "ghcr.io/example/depth@sha256:abc", template_name: "greenv-depth" });
+  assert.equal(config.name, "greenv-depth");
+  assert.equal(config.image, "ghcr.io/example/depth@sha256:abc");
+  assert.equal(config.tfvarsPath, "../../infrastructure/runpod.auto.tfvars");
+});
+
+test("the demo template is made beside the mvp one and leaves it and Terraform's input alone", async () => {
+  const mvp = { id: "tpl-mvp", name: "greenv-depth", imageName: MVP_DEFAULT_IMAGE, containerDiskInGb: 50 };
+  const api = runpod({ templates: [{ ...mvp }] });
+  const tfvars = capture();
+
+  const result = await provision(
+    settings(
+      { ...ENV, RUNPOD_TEMPLATE_NAME: "greenv-depth-demo", GREENV_DEPTH_IMAGE: "ghcr.io/example/depth:demo-cu128" },
+      {},
+      { demo: true },
+    ),
+    { fetchImpl: api.fetchImpl, log: silent, write: tfvars.write },
+  );
+
+  assert.equal(result.templateId, "tpl-1");
+  assert.deepEqual(api.templates[0], mvp, "the field pipeline's template was not touched");
+  assert.equal(api.calls.filter((call) => call.method === "PATCH").length, 0);
+
+  const demo = api.templates.find((item) => item.name === "greenv-depth-demo");
+  assert.equal(demo.imageName, "ghcr.io/example/depth:demo-cu128");
+  assert.equal(demo.env.GREENV_DEPTH_MAX_FRAMES, DEMO_MAX_FRAMES, "a card other than an L4 needs the ceiling named");
+  assert.equal(demo.containerDiskInGb, 50);
+  assert.deepEqual(tfvars.written, {}, "depth_template_id is the field pipeline's; the demo id must not replace it");
 });

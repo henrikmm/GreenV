@@ -15,6 +15,11 @@
 //
 //   node provision.mjs           # by hand, printing what it did
 //   node provision.mjs --json    # what Terraform runs: one JSON object on stdout, logs on stderr
+//   RUNPOD_TEMPLATE_NAME=greenv-depth-demo GREENV_DEPTH_IMAGE=<demo image> node provision.mjs --demo
+//                                # the FIAP Next demo's template; see README "The demo endpoint"
+//
+// Any run that departs from the field pipeline's defaults - another image, a frame ceiling,
+// `--demo` - must name its template, so it can never patch `greenv-depth` by accident.
 //
 // It is idempotent by name: it reads what exists, creates what does not, and patches what drifted
 // rather than silently keeping it. Creating a template costs nothing, and neither does the
@@ -26,7 +31,18 @@ import { pathToFileURL } from "node:url";
 
 const API = process.env.RUNPOD_API_BASE ?? "https://rest.runpod.io/v1";
 
-export const settings = (env, query = {}) => {
+/** The field pipeline's template, which `greenv-mvp-depth` is built from. */
+export const MVP_TEMPLATE_NAME = "greenv-depth";
+/** The image a hand run uses when nothing names one. */
+export const MVP_DEFAULT_IMAGE = "ghcr.io/matomomitsu/greenv-depth-runpod:pipeline";
+/** The FIAP Next demo's frame ceiling, as `--demo` sets it; see README "The demo endpoint". */
+export const DEMO_MAX_FRAMES = "112";
+
+/**
+ * `demo` is the `--demo` flag: the demo template's settings, which must never land on the field
+ * pipeline's template.
+ */
+export const settings = (env, query = {}, { demo = false } = {}) => {
   // Terraform's own spellings are accepted as fallbacks, so `terraform apply` needs no second set
   // of exports: TF_VAR_runpod_api_key is already in the shell for the provider, and the R2 pair is
   // already there for the workers.
@@ -49,16 +65,36 @@ export const settings = (env, query = {}) => {
     if (!Number.isFinite(value)) throw new Error(`${name} must be a number, got ${JSON.stringify(raw)}`);
     return value;
   };
+  // Terraform passes this on stdin so the image is pinned in `terraform.tfvars` beside the other
+  // three, rather than defaulted in two places that will drift. The literal is only for a hand
+  // run, and it names a tag where Terraform names a digest - which is the difference between
+  // "whatever is newest" and "the one that was tested".
+  const image = query.image?.trim() || env.GREENV_DEPTH_IMAGE?.trim() || MVP_DEFAULT_IMAGE;
+  // Overrides the handler's ceiling table. Needed on any GPU other than an L4 or larger, and the
+  // operator owns the number: it is a measurement, not a preference.
+  const maxFrames = env.GREENV_DEPTH_MAX_FRAMES?.trim() || (demo ? DEMO_MAX_FRAMES : null);
+  // Terraform names its template in the query; a hand run names one in the environment.
+  const explicitName = query.template_name?.trim() || env.RUNPOD_TEMPLATE_NAME?.trim() || null;
+  // The script is idempotent by name, so a defaulted name plus a different image is a PATCH of the
+  // field pipeline's template - and its endpoint runs whatever that template says from the next
+  // cold start on. A run that departs from the mvp's own settings must say where it is going.
+  if (!explicitName && (demo || image !== MVP_DEFAULT_IMAGE || maxFrames !== null)) {
+    throw new Error(
+      `RUNPOD_TEMPLATE_NAME is required when the image is not ${MVP_DEFAULT_IMAGE}, ` +
+        `GREENV_DEPTH_MAX_FRAMES is set or --demo is used; without it this run would overwrite ` +
+        `the field pipeline's template "${MVP_TEMPLATE_NAME}"`,
+    );
+  }
+  if (demo && explicitName === MVP_TEMPLATE_NAME) {
+    throw new Error(`--demo must not target the field pipeline's template "${MVP_TEMPLATE_NAME}"`);
+  }
+  // Terraform finds the template by its id, not by this name, so the name is only what a human
+  // reads in the RunPod console - and what makes a second run recognise its own work.
+  const name = explicitName || MVP_TEMPLATE_NAME;
   return {
     apiKey: required("RUNPOD_API_KEY", "TF_VAR_runpod_api_key"),
-    // Terraform finds the template by this id, not by this name, so the name is only what a human
-    // reads in the RunPod console - and what makes a second run recognise its own work.
-    name: env.RUNPOD_TEMPLATE_NAME?.trim() || "greenv-depth",
-    // Terraform passes this on stdin so the image is pinned in `terraform.tfvars` beside the other
-    // three, rather than defaulted in two places that will drift. The literal below is only for a
-    // hand run, and it names a tag where Terraform names a digest - which is the difference
-    // between "whatever is newest" and "the one that was tested".
-    image: query.image?.trim() || env.GREENV_DEPTH_IMAGE?.trim() || "ghcr.io/matomomitsu/greenv-depth-runpod:pipeline",
+    name,
+    image,
     // The bucket credentials the handler reads through the ordinary AWS chain. Nothing else about
     // the bucket belongs here: the worker names bucket, endpoint and region in every job, so one
     // template serves any bucket the caller can address.
@@ -67,10 +103,13 @@ export const settings = (env, query = {}) => {
     // The image is 15.3 GB unpacked; 50 GB is RunPod's own default and leaves room for the ~110 MB
     // a run materialises. Not checked against a real worker.
     containerDiskInGb: number("RUNPOD_CONTAINER_DISK_GB", 50),
-    // Overrides the handler's ceiling table. Needed on any GPU other than an L4 or larger, and the
-    // operator owns the number: it is a measurement, not a preference.
-    maxFrames: env.GREENV_DEPTH_MAX_FRAMES?.trim() || null,
-    tfvarsPath: env.GREENV_TFVARS_PATH?.trim() || "../../infrastructure/runpod.auto.tfvars",
+    maxFrames,
+    // `depth_template_id` in that file is the field pipeline's template. Another template's id
+    // written there would move greenv-mvp-depth onto it at the next apply that creates the
+    // endpoint, so any other template leaves the file alone unless a path is named on purpose.
+    tfvarsPath:
+      env.GREENV_TFVARS_PATH?.trim() ||
+      (name === MVP_TEMPLATE_NAME ? "../../infrastructure/runpod.auto.tfvars" : null),
     dryRun: env.RUNPOD_DRY_RUN === "true",
   };
 };
@@ -174,7 +213,7 @@ export async function provision(config, { fetchImpl = fetch, log = console.log, 
     }
   }
 
-  await write(config.tfvarsPath, template.id);
+  if (config.tfvarsPath) await write(config.tfvarsPath, template.id);
   return { templateId: template.id, tfvarsPath: config.tfvarsPath };
 }
 
@@ -224,12 +263,13 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   // The external data source writes its query to stdin as one JSON object. A hand run has no
   // stdin to read, so it is not waited for.
   const query = asJson ? await readJsonStdin() : {};
+  const demo = process.argv.includes("--demo");
   // `settings` throws for a missing credential, and it throws synchronously - outside the promise
   // chain below, where it would reach the terminal as a stack trace instead of the one line it is.
   Promise.resolve()
     .then(() =>
       provision(
-        settings(process.env, query),
+        settings(process.env, query, { demo }),
         asJson ? { log: (line) => console.error(line), write: async () => {} } : {},
       ),
     )
@@ -239,6 +279,13 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
         return;
       }
       if (result.dryRun) return;
+      if (!result.tfvarsPath) {
+        console.log("");
+        console.log(`template ${result.templateId} is not the field pipeline's, so runpod.auto.tfvars was left alone.`);
+        console.log("Build its endpoint by hand: services/greenv-depth-runpod/README.md, \"The demo endpoint\".");
+        console.log("No job has been sent. The first one is what bills.");
+        return;
+      }
       console.log("");
       console.log(`wrote ${result.tfvarsPath}`);
       console.log("");

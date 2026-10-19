@@ -137,7 +137,9 @@ either way — take it out of state with `terraform state rm 'runpod_endpoint.de
 in the variable above. It holds no GPU at rest, so an unmanaged endpoint costs nothing.
 
 Once it is named that way the data source stops running too, so moving the depth stage to a new
-image means running `provision.mjs` by hand: an endpoint follows whatever its template says.
+image means running `provision.mjs` by hand: an endpoint follows whatever its template says. Name
+the template when you do (`RUNPOD_TEMPLATE_NAME=greenv-depth`): any image other than the script's
+default is refused without a name, so the demo's image can never land on this template by accident.
 
 **Why a script runs inside the apply.** `decentralized-infrastructure/runpod` has a
 `runpod_endpoint` resource and no template resource — checked against the provider binary's own
@@ -198,6 +200,97 @@ GREENV_S3_BUCKET=<bucket>
 GREENV_S3_ENDPOINT=https://<account>.r2.cloudflarestorage.com
 GREENV_AWS_ACCESS_KEY=<r2 access key>
 GREENV_AWS_SECRET_KEY=<r2 secret>
+```
+
+## The demo endpoint
+
+**Nothing in this section has been run.** No image built, no template or endpoint created, no
+job sent. It is the recipe for the FIAP Next demo (24 Oct 2026), whose API routes call RunPod
+directly (`GREENV_DEMO_RUNPOD_*` in [`infrastructure/README.md`](../../infrastructure/README.md)).
+The demo gets a template and an endpoint of its own, so `greenv-depth` and `greenv-mvp-depth`
+are never touched.
+
+| | Demo | Field pipeline |
+|---|---|---|
+| Template | `greenv-depth-demo` | `greenv-depth` |
+| Endpoint | `greenv-demo-depth`, made by hand | `greenv-mvp-depth` |
+| Image base | `measurement/server`, PyTorch 2.8 / CUDA 12.8 | `measurement/server` as built before 2026-10-17 (PyTorch 2.5.1 / CUDA 12.1); the Dockerfile has moved since, the pinned `depth_image` digest has not |
+
+**1. Image.** Built FROM the CUDA 12.8 `measurement/server` image: the RTX PRO 6000 is a
+Blackwell card, and 12.8 is the first CUDA with kernels for it. No GPU needed; ~15-20 min for the
+base.
+
+```bash
+docker build -t verge-da3:cu128 measurement/server
+docker build -t ghcr.io/matomomitsu/greenv-depth-runpod:demo-<hash of server/ and handler.py> \
+  --build-arg DEPTH_IMAGE=verge-da3:cu128 services/greenv-depth-runpod
+docker push ghcr.io/matomomitsu/greenv-depth-runpod:demo-<hash>   # then use the pushed digest
+```
+
+**2. Template.** `provision.mjs --demo` refuses to run without `RUNPOD_TEMPLATE_NAME`, refuses
+`greenv-depth` as that name, sets `GREENV_DEPTH_MAX_FRAMES=112` and leaves
+`infrastructure/runpod.auto.tfvars` alone. Container disk stays at its 50 GB default.
+
+```bash
+cd services/greenv-depth-runpod
+export RUNPOD_API_KEY=... GREENV_AWS_ACCESS_KEY=... GREENV_AWS_SECRET_KEY=...
+export RUNPOD_TEMPLATE_NAME=greenv-depth-demo
+export GREENV_DEPTH_IMAGE=ghcr.io/matomomitsu/greenv-depth-runpod@sha256:<digest>
+RUNPOD_DRY_RUN=true node provision.mjs --demo   # prints the body, sends nothing
+node provision.mjs --demo
+```
+
+112 is the field pipeline's graded setting and its L4 ceiling at 504 px. Both demo cards have far
+more memory than an L4, but nothing has been measured on either, so the number is a choice made
+to match, not a measurement; `demo_max_frames` in Terraform must equal it.
+
+**3. GPU type ids.** Read them from RunPod's own listing before creating the endpoint. This
+README does not spell them, because nobody here has read them yet and a guessed id fails at
+create time or, worse, matches a card nobody meant. The listing is free and wakes nothing:
+
+```bash
+curl -s https://api.runpod.io/graphql -H "Authorization: Bearer $RUNPOD_API_KEY" \
+  -H 'content-type: application/json' -d '{"query":"{ gpuTypes { id displayName memoryInGb } }"}'
+```
+
+Take the **whole** RTX PRO 6000 (96 GB) first and an H100 (80 GB) second. Not a `PRO 6000 MIG`
+partition: that is the 24 GB slice the field endpoint was handed on 10 September. The H100 has
+never run this image.
+
+**4. Endpoint.** In the console (Serverless, New Endpoint, template `greenv-depth-demo`) or
+through the REST API. The field names below are taken from RunPod's documentation and have not
+been sent; compare the result in the console.
+
+```bash
+curl -s https://rest.runpod.io/v1/endpoints -H "Authorization: Bearer $RUNPOD_API_KEY" \
+  -H 'content-type: application/json' -d '{
+    "name": "greenv-demo-depth", "templateId": "<greenv-depth-demo id>",
+    "gpuTypeIds": ["<RTX PRO 6000 id>", "<H100 id>"], "gpuCount": 1,
+    "workersMin": 0, "workersMax": 1, "idleTimeout": 120,
+    "executionTimeoutMs": 900000, "flashboot": true }'
+```
+
+| Setting | Value | Why |
+|---|---|---|
+| GPU | whole RTX PRO 6000, then H100 | in order of preference; capacity of either is not guaranteed |
+| `workersMin` | 0 | 1 only for the event's hours and only with agreement: it bills the whole time |
+| `workersMax` | 1 | one capture at a time on stage |
+| `idleTimeout` | 120 s | a guess: keeps one worker warm across captures a minute or two apart; a lone capture pays the whole tail |
+| `executionTimeoutMs` | 900000 | the field endpoint's ceiling |
+| `flashboot` | on | cheaper warm starts |
+| Container disk | 50 GB | set by the template |
+| `GREENV_DEPTH_MAX_FRAMES` | 112 | set by the template |
+
+Its id goes to `demo_runpod_endpoint_id` in `infrastructure/`.
+
+**5. Purge the queue** before fixing a stalled endpoint and after the event, so nobody pays for a
+backlog whose answers no one will read (see 10 September below). Purging drops queued jobs only; a
+running one is cancelled by id. `health` is a read and wakes nothing.
+
+```bash
+curl -s -X POST https://api.runpod.ai/v2/<endpoint-id>/purge-queue -H "Authorization: Bearer $RUNPOD_API_KEY"
+curl -s -X POST https://api.runpod.ai/v2/<endpoint-id>/cancel/<job-id> -H "Authorization: Bearer $RUNPOD_API_KEY"
+curl -s https://api.runpod.ai/v2/<endpoint-id>/health -H "Authorization: Bearer $RUNPOD_API_KEY"
 ```
 
 ## What went wrong on 10 September 2026
