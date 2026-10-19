@@ -10,12 +10,16 @@
  *
  * Reporting is best-effort. A phase that fails to reach the gateway is logged and dropped: the
  * phone showing a stale phase is better than a run aborting because a status write failed.
+ *
+ * On the demo site (`hosted.ts`) the same captures are read from the demo API, the server writes
+ * every phase, and nothing here writes at all.
  */
 
 import { useSyncExternalStore } from "react";
 import { setNodeParams } from "../graph/graph-store";
 import { GPU_FRAME_CEILING, GPU_LABEL } from "./cloud-control";
 import { activeGpu } from "./deploy-store";
+import { DEMO_API_BASE, HOSTED, demoGet, parseCaptureList } from "./hosted";
 import type { VideoSource } from "./infer-client";
 import { localApiHeaders } from "./local-api";
 import { getRunPhase, subscribeRunPhase, type PhaseKind } from "./run-phase";
@@ -72,14 +76,33 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   return body as T;
 }
 
-export const phoneInfo = () => call<PhoneInfo>("/info");
+/**
+ * Hosted mode reads the same captures from the demo API instead of the dev server's intake.
+ * It is read-only: the server owns every capture and writes every phase itself, so the calls
+ * that change a capture refuse rather than reach a route that does not exist.
+ */
+const hostedReadOnly = () =>
+  Promise.reject(new Error("read-only: captures on the demo site are managed by the server"));
 
-export const listPhoneCaptures = async () => (await call<{ captures: PhoneCapture[] }>("/captures")).captures;
+async function hostedInfo(): Promise<PhoneInfo> {
+  const health = (await demoGet(DEMO_API_BASE, "health")) as { authorised?: unknown };
+  return { enabled: Boolean(health), port: 0, code: null, urls: [DEMO_API_BASE], inbox: "" };
+}
 
-export const discardPhoneCapture = (id: string) => call(`/captures/${id}`, { method: "DELETE" });
+export const phoneInfo = () => (HOSTED ? hostedInfo() : call<PhoneInfo>("/info"));
+
+export const listPhoneCaptures = async (): Promise<PhoneCapture[]> =>
+  HOSTED
+    ? parseCaptureList(await demoGet(DEMO_API_BASE, "captures?limit=20"))
+    : (await call<{ captures: PhoneCapture[] }>("/captures")).captures;
+
+export const discardPhoneCapture = (id: string) =>
+  HOSTED ? hostedReadOnly() : call(`/captures/${id}`, { method: "DELETE" });
 
 export const setPhoneTruth = (id: string, truthM: number | null, object?: string) =>
-  call(`/captures/${id}/truth`, { method: "POST", body: JSON.stringify({ truthM, object }) });
+  HOSTED
+    ? hostedReadOnly()
+    : call(`/captures/${id}/truth`, { method: "POST", body: JSON.stringify({ truthM, object }) });
 
 // ---------------------------------------------------------------------------------------------
 // The active capture
@@ -114,6 +137,14 @@ export function clearActivePhoneCapture(): void {
 }
 
 /**
+ * Hosted mode's way in: there is no clip to load, because the server extracted the frames. The
+ * capture being followed is made active so the panes treat it exactly as a loaded one.
+ */
+export function followPhoneCapture(id: string | null): void {
+  setActive(id);
+}
+
+/**
  * Point Frame Source at a phone capture, exactly as `loadClip` does for a dropped file — same
  * parameters, so the graph, the cache key and the run registry treat it like any other clip.
  */
@@ -121,6 +152,7 @@ export async function loadPhoneCapture(
   id: string,
   sampling?: PhoneCapture["sampling"],
 ): Promise<VideoSource & { plan: string | null }> {
+  if (HOSTED) throw new Error("the demo site does not load clips; the server processes every capture");
   const source = await call<VideoSource & { captureId: string }>(`/captures/${id}/load`, { method: "POST" });
   // The phone's sampling wins for its own capture, clamped to what the card in use can hold.
   let plan: string | null = null;
@@ -148,10 +180,15 @@ export async function loadPhoneCapture(
   return { ...source, plan };
 }
 
-/** Report one phase for the active capture. Never throws. */
+/**
+ * Report one phase for the active capture. Never throws.
+ *
+ * Silent in hosted mode: there the server writes every phase itself, and the page has no
+ * credential to write with — which is the point of a read-only public page.
+ */
 export function reportPhonePhase(phase: string, detail?: Record<string, unknown>): void {
   const id = activeId;
-  if (!id) return;
+  if (!id || HOSTED) return;
   void call(`/captures/${id}/phase`, { method: "POST", body: JSON.stringify({ phase, detail }) }).catch((error) => {
     console.warn(`[phone] could not report ${phase} for ${id}:`, error);
   });

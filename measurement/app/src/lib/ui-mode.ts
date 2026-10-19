@@ -26,6 +26,7 @@
  */
 
 import { useSyncExternalStore } from "react";
+import { HOSTED } from "./hosted";
 
 /**
  * **Demo** (added 2026-10-17 for the FIAP Next event) is the other direction: a subset of
@@ -40,6 +41,9 @@ export type UiMode = "standard" | "advanced" | "demo";
 const STORAGE_KEY = "verge.ui-mode/1";
 
 function load(): UiMode {
+  // The demo site always opens on the audience's view; a visitor may switch for the session,
+  // but a reload puts the screen back the way the stand needs it.
+  if (HOSTED) return "demo";
   try {
     const stored = window.localStorage.getItem(STORAGE_KEY);
     return stored === "advanced" || stored === "demo" ? stored : "standard";

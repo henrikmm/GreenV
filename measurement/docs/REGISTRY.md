@@ -1836,6 +1836,47 @@ server's own `timing.gpu_seconds`.
     is guaranteed by construction. It is a demonstration and a drift check, not evidence of
     accuracy, and it should be reached for deliberately.
 
+17. **The studio has a hosted build, and it only reads.** Decided 2026-10-18 for the FIAP Next
+    demo site, which must run without the Mac. `VITE_VERGE_HOSTED=1` and `VITE_DEMO_API_BASE`
+    are read at build time; unset, the studio is unchanged. A hosted page has no dev server, so
+    it cannot extract, run, save or deploy: the GreenV video API does all of that under
+    `/v1/demo/*` and the page polls two public reads — the capture list every 2 s, and the
+    newest capture's `run` once it has frames, until its manifest arrives. The manifest becomes
+    a depth field built from the server's signed frame links and is published as DA3 Depth's
+    output, so the cloud reaches the viewers through the graph exactly as a local run does.
+
+    **Nothing on the page can spend.** Deploy, GPU choice, the `/gpu` poll, Runs, grass quality
+    and Auto are absent in hosted mode, and the phone calls that write refuse. That is what lets
+    the page be public; the pairing code belongs to the phone alone.
+
+    **`fetched` no longer means the cloud is on screen.** The server writes it when the
+    artifacts are published, before any browser has the 60–100 MB npz. The Demo panel's last
+    stage therefore ends on the page's own `shown`, timed as the server's `fetched` plus this
+    page's download-and-build — two durations from one clock each, so no skew between the
+    machines enters it. The up-to-2-second gap before the poll sees the manifest is not counted.
+
+    Three smaller consequences. Presigned S3-style links (`X-Amz-Signature`, R2) count as signed
+    storage, so the npz comes down whole with no Bearer header. The local API plugin is
+    `apply: "serve"`, so a production build carries no `verge-dev-nonce` meta. And Depth 2D now
+    loads its frame with `crossOrigin = "anonymous"`: its mask overlay reads the canvas back, and
+    a frame from the bucket's origin tainted it — `getImageData` threw out of a render effect and
+    the whole page went blank. **The bucket must therefore answer CORS for the site's origin**,
+    or Depth 2D shows no frame. For the same reason the Demo panel's thumbnails load with CORS
+    too and DA3 Depth's card gets no frame as its thumbnail: a link first loaded by a plain
+    `<img>` can sit in the HTTP cache without `Access-Control-Allow-Origin`, and a CORS read of
+    the same link then fails. In a hosted build every artifact is fetched whole and without a
+    Bearer header, signed or not, and each read of the demo API gives up after 15 s so a hung
+    request cannot stop the poll.
+
+    Evidence: `app/src/lib/hosted.ts`, `hosted-demo.ts` and `hosted-demo.test.ts` (polling,
+    selection, re-signed links, failure); `depthFieldFromRun` with `rgbUrls` in
+    `measurement/depth-field.test.ts`. On 2026-10-18 a hosted build was served by `vite preview`
+    against a throwaway local stand-in for `/v1/demo/*` (one capture stepping through every
+    phase, roadside fixture as the artifacts, cross-origin with `Access-Control-Allow-Origin: *`)
+    and looked at in Chrome: the stages lit in order, four thumbnails appeared after `extracted`,
+    the cloud rendered after `fetched`, and the page ended on PRONTO. That is also how the blank
+    page above was found. **Untested against the real API and R2**: neither existed that day.
+
 ---
 
 ## 5. What has been measured, and how well

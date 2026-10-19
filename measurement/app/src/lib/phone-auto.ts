@@ -9,9 +9,15 @@
  * The poll reads a local directory through the loopback API once a second: it costs nothing and
  * wakes nothing. Captures already in the inbox when the studio opened are history and are never
  * processed automatically.
+ *
+ * In a hosted build none of this runs. The server processes every capture, so there is nothing
+ * to automate and nothing may be started from a public page: the list is mirrored from
+ * `hosted-demo.ts`, Auto stays off, and `processCapture` refuses.
  */
 
 import { useSyncExternalStore } from "react";
+import { HOSTED } from "./hosted";
+import { hostedDemo, startHostedDemo } from "./hosted-demo";
 import { extractClipFrames } from "./load-clip";
 import { listPhoneCaptures, loadPhoneCapture, phoneInfo, type PhoneCapture, type PhoneInfo } from "./phone-link";
 import { canRun, clearRunReadout, runInference } from "./run-inference";
@@ -36,6 +42,7 @@ export interface PhoneAutoState {
 const AUTO_KEY = "verge.phone.auto";
 
 function readAuto(): AutoFlags {
+  if (HOSTED) return { load: false, extract: false, run: false };
   try {
     const parsed = JSON.parse(localStorage.getItem(AUTO_KEY) ?? "{}") as Partial<AutoFlags>;
     // Run is never remembered: a reload must not leave a box ticked that spends money.
@@ -77,6 +84,7 @@ export function usePhoneAuto(): PhoneAutoState {
 }
 
 export function setAuto(next: AutoFlags): void {
+  if (HOSTED) return;
   // Each step needs the one before it.
   const flags = { load: next.load, extract: next.load && next.extract, run: next.load && next.extract && next.run };
   set({ auto: flags });
@@ -89,6 +97,10 @@ export function setAuto(next: AutoFlags): void {
 
 /** Load a capture, then extract and run as asked. Shared by the buttons and by Auto. */
 export async function processCapture(id: string, steps: AutoFlags): Promise<void> {
+  if (HOSTED) {
+    set({ error: "the demo site only shows captures; the server processes them" });
+    return;
+  }
   set({ busyId: id, error: null });
   try {
     const capture = state.captures.find((c) => c.id === id);
@@ -114,6 +126,10 @@ let seen: Set<string> | null = null;
 function ensurePolling(): void {
   if (polling || typeof window === "undefined") return;
   polling = true;
+  if (HOSTED) {
+    followHosted();
+    return;
+  }
   phoneInfo().then(
     (info) => set({ info }),
     (e) => set({ error: e instanceof Error ? e.message : String(e) }),
@@ -136,4 +152,22 @@ function ensurePolling(): void {
     window.setTimeout(tick, 1000);
   };
   void tick();
+}
+
+/** Hosted: one poll, owned by `hosted-demo.ts`; this store only mirrors what it read. */
+function followHosted(): void {
+  const demo = hostedDemo();
+  phoneInfo().then(
+    (info) => set({ info }),
+    (e) => set({ error: e instanceof Error ? e.message : String(e) }),
+  );
+  const mirror = () => {
+    const hosted = demo.getState();
+    if (hosted.captures !== state.captures || hosted.error !== state.error) {
+      set({ captures: hosted.captures, error: hosted.error });
+    }
+  };
+  demo.subscribe(mirror);
+  mirror();
+  startHostedDemo();
 }

@@ -22,6 +22,7 @@
 
 import { useSyncExternalStore } from "react";
 import type { AddPanelPositionOptions, DockviewApi } from "dockview";
+import { HOSTED } from "./hosted";
 
 type PaneDirection = "left" | "right" | "above" | "below" | "within";
 
@@ -64,7 +65,7 @@ function positionFor(anchor: PaneAnchor | undefined): AddPanelPositionOptions | 
  * Note the consequence — `maximize()` is group-level, so focusing either one focuses the pair
  * with that tab active.
  */
-export const PANES: readonly PaneDef[] = [
+const ALL_PANES: readonly PaneDef[] = [
   { id: "depth", component: "depth-2d", title: "Depth 2D", anchors: [{}] },
   {
     id: "viewport",
@@ -97,6 +98,12 @@ export const PANES: readonly PaneDef[] = [
     anchors: [{ referencePanel: "inspector", direction: "within" }, { direction: "right" }],
   },
 ] as const;
+
+/**
+ * The demo site has no Runs pane: runs live on the local disk of a studio, and a hosted page has
+ * neither the disk nor the dev server that lists it.
+ */
+export const PANES: readonly PaneDef[] = HOSTED ? ALL_PANES.filter((pane) => pane.id !== "runs") : ALL_PANES;
 
 const PANE_BY_ID = new Map(PANES.map((pane) => [pane.id, pane]));
 

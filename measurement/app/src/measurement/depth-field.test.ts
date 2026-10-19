@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { canonicalFrameMap, fetchArtifactBuffer } from "./depth-field";
+import { canonicalFrameMap, depthFieldFromRun, fetchArtifactBuffer } from "./depth-field";
+import { manifestFromWire } from "../lib/infer-client";
 import { resampleMaskNearest } from "../graph/nodes/measurement";
 import { connectCloud, disconnectCloud } from "../lib/cloud-store";
 
@@ -134,5 +135,53 @@ describe("resampleMaskNearest", () => {
     ]);
     expect(Array.from(resampleMaskNearest(source, 4, 4, 2, 2))).toEqual([1, 0, 0, 0]);
     expect(resampleMaskNearest(source, 4, 4, 8, 8).reduce((sum, value) => sum + value, 0)).toBe(16);
+  });
+});
+
+/**
+ * The demo site's frames are signed bucket links the server extracted, so the depth field is
+ * built from URLs rather than local paths. NPZ frame i must still be the i-th frame sent, and the
+ * links must reach the viewers untouched — wrapping one in the dev server's frame route would
+ * point it at a server the site does not have.
+ */
+describe("depthFieldFromRun with frame URLs", () => {
+  const manifest = (count: number, effectiveFps?: number) =>
+    manifestFromWire({
+      schema_version: "1",
+      run_id: "run-demo",
+      model_repository_id: "m",
+      model_revision: "r",
+      depth_mode: "metric",
+      linear_unit: "metre",
+      params: { fps: 8, process_res: 504, process_res_method: "upper_bound_resize", ref_view_strategy: "middle", max_frames: 112 },
+      frames: { count, requested_count: count, width: 504, height: 896, capped: false, effective_fps: effectiveFps },
+      timing: { gpu_seconds: 4, wall_seconds: 8 },
+      vram: { peak_bytes: 1, current_bytes: 1, total_bytes: 2, device_name: "gpu" },
+      artifacts: [],
+      transient: true,
+      expires_after_days: 3,
+    });
+  const urls = Array.from(
+    { length: 4 },
+    (_, i) => `https://acct.r2.cloudflarestorage.com/b/demo/c1/sampled-frames/frame-000${i + 1}.jpg?X-Amz-Signature=x`,
+  );
+
+  it("uses each URL verbatim, in order, as NPZ frame i", () => {
+    const field = depthFieldFromRun(manifest(4, 10), { rgbUrls: urls });
+    expect(field.frames.map((f) => f.rgbUrl)).toEqual(urls);
+    expect(field.frames.map((f) => f.npzIndex)).toEqual([0, 1, 2, 3]);
+    expect(field.frames.map((f) => f.canonicalIndex)).toEqual([1, 2, 3, 4]);
+    expect(field.frames[3].timestampS).toBeCloseTo(0.3);
+    expect(field.source).toBe("gpu");
+  });
+
+  it("stops at the frames the model actually received", () => {
+    expect(depthFieldFromRun(manifest(3, 10), { rgbUrls: urls }).frames).toHaveLength(3);
+  });
+
+  it("times frames by the manifest's rate, then the caller's, then the requested one", () => {
+    expect(depthFieldFromRun(manifest(4, 10), { rgbUrls: urls, effectiveFps: 2 }).frames[1].timestampS).toBeCloseTo(0.1);
+    expect(depthFieldFromRun(manifest(4), { rgbUrls: urls, effectiveFps: 2 }).frames[1].timestampS).toBeCloseTo(0.5);
+    expect(depthFieldFromRun(manifest(4), { rgbUrls: urls }).frames[1].timestampS).toBeCloseTo(0.125);
   });
 });

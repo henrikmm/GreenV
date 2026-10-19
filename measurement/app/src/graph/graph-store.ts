@@ -326,6 +326,25 @@ export function resolveCurrentInput(
   return source.outputs[edge.sourcePort] ?? null;
 }
 
+/**
+ * Hand a node a result that was produced somewhere else, as if it had just run.
+ *
+ * The demo site's runs happen on a server: the page never executes DA3, it receives a manifest.
+ * Stamping the output with the node's current desired key is what lets everything downstream
+ * treat it exactly like a run made here — current, cacheable, and stale the moment an upstream
+ * parameter changes. Callers must restamp upstream first (a new capture identity on Frame
+ * Source) so two different results never share a key.
+ */
+export function publishNodeOutputs(nodeId: string, outputs: Record<string, NodeOutput>): void {
+  const previous = state.runtime[nodeId];
+  state.runtime = {
+    ...state.runtime,
+    [nodeId]: { status: "ok", heldKey: state.desiredKeys[nodeId] ?? null, outputs, elapsedMs: 0, error: null },
+  };
+  commit();
+  if (previous?.outputs && previous.outputs !== outputs) deferDispose(previous.outputs);
+}
+
 let activeRun: AbortController | null = null;
 
 /**

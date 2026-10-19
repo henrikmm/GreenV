@@ -65,16 +65,22 @@ export function artifactUrl(url: string): string {
 }
 
 /**
- * True for a signed GCS link, which must be fetched differently from a service path.
+ * True for a signed bucket link, which must be fetched differently from a service path.
  *
  * Two consequences, both of which fail confusingly if missed. GCS rejects a request that
  * carries an `Authorization` header *and* a URL signature — the header wins and the
  * signature is treated as an unauthenticated attempt — so the dev server's identity token
  * must not travel here. And the 32 MiB response cap is Cloud Run's, not the bucket's, so a
  * 105 MB npz comes down whole rather than in five ranged pieces.
+ *
+ * S3-style presigned links (`X-Amz-Signature`) joined on 2026-10-18 for the demo site, whose
+ * artifacts live in Cloudflare R2. Same two rules: the signature is the whole credential, and
+ * the bucket has no response cap to chunk around. Any https host qualifies, because an R2
+ * account's endpoint is its own subdomain.
  */
 export function isSignedStorageUrl(url: string): boolean {
-  return /^https:\/\/storage\.googleapis\.com\//i.test(url) && /[?&]X-Goog-Signature=/i.test(url);
+  if (/^https:\/\/storage\.googleapis\.com\//i.test(url) && /[?&]X-Goog-Signature=/i.test(url)) return true;
+  return /^https:\/\//i.test(url) && /[?&]X-Amz-Signature=/i.test(url);
 }
 
 export function requestHeaders(extra: Record<string, string> = {}): Record<string, string> {

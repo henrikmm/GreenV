@@ -44,6 +44,7 @@ import { percentile, type NpyArray } from "../lib/npz";
 import { turbo } from "../lib/turbo";
 import { OutputRow, PaneControls } from "./pane-chrome";
 import { useAdvanced, useDemo } from "../lib/ui-mode";
+import { HOSTED } from "../lib/hosted";
 import { useGrassRun } from "../measurement/grass-grid-store";
 import { ProvenanceBanner } from "./provenance";
 
@@ -204,6 +205,10 @@ export function Depth2D() {
     if (!descriptor || paused) return;
     let cancelled = false;
     const next = new Image();
+    // The mask overlay reads this canvas back. A frame from another origin — the demo site's
+    // signed bucket links — taints it without CORS, and the read then throws out of a render
+    // effect and takes the whole app down. Same-origin frames are unaffected.
+    next.crossOrigin = "anonymous";
     next.onload = () => {
       if (cancelled) return;
       setImage(next);
@@ -814,11 +819,16 @@ export function Depth2D() {
             // One child: `.pane-empty` is a centring grid, so loose text nodes beside an
             // inline element would each become their own centred cell.
             <div className="pane-empty">
-              <p>
-                No depth field yet. In <b>Setup</b>: drop a clip, extract the frames, then Run.
-                <br />
-                To look at a run that already exists, pick one in <b>Runs</b>.
-              </p>
+              {/* The demo site cannot load or run anything; its visitors wait for the phone. */}
+              {HOSTED ? (
+                <p>A nuvem de pontos aparece aqui quando a próxima captura do celular terminar.</p>
+              ) : (
+                <p>
+                  No depth field yet. In <b>Setup</b>: drop a clip, extract the frames, then Run.
+                  <br />
+                  To look at a run that already exists, pick one in <b>Runs</b>.
+                </p>
+              )}
             </div>
           )}
         </div>

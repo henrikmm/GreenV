@@ -1,5 +1,6 @@
 import type { Frame } from "../../../geometry";
 import type { InferManifest } from "../lib/contract";
+import { HOSTED } from "../lib/hosted";
 import {
   artifactUrl,
   frameUrl,
@@ -55,7 +56,11 @@ const RANGE_BYTES = 24 * 1024 * 1024;
  */
 export async function fetchArtifactBuffer(url: string, sizeBytes: number): Promise<ArrayBuffer> {
   const resolved = artifactUrl(url);
-  if (isSignedStorageUrl(resolved)) {
+  // On the demo site every artifact is a public read handed out by the demo API — a presigned
+  // bucket link, or the API's own file route when it runs on local storage. Neither has a
+  // response cap to chunk around nor wants a Bearer header, and a Range header would add a CORS
+  // preflight the read does not need.
+  if (HOSTED || isSignedStorageUrl(resolved)) {
     const response = await fetch(resolved);
     if (!response.ok) throw new Error(`signed artifact fetch ${response.status}`);
     const buffer = await response.arrayBuffer();
@@ -201,12 +206,32 @@ export async function loadRunDepthField(run: {
   };
 }
 
-export function depthFieldFromRun(manifest: InferManifest, frames: FramesValue): DepthFieldValue {
-  const fps = manifest.frames.effectiveFps ?? frames.plan.effectiveFps;
-  const descriptors = frames.paths.slice(0, manifest.frames.count).map((path, npzIndex) => ({
+/**
+ * Frames that are already addressable by URL, in the order they were sent to the model.
+ *
+ * The demo site's frames were extracted by the server and reach the browser as signed bucket
+ * links, so there is no local path for `frameUrl` to wrap. `effectiveFps` is only a fallback:
+ * the manifest's own rate wins whenever it carries one.
+ */
+export interface RgbFrames {
+  rgbUrls: string[];
+  effectiveFps?: number;
+}
+
+/**
+ * The depth field of a run that has just come back, keyed to the frames that produced it.
+ *
+ * NPZ frame *i* is the *i*-th frame sent, whichever way those frames are addressed: local paths
+ * read back through the dev server, or URLs handed over as they are.
+ */
+export function depthFieldFromRun(manifest: InferManifest, frames: FramesValue | RgbFrames): DepthFieldValue {
+  const urls = "rgbUrls" in frames ? frames.rgbUrls : frames.paths.map(frameUrl);
+  const fallbackFps = "rgbUrls" in frames ? (frames.effectiveFps ?? manifest.params.fps) : frames.plan.effectiveFps;
+  const fps = manifest.frames.effectiveFps ?? fallbackFps;
+  const descriptors = urls.slice(0, manifest.frames.count).map((rgbUrl, npzIndex) => ({
     npzIndex,
     canonicalIndex: npzIndex + 1,
-    rgbUrl: frameUrl(path),
+    rgbUrl,
     timestampS: npzIndex / fps,
   }));
   return {

@@ -4,6 +4,7 @@
  */
 
 import { useEffect, useSyncExternalStore } from "react";
+import { HOSTED } from "./hosted";
 import { fetchRuns, type RunRecord, type RunsListing } from "./runs";
 
 interface RunsState {
@@ -39,7 +40,8 @@ export async function refreshRuns(): Promise<void> {
   emit();
   inflight = (async () => {
     try {
-      const listing: RunsListing = await fetchRuns();
+      // The demo site has no disk of saved runs and no dev server to list one.
+      const listing: RunsListing = HOSTED ? { runs: [], root: "" } : await fetchRuns();
       state.runs = listing.runs;
       state.root = listing.root;
       state.loadedAt = Date.now();

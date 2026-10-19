@@ -55,6 +55,7 @@ import {
   type SelectionValue,
 } from "../graph/nodes";
 import { useAdvanced, useDemo } from "../lib/ui-mode";
+import { HOSTED } from "../lib/hosted";
 import { DEFAULT_RUN_ID } from "../graph/nodes/fixture-run";
 import type { RunId } from "../lib/runs";
 import { closestFrame, type DepthFieldValue } from "../measurement/depth-field";
@@ -1787,11 +1788,16 @@ export function Viewport3D() {
           // One child, deliberately: `.pane-empty` centres with a grid, so every loose text
           // node and inline element would otherwise become its own centred grid item.
           <div className="pane-empty">
-            <p>
-              Nothing on the wire yet. In <b>Setup</b>: drop a clip, extract the frames, then Run.
-              <br />
-              To look at a run that already exists, pick one in <b>Runs</b>.
-            </p>
+            {/* The demo site cannot load or run anything; its visitors wait for the phone. */}
+            {HOSTED ? (
+              <p>A nuvem de pontos aparece aqui quando a próxima captura do celular terminar.</p>
+            ) : (
+              <p>
+                Nothing on the wire yet. In <b>Setup</b>: drop a clip, extract the frames, then Run.
+                <br />
+                To look at a run that already exists, pick one in <b>Runs</b>.
+              </p>
+            )}
           </div>
         )}
       </div>

@@ -31,6 +31,7 @@ import {
   togglePane,
   useDock,
 } from "./lib/dock-store";
+import { HOSTED } from "./lib/hosted";
 import { useSession } from "./lib/session-store";
 import { setUiMode, useUiMode, type UiMode } from "./lib/ui-mode";
 import { HelpDot } from "./panes/help";
@@ -264,16 +265,23 @@ export function App() {
         />
       </div>
       <div className="status-bar">
-        <span className={`chip ${gpuState}`}>
-          <span className="dot" /> GPU: {gpuState}
-        </span>
+        {/*
+          The demo site has no GPU of its own to report, deploy or meter: the server runs every
+          capture, and a public page must not be able to start one. Its status bar keeps the run
+          chip, the view bar and the mode switch.
+        */}
+        {!HOSTED && (
+          <span className={`chip ${gpuState}`}>
+            <span className="dot" /> GPU: {gpuState}
+          </span>
+        )}
         {/*
           Beside the chip that reports the GPU, because it is the control that produces one.
           Deploy used to be three clicks deep in Advanced, so the state was visible here and the
           only way to change it was somewhere else entirely.
         */}
-        <DeployControl />
-        {gpu?.available && (
+        {!HOSTED && <DeployControl />}
+        {!HOSTED && gpu?.available && (
           <span className="chip">
             VRAM {formatBytes(gpu.busy ? gpu.currentBytes : gpu.peakBytes)} /{" "}
             {formatBytes(gpu.totalBytes)}
@@ -286,7 +294,7 @@ export function App() {
         )}
         <ViewBar />
         <ModeSwitch />
-        <CloudMeter />
+        {!HOSTED && <CloudMeter />}
       </div>
     </div>
   );

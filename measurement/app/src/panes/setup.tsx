@@ -62,6 +62,7 @@ import {
   releaseModel,
   warmup,
 } from "../lib/infer-client";
+import { HOSTED } from "../lib/hosted";
 import { localApiHeaders } from "../lib/local-api";
 import { update, useSession } from "../lib/session-store";
 import { useAdvanced, useDemo } from "../lib/ui-mode";
@@ -764,7 +765,8 @@ export function SetupPane() {
    * `run-phase` owns the poll then, so the readout survives this pane being hidden.
    */
   const runActive = isRunActive();
-  const shouldPoll = !runActive && (cloud.state === "warming" || !remote);
+  // Never on the demo site: there is no `/gpu` behind it, and it cannot start a run anyway.
+  const shouldPoll = !HOSTED && !runActive && (cloud.state === "warming" || !remote);
   useEffect(() => {
     if (!shouldPoll) return;
     let cancelled = false;
@@ -856,17 +858,28 @@ export function SetupPane() {
         <PaneShare />
       </div>
       <div className="pane-body inspector">
-        <PhoneSection />
-        <ClipSection />
+        {/*
+          The demo site cannot load a clip, extract or run — the server does all three — so its
+          Setup starts with the same live stages Demo shows, and keeps the node inspector and the
+          current run below them. GPU choice, Deploy and the Phone controls have nothing to act on.
+        */}
+        {HOSTED ? (
+          <DemoPanel />
+        ) : (
+          <>
+            <PhoneSection />
+            <ClipSection />
 
-        <RunSection
-          onDeploy={() =>
-            void act(async () => {
-              if (!window.confirm(DEPLOY_CONFIRM(status?.service.name ?? "the service", status?.deploy.estimate ?? "Duration unknown"))) return;
-              await deploy();
-            })
-          }
-        />
+            <RunSection
+              onDeploy={() =>
+                void act(async () => {
+                  if (!window.confirm(DEPLOY_CONFIRM(status?.service.name ?? "the service", status?.deploy.estimate ?? "Duration unknown"))) return;
+                  await deploy();
+                })
+              }
+            />
+          </>
+        )}
 
         {selected && spec ? (
           <>
@@ -1011,7 +1024,7 @@ export function SetupPane() {
           difference between a ~1-3 min deploy and a 15-20 min rebuild. Until this existed the
           only way to learn that was to start the deploy and watch the log.
         */}
-        {advanced && (
+        {advanced && !HOSTED && (
           <div className="inspector-section">
             <h3>Cloud control</h3>
             {status ? (
@@ -1107,7 +1120,7 @@ export function SetupPane() {
           </div>
         )}
 
-        {advanced && (
+        {advanced && !HOSTED && (
           <div className="inspector-section">
             <h3>
               Cloud session
@@ -1235,7 +1248,7 @@ export function SetupPane() {
           </div>
         )}
 
-        {advanced && (
+        {advanced && !HOSTED && (
           <div className="inspector-section">
             <h3>GPU</h3>
             {gpu ? (

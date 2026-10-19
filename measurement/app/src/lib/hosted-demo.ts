@@ -1,0 +1,327 @@
+/**
+ * The demo site's half of a capture: follow what the phone sent, show its frames, and put its
+ * point cloud on screen — with every step done by the server and only read here.
+ *
+ * The local studio drives the pipeline itself (load, extract, run; `phone-auto.ts`). On the demo
+ * site the GreenV video API does all of that, so this module only polls two public reads:
+ *
+ * - `GET captures?limit=20` every two seconds. The newest capture becomes the active one, the
+ *   same way loading a capture makes it active locally, so the Demo panel reads it unchanged.
+ * - `GET captures/<id>/run` once the server has extracted frames, until the manifest arrives.
+ *   The frames become the panel's thumbnails; the manifest becomes a depth field and is handed
+ *   to DA3 Depth's output, which is where a live run's result goes, so Run Source, the point
+ *   cloud and both viewers pick it up through the graph exactly as they would a run made here.
+ *
+ * ## What "fetched" means here, and the stage that replaces it
+ *
+ * The server writes `fetched` when the artifacts are published and signed — before any browser
+ * has downloaded them. A 60–100 MB npz then still has to come down and become a cloud, which is
+ * measured here as `shown`: the server's `fetched` time plus how long this page took from seeing
+ * the manifest to having the cloud built. Adding a local duration to a server timestamp keeps the
+ * figure free of clock skew between the two machines; the up-to-two-second poll gap before the
+ * manifest is seen is not counted.
+ */
+
+import { useSyncExternalStore } from "react";
+import { getGraph, publishNodeOutputs, runAuto, setNodeParams } from "../graph/graph-store";
+import { FIXTURE_RUN_ID, POINT_CLOUD_ID } from "../graph/nodes";
+import { depthFieldFromRun } from "../measurement/depth-field";
+import type { InferManifest } from "./contract";
+import { DEMO_API_BASE, HOSTED, demoGet } from "./hosted";
+import { artifactUrl, manifestFromWire } from "./infer-client";
+import { FRAME_SOURCE_ID } from "./load-clip";
+import { followPhoneCapture, listPhoneCaptures, type PhoneCapture, type PhoneEvent } from "./phone-link";
+import { update } from "./session-store";
+
+export const POLL_MS = 2000;
+
+/** The page's own phase: the cloud is built and on screen. Never written to the server. */
+export const SHOWN_PHASE = "shown";
+
+/** Phases at or after which the server has frames to hand out. */
+const AFTER_EXTRACTION = new Set([
+  "extracted",
+  "uploading-frames",
+  "waking",
+  "loading-model",
+  "inferring",
+  "inferred",
+  "fetched",
+  "measured",
+]);
+
+export interface HostedRun {
+  /** Signed frame URLs, in the order they were sent to the model. Empty before `extracted`. */
+  frames: string[];
+  /** Null until the server has published the artifacts (`fetched`). */
+  manifest: InferManifest | null;
+  gpu: string | null;
+  gpuSeconds: number | null;
+}
+
+export function parseRun(body: unknown): HostedRun {
+  const b = (body ?? {}) as { frames?: unknown; manifest?: unknown; gpu?: unknown; gpuSeconds?: unknown };
+  return {
+    frames: Array.isArray(b.frames) ? b.frames.filter((f): f is string => typeof f === "string") : [],
+    manifest: b.manifest ? manifestFromWire(b.manifest) : null,
+    gpu: typeof b.gpu === "string" ? b.gpu : null,
+    gpuSeconds: typeof b.gpuSeconds === "number" ? b.gpuSeconds : null,
+  };
+}
+
+export async function fetchHostedRun(base: string, id: string, fetchImpl: typeof fetch = fetch): Promise<HostedRun> {
+  return parseRun(await demoGet(base, `captures/${encodeURIComponent(id)}/run`, fetchImpl));
+}
+
+function startedAt(capture: PhoneCapture): number {
+  const t = Date.parse(capture.events[0]?.at ?? capture.capturedAt ?? "");
+  return Number.isFinite(t) ? t : Number.NEGATIVE_INFINITY;
+}
+
+/**
+ * The capture to follow: the one created last. Ids are not assumed to sort by time, so the
+ * first event decides; on a tie, or with no times at all, the API's own order (newest first)
+ * does.
+ */
+export function newestCapture(captures: readonly PhoneCapture[]): PhoneCapture | null {
+  let best: PhoneCapture | null = null;
+  for (const capture of captures) {
+    if (!best || startedAt(capture) > startedAt(best)) best = capture;
+  }
+  return best;
+}
+
+export function lastPhase(capture: PhoneCapture): string | null {
+  return capture.events.at(-1)?.phase ?? null;
+}
+
+export function hasFrames(capture: PhoneCapture): boolean {
+  return capture.events.some((e) => AFTER_EXTRACTION.has(e.phase));
+}
+
+export interface HostedShown {
+  /** From seeing the manifest to the cloud being built, measured on this page. */
+  ms: number;
+  error: string | null;
+}
+
+/**
+ * The capture's timeline as the Demo panel should read it: the server's phases, then this
+ * page's `shown` — or a `failed` naming the download, when the cloud could not be built.
+ */
+export function displayEvents(capture: PhoneCapture, shown: HostedShown | null): PhoneEvent[] {
+  const fetched = capture.events.find((e) => e.phase === "fetched");
+  if (!shown || !fetched) return capture.events;
+  const tMs = fetched.tMs + shown.ms;
+  // An unparseable server time must not throw out of a render: keep the server's own string.
+  const fetchedAt = Date.parse(fetched.at);
+  const at = Number.isFinite(fetchedAt) ? new Date(fetchedAt + shown.ms).toISOString() : fetched.at;
+  return [
+    ...capture.events,
+    shown.error === null
+      ? { phase: SHOWN_PHASE, at, tMs, detail: { ms: shown.ms } }
+      : { phase: "failed", at, tMs, detail: { error: shown.error, failedIn: "loading" } },
+  ];
+}
+
+export interface HostedDemoState {
+  captures: PhoneCapture[];
+  activeId: string | null;
+  /** The active capture's frame URLs, kept from the first answer that had them. */
+  frames: string[];
+  manifest: InferManifest | null;
+  shown: HostedShown | null;
+  /** The last read that failed, cleared by the next one that succeeds. */
+  error: string | null;
+}
+
+export interface HostedDemoDeps {
+  listCaptures: () => Promise<PhoneCapture[]>;
+  fetchRun: (id: string) => Promise<HostedRun>;
+  /** A new capture is now the active one: point the app at it, dropping the previous result. */
+  follow: (capture: PhoneCapture) => void;
+  /** Build the cloud for a finished run. Resolves once it is on screen. */
+  show: (capture: PhoneCapture, manifest: InferManifest, frames: string[]) => Promise<void>;
+  now?: () => number;
+}
+
+const INITIAL: HostedDemoState = {
+  captures: [],
+  activeId: null,
+  frames: [],
+  manifest: null,
+  shown: null,
+  error: null,
+};
+
+function message(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+/**
+ * The poller, without timers or globals, so its choices can be driven step by step in a test.
+ * `tick` is one poll; the loop that repeats it lives in `startHostedDemo`.
+ */
+export function createHostedDemo(deps: HostedDemoDeps) {
+  const now = deps.now ?? (() => performance.now());
+  let state: HostedDemoState = INITIAL;
+  const listeners = new Set<() => void>();
+  let showing: Promise<void> = Promise.resolve();
+  /** A failed capture's run is read once, for whatever frames it got to, and then left alone. */
+  let readAfterFailure = false;
+
+  function set(patch: Partial<HostedDemoState>): void {
+    state = { ...state, ...patch };
+    for (const listener of listeners) listener();
+  }
+
+  function wantsRun(capture: PhoneCapture): boolean {
+    if (state.manifest || !hasFrames(capture)) return false;
+    return !(lastPhase(capture) === "failed" && readAfterFailure);
+  }
+
+  async function tick(): Promise<void> {
+    let captures: PhoneCapture[];
+    try {
+      captures = await deps.listCaptures();
+    } catch (e) {
+      set({ error: message(e) });
+      return;
+    }
+    set({ captures, error: null });
+
+    const newest = newestCapture(captures);
+    if (newest && newest.id !== state.activeId) {
+      set({ activeId: newest.id, frames: [], manifest: null, shown: null });
+      readAfterFailure = false;
+      deps.follow(newest);
+    }
+
+    const active = captures.find((c) => c.id === state.activeId);
+    if (!active || !wantsRun(active)) return;
+
+    let run: HostedRun;
+    try {
+      run = await deps.fetchRun(active.id);
+    } catch (e) {
+      set({ error: message(e) });
+      return;
+    }
+    // A newer capture may have taken over while this read was in flight.
+    if (state.activeId !== active.id) return;
+    if (lastPhase(active) === "failed") readAfterFailure = true;
+
+    // Kept from the first answer: every answer re-signs the links, and swapping them would
+    // reload every thumbnail on screen every two seconds.
+    if (state.frames.length === 0 && run.frames.length > 0) set({ frames: run.frames });
+
+    if (run.manifest && !state.manifest) {
+      const manifest = run.manifest;
+      const frames = run.frames.length > 0 ? run.frames : state.frames;
+      set({ manifest });
+      const id = active.id;
+      const started = now();
+      showing = deps.show(active, manifest, frames).then(
+        () => {
+          if (state.activeId === id) set({ shown: { ms: Math.round(now() - started), error: null } });
+        },
+        (e) => {
+          if (state.activeId === id) set({ shown: { ms: Math.round(now() - started), error: message(e) } });
+        },
+      );
+    }
+  }
+
+  return {
+    tick,
+    getState: (): HostedDemoState => state,
+    subscribe(listener: () => void): () => void {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    /** Settles once the cloud started by the last tick is built, or has failed to be. */
+    idle: (): Promise<void> => showing,
+  };
+}
+
+export type HostedDemo = ReturnType<typeof createHostedDemo>;
+
+// ---------------------------------------------------------------------------------------------
+// The app's instance
+
+/**
+ * A new identity on Frame Source restamps DA3 Depth and everything after it, so the previous
+ * visitor's cloud goes stale the moment a new capture arrives instead of standing in for it —
+ * the same thing loading a capture does locally. No path: nothing here will ever run ffmpeg.
+ */
+function followInGraph(capture: PhoneCapture): void {
+  followPhoneCapture(capture.id);
+  setNodeParams(FRAME_SOURCE_ID, {
+    videoPath: "",
+    videoName: capture.id,
+    videoSha256: `demo:${capture.id}`,
+    durationS: (capture.durationMs ?? 0) / 1000,
+  });
+  update({ lastRun: null });
+  void runAuto();
+}
+
+async function showInGraph(_capture: PhoneCapture, manifest: InferManifest, frames: string[]): Promise<void> {
+  const field = depthFieldFromRun(manifest, { rgbUrls: frames });
+  const preview = manifest.artifacts.find((a) => a.kind === "depth_preview");
+  publishNodeOutputs("da3-depth", {
+    depth: {
+      type: "depth_field",
+      value: field,
+      // As a live run does it (`da3-depth.ts`): the preview or nothing. Never a frame link — the
+      // node card's plain <img> would load it without CORS, and a bucket answer cached that way
+      // can then fail the CORS reads of the same link that colour the cloud and draw Depth 2D.
+      thumbnailUrl: preview?.url ? artifactUrl(preview.url) : undefined,
+      summary: `${manifest.frames.count}f · ${manifest.timing.gpuSeconds.toFixed(1)}s GPU${manifest.mock ? " · MOCK" : ""}`,
+    },
+  });
+  update({ lastRun: manifest });
+  setNodeParams(FIXTURE_RUN_ID, { source: "live" });
+  const report = await runAuto();
+  // Measurement nodes may legitimately fail on a scene with no floor; only the cloud itself
+  // decides whether this capture is on screen.
+  const failed = report.failed.find((id) => id === FIXTURE_RUN_ID || id === POINT_CLOUD_ID);
+  if (failed) throw new Error(getGraph().runtime[failed]?.error ?? "the point cloud could not be built");
+}
+
+let instance: HostedDemo | null = null;
+let polling = false;
+
+export function hostedDemo(): HostedDemo {
+  instance ??= createHostedDemo({
+    listCaptures: listPhoneCaptures,
+    fetchRun: (id) => fetchHostedRun(DEMO_API_BASE, id),
+    follow: followInGraph,
+    show: showInGraph,
+  });
+  return instance;
+}
+
+/** Start the two-second poll once, and only in a hosted build. */
+export function startHostedDemo(): void {
+  if (polling || !HOSTED || typeof window === "undefined") return;
+  polling = true;
+  const demo = hostedDemo();
+  const loop = async () => {
+    try {
+      await demo.tick();
+    } catch (error) {
+      // `tick` catches its reads; this is for anything else, which must not end the poll.
+      console.warn("[hosted] poll failed:", error);
+    } finally {
+      window.setTimeout(loop, POLL_MS);
+    }
+  };
+  void loop();
+}
+
+export function useHostedDemo(): HostedDemoState {
+  startHostedDemo();
+  const demo = hostedDemo();
+  return useSyncExternalStore(demo.subscribe, demo.getState, demo.getState);
+}

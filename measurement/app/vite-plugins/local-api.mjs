@@ -240,6 +240,9 @@ export function localApi(options = {}) {
   const nonce = options.nonce ?? randomBytes(32).toString("base64url");
   return {
     name: "verge-local-api",
+    // Dev server only. A production build has no middleware for the nonce to unlock, so writing
+    // one into its HTML would publish a credential-shaped string that guards nothing.
+    apply: "serve",
     transformIndexHtml() {
       return [{ tag: "meta", attrs: { name: "verge-dev-nonce", content: nonce }, injectTo: "head" }];
     },

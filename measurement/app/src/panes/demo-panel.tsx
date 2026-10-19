@@ -8,11 +8,17 @@
  * stage in progress, which counts real elapsed time since that stage began.
  *
  * Text is Brazilian Portuguese: it is what a visitor reads.
+ *
+ * On the demo site (`lib/hosted.ts`) the server writes every phase, `loaded` never appears, and
+ * `fetched` only means the artifacts are published. The last stage therefore ends on the page's
+ * own `shown` — the cloud actually on screen — and the frames are the server's signed links.
  */
 
 import { useEffect, useState } from "react";
 import { useGraph } from "../graph/graph-store";
 import type { FramesValue } from "../graph/nodes/frame-source";
+import { DEMO_API_BASE, HOSTED } from "../lib/hosted";
+import { SHOWN_PHASE, displayEvents, useHostedDemo } from "../lib/hosted-demo";
 import { frameUrl } from "../lib/infer-client";
 import { FRAME_SOURCE_ID } from "../lib/load-clip";
 import { usePhoneAuto } from "../lib/phone-auto";
@@ -34,7 +40,7 @@ const STAGES: Stage[] = [
     label: "Recebendo o vídeo do celular",
     starts: ["created", "uploading"],
     ends: "received",
-    detail: (_e, c) => (c.video ? `${(c.video.bytes / 1e6).toFixed(1)} MB pelo Wi-Fi` : null),
+    detail: (_e, c) => (c.video ? `${(c.video.bytes / 1e6).toFixed(1)} MB ${HOSTED ? "pela internet" : "pelo Wi-Fi"}` : null),
   },
   {
     key: "frames",
@@ -72,9 +78,18 @@ const STAGES: Stage[] = [
     key: "cloud",
     label: "Montando a nuvem de pontos",
     starts: ["inferred"],
-    ends: "fetched",
+    ends: HOSTED ? SHOWN_PHASE : "fetched",
   },
 ];
+
+/** Where the demo site reads from, as a visitor would recognise it. */
+function apiHost(): string {
+  try {
+    return new URL(DEMO_API_BASE).host;
+  } catch {
+    return "API não configurada";
+  }
+}
 
 type StageState = "pending" | "active" | "done" | "failed";
 
@@ -92,14 +107,20 @@ export function DemoPanel() {
   const { captures, auto, busyId, info } = usePhoneAuto();
   const active = useActivePhoneCapture();
   const graph = useGraph();
+  const hosted = useHostedDemo();
   const capture = captures.find((c) => c.id === busyId) ?? captures.find((c) => c.id === active) ?? captures[0];
 
-  const events = new Map((capture?.events ?? []).map((e) => [e.phase, e] as const));
-  const createdAt = capture?.events[0] ? Date.parse(capture.events[0].at) : null;
-  const last = capture?.events.at(-1);
+  // Hosted: the server's timeline plus the page's own last step. Locally the timeline is whole.
+  const timeline = capture ? (HOSTED && capture.id === hosted.activeId ? displayEvents(capture, hosted.shown) : capture.events) : [];
+  const events = new Map(timeline.map((e) => [e.phase, e] as const));
+  const createdAt = timeline[0] ? Date.parse(timeline[0].at) : null;
+  const last = timeline.at(-1);
   const failed = last?.phase === "failed";
-  const finished = last?.phase === "fetched" || last?.phase === "measured" || failed;
-  const running = Boolean(capture && !finished && (busyId === capture.id || capture.state !== "received"));
+  const finished = HOSTED
+    ? last?.phase === SHOWN_PHASE || failed
+    : last?.phase === "fetched" || last?.phase === "measured" || failed;
+  // Hosted: the server is always working on a capture it has not finished.
+  const running = Boolean(capture && !finished && (HOSTED || busyId === capture.id || capture.state !== "received"));
 
   // Re-render ten times a second while something is in flight, for the live counters only.
   const [, tick] = useState(0);
@@ -114,7 +135,14 @@ export function DemoPanel() {
       ? (graph.runtime[FRAME_SOURCE_ID]?.outputs?.frames?.value as FramesValue | undefined)
       : undefined;
   const extracted = Boolean(frames) && events.has("extracted");
-  const thumbs = extracted && frames ? pick(frames.paths, 24) : [];
+  // Local frames are paths read back through the dev server; hosted ones are already URLs.
+  const thumbs = HOSTED
+    ? capture && capture.id === hosted.activeId
+      ? pick(hosted.frames, 24)
+      : []
+    : extracted && frames
+      ? pick(frames.paths, 24).map(frameUrl)
+      : [];
 
   const totalMs = last && createdAt !== null ? (finished ? last.tMs : Date.now() - createdAt) : null;
 
@@ -157,20 +185,38 @@ export function DemoPanel() {
       )}
       {thumbs.length > 0 && (
         <div className="demo-frames" key={capture?.id}>
-          {thumbs.map((path, i) => (
-            <img key={path} src={frameUrl(path)} alt="" style={{ animationDelay: `${i * 45}ms` }} />
+          {/*
+            Hosted frames come from the bucket's origin, and the same objects are later read with
+            CORS (Depth 2D, the cloud's colours). Loading them here with CORS too keeps one kind of
+            cached answer per link, so the later reads never meet one cached without the header.
+          */}
+          {thumbs.map((url, i) => (
+            <img
+              key={url}
+              src={url}
+              alt=""
+              crossOrigin={HOSTED ? "anonymous" : undefined}
+              style={{ animationDelay: `${i * 45}ms` }}
+            />
           ))}
         </div>
       )}
       {failed && typeof last?.detail?.error === "string" && <p className="demo-error">{last.detail.error}</p>}
-      <div className="demo-foot">
-        <span>{info?.enabled ? "celular conectado ao Mac" : "intake do celular desligado"}</span>
-        <span>
-          automático: {auto.load ? "carregar" : "—"}
-          {auto.extract ? " · quadros" : ""}
-          {auto.run ? " · GPU" : ""}
-        </span>
-      </div>
+      {HOSTED ? (
+        <div className="demo-foot">
+          <span>{hosted.error ? "sem resposta da API" : `ao vivo de ${apiHost()}`}</span>
+          <span>processado na nuvem</span>
+        </div>
+      ) : (
+        <div className="demo-foot">
+          <span>{info?.enabled ? "celular conectado ao Mac" : "intake do celular desligado"}</span>
+          <span>
+            automático: {auto.load ? "carregar" : "—"}
+            {auto.extract ? " · quadros" : ""}
+            {auto.run ? " · GPU" : ""}
+          </span>
+        </div>
+      )}
     </div>
   );
 }

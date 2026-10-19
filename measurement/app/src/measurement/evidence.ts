@@ -1,6 +1,7 @@
 import type { RunRecord } from "../lib/runs";
 import type { GroundPlaneValue, MeasurementValue, SelectionValue } from "../graph/nodes";
 import type { MeasurementObject, MeasurementObservation } from "./measurement-store";
+import { HOSTED } from "../lib/hosted";
 import { localApiHeaders } from "../lib/local-api";
 
 /**
@@ -84,6 +85,8 @@ export async function saveMeasurementEvidence(packet: MeasurementEvidencePacket)
 }
 
 export async function listMeasurementEvidence(runId: string): Promise<MeasurementEvidencePacket[]> {
+  // Recorded trials live beside a run on a studio's disk; the demo site has none to list.
+  if (HOSTED) return [];
   const result = (await expectOk(
     await fetch(`/api/runs/${encodeURIComponent(runId)}/measurements`),
   )) as { measurements: MeasurementEvidencePacket[] };
