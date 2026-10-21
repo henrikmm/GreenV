@@ -14,6 +14,7 @@ import br.com.greenv.videoapi.port.DepthJobRunner;
 import jakarta.annotation.PreDestroy;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InterruptedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.DigestInputStream;
@@ -29,8 +30,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -67,6 +70,13 @@ public class DemoPipelineService {
 
     /** A capture that killed its replica three times will kill the fourth. */
     static final int MAX_ATTEMPTS = 3;
+
+    /**
+     * Frames in flight to object storage at once. Each frame is three round trips, and one at a
+     * time from Azure's Brazil South to R2 that came to 164 s for 96 frames on 21 Oct 2026
+     * (capture cap-20261021-081752-83rl) - long enough for a warm GPU worker to go idle and stop.
+     */
+    static final int FRAME_UPLOAD_CONCURRENCY = 16;
 
     private final DemoCaptureStore store;
     private final CaptureObjectStorage storage;
@@ -246,23 +256,48 @@ public class DemoPipelineService {
     }
 
     /**
-     * Puts each frame under {@code demo/<id>/sampled-frames/}, by the name ffmpeg gave it. A
-     * frame already there is left alone: it was written by an earlier attempt at this same
-     * capture, from the same video, at the same position.
+     * Puts each frame under {@code demo/<id>/sampled-frames/}, by the name ffmpeg gave it, several
+     * at a time. A frame already there is left alone: it was written by an earlier attempt at this
+     * same capture, from the same video, at the same position. The keys come back in frame order.
      */
     private List<String> uploadFrames(String captureId, List<Path> frames) throws IOException {
-        List<String> keys = new ArrayList<>(frames.size());
-        for (Path frame : frames) {
-            String key = DemoCapture.framesPrefix(captureId) + frame.getFileName();
-            if (!storage.exists(key)) {
-                String sha256 = sha256(frame);
-                try (InputStream input = Files.newInputStream(frame)) {
-                    storage.put(key, input, sha256, Files.size(frame));
-                }
+        ExecutorService uploads = Executors.newFixedThreadPool(
+                Math.max(1, Math.min(FRAME_UPLOAD_CONCURRENCY, frames.size())));
+        try {
+            List<Future<String>> pending = new ArrayList<>(frames.size());
+            for (Path frame : frames) {
+                pending.add(uploads.submit(() -> uploadFrame(captureId, frame)));
             }
-            keys.add(key);
+            List<String> keys = new ArrayList<>(frames.size());
+            for (Future<String> upload : pending) {
+                keys.add(upload.get());
+            }
+            return keys;
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new InterruptedIOException("frame upload interrupted");
+        } catch (ExecutionException failed) {
+            if (failed.getCause() instanceof IOException io) {
+                throw io;
+            }
+            if (failed.getCause() instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            throw new IOException(failed.getCause());
+        } finally {
+            uploads.shutdownNow();
         }
-        return keys;
+    }
+
+    private String uploadFrame(String captureId, Path frame) throws IOException {
+        String key = DemoCapture.framesPrefix(captureId) + frame.getFileName();
+        if (!storage.exists(key)) {
+            String sha256 = sha256(frame);
+            try (InputStream input = Files.newInputStream(frame)) {
+                storage.put(key, input, sha256, Files.size(frame));
+            }
+        }
+        return key;
     }
 
     // -----------------------------------------------------------------------------------------
