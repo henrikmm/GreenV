@@ -43,6 +43,7 @@ export const SHOWN_PHASE = "shown";
 /** Phases at or after which the server has frames to hand out. */
 const AFTER_EXTRACTION = new Set([
   "extracted",
+  "sampled",
   "uploading-frames",
   "waking",
   "loading-model",

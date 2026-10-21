@@ -36,34 +36,50 @@ interface Stage {
   label: string;
   /** Any of these phases starts the stage. */
   starts: string[];
-  /** The phase that ends it. */
-  ends: string;
+  /** Any of these phases ends it. */
+  ends: string[];
   detail?: (events: Map<string, PhoneEvent>, capture: PhoneCapture) => string | null;
+  /** A measured duration that beats the gap between the two phases, when there is one. */
+  measuredMs?: (events: Map<string, PhoneEvent>) => number | null;
+  /** Left out of a timeline where the step never happens. */
+  absent?: (events: Map<string, PhoneEvent>) => boolean;
 }
+
+/** The video was cut on the GPU machine (`GREENV_DEMO_SAMPLE_ON=gpu`), not by the API. */
+const onGpu = (events: Map<string, PhoneEvent>) => events.has("sampling") || events.has("sampled");
 
 const STAGES: Stage[] = [
   {
     key: "receive",
     label: "Recebendo o vídeo do celular",
     starts: ["created", "uploading"],
-    ends: "received",
+    ends: ["received"],
     detail: (_e, c) => (c.video ? `${(c.video.bytes / 1e6).toFixed(1)} MB ${HOSTED ? "pela internet" : "pelo Wi-Fi"}` : null),
   },
   {
     key: "frames",
     label: "Separando o vídeo em quadros",
-    starts: ["loaded", "extracting"],
-    ends: "extracted",
+    starts: ["loaded", "extracting", "sampling"],
+    ends: ["extracted", "sampled"],
     detail: (e) => {
-      const n = e.get("extracted")?.detail?.frames;
-      return typeof n === "number" ? `${n} quadros` : null;
+      const n = (e.get("extracted") ?? e.get("sampled"))?.detail?.frames;
+      return typeof n === "number" ? `${n} quadros${onGpu(e) ? " · na GPU" : ""}` : null;
+    },
+    // On the GPU the API sees the sampling only between two of its two-second polls; the
+    // handler's own clock is the honest figure (download of the video plus ffmpeg).
+    measuredMs: (e) => {
+      const d = e.get("sampled")?.detail;
+      const fetch = typeof d?.fetchSeconds === "number" ? d.fetchSeconds : 0;
+      return typeof d?.sampleSeconds === "number" ? Math.round((fetch + d.sampleSeconds) * 1000) : null;
     },
   },
   {
     key: "send",
     label: "Enviando os quadros para a GPU",
     starts: ["uploading-frames"],
-    ends: "waking",
+    ends: ["waking"],
+    // Sampled on the GPU, the frames never travel from here: only the video does.
+    absent: onGpu,
     detail: (e) => {
       const b = e.get("uploading-frames")?.detail?.bytes;
       return typeof b === "number" ? `${(b / 1e6).toFixed(1)} MB` : null;
@@ -73,7 +89,7 @@ const STAGES: Stage[] = [
     key: "reconstruct",
     label: "Reconstruindo em 3D",
     starts: ["waking", "loading-model", "inferring"],
-    ends: "inferred",
+    ends: ["inferred"],
     detail: (e) => {
       const d = e.get("inferred")?.detail ?? e.get("inferring")?.detail;
       const gpu = typeof d?.gpu === "string" ? d.gpu.replace(/^NVIDIA /, "").replace(/ Blackwell Server Edition$/, "") : null;
@@ -85,7 +101,7 @@ const STAGES: Stage[] = [
     key: "cloud",
     label: "Montando a nuvem de pontos",
     starts: ["inferred"],
-    ends: HOSTED ? SHOWN_PHASE : "fetched",
+    ends: [HOSTED ? SHOWN_PHASE : "fetched"],
   },
 ];
 
@@ -284,9 +300,9 @@ export function DemoPanel() {
       {!capture && <p className="demo-idle">Grave um objeto no celular. Ele aparece aqui sozinho.</p>}
       {capture && (
         <ol className="demo-stages">
-          {STAGES.map((stage) => {
+          {STAGES.filter((stage) => !stage.absent?.(events)).map((stage) => {
             const started = stage.starts.map((p) => events.get(p)).find(Boolean);
-            const ended = events.get(stage.ends);
+            const ended = stage.ends.map((p) => events.get(p)).find(Boolean);
             const state: StageState = ended
               ? "done"
               : started
@@ -296,7 +312,7 @@ export function DemoPanel() {
                 : "pending";
             const ms =
               started && ended
-                ? ended.tMs - started.tMs
+                ? (stage.measuredMs?.(events) ?? ended.tMs - started.tMs)
                 : started && state === "active" && createdAt !== null
                   ? Date.now() - createdAt - started.tMs
                   : null;
