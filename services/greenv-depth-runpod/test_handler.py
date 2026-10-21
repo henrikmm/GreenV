@@ -65,13 +65,15 @@ class FakeBucket:
         self.bucket = request.bucket
         self.reads = []
         self.writes = {}
+        self.types = {}
 
     def get(self, key):
         self.reads.append(key)
         return f"jpeg-bytes-of-{key}".encode()
 
-    def put(self, key, data):
+    def put(self, key, data, content_type=None):
         self.writes[key] = data
+        self.types[key] = content_type
 
     def signed_url(self, key):
         return self.template.replace("{key}", key)
@@ -109,6 +111,10 @@ def mutated(**params):
 buckets = []
 depth = FakeDepth()
 manifest = run(depth=depth, buckets=buckets)
+# Where the handler's time went is diagnostic and differs on every run, so it is checked for its
+# shape and left out of the contract comparison.
+handler_seconds = manifest["published"].pop("handler_seconds")
+assert set(handler_seconds) == {"fetch_frames", "infer", "publish"}, handler_seconds
 assert manifest == EXAMPLE["output"], json.dumps(manifest, indent=2)
 print("contract example round-trips OK:", manifest["run_id"])
 
@@ -274,5 +280,75 @@ with contextlib.redirect_stdout(captured):
 logged = [json.loads(line) for line in captured.getvalue().splitlines() if line.startswith("{")]
 assert any(line.get("event") == "job-rejected" and "at least 2 frames" in line["reason"] for line in logged), logged
 print("a refusal is written to the log, not only returned OK")
+
+# ---------------------------------------------------------------- a video sampled on this machine
+
+# The rules are the API's (`FfmpegDemoFrameSamplerAdapter`), and both must cut the same frames.
+# The figures are the ones the API produced for real captures on 21 Oct 2026.
+assert handler.sampling_plan(10, 9.66, 112) == (96, 10, False, 96)
+count, fps, capped, requested = handler.sampling_plan(10, 15.033, 112)
+assert (count, capped, requested) == (112, True, 150) and abs(fps - 7.45) < 0.01, (count, fps)
+assert handler.scaled_size(1080, 1920, 1024) == (576, 1024, True)
+assert handler.scaled_size(640, 480, 1024) == (640, 480, False)
+portrait = handler.parse_probe({
+    "streams": [{"codec_name": "h264", "width": 1920, "height": 1080, "side_data_list": [{"rotation": -90}]}],
+    "format": {"duration": "9.66"},
+})
+assert (portrait["display_width"], portrait["display_height"], portrait["rotation"]) == (1080, 1920, 270), portrait
+print("sampling plans like the API OK: 96 @ 10 fps, 112 capped at 7.45 fps, portrait 576x1024")
+
+VIDEO_INPUT = {
+    "video": {"key": "demo/cap-1/video.mp4"},
+    "sampling": {"fps": 10, "max_frames": 112, "long_edge": 1024, "frames_prefix": "demo/cap-1/sampled-frames"},
+    "storage": EXAMPLE["input"]["storage"],
+    "params": {"process_res": 504, "max_frames": 112},
+}
+
+
+def fake_sample(video, out_dir, sampling, max_frames):
+    assert video.read_bytes() == b"jpeg-bytes-of-demo/cap-1/video.mp4", "the video is the bucket's"
+    out_dir.mkdir(parents=True)
+    paths = []
+    for index in range(1, 4):
+        path = out_dir / f"frame-{index:04d}.jpg"
+        path.write_bytes(f"frame {index}".encode())
+        paths.append(path)
+    return {"paths": paths, "frames": 3, "fps": 10.0, "capped": False, "requested_frames": 3,
+            "width": 576, "height": 1024, "duration_s": 0.3, "codec": "h264"}
+
+
+real_sample = handler.sample_video
+handler.sample_video = fake_sample
+try:
+    updates = []
+    bucket_box = []
+
+    def open_store(request):
+        bucket_box.append(FakeBucket(request))
+        return bucket_box[-1]
+
+    manifest = handler.run_job(VIDEO_INPUT, depth=FakeDepth(), open_store=open_store, progress=updates.append)
+finally:
+    handler.sample_video = real_sample
+
+frames = [f"demo/cap-1/sampled-frames/frame-{index:04d}.jpg" for index in range(1, 4)]
+bucket = bucket_box[0]
+assert bucket.reads == ["demo/cap-1/video.mp4"], bucket.reads
+assert all(bucket.writes[key] == f"frame {i + 1}".encode() for i, key in enumerate(frames)), sorted(bucket.writes)
+assert all(bucket.types[key] == "image/jpeg" for key in frames)
+assert updates[0]["stage"] == "sampled" and updates[0]["frames"] is None, updates
+assert updates[0]["sampling"]["frames"] == 3 and "sample" in updates[0]["sampling"]["seconds"], updates[0]
+assert updates[-1]["stage"] == "frames" and updates[-1]["frames"] == frames, updates
+assert sum(1 for update in updates if update["stage"] == "frames") == 1, "announced once"
+sampled = manifest["published"]["sampled"]
+assert sampled["frame_keys"] == frames and sampled["frames_published"] == 3, sampled
+assert set(manifest["published"]["handler_seconds"]) >= {"fetch_video", "sample", "infer", "publish"}
+assert all(a["object_key"].startswith("demo/cap-1/depth/") for a in manifest["artifacts"]), manifest["artifacts"]
+print("a video is sampled here, its frames published while the model runs OK:", len(frames), "frames")
+
+rejects("both `video` and `frames`", lambda: run({**VIDEO_INPUT, "frames": EXAMPLE["input"]["frames"]}))
+rejects("needs a `sampling` object", lambda: run({k: v for k, v in VIDEO_INPUT.items() if k != "sampling"}))
+rejects("sampling.frames_prefix", lambda: run({**VIDEO_INPUT, "sampling": {"fps": 10}}))
+print("video jobs are refused before the GPU when malformed OK")
 
 print("test_handler: OK")

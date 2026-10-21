@@ -15,6 +15,13 @@
 ARG DEPTH_IMAGE=verge-da3:local
 FROM ${DEPTH_IMAGE}
 
+# ffmpeg for video jobs, which arrive as one video and are sampled here (`sample_video`). The base
+# deliberately has none (measurement/server samples on the Mac); it is added on this layer so the
+# 12 GB base is not rebuilt for it. The frame-key dialect never runs it.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 # runpod is the serverless SDK, boto3 the S3-compatible client, httpx the loopback client that
 # speaks to the DA3 service. See requirements.txt for why these are ranges rather than pins.
 COPY requirements.txt /tmp/requirements.txt
@@ -27,7 +34,7 @@ COPY handler.py /app/handler.py
 # handler that does not import all cost a deploy and a cold start to discover otherwise, and this
 # project has twice paid for code that was written but never executed.
 RUN test -f /app/main.py && test -f /app/contract.py && test -f /app/vram.py \
-    && command -v uvicorn >/dev/null \
+    && command -v uvicorn >/dev/null && command -v ffmpeg >/dev/null && command -v ffprobe >/dev/null \
     && python -c "import boto3, httpx, runpod, handler; print('handler import check OK')"
 
 # The handler publishes to the S3-compatible bucket itself, so the DA3 service must keep its

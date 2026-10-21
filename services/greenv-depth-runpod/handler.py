@@ -36,10 +36,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -102,12 +104,26 @@ class Frame:
 
 
 @dataclass(frozen=True)
+class Sampling:
+    """How to cut a video into frames here, when the job sends a video instead of frames."""
+
+    fps: float
+    max_frames: int
+    long_edge: int
+    #: Where the sampled frames are published, so whoever sent the video can show them.
+    frames_prefix: str
+
+
+@dataclass(frozen=True)
 class JobRequest:
     frames: tuple[Frame, ...]
     bucket: str
     endpoint: str | None
     region: str | None
     prefix: str | None
+    #: A video to sample on this machine instead of `frames` (`video` + `sampling` in the input).
+    video_key: str | None
+    sampling: Sampling | None
     fps: float
     process_res: int
     max_frames: int
@@ -140,7 +156,32 @@ def parse_job_input(payload: object) -> JobRequest:
     if not isinstance(payload, dict):
         raise JobRejected(f"job input must be an object, got {type(payload).__name__}")
 
-    raw_frames = payload.get("frames")
+    video_key: str | None = None
+    sampling: Sampling | None = None
+    if payload.get("video") is not None:
+        # The demo's dialect: one video by key, sampled here, so the frames never cross the
+        # ocean twice (API -> bucket -> this machine). Exactly one of `video` and `frames`.
+        if payload.get("frames"):
+            raise JobRejected("job input carries both `video` and `frames`; send one")
+        video = payload.get("video")
+        if not isinstance(video, dict):
+            raise JobRejected("`video` must be an object with a `key`")
+        video_key = _text(video.get("key"), "video.key")
+        raw_sampling = payload.get("sampling")
+        if not isinstance(raw_sampling, dict):
+            raise JobRejected("a `video` job needs a `sampling` object")
+        frames_prefix = _text(raw_sampling.get("frames_prefix"), "sampling.frames_prefix").strip("/")
+        sampling = Sampling(
+            fps=_number(raw_sampling.get("fps", 10.0), "sampling.fps", low=0.001, high=60, integer=False),
+            max_frames=int(_number(
+                raw_sampling.get("max_frames", 112), "sampling.max_frames", low=2, high=512, integer=True)),
+            long_edge=int(_number(
+                raw_sampling.get("long_edge", 1024), "sampling.long_edge", low=64, high=4096, integer=True)),
+            frames_prefix=frames_prefix,
+        )
+        raw_frames: object = []
+    else:
+        raw_frames = payload.get("frames")
     if not isinstance(raw_frames, list):
         raise JobRejected("job input carries no `frames` array")
     frames: list[Frame] = []
@@ -154,7 +195,7 @@ def parse_job_input(payload: object) -> JobRequest:
             # out of it is the segment's canonical frame number. Neither survives a path.
             raise JobRejected(f"frames[{index}].name must be a bare file name, got {json.dumps(name)}")
         frames.append(Frame(name=name, key=key))
-    if len(frames) < 2:
+    if len(frames) < 2 and video_key is None:
         # Not a transport limit. Depth Anything recovers geometry by comparing views, so one
         # frame is not a small answer, it is a wrong one.
         raise JobRejected(f"depth inference needs at least 2 frames, got {len(frames)}")
@@ -178,6 +219,8 @@ def parse_job_input(payload: object) -> JobRequest:
         endpoint=str(endpoint) if endpoint else None,
         region=str(region) if region else None,
         prefix=str(prefix).strip("/") if prefix else None,
+        video_key=video_key,
+        sampling=sampling,
         fps=_number(params.get("fps", 10.0), "params.fps", low=0.001, high=60, integer=False),
         process_res=int(_number(
             params.get("process_res", 504), "params.process_res", low=126, high=1024, integer=True)),
@@ -225,6 +268,9 @@ def output_prefix(request: JobRequest) -> str:
     """
     if request.prefix:
         return request.prefix
+    if request.video_key is not None:
+        # Beside the video: `demo/<id>/video.mp4` publishes under `demo/<id>/depth/<run_id>/`.
+        return request.video_key.rsplit("/", 1)[0] if "/" in request.video_key else DEFAULT_OUTPUT_PREFIX
     parents = {key.rsplit("/", 1)[0] if "/" in key else "" for key in (frame.key for frame in request.frames)}
     if len(parents) != 1:
         raise JobRejected(f"frames come from {len(parents)} different directories; one job is one segment")
@@ -234,6 +280,125 @@ def output_prefix(request: JobRequest) -> str:
     if parent.endswith("/sampled-frames"):
         parent = parent[: -len("/sampled-frames")]
     return parent
+
+
+# ---------------------------------------------------------------- sampling a video here
+#
+# The plan, the size and the command are `FfmpegDemoFrameSamplerAdapter` in greenv-video-api,
+# itself `SamplingPlanner` and `FfmpegExtractor` from greenv-frame-extractor. Copied, not shared:
+# the API and this handler are separate deployables, and whichever samples must produce the same
+# frames, so a change to one is a change to both.
+
+#: Frames written to the bucket at once while the model runs.
+FRAME_PUBLISH_CONCURRENCY = 16
+
+
+def _round_half_up(value: float) -> int:
+    # Java's Math.round, which the API uses: Python's round() goes to even on .5.
+    return int(math.floor(value + 0.5))
+
+
+def sampling_plan(requested_fps: float, duration_s: float, max_frames: int) -> tuple[int, float, bool, int]:
+    """`(count, effective_fps, capped, requested_count)`. Over budget, the rate drops so the
+    frames still span the whole clip — the far side of the object is at the end of the orbit."""
+    if not requested_fps > 0 or not duration_s > 0 or max_frames < 2:
+        raise JobRejected("sampling needs a positive rate, a positive duration and at least 2 frames")
+    requested = max(1, math.floor(requested_fps * duration_s))
+    if requested <= max_frames:
+        return requested, requested_fps, False, requested
+    return max_frames, max_frames / duration_s, True, requested
+
+
+def scaled_size(width: int, height: int, long_edge: int) -> tuple[int, int, bool]:
+    """Even sides, never enlarged."""
+    longest = max(width, height)
+    if long_edge <= 0 or longest <= long_edge:
+        return width, height, False
+    factor = long_edge / longest
+
+    def even(value: int) -> int:
+        return max(2, _round_half_up((value * factor) / 2.0) * 2)
+
+    return even(width), even(height), True
+
+
+def parse_probe(root: dict) -> dict:
+    """ffprobe's JSON reduced to what sampling needs, with the displayed size: ffmpeg rotates a
+    phone's portrait video before any filter runs, so planning from the stored size would squash
+    every portrait clip."""
+    streams = root.get("streams") or []
+    if not streams:
+        raise JobRejected("the video has no video stream")
+    stream = streams[0]
+    rotation = 0
+    for entry in stream.get("side_data_list") or []:
+        if "rotation" in entry:
+            rotation = int(entry["rotation"])
+            break
+    else:
+        rotation = int((stream.get("tags") or {}).get("rotate", 0) or 0)
+    rotation %= 360
+    width, height = int(stream.get("width") or 0), int(stream.get("height") or 0)
+    try:
+        duration = float((root.get("format") or {}).get("duration"))
+    except (TypeError, ValueError):
+        duration = 0.0
+    swapped = rotation in (90, 270)
+    return {
+        "codec": stream.get("codec_name"),
+        "width": width,
+        "height": height,
+        "rotation": rotation,
+        "display_width": height if swapped else width,
+        "display_height": width if swapped else height,
+        "duration_s": duration if duration > 0 else None,
+    }
+
+
+def sample_video(video: Path, out_dir: Path, sampling: Sampling, max_frames: int) -> dict:
+    """Cut `video` into JPEGs in `out_dir` and say what was cut."""
+    probed = subprocess.run(
+        # Whole streams and format rather than `-show_entries`: this image's ffprobe predates the
+        # `stream_side_data` section the API's names, and the full output carries the same fields.
+        ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_streams", "-show_format",
+         "-of", "json", str(video)],
+        capture_output=True, text=True, timeout=120,
+    )
+    if probed.returncode != 0:
+        raise JobRejected(f"ffprobe rejected the video: {probed.stderr.strip()[:300]}")
+    probe = parse_probe(json.loads(probed.stdout or "{}"))
+    if not probe["duration_s"] or probe["display_width"] <= 0 or probe["display_height"] <= 0:
+        raise JobRejected("could not determine the video's duration or dimensions")
+    count, effective_fps, capped, requested = sampling_plan(sampling.fps, probe["duration_s"], max_frames)
+    width, height, scaled = scaled_size(probe["display_width"], probe["display_height"], sampling.long_edge)
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    filters = [f"fps={effective_fps:.9f}"]
+    if scaled:
+        filters.append(f"scale={width}:{height}")
+    # This machine has the cores the API's single vCPU lacks; that is half the reason to be here.
+    threads = str(min(os.cpu_count() or 2, 8))
+    cut = subprocess.run(
+        ["ffmpeg", "-nostdin", "-v", "error", "-threads", threads, "-i", str(video), "-map", "0:v:0",
+         "-vf", ",".join(filters), "-frames:v", str(count), "-q:v", "2", str(out_dir / "frame-%04d.jpg")],
+        capture_output=True, text=True, timeout=300,
+    )
+    if cut.returncode != 0:
+        raise JobRejected(f"ffmpeg: {cut.stderr.strip()[:300] or 'could not extract frames'}")
+    frames = sorted(path for path in out_dir.iterdir() if path.suffix == ".jpg")
+    if len(frames) < 2:
+        raise JobRejected(f"extraction produced {len(frames)} frame(s); at least 2 views are required")
+    return {
+        "paths": frames,
+        "frames": len(frames),
+        "fps": round(effective_fps, 3),
+        "capped": capped,
+        "requested_frames": requested,
+        "width": width,
+        "height": height,
+        "duration_s": round(probe["duration_s"], 3),
+        "codec": probe["codec"],
+    }
 
 
 def _sha256(data: bytes) -> str:
@@ -252,12 +417,16 @@ def say(fields: dict) -> None:
     print(json.dumps(fields), flush=True)
 
 
-def run_job(payload: object, *, depth, open_store) -> dict:
+def run_job(payload: object, *, depth, open_store, progress=lambda update: None) -> dict:
     """One job: keys in, a manifest of signed links out.
 
     `depth` and `open_store` are injected so every step except the forward pass itself can be
     exercised without a GPU -- see `test_handler.py`. The order is the cheapest refusal first,
     because the step after it is the one that costs money.
+
+    `progress` receives what a caller polling the job can be shown before it ends: for a video
+    job, the sampling as soon as it is done, then the published frame keys. Each update repeats
+    everything known so far, because a poller sees only the latest one.
     """
     request = parse_job_input(payload)
 
@@ -298,33 +467,84 @@ def run_job(payload: object, *, depth, open_store) -> dict:
 
     store = open_store(request)
     workdir = Path(tempfile.mkdtemp(prefix="greenv-depth-"))
+    seconds: dict[str, float] = {}
+    sampled: dict | None = None
+    publishing = None
+    publish_pool = None
+    fps, source_duration_s = request.fps, request.source_duration_s
     try:
-        started = time.monotonic()
-        with ThreadPoolExecutor(max_workers=FRAME_FETCH_CONCURRENCY) as pool:
-            payloads = list(pool.map(lambda frame: store.get(frame.key), request.frames))
-        paths = []
-        for frame, data in zip(request.frames, payloads):
-            target = workdir / frame.name
-            target.write_bytes(data)
-            paths.append(str(target))
-        say({
-            "event": "frames_fetched",
-            "frames": len(paths),
-            "bytes": sum(len(data) for data in payloads),
-            "seconds": round(time.monotonic() - started, 2),
-        })
+        if request.video_key is not None:
+            started = time.monotonic()
+            video = workdir / request.video_key.rsplit("/", 1)[-1]
+            video.write_bytes(store.get(request.video_key))
+            seconds["fetch_video"] = round(time.monotonic() - started, 2)
+            started = time.monotonic()
+            sampled = sample_video(
+                video, workdir / "frames", request.sampling,
+                min(request.sampling.max_frames, effective_max_frames))
+            seconds["sample"] = round(time.monotonic() - started, 2)
+            paths = [str(path) for path in sampled.pop("paths")]
+            fps, source_duration_s = sampled["fps"], sampled["duration_s"]
+            sampled["seconds"] = dict(seconds)
+            say({"event": "sampled", **sampled})
+            progress({"stage": "sampled", "sampling": sampled, "frames": None})
+
+            # The site wants the frames as thumbnails and as the colours of the cloud. They go up
+            # while the model runs, read into memory first so the workdir can be removed at will.
+            prefix = request.sampling.frames_prefix
+            uploads = [(f"{prefix}/{Path(path).name}", Path(path).read_bytes()) for path in paths]
+            publish_pool = ThreadPoolExecutor(max_workers=FRAME_PUBLISH_CONCURRENCY)
+            started_publish = time.monotonic()
+            put = [publish_pool.submit(store.put, key, data, "image/jpeg") for key, data in uploads]
+
+            announced = threading.Lock()
+
+            def finished(_):
+                # Several callbacks can see the last upload done at once; one announces it.
+                if not all(future.done() and future.exception() is None for future in put):
+                    return
+                if announced.acquire(blocking=False):
+                    seconds["publish_frames"] = round(time.monotonic() - started_publish, 2)
+                    progress({"stage": "frames", "sampling": sampled, "frames": [key for key, _ in uploads]})
+
+            for future in put:
+                future.add_done_callback(finished)
+            publishing = (put, [key for key, _ in uploads])
+        else:
+            started = time.monotonic()
+            with ThreadPoolExecutor(max_workers=FRAME_FETCH_CONCURRENCY) as pool:
+                payloads = list(pool.map(lambda frame: store.get(frame.key), request.frames))
+            paths = []
+            for frame, data in zip(request.frames, payloads):
+                target = workdir / frame.name
+                target.write_bytes(data)
+                paths.append(str(target))
+            seconds["fetch_frames"] = round(time.monotonic() - started, 2)
+            say({
+                "event": "frames_fetched",
+                "frames": len(paths),
+                "bytes": sum(len(data) for data in payloads),
+                "seconds": seconds["fetch_frames"],
+            })
 
         params = {
-            "fps": request.fps,
+            "fps": fps,
             "process_res": request.process_res,
             "max_frames": effective_max_frames,
         }
-        if request.source_duration_s:
-            params["source_duration_s"] = request.source_duration_s
+        if source_duration_s:
+            params["source_duration_s"] = source_duration_s
         started = time.monotonic()
         manifest = depth.infer(paths, params)
-        say({"event": "inferred", "seconds": round(time.monotonic() - started, 2)})
+        seconds["infer"] = round(time.monotonic() - started, 2)
+        say({"event": "inferred", "seconds": seconds["infer"]})
+        if publishing is not None:
+            for future in publishing[0]:
+                future.result()  # a frame that could not be published fails the job, loudly
+            sampled["frames_published"] = len(publishing[1])
     finally:
+        if publish_pool is not None:
+            publish_pool.shutdown(wait=True)
         # Frames are input. Once inference has returned nothing reads them again, and a warm
         # RunPod worker keeps its filesystem between jobs.
         shutil.rmtree(workdir, ignore_errors=True)
@@ -333,9 +553,9 @@ def run_job(payload: object, *, depth, open_store) -> dict:
     if "/" in run_id or ".." in run_id:
         raise JobRejected(f"the depth service returned an unusable run_id: {json.dumps(run_id)}")
     described = (manifest.get("frames") or {}).get("count")
-    if not isinstance(described, int) or not 2 <= described <= len(request.frames):
+    if not isinstance(described, int) or not 2 <= described <= len(paths):
         raise JobRejected(
-            f"the depth service describes {described} frames of the {len(request.frames)} sent; "
+            f"the depth service describes {described} frames of the {len(paths)} sent; "
             "a run whose geometry and images disagree measures the wrong scene"
         )
 
@@ -372,10 +592,11 @@ def run_job(payload: object, *, depth, open_store) -> dict:
             "object_key": key,
         })
 
+    seconds["publish"] = round(time.monotonic() - started, 2)
     say({
         "event": "published",
         "bytes": sum(artifact["size_bytes"] for artifact in published),
-        "seconds": round(time.monotonic() - started, 2),
+        "seconds": seconds["publish"],
     })
 
     missing = sorted(set(ARTIFACT_NAMES) - {artifact["kind"] for artifact in published})
@@ -392,6 +613,10 @@ def run_job(payload: object, *, depth, open_store) -> dict:
             "signed_url_ttl_seconds": SIGNED_URL_TTL_SECONDS,
             "frame_ceiling": ceiling,
             "skipped": skipped,
+            # Where this handler's own time went, so a slow job says which step was slow.
+            "handler_seconds": seconds,
+            # A video job only: how the video was cut here and where its frames now are.
+            **({"sampled": {**sampled, "frame_keys": publishing[1]}} if sampled is not None else {}),
         },
     }
 
@@ -513,8 +738,9 @@ class BucketStore:
     def get(self, key: str) -> bytes:
         return self._s3.get_object(Bucket=self.bucket, Key=key)["Body"].read()
 
-    def put(self, key: str, data: bytes) -> None:
-        self._s3.put_object(Bucket=self.bucket, Key=key, Body=data)
+    def put(self, key: str, data: bytes, content_type: str | None = None) -> None:
+        extra = {"ContentType": content_type} if content_type else {}
+        self._s3.put_object(Bucket=self.bucket, Key=key, Body=data, **extra)
 
     def signed_url(self, key: str) -> str:
         return self._s3.generate_presigned_url(
@@ -525,6 +751,17 @@ class BucketStore:
 
 
 _service = DepthService()
+
+
+def _progress(job: dict, update: dict) -> None:
+    """Hands an update to RunPod, which shows it to whoever polls `/status` while the job runs.
+    Best effort: a progress line that cannot be sent must never fail the job it describes."""
+    try:
+        import runpod
+
+        runpod.serverless.progress_update(job, update)
+    except Exception as error:  # noqa: BLE001 -- see the docstring
+        say({"event": "progress-not-sent", "reason": str(error)[:200]})
 
 
 def handler(job: dict) -> dict:
@@ -541,6 +778,7 @@ def handler(job: dict) -> dict:
             open_store=lambda request: BucketStore(
                 bucket=request.bucket, endpoint=request.endpoint, region=request.region
             ),
+            progress=lambda update: _progress(job, update),
         )
     except JobRejected as rejected:
         say({"event": "job-rejected", "reason": str(rejected)})
