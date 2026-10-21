@@ -75,7 +75,7 @@ public class RunPodDepthJobAdapter implements DepthJobRunner {
 
     @Override
     public DepthJobStatus submit(DepthJobRequest request) {
-        if (request.frames().size() < 2) {
+        if (request.video() == null && request.frames().size() < 2) {
             throw new IllegalArgumentException(
                     "depth inference needs at least 2 frames, got " + request.frames().size());
         }
@@ -84,7 +84,11 @@ public class RunPodDepthJobAdapter implements DepthJobRunner {
         if (jobId.isBlank()) {
             throw new IllegalStateException("RunPod accepted no job: " + abbreviate(started.toString()));
         }
-        log.info("demo depth job {} submitted for {} with {} frames", jobId, request.captureId(), request.frames().size());
+        if (request.video() != null) {
+            log.info("demo depth job {} submitted for {} with its video, sampled on the GPU", jobId, request.captureId());
+        } else {
+            log.info("demo depth job {} submitted for {} with {} frames", jobId, request.captureId(), request.frames().size());
+        }
         return interpret(jobId, started);
     }
 
@@ -106,7 +110,9 @@ public class RunPodDepthJobAdapter implements DepthJobRunner {
     /** The request body, in the shape the handler and the measurement worker already agree on. */
     String body(DepthJobRequest request) {
         Map<String, Object> params = new LinkedHashMap<>();
-        params.put("fps", request.fps());
+        if (request.video() == null) {
+            params.put("fps", request.fps());
+        }
         params.put("process_res", request.processRes());
         params.put("max_frames", request.maxFrames());
         if (request.sourceDurationSeconds() != null && request.sourceDurationSeconds() > 0) {
@@ -117,9 +123,20 @@ public class RunPodDepthJobAdapter implements DepthJobRunner {
         storageBlock.put("endpoint", blankToNull(storage.endpoint()));
         storageBlock.put("region", blankToNull(storage.region()));
         Map<String, Object> input = new LinkedHashMap<>();
-        input.put("frames", request.frames().stream()
-                .map(frame -> Map.of("name", frame.name(), "key", frame.key()))
-                .toList());
+        if (request.video() != null) {
+            // The handler samples it with the API's own rule and publishes the frames for the site.
+            input.put("video", Map.of("key", request.video().key()));
+            Map<String, Object> sampling = new LinkedHashMap<>();
+            sampling.put("fps", request.video().fps());
+            sampling.put("max_frames", request.video().maxFrames());
+            sampling.put("long_edge", request.video().longEdge());
+            sampling.put("frames_prefix", request.video().framesPrefix());
+            input.put("sampling", sampling);
+        } else {
+            input.put("frames", request.frames().stream()
+                    .map(frame -> Map.of("name", frame.name(), "key", frame.key()))
+                    .toList());
+        }
         input.put("storage", storageBlock);
         input.put("params", params);
         Map<String, Object> job = new LinkedHashMap<>();
@@ -132,7 +149,9 @@ public class RunPodDepthJobAdapter implements DepthJobRunner {
         String status = answer.path("status").asString("");
         return switch (status) {
             case "IN_QUEUE" -> DepthJobStatus.queued(jobId);
-            case "IN_PROGRESS" -> DepthJobStatus.running(jobId);
+            // What the handler reported mid-job (runpod.serverless.progress_update), when RunPod
+            // hands it back here: an object with a stage, or nothing.
+            case "IN_PROGRESS" -> DepthJobStatus.running(jobId, progressOf(answer));
             case "COMPLETED" -> {
                 JsonNode output = answer.path("output");
                 if (output.isMissingNode() || output.isNull()) {
@@ -149,6 +168,15 @@ public class RunPodDepthJobAdapter implements DepthJobRunner {
                     "RunPod job " + jobId + " ended " + (status.isBlank() ? "without a status" : status)
                             + errorOf(answer));
         };
+    }
+
+    private static JsonNode progressOf(JsonNode answer) {
+        for (JsonNode candidate : new JsonNode[] {answer.path("output"), answer.path("progress")}) {
+            if (candidate.isObject() && candidate.has("stage")) {
+                return candidate;
+            }
+        }
+        return null;
     }
 
     private JsonNode call(String method, String url, String body) {

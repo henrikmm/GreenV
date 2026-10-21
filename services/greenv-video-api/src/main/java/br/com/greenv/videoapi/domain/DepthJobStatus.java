@@ -8,7 +8,7 @@ import tools.jackson.databind.JsonNode;
  * <p>{@code output} is the handler's manifest and is present only when {@code state} is
  * {@link State#COMPLETED}; {@code error} only when the job ended any other way.
  */
-public record DepthJobStatus(String jobId, State state, JsonNode output, String error) {
+public record DepthJobStatus(String jobId, State state, JsonNode output, String error, JsonNode progress) {
 
     public enum State {
         /** {@code IN_QUEUE}: no worker has taken it yet, which is what a cold start looks like. */
@@ -21,18 +21,23 @@ public record DepthJobStatus(String jobId, State state, JsonNode output, String 
     }
 
     public static DepthJobStatus queued(String jobId) {
-        return new DepthJobStatus(jobId, State.QUEUED, null, null);
+        return new DepthJobStatus(jobId, State.QUEUED, null, null, null);
     }
 
     public static DepthJobStatus running(String jobId) {
-        return new DepthJobStatus(jobId, State.RUNNING, null, null);
+        return running(jobId, null);
+    }
+
+    /** {@code progress} is what the handler last reported while running, when it reported any. */
+    public static DepthJobStatus running(String jobId, JsonNode progress) {
+        return new DepthJobStatus(jobId, State.RUNNING, null, null, progress);
     }
 
     public static DepthJobStatus completed(String jobId, JsonNode output) {
-        return new DepthJobStatus(jobId, State.COMPLETED, output, null);
+        return new DepthJobStatus(jobId, State.COMPLETED, output, null, null);
     }
 
     public static DepthJobStatus failed(String jobId, String error) {
-        return new DepthJobStatus(jobId, State.FAILED, null, error);
+        return new DepthJobStatus(jobId, State.FAILED, null, error, null);
     }
 }

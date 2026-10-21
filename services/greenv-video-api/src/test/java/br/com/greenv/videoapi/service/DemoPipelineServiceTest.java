@@ -114,6 +114,100 @@ class DemoPipelineServiceTest {
         assertThat(store.get().state()).as("left to the new holder, not failed").isEqualTo(DemoPhases.EXTRACTING);
     }
 
+    /** GPU sampling, with the handler's progress visible while the job runs. */
+    @Test
+    void sendsTheVideoAndFollowsTheGpusSamplingAsItIsReported() throws Exception {
+        CaptureObjectStorage storage = localStorage();
+        receivedWithVideo(storage);
+        DemoPipelineService pipeline = new DemoPipelineService(
+                store, storage, (video, out, fps, max, edge) -> {
+                    throw new AssertionError("the API does not sample in gpu mode");
+                }, depth, clock, gpuProperties());
+
+        pipeline.sampleAndSubmit(ID);
+        DepthJobRequest sent = depth.submitted.getFirst();
+        assertThat(sent.video().key()).isEqualTo("demo/" + ID + "/video.mp4");
+        assertThat(sent.video().framesPrefix()).isEqualTo("demo/" + ID + "/sampled-frames");
+        assertThat(sent.frames()).isEmpty();
+        assertThat(store.get().state()).isEqualTo(DemoPhases.WAKING);
+
+        depth.script.add(DepthJobStatus.running("job-1"));
+        pipeline.followJob(ID);
+        assertThat(store.get().state()).isEqualTo(DemoPhases.SAMPLING);
+
+        depth.script.add(DepthJobStatus.running("job-1", json(
+                "{\"stage\":\"sampled\",\"frames\":null,\"sampling\":{\"frames\":96,\"fps\":10,\"capped\":false,"
+                        + "\"requested_frames\":96,\"width\":576,\"height\":1024,\"duration_s\":9.66,"
+                        + "\"seconds\":{\"fetch_video\":0.4,\"sample\":0.9}}}")));
+        pipeline.followJob(ID);
+        List<String> phases = store.get().phases().stream().map(DemoPhase::phase).toList();
+        assertThat(phases).endsWith(DemoPhases.WAKING, DemoPhases.SAMPLING, DemoPhases.SAMPLED, DemoPhases.INFERRING);
+        DemoPhase sampled = store.get().phases().get(phases.indexOf(DemoPhases.SAMPLED));
+        assertThat(sampled.detail()).containsEntry("frames", 96).containsEntry("onGpu", true)
+                .containsEntry("sampleSeconds", 0.9).doesNotContainKey("reportedAtEnd");
+        assertThat(store.get().frameKeys()).isEmpty();
+
+        String frame = "demo/" + ID + "/sampled-frames/frame-0001.jpg";
+        depth.script.add(DepthJobStatus.running("job-1", json(
+                "{\"stage\":\"frames\",\"sampling\":{\"frames\":96},\"frames\":[\"" + frame + "\"]}")));
+        pipeline.followJob(ID);
+        assertThat(store.get().frameKeys()).containsExactly(frame);
+        assertThat(store.get().state()).isEqualTo(DemoPhases.INFERRING);
+    }
+
+    /** GPU sampling when RunPod never shows the progress: the finished job's record fills it in. */
+    @Test
+    void fillsInTheGpusSamplingFromTheFinishedJobWhenNoProgressWasSeen() throws Exception {
+        CaptureObjectStorage storage = localStorage();
+        receivedWithVideo(storage);
+        String artifact = "demo/" + ID + "/depth/r1/scene.glb";
+        byte[] glb = "glb".getBytes(StandardCharsets.UTF_8);
+        storage.put(artifact, new ByteArrayInputStream(glb), sha256(glb), 1024);
+        DemoPipelineService pipeline = new DemoPipelineService(
+                store, storage, (video, out, fps, max, edge) -> {
+                    throw new AssertionError("the API does not sample in gpu mode");
+                }, depth, clock, gpuProperties());
+        pipeline.sampleAndSubmit(ID);
+
+        String frame = "demo/" + ID + "/sampled-frames/frame-0001.jpg";
+        depth.script.add(DepthJobStatus.completed("job-1", json(
+                "{\"run_id\":\"r1\",\"frames\":{\"count\":96},\"vram\":{\"device_name\":\"NVIDIA H100\"},"
+                        + "\"timing\":{\"gpu_seconds\":6.2},\"artifacts\":[{\"name\":\"scene.glb\",\"object_key\":\""
+                        + artifact + "\"}],\"published\":{\"sampled\":{\"frames\":96,\"seconds\":{\"sample\":0.9},"
+                        + "\"frame_keys\":[\"" + frame + "\"]}}}")));
+        pipeline.followJob(ID);
+
+        List<String> phases = store.get().phases().stream().map(DemoPhase::phase).toList();
+        assertThat(phases).endsWith(
+                DemoPhases.WAKING, DemoPhases.SAMPLING, DemoPhases.SAMPLED, DemoPhases.INFERRING,
+                DemoPhases.INFERRED, DemoPhases.FETCHED);
+        assertThat(store.get().phases().get(phases.indexOf(DemoPhases.SAMPLED)).detail())
+                .containsEntry("reportedAtEnd", true).containsEntry("sampleSeconds", 0.9);
+        assertThat(store.get().frameKeys()).containsExactly(frame);
+    }
+
+    private void receivedWithVideo(CaptureObjectStorage storage) throws Exception {
+        byte[] bytes = "video".getBytes(StandardCharsets.UTF_8);
+        storage.put("demo/" + ID + "/video.mp4", new ByteArrayInputStream(bytes), sha256(bytes), 1024);
+        store.put(capture(DemoPhases.RECEIVED)
+                .withVideo(new DemoVideo("demo/" + ID + "/video.mp4", "video/mp4", bytes.length, sha256(bytes), 10, null)));
+    }
+
+    private static String sha256(byte[] bytes) throws Exception {
+        return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
+    }
+
+    private static tools.jackson.databind.JsonNode json(String text) {
+        return JsonMapper.builder().build().readTree(text);
+    }
+
+    private static DemoProperties gpuProperties() {
+        return new DemoProperties(
+                true, "pairing-code", 1024, 112, 10, 1024, 504, "mock",
+                Duration.ofMinutes(20), Duration.ofMinutes(5), Duration.ofMinutes(2), Duration.ofHours(1),
+                3, "http://127.0.0.1:8080", "ffmpeg", "ffprobe", null, "gpu");
+    }
+
     private DemoPipelineService pipeline(br.com.greenv.videoapi.port.DemoFrameSampler sampler) {
         return new DemoPipelineService(store, localStorage(), sampler, depth, clock, properties());
     }
@@ -142,6 +236,8 @@ class DemoPipelineServiceTest {
     private static final class RecordingDepth implements DepthJobRunner {
         final List<DepthJobRequest> submitted = new ArrayList<>();
         final List<String> cancelled = new ArrayList<>();
+        /** What status() answers next, in order; queued once it runs out. */
+        final java.util.ArrayDeque<DepthJobStatus> script = new java.util.ArrayDeque<>();
 
         @Override
         public DepthJobStatus submit(DepthJobRequest request) {
@@ -151,7 +247,7 @@ class DemoPipelineServiceTest {
 
         @Override
         public DepthJobStatus status(String jobId) {
-            return DepthJobStatus.queued(jobId);
+            return script.isEmpty() ? DepthJobStatus.queued(jobId) : script.poll();
         }
 
         @Override

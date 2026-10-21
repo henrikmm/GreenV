@@ -8,13 +8,16 @@ import br.com.greenv.videoapi.port.DepthJobRunner;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -71,7 +74,7 @@ public class MockDepthJobAdapter implements DepthJobRunner {
 
     @Override
     public DepthJobStatus submit(DepthJobRequest request) {
-        if (request.frames().size() < 2) {
+        if (request.video() == null && request.frames().size() < 2) {
             throw new IllegalArgumentException(
                     "depth inference needs at least 2 frames, got " + request.frames().size());
         }
@@ -86,7 +89,12 @@ public class MockDepthJobAdapter implements DepthJobRunner {
         if (job == null) {
             return DepthJobStatus.failed(jobId, "mock depth job " + jobId + " is not known to this process");
         }
-        if (job.asked().incrementAndGet() == 1) {
+        int asked = job.asked().incrementAndGet();
+        if (job.request().video() != null && asked <= 2) {
+            // As the handler reports a video job: sampled first, then its frames published.
+            return DepthJobStatus.running(jobId, sampledProgress(job.request(), asked == 2));
+        }
+        if (asked == 1) {
             return DepthJobStatus.running(jobId);
         }
         jobs.remove(jobId);
@@ -96,6 +104,55 @@ public class MockDepthJobAdapter implements DepthJobRunner {
     @Override
     public void cancel(String jobId) {
         jobs.remove(jobId);
+    }
+
+    /** Three filler frames: a mock video job's whole sampling. */
+    private static final int MOCK_VIDEO_FRAMES = 3;
+
+    private ObjectNode sampledProgress(DepthJobRequest request, boolean withFrames) {
+        ObjectNode progress = objectMapper.createObjectNode();
+        progress.put("stage", withFrames ? "frames" : "sampled");
+        progress.set("sampling", sampling(request));
+        if (withFrames) {
+            ArrayNode keys = progress.putArray("frames");
+            mockFrameKeys(request).forEach(keys::add);
+        } else {
+            progress.putNull("frames");
+        }
+        return progress;
+    }
+
+    private ObjectNode sampling(DepthJobRequest request) {
+        ObjectNode sampling = objectMapper.createObjectNode();
+        sampling.put("frames", MOCK_VIDEO_FRAMES);
+        sampling.put("fps", request.video().fps());
+        sampling.put("capped", false);
+        sampling.put("requested_frames", MOCK_VIDEO_FRAMES);
+        sampling.put("width", 576);
+        sampling.put("height", 1024);
+        sampling.put("duration_s", 0.3);
+        ObjectNode seconds = sampling.putObject("seconds");
+        seconds.put("fetch_video", 0.1);
+        seconds.put("sample", 0.2);
+        return sampling;
+    }
+
+    /** Publishes the filler frames where the handler would, once, and names them. */
+    private List<String> mockFrameKeys(DepthJobRequest request) {
+        List<String> keys = new ArrayList<>();
+        for (int index = 1; index <= MOCK_VIDEO_FRAMES; index++) {
+            String key = request.video().framesPrefix() + "/frame-%04d.jpg".formatted(index);
+            if (!storage.exists(key)) {
+                byte[] bytes = ("mock frame " + index).getBytes(StandardCharsets.UTF_8);
+                try (InputStream input = new ByteArrayInputStream(bytes)) {
+                    storage.put(key, input, sha256(bytes), bytes.length);
+                } catch (IOException exception) {
+                    throw new IllegalStateException("could not publish " + key, exception);
+                }
+            }
+            keys.add(key);
+        }
+        return keys;
     }
 
     private JsonNode publish(DepthJobRequest request) {
@@ -110,13 +167,20 @@ public class MockDepthJobAdapter implements DepthJobRunner {
         if (request.sourceDurationSeconds() != null) {
             params.put("source_duration_s", request.sourceDurationSeconds());
         }
+        int sent = request.video() != null ? MOCK_VIDEO_FRAMES : request.frames().size();
         ObjectNode frames = (ObjectNode) manifest.get("frames");
-        frames.put("count", request.frames().size());
-        frames.put("requested_count", request.frames().size());
+        frames.put("count", sent);
+        frames.put("requested_count", sent);
         frames.put("effective_fps", request.fps());
         ObjectNode published = (ObjectNode) manifest.get("published");
         published.put("prefix", prefix);
         published.put("frame_ceiling", properties.maxFrames());
+        if (request.video() != null) {
+            ObjectNode sampled = sampling(request);
+            ArrayNode keys = sampled.putArray("frame_keys");
+            mockFrameKeys(request).forEach(keys::add);
+            published.set("sampled", sampled);
+        }
 
         ArrayNode artifacts = manifest.putArray("artifacts");
         for (String kind : new String[] {"glb", "npz"}) {
@@ -145,6 +209,10 @@ public class MockDepthJobAdapter implements DepthJobRunner {
 
     /** {@code handler.py}'s {@code output_prefix}: the frames' directory, minus {@code sampled-frames}. */
     static String outputPrefix(DepthJobRequest request) {
+        if (request.video() != null) {
+            String video = request.video().key();
+            return video.contains("/") ? video.substring(0, video.lastIndexOf('/') + 1) : "";
+        }
         String key = request.frames().getFirst().key();
         String parent = key.contains("/") ? key.substring(0, key.lastIndexOf('/')) : "";
         if (parent.endsWith("/sampled-frames")) {

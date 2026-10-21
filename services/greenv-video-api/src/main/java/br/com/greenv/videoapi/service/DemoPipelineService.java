@@ -175,6 +175,10 @@ public class DemoPipelineService {
                         + " times and never finished; giving up");
                 return;
             }
+            if (properties.samplesOnGpu()) {
+                submitVideo(capture.withAttempts(capture.attempts() + 1));
+                return;
+            }
             capture = write(capture.withAttempts(capture.attempts() + 1), DemoPhases.EXTRACTING, null);
 
             work = Files.createTempDirectory("greenv-demo-" + captureId + "-");
@@ -253,6 +257,122 @@ public class DemoPipelineService {
             deleteTree(work);
             store.release(captureId, owner);
         }
+    }
+
+    /**
+     * {@code GREENV_DEMO_SAMPLE_ON=gpu}: the video goes to the depth job as it is and the GPU
+     * machine samples it, with this API's own rule. That spares this API's single vCPU the ffmpeg
+     * run (6-11 s on 21 Oct 2026) and the frames their trip to the bucket and back to the GPU
+     * (11-14 s). The timeline then reads {@code waking}, {@code sampling}, {@code sampled},
+     * {@code inferring}: see {@link #advanceGpuSampling}.
+     */
+    private void submitVideo(DemoCapture capture) {
+        hold(capture.id(), properties.extractionLease());
+        String framesPrefix = DemoCapture.framesPrefix(capture.id());
+        DepthJobRequest request = DepthJobRequest.ofVideo(
+                capture.id(),
+                new DepthJobRequest.Video(
+                        capture.video().objectKey(),
+                        requestedFps(capture.meta()),
+                        maxFrames(capture.meta()),
+                        properties.longEdge(),
+                        framesPrefix.endsWith("/") ? framesPrefix.substring(0, framesPrefix.length() - 1) : framesPrefix),
+                properties.processRes(),
+                properties.maxFrames());
+        DepthJobStatus started = depth.submit(request);
+        capture = capture.withDepthJob(started.jobId(), clock.instant());
+        switch (started.state()) {
+            case QUEUED -> write(capture, DemoPhases.WAKING, Map.of("jobId", started.jobId(), "sampleOn", "gpu"));
+            case RUNNING, COMPLETED -> write(capture, DemoPhases.SAMPLING, Map.of("jobId", started.jobId()));
+            case FAILED -> {
+                capture = write(capture, DemoPhases.WAKING, Map.of("jobId", started.jobId()));
+                fail(capture, started.error());
+            }
+        }
+    }
+
+    /** Whether this capture's frames are cut on the GPU: it never sent any from here. */
+    private static boolean sampledOnGpu(DemoCapture capture) {
+        return capture.phases().stream().noneMatch(phase -> DemoPhases.UPLOADING_FRAMES.equals(phase.phase()));
+    }
+
+    /**
+     * A running GPU-sampled job: {@code sampling} as soon as it runs, then {@code sampled} and
+     * {@code inferring} once the handler reports the sampling done, and the frame keys once it
+     * reports them published — which is when the site can show the frames.
+     */
+    private DemoCapture advanceGpuSampling(DemoCapture capture, JsonNode progress) {
+        if (DemoPhases.WAKING.equals(capture.state())) {
+            capture = write(capture, DemoPhases.SAMPLING, null);
+        }
+        if (progress == null) {
+            return capture;
+        }
+        JsonNode sampling = progress.path("sampling");
+        if (sampling.isObject() && DemoPhases.SAMPLING.equals(capture.state())) {
+            capture = write(capture, DemoPhases.SAMPLED, sampledDetail(sampling, false));
+            capture = write(capture, DemoPhases.INFERRING, null);
+        }
+        return withFrameKeys(capture, progress.path("frames"));
+    }
+
+    /**
+     * The same, from the finished job's own record, for whatever the progress reports did not
+     * deliver. A {@code sampled} written here says so ({@code reportedAtEnd}): its time on the
+     * timeline is not when the sampling ended, and the handler's seconds are the measure.
+     */
+    private DemoCapture catchUpGpuSampling(DemoCapture capture, JsonNode output) {
+        JsonNode sampled = output == null ? null : output.path("published").path("sampled");
+        if (DemoPhases.WAKING.equals(capture.state())) {
+            capture = write(capture, DemoPhases.SAMPLING, null);
+        }
+        if (DemoPhases.SAMPLING.equals(capture.state())) {
+            capture = write(capture, DemoPhases.SAMPLED,
+                    sampled != null && sampled.isObject() ? sampledDetail(sampled, true) : Map.of("reportedAtEnd", true));
+            capture = write(capture, DemoPhases.INFERRING, null);
+        }
+        return sampled == null ? capture : withFrameKeys(capture, sampled.path("frame_keys"));
+    }
+
+    private Map<String, Object> sampledDetail(JsonNode sampling, boolean reportedAtEnd) {
+        Map<String, Object> detail = new LinkedHashMap<>();
+        detail.put("frames", sampling.path("frames").isNumber() ? sampling.path("frames").asInt() : null);
+        detail.put("fps", number(sampling.path("fps")));
+        detail.put("capped", sampling.path("capped").asBoolean(false));
+        detail.put("requestedFrames", sampling.path("requested_frames").isNumber() ? sampling.path("requested_frames").asInt() : null);
+        detail.put("width", sampling.path("width").isNumber() ? sampling.path("width").asInt() : null);
+        detail.put("height", sampling.path("height").isNumber() ? sampling.path("height").asInt() : null);
+        detail.put("durationS", number(sampling.path("duration_s")));
+        detail.put("fetchSeconds", number(sampling.path("seconds").path("fetch_video")));
+        detail.put("sampleSeconds", number(sampling.path("seconds").path("sample")));
+        detail.put("onGpu", true);
+        if (reportedAtEnd) {
+            detail.put("reportedAtEnd", true);
+        }
+        detail.values().removeIf(value -> value == null);
+        return detail;
+    }
+
+    /** Keeps the frame keys the handler named, if none are kept yet and all are this capture's. */
+    private DemoCapture withFrameKeys(DemoCapture capture, JsonNode named) {
+        if (!capture.frameKeys().isEmpty() || !named.isArray() || named.isEmpty()) {
+            return capture;
+        }
+        String prefix = DemoCapture.framesPrefix(capture.id());
+        List<String> keys = new ArrayList<>();
+        for (JsonNode key : named) {
+            String value = key.asString("");
+            if (!value.startsWith(prefix) || value.contains("..")) {
+                log.warn("[demo] {} ignored frame key outside {}: {}", capture.id(), prefix, value);
+                return capture;
+            }
+            keys.add(value);
+        }
+        capture = capture.withFrameKeys(keys);
+        if (!store.save(capture, null, owner)) {
+            throw new LeaseLost();
+        }
+        return capture;
     }
 
     /**
@@ -343,11 +463,15 @@ public class DemoPipelineService {
                     // Still waiting for a worker; nothing new to say.
                 }
                 case RUNNING -> {
-                    if (DemoPhases.WAKING.equals(capture.state())) {
+                    if (sampledOnGpu(capture)) {
+                        advanceGpuSampling(capture, status.progress());
+                    } else if (DemoPhases.WAKING.equals(capture.state())) {
                         write(capture, DemoPhases.INFERRING, null);
                     }
                 }
-                case COMPLETED -> publish(record(capture, status.output()));
+                case COMPLETED -> publish(record(
+                        sampledOnGpu(capture) ? catchUpGpuSampling(capture, status.output()) : capture,
+                        status.output()));
                 case FAILED -> fail(capture, status.error());
             }
         } catch (LeaseLost lost) {

@@ -93,6 +93,41 @@ class RunPodDepthJobAdapterTest {
     }
 
     @Test
+    void sendsAVideoForTheGpuToSampleWithTheApisOwnRule() {
+        answers.put("POST /v2/greenv-demo-depth/run", "{\"id\":\"job-2\",\"status\":\"IN_QUEUE\"}");
+        String id = "cap-20261024-143000-a1b2";
+
+        adapter.submit(DepthJobRequest.ofVideo(
+                id,
+                new DepthJobRequest.Video("demo/" + id + "/video.mp4", 10, 112, 1024, "demo/" + id + "/sampled-frames"),
+                504,
+                112));
+
+        JsonNode input = objectMapper.readTree(bodies.get("POST /v2/greenv-demo-depth/run")).path("input");
+        assertThat(input.has("frames")).as("a video job sends no frames").isFalse();
+        assertThat(input.path("video").path("key").asString()).isEqualTo("demo/" + id + "/video.mp4");
+        assertThat(input.path("sampling").path("fps").asDouble()).isEqualTo(10.0);
+        assertThat(input.path("sampling").path("max_frames").asInt()).isEqualTo(112);
+        assertThat(input.path("sampling").path("long_edge").asInt()).isEqualTo(1024);
+        assertThat(input.path("sampling").path("frames_prefix").asString()).isEqualTo("demo/" + id + "/sampled-frames");
+        assertThat(input.path("params").has("fps")).as("the rate is the sampling's to decide").isFalse();
+        assertThat(input.path("params").path("max_frames").asInt()).isEqualTo(112);
+    }
+
+    @Test
+    void readsWhatTheHandlerReportedWhileRunning() {
+        answers.put("GET /v2/greenv-demo-depth/status/job-1",
+                "{\"id\":\"job-1\",\"status\":\"IN_PROGRESS\",\"output\":{\"stage\":\"sampled\",\"sampling\":{\"frames\":96}}}");
+        DepthJobStatus running = adapter.status("job-1");
+        assertThat(running.state()).isEqualTo(DepthJobStatus.State.RUNNING);
+        assertThat(running.progress().path("sampling").path("frames").asInt()).isEqualTo(96);
+
+        answers.put("GET /v2/greenv-demo-depth/status/job-1",
+                "{\"id\":\"job-1\",\"status\":\"IN_PROGRESS\",\"output\":\"Update 1/3\"}");
+        assertThat(adapter.status("job-1").progress()).as("anything but our object is no progress").isNull();
+    }
+
+    @Test
     void readsEachStatusRunPodReports() {
         answers.put("GET /v2/greenv-demo-depth/status/job-1", "{\"id\":\"job-1\",\"status\":\"IN_PROGRESS\"}");
         assertThat(adapter.status("job-1").state()).isEqualTo(DepthJobStatus.State.RUNNING);

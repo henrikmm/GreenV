@@ -30,12 +30,20 @@ public final class DemoPhases {
     public static final String INFERRED = "inferred";
     public static final String FETCHED = "fetched";
     public static final String FAILED = "failed";
+    /**
+     * The GPU machine is sampling the video ({@code GREENV_DEMO_SAMPLE_ON=gpu}): the job is
+     * running and its first step is ffmpeg. Not {@code extracting}, which is the API's own
+     * sampling and is picked up by the API's sampling lane.
+     */
+    public static final String SAMPLING = "sampling";
+    /** The GPU machine has sampled the video; the detail says how, and in how long. */
+    public static final String SAMPLED = "sampled";
 
     /** States the pipeline picks up before a depth job exists: the video is in storage. */
     public static final List<String> BEFORE_JOB = List.of(RECEIVED, EXTRACTING, EXTRACTED, UPLOADING_FRAMES);
 
     /** States the pipeline picks up while a depth job exists or its result is being checked. */
-    public static final List<String> WITH_JOB = List.of(WAKING, INFERRING, INFERRED);
+    public static final List<String> WITH_JOB = List.of(WAKING, SAMPLING, SAMPLED, INFERRING, INFERRED);
 
     private DemoPhases() {
     }
