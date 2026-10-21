@@ -270,8 +270,8 @@ and `fetched` means "artifacts published and signed". What is deployed where:
 
 | Part | Where | Version |
 |---|---|---|
-| API | `ca-greenv-mvp-api`, revision `demo-9ab614b` | `greenv-video-api@sha256:2c826e25…` |
-| Depth handler | template `greenv-depth-demo` (`8e5o3dew3k`), endpoint `gu0tdcrefo6lri` | `greenv-depth-runpod@sha256:9afaac86…` (commit `74279ad`) |
+| API | `ca-greenv-mvp-api`, revision `demo-1cfd4b0`, `GREENV_DEMO_SAMPLE_ON=gpu` | `greenv-video-api@sha256:479023ee…` |
+| Depth handler | template `greenv-depth-demo` (`8e5o3dew3k`), endpoint `gu0tdcrefo6lri` | `greenv-depth-runpod@sha256:9dcf0805…` (commit `0ec7712`) |
 | Site | Cloudflare Pages project `greenv-demo` | build of `measurement/app` with `VITE_VERGE_HOSTED=1` |
 | Phone | `apps/mobile`, `lib/main_demo.dart` | defaults to the cloud prefix; the code is typed in settings |
 
@@ -317,6 +317,39 @@ What the runs showed:
 
 The site rendered `081752-83rl` — phases, the 96 frames, the depth view and DA3's cloud from R2 —
 with no console errors (Chrome, 21 Oct 2026).
+
+### Sampling on the GPU machine
+
+**With the video sampled on the GPU machine, a warm capture took 30.2 s against 39.4 s** — the
+API no longer runs ffmpeg on its one vCPU or uploads 96 frames before the job; it sends the
+video's key and the handler samples it with the same rule (10 fps, long edge 1024, ≤ 112 frames)
+and publishes the frames to R2 while the model runs. Switched by `demo_sample_on` in Terraform;
+`"api"` is the way back without touching the endpoint. Two runs on 21 Oct 2026, API
+`demo-1cfd4b0`, handler `0ec7712`, same videos as above, both on the RTX PRO 6000. Seconds:
+
+| Capture | Worker | Upload | Queue | Video fetch | Sample | Inference → inferred | Total | RunPod delay | RunPod exec |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| `121246-7xta` | cold, new image | 3.2 | 109.3 | 1.06 | 0.70 | 36.0 | 152.9 | 108.1 | 38.4 |
+| `121532-20yv` | warm | 3.2 | 2.0 | 1.20 | 0.61 | 20.0 | **30.2** | 0.0 | 22.9 |
+
+- **Sampling went from 6–7 s to 0.6–0.7 s, and the 11–12 s frame upload is gone.** The handler's
+  `published.handler_seconds` shows `fetch_video` 1.1–1.2 s and `sample` 0.6–0.7 s.
+- **The job itself grew from 15.6 s to 22.9 s of RunPod exec**, of which `publish` was 11.7 s
+  (6.2 s in the cold run) against a service wall of 9.0 s; `publish_frames` (4.7 s) runs
+  alongside inference. Why `publish` doubled between the two runs is not broken down here.
+- **RunPod surfaces the handler's progress in `/status`**: the `sampling` and `sampled` phases
+  arrived live, without the fallback that rebuilds them from the finished output.
+- **The cold start was the image pull** (`delayTime` 108 s) for the new handler image; a worker
+  that has the image starts in ~11 s, as above.
+- The site showed the stages ("Separando o vídeo em quadros · 96 quadros · na GPU", 1.8 s), the
+  96 frames and DA3's cloud for `121532-20yv` (Chrome, 21 Oct 2026).
+
+### Deleting a capture
+
+`DELETE /v1/demo/captures/{id}` with the pairing code removes a finished capture's objects and its
+row (401 without the code, 403 with a wrong one, 409 while it is still being processed). With
+objects deleted sixteen at a time a capture went in 4.2 s; one by one it took ~55 s and the site's
+15 s timeout gave up while the server carried on.
 
 ### Not yet exercised in the cloud
 
