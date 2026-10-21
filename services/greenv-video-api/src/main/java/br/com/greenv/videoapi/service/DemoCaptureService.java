@@ -260,9 +260,7 @@ public class DemoCaptureService implements DemoCaptureUseCase {
         }
         // Objects first and the row last, as the retention cleanup does: a delete cut short is
         // finished by trying again, or by that cleanup, instead of leaving files nothing names.
-        for (String key : DemoCleanupService.objectKeys(capture)) {
-            storage.delete(key);
-        }
+        DemoCleanupService.deleteObjects(storage, DemoCleanupService.objectKeys(capture));
         store.delete(capture.id());
     }
 

@@ -53,6 +53,9 @@ export function parseCaptureList(body: unknown): PhoneCapture[] {
  */
 export const DEMO_READ_TIMEOUT_MS = 15_000;
 
+/** One delete, objects and record. 54 s when the API removed objects one at a time (21 Oct 2026). */
+export const DEMO_DELETE_TIMEOUT_MS = 60_000;
+
 /** What the operator reads when a delete is refused, by the API's status. */
 export function deleteProblem(status: number): string {
   if (status === 401 || status === 403) return "código de pareamento errado";
@@ -70,7 +73,8 @@ export async function demoDeleteCapture(base: string, id: string, code: string, 
   const response = await fetchImpl(demoUrl(base, `captures/${encodeURIComponent(id)}`), {
     method: "DELETE",
     headers: { authorization: `Bearer ${code.trim()}` },
-    signal: AbortSignal.timeout(DEMO_READ_TIMEOUT_MS),
+    // A delete removes every frame of the capture as well; it is allowed far longer than a read.
+    signal: AbortSignal.timeout(DEMO_DELETE_TIMEOUT_MS),
   });
   if (!response.ok) throw new Error(deleteProblem(response.status));
 }
