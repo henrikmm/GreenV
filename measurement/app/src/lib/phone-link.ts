@@ -93,7 +93,7 @@ export const phoneInfo = () => (HOSTED ? hostedInfo() : call<PhoneInfo>("/info")
 
 export const listPhoneCaptures = async (): Promise<PhoneCapture[]> =>
   HOSTED
-    ? parseCaptureList(await demoGet(DEMO_API_BASE, "captures?limit=20"))
+    ? parseCaptureList(await demoGet(DEMO_API_BASE, "captures?limit=50"))
     : (await call<{ captures: PhoneCapture[] }>("/captures")).captures;
 
 export const discardPhoneCapture = (id: string) =>

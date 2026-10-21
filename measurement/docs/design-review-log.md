@@ -21,6 +21,35 @@ each one's date, commit and findings, drop the rest — rather than trimming as 
 rule enforced by the docs check would make that a chore on somebody's critical path, which is how
 evidence gets deleted in a hurry to make a build pass.
 
+## 2026-10-21 — hosted Demo panel history (working tree on 04532ce)
+
+Scope: the hosted build's Demo panel only (`panes/demo-panel.tsx`, `lib/hosted-demo.ts`), graded on
+the deployed site `greenv-demo.matomomitsu.com`, because a hosted build reads an API whose CORS
+allows that origin alone and so cannot run on the dev server. `resize_window` to 1280×800 did not
+take: the page reported 2007×1040 CSS px. Item 19 was graded by forcing `.demo-panel` to 180 px
+rather than dragging the pane.
+
+What changed: a HISTÓRICO list of the server's captures (50 at most, newest first) between the
+stages and the frames; clicking one shows its timeline, frames and cloud and pins it; a "voltar ao
+vivo" control returns to following the newest. Placed above the frames because switching empties
+the frame grid until the next links arrive, and a list below it jumped on every click (seen in the
+first deploy of this pass).
+
+- **Item 26 — FAIL, fixed in this pass.** "voltar ao vivo" was drawn in `--accent-busy`, which made
+  it amber text about what to press. Now `--emph-hi` on a `--border` outline: measured
+  `rgb(244, 244, 246)` / `rgb(42, 42, 46)`.
+- **Item 2, first measured here:** a history row's state is its text as well as its dot —
+  "falhou", "processando", or the card's name when done — and the current row adds a 2 px inset bar
+  and `--emph-hi` text, so none of it rests on hue.
+- **Item 9, first measured here:** rows 12 px, times and totals 11 px in JetBrains Mono, list head
+  10 px. The panel's 14 px stages and 28 px total are older and deliberate (read from a step back).
+- **Item 8:** no horizontal scroll (`scrollWidth` ≤ `innerWidth`).
+- **Item 19, first measured here:** at 180 px every child of every row, and the "voltar ao vivo"
+  control, stays inside its box.
+- Interaction: picking 05:17 showed its 292.6 s timeline, its frames, its Depth 2D and its cloud,
+  header HISTÓRICO; "voltar ao vivo" returned to the newest (39.4 s, PRONTO); no console errors.
+- Items 1, 3–7, 10–18, 20–25, 27, 28: N/A, no other pane or mode changed.
+
 ## 2026-09-05 — automatic grass evidence, 1280×800 (working tree on 827feb9)
 
 Reviewed the saved garden run and its app-served English report using browser and pointer

@@ -5,8 +5,10 @@
  * The local studio drives the pipeline itself (load, extract, run; `phone-auto.ts`). On the demo
  * site the GreenV video API does all of that, so this module only polls two public reads:
  *
- * - `GET captures?limit=20` every two seconds. The newest capture becomes the active one, the
- *   same way loading a capture makes it active locally, so the Demo panel reads it unchanged.
+ * - `GET captures?limit=50` every two seconds. The newest capture becomes the active one, the
+ *   same way loading a capture makes it active locally, so the Demo panel reads it unchanged —
+ *   unless someone picked an older one from the panel's history, which then stays on screen
+ *   until they go back to live (`select`).
  * - `GET captures/<id>/run` once the server has extracted frames, until the manifest arrives.
  *   The frames become the panel's thumbnails; the manifest becomes a depth field and is handed
  *   to DA3 Depth's output, which is where a live run's result goes, so Run Source, the point
@@ -73,7 +75,7 @@ export async function fetchHostedRun(base: string, id: string, fetchImpl: typeof
   return parseRun(await demoGet(base, `captures/${encodeURIComponent(id)}/run`, fetchImpl));
 }
 
-function startedAt(capture: PhoneCapture): number {
+export function startedAt(capture: PhoneCapture): number {
   const t = Date.parse(capture.events[0]?.at ?? capture.capturedAt ?? "");
   return Number.isFinite(t) ? t : Number.NEGATIVE_INFINITY;
 }
@@ -127,6 +129,8 @@ export function displayEvents(capture: PhoneCapture, shown: HostedShown | null):
 export interface HostedDemoState {
   captures: PhoneCapture[];
   activeId: string | null;
+  /** A capture chosen from the history, shown instead of the newest. Null follows live. */
+  pinnedId: string | null;
   /** The active capture's frame URLs, kept from the first answer that had them. */
   frames: string[];
   manifest: InferManifest | null;
@@ -148,6 +152,7 @@ export interface HostedDemoDeps {
 const INITIAL: HostedDemoState = {
   captures: [],
   activeId: null,
+  pinnedId: null,
   frames: [],
   manifest: null,
   shown: null,
@@ -190,11 +195,15 @@ export function createHostedDemo(deps: HostedDemoDeps) {
     }
     set({ captures, error: null });
 
-    const newest = newestCapture(captures);
-    if (newest && newest.id !== state.activeId) {
-      set({ activeId: newest.id, frames: [], manifest: null, shown: null });
+    const pinned = state.pinnedId ? (captures.find((c) => c.id === state.pinnedId) ?? null) : null;
+    // A pinned capture the server no longer lists (cleaned up after three days, or pushed past
+    // the list's limit) cannot be shown any more; going back to live beats an empty panel.
+    if (state.pinnedId && !pinned) set({ pinnedId: null });
+    const target = pinned ?? newestCapture(captures);
+    if (target && target.id !== state.activeId) {
+      set({ activeId: target.id, frames: [], manifest: null, shown: null });
       readAfterFailure = false;
-      deps.follow(newest);
+      deps.follow(target);
     }
 
     const active = captures.find((c) => c.id === state.activeId);
@@ -232,8 +241,19 @@ export function createHostedDemo(deps: HostedDemoDeps) {
     }
   }
 
+  /**
+   * Show one capture from the history, or `null` to follow the newest again. Polls at once, so
+   * a click answers now rather than at the next two-second tick.
+   */
+  function select(id: string | null): Promise<void> {
+    if (id === state.pinnedId) return Promise.resolve();
+    set({ pinnedId: id });
+    return tick();
+  }
+
   return {
     tick,
+    select,
     getState: (): HostedDemoState => state,
     subscribe(listener: () => void): () => void {
       listeners.add(listener);
@@ -318,6 +338,10 @@ export function startHostedDemo(): void {
     }
   };
   void loop();
+}
+
+export function selectHostedCapture(id: string | null): void {
+  void hostedDemo().select(id);
 }
 
 export function useHostedDemo(): HostedDemoState {

@@ -2746,6 +2746,101 @@ canvas {
   color: var(--accent-err);
 }
 
+/* The hosted site's history: compact rows, the current one marked with the panel's emphasis. */
+.demo-history {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.demo-history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: var(--text-dim);
+}
+
+/* Neutral on purpose: amber names something wrong (DESIGN.md item 26), and this is only a control. */
+.demo-history-live {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--emph-hi);
+  font: inherit;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+
+.demo-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 176px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.demo-history-row {
+  display: grid;
+  grid-template-columns: 10px auto 1fr auto;
+  column-gap: 8px;
+  align-items: center;
+  width: 100%;
+  padding: 5px 6px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.demo-history-row:hover,
+.demo-history-row:focus-visible {
+  background: var(--bg-node);
+  color: var(--text);
+}
+
+.demo-history-row.current {
+  background: var(--bg-header);
+  box-shadow: inset 2px 0 0 var(--emph-hi);
+  color: var(--emph-hi);
+}
+
+.demo-history-row .mark {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--emph-hi);
+}
+
+.demo-history-row.active .mark { background: var(--accent-busy); }
+.demo-history-row.failed .mark { background: var(--accent-err); }
+.demo-history-row.failed .what { color: var(--accent-err); }
+
+.demo-history-row .when,
+.demo-history-row .t {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.demo-history-row .what {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .demo-foot {
   display: flex;
   flex-direction: column;

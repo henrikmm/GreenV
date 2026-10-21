@@ -282,6 +282,70 @@ describe("following the newest capture", () => {
   });
 });
 
+describe("browsing the history", () => {
+  function finished(h: ReturnType<typeof harness>, id: string, offsetMs: number): PhoneCapture {
+    h.api.runs.set(id, { frames: frameUrls(3), manifest: parseRun({ manifest: wireManifest() }).manifest, gpu: null, gpuSeconds: null });
+    return capture(id, FETCHED, offsetMs);
+  }
+
+  it("shows an older capture when one is picked, and builds its cloud", async () => {
+    const h = harness();
+    h.api.captures = [finished(h, "new", 60_000), finished(h, "old", 0)];
+    await h.demo.tick();
+    await h.demo.idle();
+
+    await h.demo.select("old");
+    await h.demo.idle();
+
+    const state = h.demo.getState();
+    expect(state.activeId).toBe("old");
+    expect(state.pinnedId).toBe("old");
+    expect(h.followed).toEqual(["new", "old"]);
+    expect(h.shown.map((s) => s.id)).toEqual(["new", "old"]);
+  });
+
+  it("stays on the picked capture while newer ones arrive, until live is chosen again", async () => {
+    const h = harness();
+    h.api.captures = [finished(h, "old", 0)];
+    await h.demo.tick();
+    await h.demo.select("old");
+
+    h.api.captures = [capture("newer", ["created"], 120_000), ...h.api.captures];
+    await h.demo.tick();
+    expect(h.demo.getState().activeId).toBe("old");
+
+    await h.demo.select(null);
+    expect(h.demo.getState().activeId).toBe("newer");
+    expect(h.demo.getState().pinnedId).toBeNull();
+  });
+
+  it("goes back to live when the picked capture leaves the server's list", async () => {
+    const h = harness();
+    h.api.captures = [finished(h, "new", 60_000), finished(h, "old", 0)];
+    await h.demo.tick();
+    await h.demo.select("old");
+
+    h.api.captures = [h.api.captures[0]];
+    await h.demo.tick();
+
+    expect(h.demo.getState().pinnedId).toBeNull();
+    expect(h.demo.getState().activeId).toBe("new");
+  });
+
+  it("does not rebuild the capture already on screen when it is picked again", async () => {
+    const h = harness();
+    h.api.captures = [finished(h, "c1", 0)];
+    await h.demo.tick();
+    await h.demo.idle();
+
+    await h.demo.select("c1");
+    await h.demo.idle();
+
+    expect(h.followed).toEqual(["c1"]);
+    expect(h.shown).toHaveLength(1);
+  });
+});
+
 describe("the Demo panel's timeline", () => {
   const server = [event("created", 0), event("inferred", 20_000), event("fetched", 24_000)];
   const c = { ...capture("c1", []), events: server };

@@ -18,7 +18,7 @@ import { useEffect, useState } from "react";
 import { useGraph } from "../graph/graph-store";
 import type { FramesValue } from "../graph/nodes/frame-source";
 import { DEMO_API_BASE, HOSTED } from "../lib/hosted";
-import { SHOWN_PHASE, displayEvents, useHostedDemo } from "../lib/hosted-demo";
+import { SHOWN_PHASE, displayEvents, selectHostedCapture, startedAt, useHostedDemo } from "../lib/hosted-demo";
 import { frameUrl } from "../lib/infer-client";
 import { FRAME_SOURCE_ID } from "../lib/load-clip";
 import { usePhoneAuto } from "../lib/phone-auto";
@@ -97,6 +97,60 @@ function seconds(ms: number): string {
   return `${(ms / 1000).toFixed(1).replace(".", ",")} s`;
 }
 
+function gpuName(gpu: unknown): string | null {
+  return typeof gpu === "string" ? gpu.replace(/^NVIDIA /, "").replace(/ Blackwell Server Edition$/, "").replace(/ 80GB HBM3$/, "") : null;
+}
+
+const WHEN = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+
+/**
+ * Every capture the server still holds, newest first: the hosted site's history. A row is the
+ * server's own record — when it started, how it ended, its total and its card — and clicking one
+ * puts that capture's frames and cloud on screen until "ao vivo" is chosen again. Server times
+ * only: the page's `shown` exists for the capture it built, not for the rest of the list.
+ */
+function DemoHistory({ captures, activeId, pinnedId }: { captures: PhoneCapture[]; activeId: string | null; pinnedId: string | null }) {
+  if (captures.length === 0) return null;
+  const rows = [...captures].sort((a, b) => startedAt(b) - startedAt(a));
+  return (
+    <section className="demo-history" aria-label="Histórico de capturas">
+      <div className="demo-history-head">
+        <span>HISTÓRICO · {rows.length}</span>
+        {pinnedId && (
+          <button type="button" className="demo-history-live" onClick={() => selectHostedCapture(null)}>
+            voltar ao vivo
+          </button>
+        )}
+      </div>
+      <ol className="demo-history-list">
+        {rows.map((c) => {
+          const last = c.events.at(-1);
+          const fetched = c.events.find((e) => e.phase === "fetched" || e.phase === "measured");
+          const state = last?.phase === "failed" ? "failed" : fetched ? "done" : "active";
+          const start = Date.parse(c.events[0]?.at ?? c.capturedAt ?? "");
+          const gpu = gpuName(c.events.find((e) => e.phase === "inferred")?.detail?.gpu);
+          return (
+            <li key={c.id}>
+              <button
+                type="button"
+                className={`demo-history-row ${state}${c.id === activeId ? " current" : ""}`}
+                aria-current={c.id === activeId ? "true" : undefined}
+                title={c.id}
+                onClick={() => selectHostedCapture(c.id)}
+              >
+                <span className="mark" aria-hidden="true" />
+                <span className="when num">{Number.isFinite(start) ? WHEN.format(start) : c.id}</span>
+                <span className="what">{state === "failed" ? "falhou" : state === "active" ? "processando" : gpu ?? "pronto"}</span>
+                <span className="t num">{fetched ? seconds(fetched.tMs) : ""}</span>
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+    </section>
+  );
+}
+
 /** Up to `count` frames spread over the whole extraction, in order. */
 function pick(paths: string[], count: number): string[] {
   if (paths.length <= count) return paths;
@@ -149,7 +203,9 @@ export function DemoPanel() {
   return (
     <div className="demo-panel">
       <div className="demo-head">
-        <span className={`demo-live${running ? " on" : ""}`}>{running ? "AO VIVO" : finished ? "PRONTO" : "AGUARDANDO"}</span>
+        <span className={`demo-live${running ? " on" : ""}`}>
+          {running ? "AO VIVO" : HOSTED && hosted.pinnedId && finished ? "HISTÓRICO" : finished ? "PRONTO" : "AGUARDANDO"}
+        </span>
         <span className="demo-total num">{totalMs === null ? "—" : seconds(totalMs)}</span>
       </div>
       {!capture && <p className="demo-idle">Grave um objeto no celular. Ele aparece aqui sozinho.</p>}
@@ -183,6 +239,11 @@ export function DemoPanel() {
           })}
         </ol>
       )}
+      {/*
+        Above the frames, not below: switching captures empties the frame grid until the next
+        one's links arrive, and a list under it would jump on every click.
+      */}
+      {HOSTED && <DemoHistory captures={hosted.captures} activeId={hosted.activeId} pinnedId={hosted.pinnedId} />}
       {thumbs.length > 0 && (
         <div className="demo-frames" key={capture?.id}>
           {/*
