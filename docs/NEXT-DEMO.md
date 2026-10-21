@@ -6,6 +6,12 @@ shows the point cloud — automatically, with every stage timed and reported bac
 Exercised end to end with a Galaxy S25 Edge against an RTX PRO 6000 and an L4; nothing is
 deployed. The gateway runs only on the Mac; a cloud gateway does not exist yet.
 
+**Update, 21 Oct 2026.** The same demo now also runs without the Mac: the phone uploads to
+`https://greenvapi.matomomitsu.com/v1/demo/`, the API samples the frames and sends them to the
+RunPod endpoint `greenv-demo-depth`, and the public read-only site
+`https://greenv-demo.matomomitsu.com` shows the result. A warm capture took 39 s from upload to
+point cloud on the RTX PRO 6000. See §8. The Mac flow below is unchanged and is the fallback.
+
 This is the canonical record of what was built on branch `feat/mobile-next-demo-capture`, where
 each part lives, the contracts between them, and what was measured. It describes; it does not
 prescribe how a deployment should be done.
@@ -216,8 +222,8 @@ LingBot `live-service` image were deleted.
 
 ## 6. Known limits
 
-- **Never run:** an H100 (the CUDA 12.8 image supports Hopper, untested); more than 112 frames on
-  either card; 256 frames on the RTX PRO 6000.
+- **Never run:** more than 112 frames on either card; 256 frames on the RTX PRO 6000. (An H100
+  has since run five cloud jobs with the CUDA 12.8 image; §8.)
 - **The studio's GPU selector button** has not been clicked against a live service; `deploy.sh`
   with `VERGE_GPU` was used for both cards, and the studio did read the deployed card back.
 - **Demo mode** was exercised against the local mock only; its stages and thumbnails were seen
@@ -239,3 +245,89 @@ LingBot `live-service` image were deleted.
 - One capture is one clip is one reconstruction: metric scale does not transfer between clips.
 - DA3's exported cloud is the default view; the cloud rebuilt from depth ("Ours") is an option.
 - The RTX PRO 6000 is the default card: 2.7× faster on the GPU than the L4 on the same frames.
+
+## 8. In the cloud, 21 Oct 2026
+
+**A warm capture took 39.4 s from the start of the upload to a published point cloud, on the
+RTX PRO 6000; a capture that found the worker asleep but already pulled took 63.0 s.** No Mac is
+involved: the phone talks to the API, the API to RunPod, and the site reads the API.
+
+```
+phone ──HTTPS──> greenvapi.matomomitsu.com/v1/demo/   (greenv-video-api, Azure Container Apps)
+                   │ ffmpeg: 10 fps, long edge 1024, ≤ 112 frames → R2 demo/<id>/sampled-frames/
+                   │ RunPod async job, keys only
+                   ▼
+                 greenv-demo-depth (RunPod; RTX PRO 6000, H100 PCIe, H100 SXM; 0–1 workers)
+                   │ publishes scene.glb + result.npz to R2 demo/<id>/depth/<run_id>/
+                   ▼
+greenv-demo.matomomitsu.com (Verge Studio, hosted read-only build) ── polls /v1/demo/captures,
+                   reads frames and artifacts through presigned R2 URLs
+```
+
+Writes need the pairing code as a Bearer token (`GREENV_DEMO_PAIRING_CODE`, ≥ 8 characters);
+reads are public. The phase names are the contract-1 names of §3, all written by the API now,
+and `fetched` means "artifacts published and signed". What is deployed where:
+
+| Part | Where | Version |
+|---|---|---|
+| API | `ca-greenv-mvp-api`, revision `demo-9ab614b` | `greenv-video-api@sha256:2c826e25…` |
+| Depth handler | template `greenv-depth-demo` (`8e5o3dew3k`), endpoint `gu0tdcrefo6lri` | `greenv-depth-runpod@sha256:9afaac86…` (commit `74279ad`) |
+| Site | Cloudflare Pages project `greenv-demo` | build of `measurement/app` with `VITE_VERGE_HOSTED=1` |
+| Phone | `apps/mobile`, `lib/main_demo.dart` | defaults to the cloud prefix; the code is typed in settings |
+
+### Runs
+
+Eight captures, each a real 1080p phone segment from the field pipeline's bucket (9.7 s,
+17.2–18.5 MB, 96 frames at 576×1024), sent by `apps/mobile/tool/gateway_smoke.dart` — the phone's
+own client code — from a workstation. Seconds; the API's phase timeline, plus RunPod's own
+`delayTime`/`executionTime` and the depth service's `wall_seconds`:
+
+| Capture | Build | GPU | Worker | Upload | Extract | Frames→R2 | Queue | Job | Total | RunPod exec | Service wall |
+|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| `081752-83rl` | 1st | H100 SXM | cold | 4.0 | 8.2 | **164.7** | 55.1 | 58.0 | 292.6 | 57.2 | 25.8 |
+| `083949-000r` | 2nd | H100 SXM | cold, throttled | 2.9 | 6.9 | 12.2 | 95.1 | 54.0 | 173.3 | 53.1 | 20.2 |
+| `084246-hi4y` | 2nd | H100 SXM | warm | 2.9 | 6.2 | 11.0 | 0.6 | 36.0 | 58.2 | 36.1 | 11.2 |
+| `084347-qmbl` | 2nd | H100 SXM | warm | 3.1 | 6.6 | 11.4 | 1.8 | 36.0 | 60.3 | 36.6 | 9.3 |
+| `084935-c3bl` | 2nd | H100 SXM | warm | 3.4 | 6.5 | 11.3 | 2.4 | 37.7 | 63.9 | 38.6 | 11.2 |
+| `085043-ntp0` | 2nd | H100 SXM | warm | 2.9 | 6.6 | 11.1 | 0.4 | 35.6 | 58.3 | 34.3 | 9.1 |
+| `085547-d15x` | 3rd | RTX PRO 6000 | asleep, pulled | 3.2 | 6.2 | 11.2 | 12.7 | 27.6 | 63.0 | 27.4 | 19.4 |
+| `085654-mblq` | 3rd | RTX PRO 6000 | warm | 2.9 | 6.7 | 11.3 | 2.1 | 15.5 | **39.4** | 15.6 | 7.9 |
+
+Capture ids are `cap-20261021-` plus the column. Builds: 1st = API `c4f4c35`, handler
+`cff8f02c`; 2nd = API `9ab614b` (frames uploaded sixteen at a time); 3rd = 2nd plus handler
+`74279ad` (frames fetched sixteen at a time). Upload ran at 5.2–6.7 MB/s.
+
+What the runs showed:
+
+- **Uploading frames one at a time cost 164 s** — three sequential round trips per frame from
+  Brazil South to R2 — and was longer than the endpoint's 120 s idle timeout, so every capture
+  would have met a cold worker. Concurrent uploads: 11–12 s.
+- **The handler spent ~25 s of each warm job outside the depth service** (RunPod exec 34–39 s
+  against a service wall of 9–11 s), most of it reading frames from R2 one by one. Concurrent
+  reads brought exec to 15.6 s against 7.9 s; the remaining ~8 s is not broken down here, but the
+  handler now prints `frames_fetched`, `inferred` and `published` with their seconds.
+- **The card is whichever is free.** The endpoint lists the PRO 6000 first, yet six of eight jobs
+  ran on an H100 SXM. With neither free the worker reports `throttled`, and the one cold start
+  that met it waited 95 s in the queue.
+- **A worker that has already pulled the image starts in ~11 s** (`delayTime` 10 967 ms,
+  `085547-d15x`), against 54–95 s for the first start after an image change.
+- Cost: the RunPod balance went from US$ 22.99 (19 Oct) to US$ 21.91 after the last run —
+  US$ 1.08 for all eight jobs and the image pulls. A running PRO 6000 worker showed
+  `currentSpendPerHr` 3.49.
+
+The site rendered `081752-83rl` — phases, the 96 frames, the depth view and DA3's cloud from R2 —
+with no console errors (Chrome, 21 Oct 2026).
+
+### Not yet exercised in the cloud
+
+- **A real phone on the event's network.** Every run above came from `gateway_smoke.dart` on a
+  workstation. Upload over 4G or venue Wi-Fi is unmeasured.
+- **Videos near the limits.** The phone refuses over 95 MiB (Cloudflare cuts requests at 100 MB);
+  nothing over 18.5 MB was sent, and the Container Apps request timeout (~240 s) on a slow upload
+  is untested.
+- **Two visitors at once.** One worker at most, so a second capture queues behind the first.
+- **The height measurement on a cloud result.** The captures above are field-pipeline segments, not
+  objects with a tape-measured height.
+- **Keeping a worker warm for the event** (`workersMin 1`) was not tried. At the observed
+  US$ 3.49/h, eight hours is about US$ 28, more than the balance; scale-to-zero with a
+  pre-pulled worker cost ~24 s more per capture in the run above.
