@@ -225,6 +225,8 @@ const Map<String, String> phaseLabels = {
   'extracting': 'Extraindo quadros',
   'extracted': 'Quadros extraídos',
   'uploading-frames': 'Enviando quadros à GPU',
+  'sampling': 'Separando quadros na GPU',
+  'sampled': 'Quadros separados na GPU',
   'waking': 'Acordando a GPU',
   'loading-model': 'Carregando o modelo',
   'inferring': 'Reconstruindo em 3D',
