@@ -18,7 +18,14 @@ import { useEffect, useState } from "react";
 import { useGraph } from "../graph/graph-store";
 import type { FramesValue } from "../graph/nodes/frame-source";
 import { DEMO_API_BASE, HOSTED } from "../lib/hosted";
-import { SHOWN_PHASE, displayEvents, selectHostedCapture, startedAt, useHostedDemo } from "../lib/hosted-demo";
+import {
+  SHOWN_PHASE,
+  deleteHostedCapture,
+  displayEvents,
+  selectHostedCapture,
+  startedAt,
+  useHostedDemo,
+} from "../lib/hosted-demo";
 import { frameUrl } from "../lib/infer-client";
 import { FRAME_SOURCE_ID } from "../lib/load-clip";
 import { usePhoneAuto } from "../lib/phone-auto";
@@ -108,9 +115,34 @@ const WHEN = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit"
  * server's own record — when it started, how it ended, its total and its card — and clicking one
  * puts that capture's frames and cloud on screen until "ao vivo" is chosen again. Server times
  * only: the page's `shown` exists for the capture it built, not for the rest of the list.
+ * A finished or failed row can be deleted, with the pairing code typed in for that delete.
  */
 function DemoHistory({ captures, activeId, pinnedId }: { captures: PhoneCapture[]; activeId: string | null; pinnedId: string | null }) {
+  // The capture whose delete is being confirmed, and the code typed for it. The code lives only
+  // in this form: the site is public and on a shared screen, so it is asked for every time.
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [code, setCode] = useState("");
+  const [problem, setProblem] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   if (captures.length === 0) return null;
+
+  const close = () => {
+    setDeleting(null);
+    setCode("");
+    setProblem(null);
+  };
+  const confirm = async (id: string) => {
+    setBusy(true);
+    setProblem(null);
+    try {
+      await deleteHostedCapture(id, code);
+      close();
+    } catch (e) {
+      setProblem(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
   const rows = [...captures].sort((a, b) => startedAt(b) - startedAt(a));
   return (
     <section className="demo-history" aria-label="Histórico de capturas">
@@ -143,6 +175,47 @@ function DemoHistory({ captures, activeId, pinnedId }: { captures: PhoneCapture[
                 <span className="what">{state === "failed" ? "falhou" : state === "active" ? "processando" : gpu ?? "pronto"}</span>
                 <span className="t num">{fetched ? seconds(fetched.tMs) : ""}</span>
               </button>
+              {/* The API refuses a capture still being processed, so the control is not offered. */}
+              {state !== "active" && deleting !== c.id && (
+                <button
+                  type="button"
+                  className="demo-history-delete"
+                  aria-label={`Apagar a captura de ${Number.isFinite(start) ? WHEN.format(start) : c.id}`}
+                  onClick={() => {
+                    close();
+                    setDeleting(c.id);
+                  }}
+                >
+                  apagar
+                </button>
+              )}
+              {deleting === c.id && (
+                <form
+                  className="demo-history-confirm"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (code.trim() && !busy) void confirm(c.id);
+                  }}
+                >
+                  <input
+                    type="password"
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                    onKeyDown={(e) => e.key === "Escape" && close()}
+                    placeholder="código de pareamento"
+                    aria-label="Código de pareamento"
+                    autoComplete="off"
+                    autoFocus
+                  />
+                  <button type="submit" disabled={!code.trim() || busy}>
+                    {busy ? "apagando…" : "apagar"}
+                  </button>
+                  <button type="button" onClick={close}>
+                    cancelar
+                  </button>
+                  {problem && <span className="demo-history-problem">{problem}</span>}
+                </form>
+              )}
             </li>
           );
         })}

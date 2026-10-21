@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { InferManifest } from "./contract";
-import { demoUrl, parseCaptureList, withSlash } from "./hosted";
+import { deleteProblem, demoDeleteCapture, demoUrl, parseCaptureList, withSlash } from "./hosted";
 import {
   SHOWN_PHASE,
   createHostedDemo,
@@ -91,6 +91,10 @@ function harness() {
   let showResult: () => Promise<void> = () => Promise.resolve();
   let clock = 0;
   const fetchRun = vi.fn(async (id: string) => api.runs.get(id) ?? { frames: [], manifest: null, gpu: null, gpuSeconds: null });
+  const deleteCapture = vi.fn(async (id: string, code: string) => {
+    if (code !== "right-code") throw new Error("código de pareamento errado");
+    api.captures = api.captures.filter((c) => c.id !== id);
+  });
   const demo = createHostedDemo({
     listCaptures: async () => {
       if (api.listFails) throw new Error("demo API captures?limit=20: 502");
@@ -103,6 +107,7 @@ function harness() {
       clock += 1500; // the npz download and the cloud build
       return showResult();
     },
+    deleteCapture,
     now: () => clock,
   });
   return {
@@ -111,6 +116,7 @@ function harness() {
     followed,
     shown,
     fetchRun,
+    deleteCapture,
     failShow: (message: string) => {
       showResult = () => Promise.reject(new Error(message));
     },
@@ -343,6 +349,57 @@ describe("browsing the history", () => {
 
     expect(h.followed).toEqual(["c1"]);
     expect(h.shown).toHaveLength(1);
+  });
+});
+
+describe("deleting from the history", () => {
+  function finished(h: ReturnType<typeof harness>, id: string, offsetMs: number): PhoneCapture {
+    h.api.runs.set(id, { frames: frameUrls(3), manifest: parseRun({ manifest: wireManifest() }).manifest, gpu: null, gpuSeconds: null });
+    return capture(id, FETCHED, offsetMs);
+  }
+
+  it("removes the capture on screen and moves to the newest, leaving the pin", async () => {
+    const h = harness();
+    h.api.captures = [finished(h, "new", 60_000), finished(h, "old", 0)];
+    await h.demo.tick();
+    await h.demo.select("old");
+
+    await h.demo.remove("old", "right-code");
+
+    const state = h.demo.getState();
+    expect(h.deleteCapture).toHaveBeenCalledWith("old", "right-code");
+    expect(state.captures.map((c) => c.id)).toEqual(["new"]);
+    expect(state.pinnedId).toBeNull();
+    expect(state.activeId).toBe("new");
+  });
+
+  it("changes nothing when the API refuses the code", async () => {
+    const h = harness();
+    h.api.captures = [finished(h, "c1", 0)];
+    await h.demo.tick();
+
+    await expect(h.demo.remove("c1", "wrong")).rejects.toThrow(/código de pareamento errado/);
+    expect(h.demo.getState().captures.map((c) => c.id)).toEqual(["c1"]);
+    expect(h.demo.getState().activeId).toBe("c1");
+  });
+
+  it("sends a DELETE carrying the typed code, and names each refusal", async () => {
+    const calls: { url: string; init: RequestInit }[] = [];
+    const answer = (status: number) =>
+      (async (url: string, init: RequestInit) => {
+        calls.push({ url, init });
+        return new Response(null, { status });
+      }) as unknown as typeof fetch;
+
+    await demoDeleteCapture(BASE, "c 1", " right-code ", answer(204));
+    expect(calls[0].url).toBe(`${BASE}captures/c%201`);
+    expect(calls[0].init.method).toBe("DELETE");
+    expect((calls[0].init.headers as Record<string, string>).authorization).toBe("Bearer right-code");
+
+    await expect(demoDeleteCapture(BASE, "c1", "x", answer(403))).rejects.toThrow("código de pareamento errado");
+    expect(deleteProblem(401)).toBe("código de pareamento errado");
+    expect(deleteProblem(409)).toMatch(/processando/);
+    expect(deleteProblem(404)).toMatch(/já foi apagada/);
   });
 });
 

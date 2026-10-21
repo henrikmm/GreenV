@@ -8,7 +8,8 @@
  *
  * In hosted mode the server does all the work (`/v1/demo/*` on the GreenV video API): it
  * receives the phone's video, extracts the frames, runs the GPU job and publishes signed links.
- * The page only reads, which is why it can be public.
+ * The page only reads, which is why it can be public — with one exception, deleting a capture
+ * from the history, which needs the pairing code typed in at that moment (`demoDeleteCapture`).
  */
 
 import type { PhoneCapture } from "./phone-link";
@@ -51,6 +52,28 @@ export function parseCaptureList(body: unknown): PhoneCapture[] {
  * Wi-Fi — would otherwise freeze the page on its last capture for good.
  */
 export const DEMO_READ_TIMEOUT_MS = 15_000;
+
+/** What the operator reads when a delete is refused, by the API's status. */
+export function deleteProblem(status: number): string {
+  if (status === 401 || status === 403) return "código de pareamento errado";
+  if (status === 404) return "essa captura já foi apagada";
+  if (status === 409) return "ainda está processando; apague quando terminar";
+  return `a API recusou (${status})`;
+}
+
+/**
+ * Removes one capture: video, frames, artifacts and record. The page's only write, and it holds
+ * no credential of its own — the pairing code is whatever the operator typed for this delete, and
+ * the API checks it. Never stored: the site is public and runs on a shared screen.
+ */
+export async function demoDeleteCapture(base: string, id: string, code: string, fetchImpl: typeof fetch = fetch): Promise<void> {
+  const response = await fetchImpl(demoUrl(base, `captures/${encodeURIComponent(id)}`), {
+    method: "DELETE",
+    headers: { authorization: `Bearer ${code.trim()}` },
+    signal: AbortSignal.timeout(DEMO_READ_TIMEOUT_MS),
+  });
+  if (!response.ok) throw new Error(deleteProblem(response.status));
+}
 
 export async function demoGet(base: string, path: string, fetchImpl: typeof fetch = fetch): Promise<unknown> {
   // No credentials and no custom headers: reads are public, and a plain GET stays a simple

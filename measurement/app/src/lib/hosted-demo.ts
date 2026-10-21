@@ -29,7 +29,7 @@ import { getGraph, publishNodeOutputs, runAuto, setNodeParams } from "../graph/g
 import { FIXTURE_RUN_ID, POINT_CLOUD_ID } from "../graph/nodes";
 import { depthFieldFromRun } from "../measurement/depth-field";
 import type { InferManifest } from "./contract";
-import { DEMO_API_BASE, HOSTED, demoGet } from "./hosted";
+import { DEMO_API_BASE, HOSTED, demoDeleteCapture, demoGet } from "./hosted";
 import { artifactUrl, manifestFromWire } from "./infer-client";
 import { FRAME_SOURCE_ID } from "./load-clip";
 import { followPhoneCapture, listPhoneCaptures, type PhoneCapture, type PhoneEvent } from "./phone-link";
@@ -146,6 +146,8 @@ export interface HostedDemoDeps {
   follow: (capture: PhoneCapture) => void;
   /** Build the cloud for a finished run. Resolves once it is on screen. */
   show: (capture: PhoneCapture, manifest: InferManifest, frames: string[]) => Promise<void>;
+  /** Deletes a capture at the API with the code the operator typed. Rejects with the reason. */
+  deleteCapture: (id: string, code: string) => Promise<void>;
   now?: () => number;
 }
 
@@ -251,9 +253,24 @@ export function createHostedDemo(deps: HostedDemoDeps) {
     return tick();
   }
 
+  /**
+   * Deletes a capture, then polls so the list and the screen catch up at once. Deleting the one
+   * on screen moves to the newest, as a capture cleaned up by the server does. Rejects, with the
+   * API's reason, when the delete was refused; nothing changes here then.
+   */
+  async function remove(id: string, code: string): Promise<void> {
+    await deps.deleteCapture(id, code);
+    set({
+      captures: state.captures.filter((c) => c.id !== id),
+      ...(state.pinnedId === id ? { pinnedId: null } : {}),
+    });
+    await tick();
+  }
+
   return {
     tick,
     select,
+    remove,
     getState: (): HostedDemoState => state,
     subscribe(listener: () => void): () => void {
       listeners.add(listener);
@@ -318,6 +335,7 @@ export function hostedDemo(): HostedDemo {
     fetchRun: (id) => fetchHostedRun(DEMO_API_BASE, id),
     follow: followInGraph,
     show: showInGraph,
+    deleteCapture: (id, code) => demoDeleteCapture(DEMO_API_BASE, id, code),
   });
   return instance;
 }
@@ -342,6 +360,10 @@ export function startHostedDemo(): void {
 
 export function selectHostedCapture(id: string | null): void {
   void hostedDemo().select(id);
+}
+
+export function deleteHostedCapture(id: string, code: string): Promise<void> {
+  return hostedDemo().remove(id, code);
 }
 
 export function useHostedDemo(): HostedDemoState {

@@ -2789,6 +2789,73 @@ canvas {
   list-style: none;
 }
 
+.demo-history-list li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+}
+
+/* Dim until pointed at: a delete sits beside every row, and none of them should shout. */
+.demo-history-delete {
+  padding: 2px 6px;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+  opacity: 0.6;
+}
+
+.demo-history-delete:hover,
+.demo-history-delete:focus-visible {
+  color: var(--emph-hi);
+  opacity: 1;
+}
+
+.demo-history-confirm {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 6px 6px 24px;
+}
+
+.demo-history-confirm input {
+  flex: 1 1 120px;
+  min-width: 0;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-app);
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+}
+
+.demo-history-confirm button {
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--emph-hi);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.demo-history-confirm button:disabled {
+  color: var(--text-dim);
+  cursor: default;
+}
+
+.demo-history-problem {
+  flex-basis: 100%;
+  font-size: 11px;
+  color: var(--accent-err);
+}
+
 .demo-history-row {
   display: grid;
   grid-template-columns: 10px auto 1fr auto;
