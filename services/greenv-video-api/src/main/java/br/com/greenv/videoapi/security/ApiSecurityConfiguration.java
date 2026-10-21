@@ -136,12 +136,14 @@ class ApiSecurityConfiguration {
             // Registered first, because the first pattern that matches wins. The demo site reads
             // public data with plain GETs and no cookie, and the phone is not a browser, so these
             // routes grant no credentials to any origin — whatever the dashboard's rule below says.
+            // DELETE and Authorization are for the site's history, which removes a capture with
+            // the pairing code typed by the operator; the code, not the origin, is the check.
             var demo = new CorsConfiguration();
             var demoOrigins = new LinkedHashSet<>(properties.allowedOrigins());
             demoOrigins.addAll(siteOrigins);
             demo.setAllowedOrigins(List.copyOf(demoOrigins));
-            demo.setAllowedMethods(List.of("GET", "HEAD", "OPTIONS"));
-            demo.setAllowedHeaders(List.of(HttpHeaders.CONTENT_TYPE));
+            demo.setAllowedMethods(List.of("GET", "HEAD", "DELETE", "OPTIONS"));
+            demo.setAllowedHeaders(List.of(HttpHeaders.CONTENT_TYPE, HttpHeaders.AUTHORIZATION));
             demo.setAllowCredentials(false);
             demo.setMaxAge(Duration.ofMinutes(30));
             source.registerCorsConfiguration("/v1/demo/**", demo);

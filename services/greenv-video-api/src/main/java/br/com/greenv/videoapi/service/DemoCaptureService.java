@@ -247,6 +247,26 @@ public class DemoCaptureService implements DemoCaptureUseCase {
     }
 
     @Override
+    public void delete(String authorization, String captureId) {
+        requireAuthorised(authorization);
+        DemoCapture capture = existing(captureId);
+        if (DemoPhases.BEFORE_JOB.contains(capture.state())
+                || DemoPhases.WITH_JOB.contains(capture.state())
+                || DemoPhases.UPLOADING.equals(capture.state())) {
+            throw new ApplicationException(
+                    FailureKind.CONFLICT,
+                    "capture_in_progress",
+                    "capture is " + capture.state() + "; delete it once it is fetched or failed");
+        }
+        // Objects first and the row last, as the retention cleanup does: a delete cut short is
+        // finished by trying again, or by that cleanup, instead of leaving files nothing names.
+        for (String key : DemoCleanupService.objectKeys(capture)) {
+            storage.delete(key);
+        }
+        store.delete(capture.id());
+    }
+
+    @Override
     public DemoRun run(String captureId) {
         DemoCapture capture = existing(captureId);
         List<String> frames = capture.frameKeys().stream()

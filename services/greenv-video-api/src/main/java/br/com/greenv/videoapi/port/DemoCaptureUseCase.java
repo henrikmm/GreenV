@@ -42,6 +42,13 @@ public interface DemoCaptureUseCase {
     DemoRun run(String captureId);
 
     /**
+     * Removes a finished or failed capture now, rather than after the retention period: its
+     * video, frames and artifacts, then its record. Refuses one still being processed, whose step
+     * in flight would otherwise write to a capture that no longer exists.
+     */
+    void delete(String authorization, String captureId);
+
+    /**
      * One of the demo's own objects, for deployments whose storage has no signed URLs of its own.
      * Refuses any key outside {@code demo/}.
      */

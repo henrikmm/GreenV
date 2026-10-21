@@ -1123,6 +1123,46 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Problem'
+    delete:
+      operationId: deleteDemoCapture
+      tags: [demo]
+      summary: Remove a finished or failed capture now
+      description: |
+        Deletes the capture's video, frames and published artifacts, then its record, instead of
+        waiting for the retention cleanup (`GREENV_DEMO_RETENTION_DAYS`, three by default). Only
+        with the pairing code. A capture still uploading or being processed is refused with 409:
+        the step in flight would write to a capture that no longer exists.
+      security:
+        - demoPairingCode: []
+      parameters:
+        - $ref: '#/components/parameters/DemoCaptureId'
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          description: No pairing code presented
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Wrong pairing code
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: No such capture
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: The capture is still uploading or being processed
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /v1/demo/captures/{captureId}/video:
     put:
       operationId: uploadDemoVideo

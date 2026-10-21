@@ -2,6 +2,8 @@ package br.com.greenv.videoapi.api;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import br.com.greenv.videoapi.domain.DemoCapture;
+import br.com.greenv.videoapi.domain.DemoPhase;
 import br.com.greenv.videoapi.domain.DemoSampling;
 import br.com.greenv.videoapi.domain.DemoVideoProbe;
 import br.com.greenv.videoapi.port.DemoCaptureStore;
@@ -211,6 +213,44 @@ class DemoCaptureIntegrationTest {
                 .isEqualTo(413);
     }
 
+    @Test
+    void deletesAFinishedCaptureWithTheCodeAndNothingElse() throws Exception {
+        String id = announce();
+        byte[] video = "a-video-to-delete".getBytes(StandardCharsets.UTF_8);
+        assertThat(upload(id, "video/mp4", video, PAIRING_CODE).statusCode()).isEqualTo(200);
+        awaitState(id, "fetched");
+        JsonNode run = json(get("/captures/" + id + "/run", null));
+        String frame = run.path("frames").get(0).asString();
+        String artifact = run.path("manifest").path("artifacts").get(0).path("url").asString();
+
+        assertThat(delete(id, null).statusCode()).isEqualTo(401);
+        assertThat(delete(id, "Bearer wrong-code-0000").statusCode()).isEqualTo(403);
+        assertThat(get("/captures/" + id, null).statusCode()).as("refused, so still there").isEqualTo(200);
+
+        assertThat(delete(id, "Bearer " + PAIRING_CODE).statusCode()).isEqualTo(204);
+        assertThat(get("/captures/" + id, null).statusCode()).isEqualTo(404);
+        assertThat(json(get("/captures?limit=100", null)).path("captures").findValuesAsString("id")).doesNotContain(id);
+        for (String url : List.of(frame, artifact)) {
+            HttpResponse<byte[]> gone = client.send(
+                    HttpRequest.newBuilder(URI.create(url)).build(), HttpResponse.BodyHandlers.ofByteArray());
+            assertThat(gone.statusCode()).as(url).isEqualTo(404);
+        }
+        assertThat(delete(id, "Bearer " + PAIRING_CODE).statusCode()).isEqualTo(404);
+    }
+
+    @Test
+    void refusesToDeleteACaptureStillBeingProcessed() throws Exception {
+        String id = announce();
+        // Mid-upload: a state no pipeline lane claims, so this capture cannot hold up the others.
+        DemoCapture held = store.find(id).orElseThrow();
+        assertThat(store.beginUpload(id, DemoPhase.of("uploading", held.createdAt(), Instant.now(), null))).isTrue();
+
+        HttpResponse<String> refused = delete(id, "Bearer " + PAIRING_CODE);
+        assertThat(refused.statusCode()).isEqualTo(409);
+        assertThat(json(refused).path("detail").asString()).contains("uploading");
+        assertThat(get("/captures/" + id, null).statusCode()).isEqualTo(200);
+    }
+
     /** The public site lives on its own origin and reads without credentials. */
     @Test
     void answersTheSiteAcrossOrigins() throws Exception {
@@ -339,6 +379,14 @@ class DemoCaptureIntegrationTest {
             Thread.sleep(100);
         }
         throw new AssertionError("capture " + id + " never reached " + phase + ": " + status);
+    }
+
+    private HttpResponse<String> delete(String id, String authorization) throws Exception {
+        HttpRequest.Builder builder = HttpRequest.newBuilder(uri("/captures/" + id)).DELETE();
+        if (authorization != null) {
+            builder.header("authorization", authorization);
+        }
+        return send(builder);
     }
 
     private HttpResponse<String> get(String path, String pairingCode) throws Exception {
