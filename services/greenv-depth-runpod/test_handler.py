@@ -113,8 +113,9 @@ assert manifest == EXAMPLE["output"], json.dumps(manifest, indent=2)
 print("contract example round-trips OK:", manifest["run_id"])
 
 # Frames travel by key, in the order the segment recorded them, and their bytes never enter the
-# job body -- which is the entire reason this dialect exists.
-assert buckets[0].reads == [frame["key"] for frame in EXAMPLE["input"]["frames"]], buckets[0].reads
+# job body -- which is the entire reason this dialect exists. They are read several at a time, so
+# the reads can land in any order; the order that matters is the paths handed to inference.
+assert sorted(buckets[0].reads) == sorted(frame["key"] for frame in EXAMPLE["input"]["frames"]), buckets[0].reads
 inferred = next(call for name, call in depth.calls if name == "infer")
 assert [Path(path).name for path in inferred["paths"]] == ["frame-0001.jpg", "frame-0002.jpg", "frame-0003.jpg"]
 assert inferred["params"] == {"fps": 10, "process_res": 504, "max_frames": 112, "source_duration_s": 10}

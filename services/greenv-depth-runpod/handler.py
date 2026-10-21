@@ -41,6 +41,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -56,6 +57,12 @@ CONTRACT = "greenv.depth-job/1"
 #: and never by file name -- an artifact called `result.npz` arriving under kind `npz_native` is
 #: DA3's own and must not be the one published.
 ARTIFACT_NAMES = {"glb": "scene.glb", "npz": "result.npz"}
+
+#: Frames read from the bucket at once. One at a time it is a round trip per frame from the
+#: RunPod data centre to R2, for up to 112 frames, while the GPU waits. On 21 Oct 2026 a warm
+#: demo job spent about 25 s outside the depth service's own 9-11 s wall time, unmeasured until
+#: the `frames_fetched` and `published` lines below existed.
+FRAME_FETCH_CONCURRENCY = 16
 
 #: MEASURED on the deployed L4 (2026-07-31): 22.03 GiB usable, not the advertised decimal 24 GB.
 #: Mirrors L4_TOTAL_VRAM_BYTES in `measurement/server/contract.py`.
@@ -292,11 +299,20 @@ def run_job(payload: object, *, depth, open_store) -> dict:
     store = open_store(request)
     workdir = Path(tempfile.mkdtemp(prefix="greenv-depth-"))
     try:
+        started = time.monotonic()
+        with ThreadPoolExecutor(max_workers=FRAME_FETCH_CONCURRENCY) as pool:
+            payloads = list(pool.map(lambda frame: store.get(frame.key), request.frames))
         paths = []
-        for frame in request.frames:
+        for frame, data in zip(request.frames, payloads):
             target = workdir / frame.name
-            target.write_bytes(store.get(frame.key))
+            target.write_bytes(data)
             paths.append(str(target))
+        say({
+            "event": "frames_fetched",
+            "frames": len(paths),
+            "bytes": sum(len(data) for data in payloads),
+            "seconds": round(time.monotonic() - started, 2),
+        })
 
         params = {
             "fps": request.fps,
@@ -305,7 +321,9 @@ def run_job(payload: object, *, depth, open_store) -> dict:
         }
         if request.source_duration_s:
             params["source_duration_s"] = request.source_duration_s
+        started = time.monotonic()
         manifest = depth.infer(paths, params)
+        say({"event": "inferred", "seconds": round(time.monotonic() - started, 2)})
     finally:
         # Frames are input. Once inference has returned nothing reads them again, and a warm
         # RunPod worker keeps its filesystem between jobs.
@@ -324,6 +342,7 @@ def run_job(payload: object, *, depth, open_store) -> dict:
     published: list[dict] = []
     skipped: list[str] = []
     prefix = f"{output_prefix(request)}/depth/{run_id}"
+    started = time.monotonic()
     for artifact in manifest.get("artifacts") or []:
         kind = artifact.get("kind")
         if kind not in ARTIFACT_NAMES:
@@ -352,6 +371,12 @@ def run_job(payload: object, *, depth, open_store) -> dict:
             "url": store.signed_url(key),
             "object_key": key,
         })
+
+    say({
+        "event": "published",
+        "bytes": sum(artifact["size_bytes"] for artifact in published),
+        "seconds": round(time.monotonic() - started, 2),
+    })
 
     missing = sorted(set(ARTIFACT_NAMES) - {artifact["kind"] for artifact in published})
     if missing:
@@ -476,7 +501,13 @@ class BucketStore:
             endpoint_url=endpoint or None,
             region_name=region or "auto",
             # R2 and MinIO both want path-style addressing, and presigning needs SigV4.
-            config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
+            # One pooled connection per concurrent frame read; urllib3 otherwise keeps ten and
+            # opens and discards the rest on every job.
+            config=Config(
+                signature_version="s3v4",
+                s3={"addressing_style": "path"},
+                max_pool_connections=FRAME_FETCH_CONCURRENCY,
+            ),
         )
 
     def get(self, key: str) -> bytes:
