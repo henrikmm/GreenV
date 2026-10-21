@@ -415,9 +415,14 @@ final class _SettingsSheetState extends State<SettingsSheet> {
               autocorrect: false,
               decoration: const InputDecoration(labelText: 'Gateway', hintText: 'https://…/v1/demo/ ou http://<mac>:8790'),
             ),
+            // Letters and digits, typed exactly: the cloud API's code is not the Mac's six digits,
+            // and a number pad (or iOS capitalising the first letter) makes it impossible to enter.
             TextField(
               controller: _code,
-              keyboardType: TextInputType.number,
+              keyboardType: TextInputType.visiblePassword,
+              autocorrect: false,
+              enableSuggestions: false,
+              textCapitalization: TextCapitalization.none,
               decoration: const InputDecoration(labelText: 'Código de pareamento'),
             ),
             const SizedBox(height: 8),
