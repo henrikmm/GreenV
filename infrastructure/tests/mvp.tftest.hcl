@@ -1048,7 +1048,8 @@ run "plans_the_demo_when_enabled" {
       local.api_environment.GREENV_DEMO_ENABLED == "true" &&
       local.api_environment.GREENV_DEMO_DEPTH_ADAPTER == "runpod" &&
       local.api_environment.GREENV_DEMO_RUNPOD_ENDPOINT_ID == "demo0endpoint1" &&
-      local.api_environment.GREENV_DEMO_MAX_FRAMES == "112"
+      local.api_environment.GREENV_DEMO_MAX_FRAMES == "112" &&
+      local.api_environment.GREENV_DEMO_SAMPLE_ON == "api"
     )
     error_message = "The demo must reach the API enabled, on RunPod, at its own endpoint and with the 112-frame cap."
   }

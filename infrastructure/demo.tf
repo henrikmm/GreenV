@@ -122,6 +122,24 @@ variable "demo_max_frames" {
   }
 }
 
+variable "demo_sample_on" {
+  description = <<-EOT
+    Where a demo video is cut into frames. "api" (default): this API runs ffmpeg on its one vCPU
+    and uploads the frames to the bucket for the GPU to read. "gpu": the demo endpoint's handler
+    downloads the video and samples it there with the same rule, which on 21 Oct 2026 took 0.8-1.4 s
+    on a 20-core machine against 6-11 s of ffmpeg plus 11-14 s of frame upload on the API. Needs the
+    handler image that understands video jobs (services/greenv-depth-runpod, commit with
+    `sample_video`); "api" is the way back without a redeploy of the endpoint.
+  EOT
+  type        = string
+  default     = "api"
+
+  validation {
+    condition     = contains(["api", "gpu"], var.demo_sample_on)
+    error_message = "demo_sample_on must be api or gpu."
+  }
+}
+
 locals {
   demo_site_origin = "https://${var.demo_site_hostname}"
 
@@ -150,6 +168,7 @@ locals {
     GREENV_DEMO_DEPTH_ADAPTER      = "runpod"
     GREENV_DEMO_RUNPOD_ENDPOINT_ID = var.demo_runpod_endpoint_id
     GREENV_DEMO_MAX_FRAMES         = tostring(var.demo_max_frames)
+    GREENV_DEMO_SAMPLE_ON          = var.demo_sample_on
     # Not GREENV_ALLOWED_ORIGINS: that list gets credentialed CORS on every route, and the public
     # site has no business calling the authenticated API with a visitor's cookie.
     GREENV_DEMO_ALLOWED_ORIGINS = local.demo_site_origin
