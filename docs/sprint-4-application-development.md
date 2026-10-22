@@ -94,5 +94,45 @@ submitting it. Use the live API only for existing data; publishing a frontend br
 backend redeployment.
 
 The portal's rubric still requires a YouTube link, even when the code deliverable is this branch.
-The narrated upload is completed by the group after recording its voice track. Screen recordings
-remain external artifacts because this repository does not track media larger than 5 MB.
+The narrated upload is completed by the group after recording its voice track.
+
+## Video base and voice track
+
+- [Silent video base, 59 seconds](sprint4/demo-base-59s.mp4), 1920 × 1080, H.264, 30 fps.
+- [Portuguese narration script](sprint4/narracao.txt), 125 words; target 55–58 seconds.
+
+The video uses real Chrome screenshots of the running local application and the published source,
+edited with cuts. It is not a continuous screen recording: the native recorder was unavailable in
+the execution environment. No UI values were fabricated, and no order was submitted. The small
+MP4 is below the repository's 5 MB media limit. Add the group's own narration before uploading.
+
+| Time | Visible evidence |
+|---|---|
+| 00–07 s | Local maintenance dashboard, real API data |
+| 07–15 s | Documented height bands and actions |
+| 15–21 s | Eight high-priority stretches, tallest first |
+| 21–25 s | Attention band and recommended action |
+| 25–29 s | Monitored band and periodic monitoring |
+| 29–34 s | Insufficient evidence and review action |
+| 34–40 s | Automatically suggested high priority in the order preview |
+| 40–47 s | Actual JavaScript rule array on this branch |
+| 47–59 s | Evidence checks, threshold comparisons and multi-point `map()` |
+
+## Verification record — 22 October 2026
+
+- Seven focused tests passed; both production and mock dashboards built successfully.
+- Chrome login against the existing API loaded 10 sessions and 321 stretches. The three classified
+  groups contained 8, 176 and 111 stretches; 26 required review.
+- The three filters and the review category displayed the corresponding actions. The order
+  preview suggested `Alta` for a classified high stretch and required a human choice for an
+  unclassified target. Neither preview was submitted.
+- A measured stretch opened its map and existing camera frames through the authenticated local
+  proxy. Camera JPEGs were checked as loaded in the browser.
+- Visual QA found a rounding ambiguity near 10 cm; the formatter now uses `< 10 cm` or `> 30 cm`
+  when rounding would appear to cross a band boundary. A regression test covers this case.
+- FFprobe confirmed exactly 59.000 seconds, 1920 × 1080 and 30 fps. The entire MP4 decoded without
+  errors; frames from all nine scenes were extracted and visually inspected.
+
+This verifies the implemented rubric items and the silent video base. The final narrated YouTube
+upload and the submission in the academic portal remain the group's final steps; a grade is not
+guaranteed by this verification.

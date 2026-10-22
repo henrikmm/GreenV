@@ -9,7 +9,7 @@ import { stretchKey, stretchLabel } from '../api/stretch'
 import PageShell from '../components/PageShell'
 import NewOrderModal from '../components/NewOrderModal'
 import SegmentDetail from '../components/SegmentDetail'
-import { processVegetation, VEGETATION_RULES } from '../domain/vegetationDecision'
+import { processVegetation, VEGETATION_RULES, formatVegetationHeight } from '../domain/vegetationDecision'
 
 /**
  * Toda leitura, a mais alta primeiro.
@@ -259,7 +259,7 @@ export default function SegmentsPage() {
         </div>
         <div style={s.statCard('var(--motiva)')}>
           <div style={{ ...s.statNumber, color: 'var(--motiva)' }}>
-            {tallest > 0 ? `${(tallest * 100).toFixed(0)}` : '—'}
+            {tallest > 0 ? formatVegetationHeight(tallest).replace(' cm', '') : '—'}
           </div>
           <div style={s.statLabel}>Maior altura, cm</div>
         </div>
@@ -373,7 +373,7 @@ export default function SegmentsPage() {
                       </td>
                       <td style={s.td}>
                         <div style={{ ...s.height, color: LEVELS[level].color }}>
-                          {height != null ? `${(height * 100).toFixed(0)} cm` : '—'}
+                          {formatVegetationHeight(height)}
                         </div>
                         {/* A barra é relativa à leitura mais alta da lista, não a um máximo
                             absoluto: o que se compara aqui é um trecho com os outros. */}

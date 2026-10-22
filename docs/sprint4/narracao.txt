@@ -1,0 +1,13 @@
+Somos o grupo vinte e sete. Nesta Sprint quatro, o GreenV transforma alturas da vegetação em decisões de manutenção.
+
+As faixas são documentadas: abaixo de dez centímetros, monitoramento; de dez a trinta, atenção; acima de trinta, intervenção prioritária.
+
+O filtro destaca os oito trechos prioritários, ordenados pela altura. Cada local recebe condição, prioridade e ação recomendada.
+
+Nos trechos baixos, a recomendação é manter o monitoramento. Quando falta evidência, o sistema recomenda revisão ou nova coleta.
+
+Ao preparar uma ordem, a prioridade é sugerida automaticamente e pode ser revisada.
+
+No código, um array de objetos centraliza limites, classificações, prioridades e ações.
+
+A função classifyVegetation valida os dados e compara as alturas. O map processa os pontos, e o React atualiza o dashboard dinamicamente com as decisões.

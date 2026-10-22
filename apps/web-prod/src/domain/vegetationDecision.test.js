@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { classifyVegetation, processVegetation, recommendedOrderPriority } from './vegetationDecision.js'
+import { classifyVegetation, processVegetation, recommendedOrderPriority, formatVegetationHeight } from './vegetationDecision.js'
 
 const point = (height, extra = {}) => ({
   measurementExtent95P95M: height, measurementLevel: 2, measurementCellsMeasured: 20, ...extra,
@@ -47,4 +47,13 @@ test('combined orders suggest the highest priority and require review for any un
   assert.equal(recommendedOrderPriority([point(0.05)]), 'baixa')
   assert.equal(recommendedOrderPriority([point(0.64), point(null)]), '')
   assert.equal(recommendedOrderPriority([]), '')
+})
+
+test('display rounding never contradicts the height bands', () => {
+  assert.equal(formatVegetationHeight(0.09999), '< 10 cm')
+  assert.equal(formatVegetationHeight(0.30001), '> 30 cm')
+  assert.equal(formatVegetationHeight(0.10), '10 cm')
+  assert.equal(formatVegetationHeight(0.30), '30 cm')
+  assert.equal(formatVegetationHeight(0.637), '63,7 cm')
+  assert.equal(formatVegetationHeight(null), '—')
 })

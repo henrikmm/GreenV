@@ -4,7 +4,7 @@ import { X, Check } from 'lucide-react'
 import { LEVELS, vegetationLevel, PRIORITY_MAP, useToast } from '@greenv/web-core'
 import { serviceOrders } from '../api/greenv'
 import { stretchKey, stretchRange } from '../api/stretch'
-import { recommendedOrderPriority } from '../domain/vegetationDecision'
+import { recommendedOrderPriority, formatVegetationHeight } from '../domain/vegetationDecision'
 
 /**
  * Abrir uma ordem a partir de trechos medidos.
@@ -236,7 +236,7 @@ export default function NewOrderModal({ segments, teams = [], onCreated, onClose
             <div style={s.infoBox}>
               <div style={s.infoLabel}>Maior altura p95</div>
               <div style={{ ...s.infoValue, fontFamily: 'var(--font-mono)' }}>
-                {tallest > 0 ? `${(tallest * 100).toFixed(0)} cm` : '—'}
+                {tallest > 0 ? formatVegetationHeight(tallest) : '—'}
               </div>
             </div>
           </div>
@@ -256,9 +256,7 @@ export default function NewOrderModal({ segments, teams = [], onCreated, onClose
                     <span style={s.trechoHeight}>{stretchRange(segment)}</span>
                   )}
                   <span style={s.trechoHeight}>
-                    {segment.measurementExtent95P95M != null
-                      ? `${(segment.measurementExtent95P95M * 100).toFixed(0)} cm`
-                      : 'sem altura'}
+                    {formatVegetationHeight(segment.measurementExtent95P95M)}
                   </span>
                 </div>
               )

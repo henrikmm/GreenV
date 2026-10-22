@@ -61,6 +61,9 @@ jobs:
       # installing inside one of them would resolve the shared package from the registry, where
       # it does not exist.
       - run: npm ci
+      - name: Verify vegetation decision rules
+        if: matrix.app == 'prod'
+        run: npm test --workspace @greenv/web-prod
       - run: npm run build --workspace @greenv/web-${{ matrix.app }}
 
   mobile:

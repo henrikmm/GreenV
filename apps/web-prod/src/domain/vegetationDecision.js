@@ -37,3 +37,13 @@ export function recommendedOrderPriority(points) {
   return decisions.reduce((highest, decision) => decision.level > highest.level ? decision : highest,
     { level: 0, orderPriority: '' }).orderPriority
 }
+
+export function formatVegetationHeight(heightM) {
+  if (!Number.isFinite(heightM) || heightM < 0) return '—'
+  const cm = heightM * 100
+  const rounded = Math.round(cm * 10) / 10
+  // Rounding must not visually move a reading across a classification boundary.
+  if (cm < 10 && rounded >= 10) return '< 10 cm'
+  if (cm > 30 && rounded <= 30) return '> 30 cm'
+  return `${rounded.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} cm`
+}
