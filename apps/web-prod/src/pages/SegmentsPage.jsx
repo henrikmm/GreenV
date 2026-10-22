@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import { ClipboardList, Ruler, ChevronRight, ChevronDown } from 'lucide-react'
-import { LEVELS, vegetationLevel, Card } from '@greenv/web-core'
+import { LEVELS, Card } from '@greenv/web-core'
 import { measurements, teams as teamsApi } from '../api/greenv'
 import { placeOfSegment } from '../api/place'
 import { readingOf } from '../api/reading'
@@ -9,6 +9,7 @@ import { stretchKey, stretchLabel } from '../api/stretch'
 import PageShell from '../components/PageShell'
 import NewOrderModal from '../components/NewOrderModal'
 import SegmentDetail from '../components/SegmentDetail'
+import { processVegetation, VEGETATION_RULES } from '../domain/vegetationDecision'
 
 /**
  * Toda leitura, a mais alta primeiro.
@@ -209,6 +210,7 @@ export default function SegmentsPage() {
   }, [filters])
 
   const { items: visible, total, hasMore, loading, error } = state
+  const decisions = useMemo(() => processVegetation(visible), [visible])
 
   // Cada trecho já vem com o próprio lugar resolvido pela API.
   const placeOf = (segment) => placeOfSegment(segment)
@@ -229,10 +231,9 @@ export default function SegmentsPage() {
     <PageShell currentPage="segments">
       <div style={s.header}>
         <div>
-          <div style={s.title}>Trechos medidos</div>
+          <div style={s.title}>Prioridades de manutenção</div>
           <div style={s.subtitle}>
-            Toda leitura, a mais alta primeiro. Cada linha é um trecho de cerca de 25 m: uma
-            sessão mistura trecho limpo com trecho crítico, e aqui cada um responde por si.
+            Altura, condição e ação recomendada por trecho. Filtre os níveis e veja onde avaliar a manutenção primeiro.
           </div>
         </div>
         <button style={s.orderBtn(chosenSegments.length > 0)}
@@ -263,6 +264,23 @@ export default function SegmentsPage() {
           <div style={s.statLabel}>Maior altura, cm</div>
         </div>
       </div>
+
+      <details style={{ marginBottom: 20, fontSize: 12.5, color: 'var(--text-secondary)' }}>
+        <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Regras de classificação e prioridade</summary>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 12 }}>
+          {VEGETATION_RULES.map(rule => (
+            <div key={rule.level} style={{ flex: '1 1 200px', padding: 12, borderRadius: 8, background: LEVELS[rule.level].bg }}>
+              <strong style={{ color: LEVELS[rule.level].color }}>{rule.condition} · {rule.priority}</strong>
+              <div style={{ marginTop: 4 }}>{rule.range}</div>
+              <div style={{ marginTop: 4 }}>{rule.action}</div>
+            </div>
+          ))}
+        </div>
+        <p style={{ marginTop: 10, lineHeight: 1.5 }}>
+          Altura p95 em centímetros. Leituras sem classificação válida ou com menos de 20 células medidas
+          exigem revisão. Estas regras do projeto apoiam a avaliação humana e não representam critérios aprovados pela Motiva.
+        </p>
+      </details>
 
       {/* Duas linhas: o nível é uma escolha, o resto é um recorte. Numa linha só os sete
           controles empurravam a busca para fora da tela numa janela estreita. */}
@@ -318,14 +336,15 @@ export default function SegmentsPage() {
               <thead>
                 <tr>
                   <th style={s.th} /><th style={s.th}>#</th><th style={s.th}>Onde</th>
-                  <th style={s.th}>Altura p95</th><th style={s.th}>Nível</th>
-                  <th style={s.th}>Células</th><th style={s.th}>GPS</th>
+                  <th style={s.th}>Altura p95</th><th style={s.th}>Condição</th>
+                  <th style={s.th}>Prioridade</th><th style={s.th}>Ação recomendada</th>
                   <th style={s.th}>Capturado em</th><th style={s.th} />
                 </tr>
               </thead>
               <tbody>
-                {visible.map((segment, position) => {
-                  const level = vegetationLevel(segment.measurementLevel)
+                {decisions.map((segment, position) => {
+                  const { decision } = segment
+                  const level = decision.level
                   const reading = readingOf(segment)
                   const place = placeOf(segment)
                   const height = segment.measurementExtent95P95M
@@ -336,6 +355,7 @@ export default function SegmentsPage() {
                       onClick={() => setOpenKey(openKey === keyOf(segment) ? null : keyOf(segment))}>
                       <td style={s.td}>
                         <input type="checkbox" checked={isChosen(segment)}
+                          aria-label={`Selecionar trecho ${offset + position + 1}`}
                           onClick={(event) => event.stopPropagation()}
                           onChange={() => toggleChosen(segment)} />
                       </td>
@@ -362,14 +382,14 @@ export default function SegmentsPage() {
                         )}
                       </td>
                       <td style={s.td}>
-                        <span style={s.pill(reading)} title={reading.title}>{reading.label}</span>
+                        <span style={s.pill({ colour: LEVELS[level].color, background: LEVELS[level].bg })}
+                          title={reading.title}>{decision.condition}</span>
+                        {level === 0 && <div style={s.placeDetail}>{reading.label}</div>}
                       </td>
                       <td style={s.td}>
-                        {segment.measurementCellsMeasured != null
-                          ? `${segment.measurementCellsMeasured} · ${segment.measurementCellsAbstained} sem evidência`
-                          : '—'}
+                        <strong style={{ color: LEVELS[level].color }}>{decision.priority}</strong>
                       </td>
-                      <td style={s.td}>{segment.trackLocationQuality ?? '—'}</td>
+                      <td style={{ ...s.td, maxWidth: 220, lineHeight: 1.5 }}>{decision.action}</td>
                       {/* A captura primeiro, e a medição abaixo. O filtro de dia é pelo dia da
                           saída a campo, e essas duas datas divergem de verdade: uma sessão
                           gravada em 10/09 foi medida em 11/09. Mostrar só a medição faria a

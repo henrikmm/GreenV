@@ -8,19 +8,20 @@ import react from '@vitejs/plugin-react'
 // navegador trata tudo como primeira parte e o cookie viaja. A alternativa seria `SameSite=None`,
 // que é um afrouxamento permanente em produção para resolver um problema só de desenvolvimento.
 //
-// `changeOrigin` fica falso de propósito: a API monta as URLs que devolve a partir do host que
-// recebeu, e reescrevê-lo faria cada resposta apontar para um endereço que o navegador não usou.
+// Match the upstream virtual host so Cloudflare routes the local proxy to the API.
 const apiTarget = process.env.VITE_API_TARGET || 'https://greenvapi.matomomitsu.com'
+const apiProxy = { target: apiTarget, changeOrigin: true, secure: true, cookieDomainRewrite: '' }
 
 export default defineConfig({
   plugins: [react()],
   server: {
+    host: '127.0.0.1',
     port: 5174,
-    open: true,
+    strictPort: true,
     proxy: {
-      '/v2': { target: apiTarget, changeOrigin: false, secure: true },
-      '/actuator': { target: apiTarget, changeOrigin: false, secure: true },
-      '/.well-known': { target: apiTarget, changeOrigin: false, secure: true },
+      '/v2': apiProxy,
+      '/actuator': apiProxy,
+      '/.well-known': apiProxy,
     },
   },
 })

@@ -10,6 +10,9 @@ sabe de onde vem dado nenhum.
 
 ## Rodar em desenvolvimento
 
+For the Sprint 4 submission, local API authentication, browser requirements and verification,
+see [Application Development — Sprint 4](../../docs/sprint-4-application-development.md).
+
 ```
 npm install            # na raiz do repositório, uma vez: são workspaces
 npm run dev --workspace @greenv/web-prod

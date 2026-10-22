@@ -14,6 +14,10 @@
 /** Em desenvolvimento o proxy do Vite serve a API sob a mesma origem; em produção é o mesmo host. */
 const BASE = import.meta.env.VITE_API_BASE ?? ''
 
+export function resourceUrl(path) {
+  return BASE + path
+}
+
 export class ApiError extends Error {
   constructor(status, code, detail) {
     super(detail || code || `HTTP ${status}`)

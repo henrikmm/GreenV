@@ -1,4 +1,4 @@
-import { getJson, request, sendJson, ApiError } from './client'
+import { getJson, request, sendJson, ApiError, resourceUrl } from './client'
 import { vegetationLevel } from '@greenv/web-core'
 
 /**
@@ -121,8 +121,11 @@ export const sessions = {
     return getJson(`/v2/capture-sessions/${sessionId}/track`)
   },
 
-  frames(sessionId, segmentIndex) {
-    return getJson(`/v2/capture-sessions/${sessionId}/segments/${segmentIndex}/frames`)
+  async frames(sessionId, segmentIndex) {
+    const path = `/v2/capture-sessions/${sessionId}/segments/${segmentIndex}/frames`
+    const frames = await getJson(path)
+    // Use the same authenticated origin as JSON calls, including the local development proxy.
+    return frames.map(frame => ({ ...frame, imageUrl: resourceUrl(`${path}/${encodeURIComponent(frame.fileName)}`) }))
   },
 
   /**

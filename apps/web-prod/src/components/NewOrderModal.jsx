@@ -4,6 +4,7 @@ import { X, Check } from 'lucide-react'
 import { LEVELS, vegetationLevel, PRIORITY_MAP, useToast } from '@greenv/web-core'
 import { serviceOrders } from '../api/greenv'
 import { stretchKey, stretchRange } from '../api/stretch'
+import { recommendedOrderPriority } from '../domain/vegetationDecision'
 
 /**
  * Abrir uma ordem a partir de trechos medidos.
@@ -125,7 +126,8 @@ const s = {
  */
 export default function NewOrderModal({ segments, teams = [], onCreated, onClose }) {
   const { addToast } = useToast()
-  const [form, setForm] = useState({ priority: 'media', teamId: '', scheduledFor: '', notes: '' })
+  const suggestedPriority = recommendedOrderPriority(segments)
+  const [form, setForm] = useState({ priority: suggestedPriority, teamId: '', scheduledFor: '', notes: '' })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [created, setCreated] = useState(null)
@@ -140,6 +142,10 @@ export default function NewOrderModal({ segments, teams = [], onCreated, onClose
   const tallest = Math.max(0, ...segments.map(segment => segment.measurementExtent95P95M ?? 0))
 
   async function submit() {
+    if (!form.priority) {
+      setError('Revise os trechos sem evidência suficiente e escolha a prioridade da ordem.')
+      return
+    }
     setBusy(true)
     setError('')
     try {
@@ -267,10 +273,16 @@ export default function NewOrderModal({ segments, teams = [], onCreated, onClose
             <label style={s.label}>Prioridade</label>
             <select style={s.select} value={form.priority}
               onChange={event => setForm(f => ({ ...f, priority: event.target.value }))}>
+              <option value="" disabled>Revisar e escolher prioridade</option>
               {Object.entries(PRIORITY_MAP).map(([key, meta]) => (
                 <option key={key} value={key}>{meta.label}</option>
               ))}
             </select>
+            <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 6, lineHeight: 1.5 }}>
+              {suggestedPriority
+                ? 'Sugestão automática pelo maior nível dos trechos selecionados. A equipe pode revisar antes de confirmar.'
+                : 'Há trecho sem classificação confiável. A prioridade exige avaliação humana.'}
+            </div>
           </div>
 
           <div style={s.formGroup}>

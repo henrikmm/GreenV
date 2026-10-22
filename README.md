@@ -1,5 +1,7 @@
 <div align="center">
 
+**Application Development — Sprint 4:** [submission guide](docs/sprint-4-application-development.md).
+
 <img src="apps/web-core/src/assets/greenv-wordmark.png" alt="GreenV" height="56">
 
 **Finds the roadside vegetation that needs mowing first — from a phone in a moving vehicle.**
