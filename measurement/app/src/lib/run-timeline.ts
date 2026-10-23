@@ -380,7 +380,8 @@ export interface TimelineSummary {
   idleMs: number;
   /**
    * When each cloud reached the screen, from the first logged stretch: the preview's parse
-   * finishing, and the full run's views settling. Null when that cloud has not arrived.
+   * finishing, and Point Cloud delivering the full cloud (the graph settling, for a log without
+   * that row). Null when that cloud has not arrived.
    */
   previewOnScreenMs: number | null;
   fullOnScreenMs: number | null;
@@ -428,7 +429,8 @@ export function summarise(spans: TimelineSpan[], now = Date.now()): TimelineSumm
     byGroup,
     idleMs,
     previewOnScreenMs: preview?.note?.startsWith("failed") || preview?.note?.startsWith("cancelled") ? null : endOf("preview-shown"),
-    fullOnScreenMs: endOf("after-gpu"),
+    // The cloud reaching the viewer, when Point Cloud recorded it; the graph settling otherwise.
+    fullOnScreenMs: endOf("cloud-built") ?? endOf("after-gpu"),
   };
 }
 

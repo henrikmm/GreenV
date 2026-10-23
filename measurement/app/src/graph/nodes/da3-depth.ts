@@ -142,33 +142,36 @@ export const da3DepthSpec: NodeSpec = {
      * stay on the Cloud Run instance until someone presses Save in the Runs pane. A mock run
      * is skipped: the fixture-backed mock returns the roadside artifacts, which are not
      * evidence of anything and must never look like a saved run.
+     *
+     * Registered beside the result, not before it. The dev server checks the run against the
+     * configured service with a fresh `gcloud` status, 4.0-4.7 s measured on 2026-10-23, and
+     * awaiting it here held every download back by that long on every cloud run.
      */
     if (!manifest.mock) {
-      try {
-        await registerRun({
-          id: manifest.runId,
-          label: `${frames.clipName || "clip"} · ${manifest.params.processRes} px · ${manifest.frames.count}f`,
-          clipName: frames.clipName,
-          clipSha256: frames.clipSha256,
-          frameCount: manifest.frames.count,
-          processRes: manifest.params.processRes,
-          gpuSeconds: manifest.timing.gpuSeconds,
-          /**
-           * The real service, not the path the browser used to reach it.
-           *
-           * Under the local proxy `inferBase()` is `/api/cloud/svc`, which is meaningless to
-           * `save-run.sh` — it runs in a shell and needs somewhere to curl. Recording the proxy
-           * path made Save fail with "no such run" long after the GPU had been paid for.
-           */
-          serviceUrl: getCloud().serviceUrl ?? inferBase(),
-          manifest,
-          framePaths: frames.paths.slice(0, manifest.frames.count),
-        });
-        void refreshRuns();
-      } catch {
+      void registerRun({
+        id: manifest.runId,
+        label: `${frames.clipName || "clip"} · ${manifest.params.processRes} px · ${manifest.frames.count}f`,
+        clipName: frames.clipName,
+        clipSha256: frames.clipSha256,
+        frameCount: manifest.frames.count,
+        processRes: manifest.params.processRes,
+        gpuSeconds: manifest.timing.gpuSeconds,
+        /**
+         * The real service, not the path the browser used to reach it.
+         *
+         * Under the local proxy `inferBase()` is `/api/cloud/svc`, which is meaningless to
+         * `save-run.sh` — it runs in a shell and needs somewhere to curl. Recording the proxy
+         * path made Save fail with "no such run" long after the GPU had been paid for.
+         */
+        serviceUrl: getCloud().serviceUrl ?? inferBase(),
+        manifest,
+        framePaths: frames.paths.slice(0, manifest.frames.count),
+      }).then(
+        () => refreshRuns(),
         // A registry failure must not destroy a run that has already been paid for. The
         // manifest is still in the graph and the artifacts are still on the instance.
-      }
+        () => undefined,
+      );
     }
 
     const preview = manifest.artifacts.find((a) => a.kind === "depth_preview");

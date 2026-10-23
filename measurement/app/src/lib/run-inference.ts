@@ -18,7 +18,7 @@
  */
 
 import { FIXTURE_RUN_ID } from "../graph/nodes";
-import { getGraph, nodeById, runAuto, runNode, setNodeParams } from "../graph/graph-store";
+import { getGraph, nodeById, runAutoWhenIdle, runNode, setNodeParams } from "../graph/graph-store";
 import type { FramesValue } from "../graph/nodes/frame-source";
 import { getCloud } from "./cloud-store";
 import { mockTargetAllowed } from "./dev-target";
@@ -152,7 +152,7 @@ export async function runInference(): Promise<void> {
     if (!report.ran.includes("da3-depth")) {
       if (report.reused.includes("da3-depth")) {
         setNodeParams(FIXTURE_RUN_ID, { source: "live" });
-        await runAuto();
+        await runAutoWhenIdle();
         finishRun();
         return;
       }
@@ -183,7 +183,7 @@ export async function runInference(): Promise<void> {
     });
     const fetchStarted = performance.now();
     setNodeParams(FIXTURE_RUN_ID, { source: "live" });
-    await runAuto();
+    await runAutoWhenIdle();
     reportPhonePhase("fetched", { ms: Math.round(performance.now() - fetchStarted) });
     finishRun();
   } catch (e) {

@@ -196,5 +196,9 @@ describe("reading it", () => {
     expect(summary.previewOnScreenMs).toBe(11_500);
     expect(summary.fullOnScreenMs).toBe(31_000);
     expect(timelineText(getTimeline(), 31_000).split("\n").at(-1)).toBe("preview on screen +11.5 s · full cloud on screen +31.0 s");
+
+    // Once Point Cloud records the cloud's arrival, that is the milestone, not the graph settling.
+    putSpan({ key: "cloud-built", parent: "after-gpu", label: "cloud", group: "browser", startMs: 20_100, endMs: 24_000 });
+    expect(summarise(getTimeline(), 31_000).fullOnScreenMs).toBe(24_000);
   });
 });

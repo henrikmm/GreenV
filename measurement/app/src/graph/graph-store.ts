@@ -346,6 +346,8 @@ export function publishNodeOutputs(nodeId: string, outputs: Record<string, NodeO
 }
 
 let activeRun: AbortController | null = null;
+/** The pass `activeRun` controls, so a caller can wait for it instead of aborting it. */
+let activePass: Promise<RunReport> | null = null;
 
 /**
  * Let mounted panes detach an old object before its WebGL buffers disappear.
@@ -372,11 +374,16 @@ export interface RunRequest {
   deny?: ReadonlySet<string>;
 }
 
-export async function run(request: RunRequest = {}): Promise<RunReport> {
+export function run(request: RunRequest = {}): Promise<RunReport> {
   activeRun?.abort();
   const controller = new AbortController();
   activeRun = controller;
+  const pass = runPass(request, controller);
+  activePass = pass;
+  return pass;
+}
 
+async function runPass(request: RunRequest, controller: AbortController): Promise<RunReport> {
   state.running = true;
   commit();
   try {
@@ -403,6 +410,7 @@ export async function run(request: RunRequest = {}): Promise<RunReport> {
     // replacement's running state or make the status bar claim the graph is idle.
     if (activeRun === controller) {
       activeRun = null;
+      activePass = null;
       state.running = false;
       commit();
     }
@@ -423,6 +431,23 @@ export function runNode(nodeId: string): Promise<RunReport> {
 /** Re-evaluate everything that can run for free. Manual nodes stay stale. */
 export function runAuto(): Promise<RunReport> {
   return run({ allowManual: false });
+}
+
+/**
+ * `runAuto()`, but after the pass in flight rather than instead of it.
+ *
+ * Every pass aborts the one before, which is right for a slider and wrong for a refresh that
+ * only follows work already under way. After a cloud run the DA3 pass is downloading the GLB
+ * when Depth 2D and Run Inference each ask for a refresh; aborting meant `scene.glb` was
+ * requested three times per run, two of them cancelled (timing log, 2026-10-23). Waiting costs
+ * nothing: once the pass in flight ends, everything it built is current and this pass is cache
+ * hits. Free work only, like `runAuto()` — it never clears a manual node.
+ */
+export async function runAutoWhenIdle(): Promise<RunReport> {
+  while (activePass) {
+    await activePass.catch(() => undefined);
+  }
+  return runAuto();
 }
 
 /**

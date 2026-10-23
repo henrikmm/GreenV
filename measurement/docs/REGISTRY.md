@@ -1892,10 +1892,14 @@ server's own `timing.gpu_seconds`.
     the GreenV repository's `docs/NEXT-DEMO.md` §9.
 
     The same change added the run timing log (Setup → Run, off by default), which is where those
-    numbers come from, and it showed three things not yet acted on: the service spends 6.7–11.3 s
-    writing and publishing the npz after the forward pass; the page waits ~4.5 s after the
-    response before any download starts; `scene.glb` is requested three times per run, two
-    cancelled within 0.1 s. Evidence: `app/src/lib/run-timeline.test.ts`,
+    numbers come from, and it showed three things: the service spends 6.7–11.3 s writing and
+    publishing the npz after the forward pass (not acted on); the page waited ~4.5 s after the
+    response before any download started — DA3 Depth awaited `registerRun`, whose fresh `gcloud`
+    status takes 4.0–4.7 s, and now registers beside the result (unmeasured on a GPU run: the
+    mock registers nothing); and `scene.glb` was requested three times per run, because Depth 2D
+    and Run Inference each started a pass that aborted the one building the cloud. Both now wait
+    for the pass in flight (`runAutoWhenIdle` in `app/src/graph/graph-store.ts`); on the mock one
+    download remains. Evidence: `app/src/lib/run-timeline.test.ts`,
     `app/src/lib/demo-history.test.ts`, `server/test_contract.py`; image
     `da3-service:src-17e0b03e02628cf7`, which replaced `src-72503b7885b12c8b` after serving five
     phone runs. That rebuild pinned `huggingface_hub<1.0`: unpinned, it drew 2.2.0 and the

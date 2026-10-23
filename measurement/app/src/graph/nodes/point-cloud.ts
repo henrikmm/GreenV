@@ -22,7 +22,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { buildCloud, framesFromArrays } from "../../../../geometry/cloud";
 import { artifactUrl } from "../../lib/infer-client";
-import { timeArtifact } from "../../lib/run-timeline";
+import { isTimedArtifact, putSpan, timeArtifact } from "../../lib/run-timeline";
 import type { DepthFieldValue } from "../../measurement/depth-field";
 import type { NodeSpec } from "../types";
 
@@ -531,7 +531,9 @@ export const pointCloudSpec: NodeSpec = {
     const stride = Math.max(1, Math.floor(Number(params.stride) || 1));
     const source: CloudSource = params.source === "npz" ? "npz" : "glb";
     // Manifest URLs are service-relative; rebase them or a real cloud run 404s here.
-    const object = await loadGltf(artifactUrl(glb.url), signal);
+    const glbUrl = artifactUrl(glb.url);
+    const buildStarted = Date.now();
+    const object = await loadGltf(glbUrl, signal);
     const alignment = worldFromDa3(object);
 
     try {
@@ -624,6 +626,19 @@ export const pointCloudSpec: NodeSpec = {
         coloured: true,
       };
 
+      // The run's cloud exists from here; the viewer mounts it on the same commit. This is the
+      // "full cloud on screen" the timing log reports, not the end of the whole graph pass.
+      if (isTimedArtifact(glbUrl)) {
+        putSpan({
+          key: "cloud-built",
+          parent: "after-gpu",
+          label: "full cloud built (download + parse + Point Cloud)",
+          group: "browser",
+          startMs: buildStarted,
+          endMs: Date.now(),
+          note: `${pointCount.toLocaleString("en-US")} points`,
+        });
+      }
       let disposed = false;
       return {
         points: {

@@ -437,12 +437,20 @@ Where the full result's time goes after the forward pass, every run alike:
 
 - **npz write and bucket publish on the service: 6.7–11.3 s.** The preview leaves before it.
 - **The page waited ~4.5 s after the response before any download started** (`artifacts down +
-  views built` opens, the first `download` row starts 4.5 s later). Not broken down.
+  views built` opens, the first `download` row starts 4.5 s later). Cause, found afterwards:
+  DA3 Depth awaited `registerRun`, and the dev server checks a run against the configured
+  service with a fresh `gcloud` status — 4.0–4.7 s timed with `curl /api/cloud/status?refresh=1`.
+  Registration now runs beside the result. The mock never registers a run, so the saving is not
+  yet measured on a GPU run.
 - **Downloads, in parallel:** the npz at 16–17 MB/s (5.4–5.6 s), `scene.glb` at 5.5–6.1 MB/s
   (2.7–2.9 s). The 2.45 MB preview came down at 1.1–1.6 MB/s (1.6–2.3 s): a small file from a
   signed link is latency, not bandwidth.
-- **`scene.glb` is requested three times per run**; two are cancelled within 0.1 s when the graph
-  rebuilds Point Cloud. The cost is requests, not bytes. Not fixed.
+- **`scene.glb` was requested three times per run**; two were cancelled within 0.1 s. Cause:
+  three graph passes, each aborting the last — the DA3 pass, Depth 2D syncing its measurement
+  nodes on the new field, and Run Inference's refresh. The last two now wait for the pass in
+  flight (`runAutoWhenIdle`). On the mock: one download, and the full cloud on screen 0.3 s
+  after the response, where the whole graph used to be reported (Point Cloud now records
+  `cloud-built`, and "full cloud on screen" is that row).
 
 On the venue's network every byte-bound stretch grows and the preview's does least: it is 2.3 % of
 the bytes the full result needs in the browser.

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { runAuto, setNodeParams, useGraph, resolveInput } from "../graph/graph-store";
+import { runAuto, runAutoWhenIdle, setNodeParams, useGraph, resolveInput } from "../graph/graph-store";
 import {
   BRUSH_SELECTION_ID,
   MEASURE_HEIGHT_ID,
@@ -165,7 +165,12 @@ export function Depth2D() {
         : undefined
     : undefined;
 
-  const syncMeasurementGraph = useCallback(() => {
+  /**
+   * `afterCurrent` is for the sync that follows a new depth field: the pass that delivered the
+   * field is usually still building the cloud, and aborting it restarted the GLB download.
+   * Edits made by hand keep aborting, so a stale measurement never outlives the stroke.
+   */
+  const syncMeasurementGraph = useCallback((afterCurrent = false) => {
     const active = activeMeasurementSubject();
     const currentMask = getMask();
     setNodeParams(BRUSH_SELECTION_ID, {
@@ -177,7 +182,7 @@ export function Depth2D() {
     setNodeParams(MEASURE_HEIGHT_ID, { mode: active.mode });
     // null truth means "measurable but ungradable" — the node treats 0 as no grading.
     setNodeParams(SCALE_CHECK_ID, { truthM: active.truthM ?? 0 });
-    void runAuto();
+    void (afterCurrent ? runAutoWhenIdle() : runAuto());
   }, [ui.canonicalFrame, ui.confidencePercentile]);
 
   useEffect(() => {
@@ -391,7 +396,7 @@ export function Depth2D() {
   }, [advanced, arrays, descriptor, grassCellPixels, image, output, prompts, ui.masks, ui.overlayOpacity]);
 
   useEffect(() => {
-    if (field) syncMeasurementGraph();
+    if (field) syncMeasurementGraph(true);
   }, [field, object.id, object.mode, object.truthM, syncMeasurementGraph]);
 
   // Show both brush time and complete automatic-selection time. The latter starts before model
