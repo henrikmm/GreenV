@@ -13,7 +13,7 @@ import 'package:http/testing.dart';
 import '../support/capture_fakes.dart';
 
 void main() {
-  testWidgets('follows login and password recovery screens', (tester) async {
+  testWidgets('renders the corporate login screen', (tester) async {
     final coordinator = _coordinator();
     addTearDown(coordinator.dispose);
 
@@ -29,24 +29,7 @@ void main() {
     expect(find.bySemanticsLabel('motiva'), findsOneWidget);
     expect(find.bySemanticsLabel('GreenV'), findsOneWidget);
     expect(find.text('Entrar'), findsOneWidget);
-
-    await tester.tap(find.text('Esqueceu a senha?'));
-    await tester.pumpAndSettle();
-    expect(find.text('Enviar código'), findsOneWidget);
-
-    await tester.tap(find.text('Enviar código'));
-    await tester.pumpAndSettle();
-    expect(
-      find.text('Enviamos seis dígitos para o seu e-mail corporativo.'),
-      findsOneWidget,
-    );
-
-    // Recovery is a mockup - no code is sent and none is verified - so it returns to the login
-    // screen instead of opening the app. It used to walk straight in.
-    await tester.tap(find.text('Voltar para entrar'));
-    await tester.pumpAndSettle();
-    expect(find.text('Bem-vindo'), findsOneWidget);
-    expect(find.text('Olá, equipe de campo'), findsNothing);
+    expect(find.text('Esqueceu a senha?'), findsNothing);
   });
 
   testWidgets('navigates home, stretches, map, orders and upload', (

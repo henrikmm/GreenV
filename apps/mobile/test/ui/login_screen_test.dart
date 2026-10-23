@@ -231,6 +231,41 @@ void main() {
 
     expect(find.text('Entrar'), findsOneWidget);
   });
+
+  testWidgets('a tap outside the fields puts the keyboard away', (
+    tester,
+  ) async {
+    final coordinator = _coordinator();
+    addTearDown(coordinator.dispose);
+
+    await tester.pumpWidget(
+      CaptureApp(
+        dependencies: AppDependencies(
+          operations: FakeOperationsGateway(),
+          capture: coordinator,
+          authenticator: _authenticator((_) => http.Response('{}', 401)),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('email-field')));
+    await tester.pump();
+    expect(tester.testTextInput.isVisible, isTrue);
+
+    // The background of the login screen, above the card.
+    await tester.tapAt(const Offset(20, 20));
+    await tester.pump();
+    expect(tester.testTextInput.isVisible, isFalse);
+    expect(
+      FocusManager.instance.primaryFocus?.context?.widget,
+      isNot(isA<EditableText>()),
+    );
+
+    // The fields still take a tap after that.
+    await tester.tap(find.byKey(const Key('password-field')));
+    await tester.pump();
+    expect(tester.testTextInput.isVisible, isTrue);
+  });
 }
 
 const _tokens =
