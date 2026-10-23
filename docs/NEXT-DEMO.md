@@ -364,3 +364,128 @@ objects deleted sixteen at a time a capture went in 4.2 s; one by one it took ~5
 - **Keeping a worker warm for the event** (`workersMin 1`) was not tried. At the observed
   US$ 3.49/h, eight hours is about US$ 28, more than the balance; scale-to-zero with a
   pre-pulled worker cost ~24 s more per capture in the run above.
+
+## 9. Preview cloud and timing log, 23 Oct 2026
+
+**A thinned copy of DA3's point cloud reached the screen 14–22 s after the phone finished
+uploading, against 29–38 s for the full result, on the Mac path with a warm RTX PRO 6000.** It is
+2.45 MB against 106–110 MB for the full download, and the service publishes it the moment the
+forward pass returns, before it writes the npz. Branch `feat/measurement-run-timing-log`, cut from
+`feat/measurement-next-demo-runpod`; image `da3-service:src-17e0b03e02628cf7`.
+
+### What it is
+
+`measurement/server/preview.py` rewrites DA3's own `scene.glb` with its point primitive reduced to
+`preview_points` (default 150 000 of 1 000 000), a seeded uniform subset kept in DA3's view order.
+The glTF JSON is copied as written — scene, nodes, camera frustums and
+`scenes[0].extras.hf_alignment` — so the preview lands exactly where the full cloud does with no
+code of its own. Only the two accessors of the cloud (POSITION float32 ×3, COLOR_0 uint8 ×4) are
+replaced.
+
+| | Points | Bytes | Where it comes from |
+|---|---:|---:|---|
+| `verge-preview.glb` | 150 000 | 2 451 336 | thinned from `scene.glb`, 16 B a point plus the frustums |
+| `scene.glb` | 1 000 000 | 16.1 MB | DA3's export |
+| `verge-result.npz` | — | 89.8–93.6 MB at 97–147 frames | depth, confidence, poses; what measurement reads |
+
+Thinning took 0.01–0.07 s on the Mac and 0.02 s on the service; 100k points is 1.65 MB, 250k is
+4.05 MB (`preview.thin_glb` on run `20261017-233229-163f36`).
+
+### Contract (additive; a client that sends nothing gets the old service)
+
+- `/infer` params gain `preview_token` (`^[A-Za-z0-9_-]{8,64}$`, chosen by the client so it can
+  poll before the run has an id) and `preview_points` (10 000–1 000 000, default 150 000).
+- `GET /preview/{token}` while the request is open: `{"detail": "no such preview"}` with 404 until
+  the request is accepted, then `state` `pending` → `ready` (or `failed`), with `run_id`, `url`,
+  `points`, `source_points`, `size_bytes`, `ready_after_seconds` (from acceptance),
+  `build_seconds`, `publish_seconds`, `error`. A 404 with any other detail is a service without
+  the route. The last 32 tokens are kept in memory.
+- The manifest lists the file as artifact kind `cloud_preview`, never `glb`, so a client looking
+  the full cloud up by kind is unaffected. It is published once; `_collect_artifacts` reuses the
+  early link.
+- A preview that cannot be built or published is `failed` and the run carries on. Evidence:
+  `measurement/server/test_contract.py` ("preview thinning OK", "preview route OK").
+
+### In the studio
+
+`app/src/lib/cloud-preview.ts` polls once a second from the end of the frame upload, downloads
+the preview, and Viewport 3D shows it in place of whatever cloud was there, tagged
+"Prévia · N mil pontos · nuvem completa a caminho" (Demo) or "PREVIEW" (Standard). The full
+cloud replaces it without re-framing the camera. Depth 2D and every measurement still wait for
+the full run: nothing measures the preview. If the poll misses it, the manifest's
+`cloud_preview` artifact is loaded instead (`adoptPreviewArtifact`), and `showPreviewFromUrl(key,
+url)` shows one from a link obtained any other way.
+
+### Measured, 22–23 Oct 2026
+
+Galaxy S25 Edge → Mac intake over home Wi-Fi → Cloud Run RTX PRO 6000 (warm, model loaded by
+`/warmup` in 103.1 s on the new image). Seconds from the start of the phone's upload, from the
+studio's timing log (`[verge timing]` in the console):
+
+| Capture | Frames | Request open | Forward pass | npz write + publish | Preview ready on service | Preview on screen | Full cloud on screen |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `cap-20261022-235031-vb10` | 118 | 20.9 | 11.5 | 8.8 | 12.9 | **22.0** | **37.6** |
+| `cap-20261022-235809-616x` | 147 | 21.1 | 8.8 | 11.3 | 9.1 | **15.4** | **35.3** |
+| `cap-20261022-235926-530u` | 97 | 13.9 | 6.8 | 6.7 | 7.0 | **14.1** | **28.8** |
+
+"Preview ready on service" counts from when the service accepted the request; the others from
+the phone. Two further captures from Safari (`cap-20261023-000745-ktym`, 46 frames, fetched at
+14.0 s; `cap-20261023-000852-3la3`, 147 frames, fetched at 37.8 s) carry no timing log; for the
+second the operator saw the preview at about 18 s and the full cloud at about 36 s.
+
+Where the full result's time goes after the forward pass, every run alike:
+
+- **npz write and bucket publish on the service: 6.7–11.3 s.** The preview leaves before it.
+- **The page waited ~4.5 s after the response before any download started** (`artifacts down +
+  views built` opens, the first `download` row starts 4.5 s later). Not broken down.
+- **Downloads, in parallel:** the npz at 16–17 MB/s (5.4–5.6 s), `scene.glb` at 5.5–6.1 MB/s
+  (2.7–2.9 s). The 2.45 MB preview came down at 1.1–1.6 MB/s (1.6–2.3 s): a small file from a
+  signed link is latency, not bandwidth.
+- **`scene.glb` is requested three times per run**; two are cancelled within 0.1 s when the graph
+  rebuilds Point Cloud. The cost is requests, not bytes. Not fixed.
+
+On the venue's network every byte-bound stretch grows and the preview's does least: it is 2.3 % of
+the bytes the full result needs in the browser.
+
+### The timing log
+
+Setup → Run → "Timing log" (off by default; `app/src/lib/run-timeline.ts`, `panes/run-timing.tsx`).
+One row per stretch on a shared time axis: phone upload, load, ffmpeg, frame upload, the open
+request broken down by the service's own clock (outside the service, model load when the poll saw
+one, forward pass, npz write + publish), the preview's rows, and each artifact's download and
+parse, with bytes, MB/s, idle gaps, and "preview on screen / full cloud on screen". "Copy as text"
+and the console carry the same text. Rows from the service are marked `[service clock]`: they are
+durations the manifest reports, placed to end at the response.
+
+### Also on this branch
+
+- The studio connects to a deployed service by itself when it loads (`deploy-store.loadStatus`).
+  A reloaded page used to read "GPU service: not deployed" with the service up, and Auto skipped
+  the run without a word: that is what stopped capture `cap-20261023-000336-c2zs`. Connecting
+  wakes nothing.
+- A run Auto cannot start is reported (`failed`, with the missing step) instead of leaving the
+  capture on `extracted`; the Demo panel says when Auto's GPU step is off.
+- The Mac's Demo panel has the history the hosted site has: the inbox's captures, each opened
+  through its run. `inferred` now carries `runId`; older captures are matched by time
+  (`lib/demo-history.ts`). A saved run opens with a click; an unsaved one offers
+  "salvar e abrir". Two pages processing the same inbox (Safari and another browser on the same
+  dev server, 22 Oct) is what made `loaded` and `extracting` appear twice in a capture's timeline.
+- `huggingface_hub` is pinned below 1.0 in `measurement/server/Dockerfile`: unpinned, the
+  22 Oct build drew 2.2.0 and the checkpoint download failed with
+  `process() takes no keyword arguments`.
+
+### What the RunPod path would need for the same effect
+
+Facts about the seams, as they stand on this branch:
+
+- The handler runs this service as a process with `VERGE_OUTPUT_BUCKET=""`
+  (`services/greenv-depth-runpod/Dockerfile`), so a `ready` preview's `url` is
+  `/artifact/<run_id>/verge-preview.glb` on that process, readable while `/infer` is still open.
+- The handler already reports progress to RunPod (`runpod.serverless.progress_update`) and
+  publishes artifacts to R2 itself; on 23 Oct its publish step took 26 s
+  (`cap-20261023-012557-k5en`, `published.handler_seconds.publish`), the largest single stretch of
+  that 51 s capture.
+- The hosted site does not poll the GPU service; it reads the API. `showPreviewFromUrl` in
+  `cloud-preview.ts` takes a link from wherever the page learns it, and Viewport 3D shows it the
+  same way.
+- Not exercised on RunPod, R2 or the hosted site.

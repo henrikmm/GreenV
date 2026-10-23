@@ -1877,6 +1877,30 @@ server's own `timing.gpu_seconds`.
     the cloud rendered after `fetched`, and the page ended on PRONTO. That is also how the blank
     page above was found. **Untested against the real API and R2**: neither existed that day.
 
+18. **A run publishes a thinned preview cloud before its result, and the studio shows it first.**
+    Decided 2026-10-22 for the FIAP Next demo, where moving the result outlasted the GPU: on the
+    hosted demo a 51 s capture spent 6.9 s on the GPU and 26 s publishing
+    (`cap-20261023-012557-k5en`). `server/preview.py` rewrites DA3's `scene.glb` with 150k of its
+    1M points — 2.45 MB against 16.1 MB, scene graph and `hf_alignment` untouched — right after
+    the forward pass, and publishes it before the npz is written. `/infer` takes a client-chosen
+    `preview_token`; `GET /preview/{token}` reports it; the manifest lists it as `cloud_preview`.
+    Nothing measures it: it is a picture of where the result will be.
+
+    Measured 2026-10-22/23 on a warm RTX PRO 6000 through the Mac intake: preview on screen
+    14.1 / 15.4 / 22.0 s after the phone's upload began, full cloud 28.8 / 35.3 / 37.6 s, at
+    97 / 147 / 118 frames. Full numbers, the contract and what the RunPod path would need are in
+    the GreenV repository's `docs/NEXT-DEMO.md` §9.
+
+    The same change added the run timing log (Setup → Run, off by default), which is where those
+    numbers come from, and it showed three things not yet acted on: the service spends 6.7–11.3 s
+    writing and publishing the npz after the forward pass; the page waits ~4.5 s after the
+    response before any download starts; `scene.glb` is requested three times per run, two
+    cancelled within 0.1 s. Evidence: `app/src/lib/run-timeline.test.ts`,
+    `app/src/lib/demo-history.test.ts`, `server/test_contract.py`; image
+    `da3-service:src-17e0b03e02628cf7`, which replaced `src-72503b7885b12c8b` after serving five
+    phone runs. That rebuild pinned `huggingface_hub<1.0`: unpinned, it drew 2.2.0 and the
+    checkpoint download failed.
+
 ---
 
 ## 5. What has been measured, and how well
