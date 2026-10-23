@@ -91,17 +91,37 @@ function stopPolling(): void {
 }
 
 /**
- * Once a second against a real service: it is an in-memory read on an instance the open
- * request is already keeping awake, so it adds no lifetime and no machine. The mock is polled
- * faster because it is free and its whole run lasts a few seconds.
+ * 400 ms against a real service: it is an in-memory read on an instance the open request is
+ * already keeping awake, so it adds no lifetime and no machine. Once a second was too coarse
+ * after 2026-10-23, when the service began answering ~1 s after the preview was ready: the poll
+ * often saw the preview no earlier than the full result.
  */
 function pollInterval(): number {
-  return getCloud().baseUrl === null ? 250 : 1000;
+  return getCloud().baseUrl === null ? 250 : 400;
+}
+
+/**
+ * Open the connection to the bucket before there is anything to fetch from it.
+ *
+ * On 2026-10-23 the 2.5 MB preview came down at 1.5 MB/s while the 16 MB GLB after it ran at
+ * 7.5 MB/s: the preview was paying for DNS, TLS and the first round trip to Cloud Storage. A
+ * `preconnect` made when Run is pressed spends that during the GPU wait instead. Anonymous, to
+ * match `fetch` of a signed link, which sends no credentials.
+ */
+function preconnect(origin: string): void {
+  if (typeof document === "undefined" || document.querySelector(`link[rel="preconnect"][href="${origin}"]`)) return;
+  const link = document.createElement("link");
+  link.rel = "preconnect";
+  link.href = origin;
+  link.crossOrigin = "anonymous";
+  document.head.appendChild(link);
 }
 
 /** Start following the preview for the run being sent with `token`. */
 export function watchPreview(token: string): void {
   stopPolling();
+  // The deployed service publishes to Cloud Storage; the mock serves from this origin.
+  if (getCloud().baseUrl !== null) preconnect("https://storage.googleapis.com");
   set({ status: "waiting", token });
   const tick = async () => {
     timer = null;

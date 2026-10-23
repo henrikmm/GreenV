@@ -497,3 +497,45 @@ Facts about the seams, as they stand on this branch:
   `cloud-preview.ts` takes a link from wherever the page learns it, and Viewport 3D shows it the
   same way.
 - Not exercised on RunPod, R2 or the hosted site.
+
+### The service after the forward pass, 23 Oct 2026 (night)
+
+**A warm 118-frame request now takes 7.8 s on the service, against 10.6 s with the first set of
+changes and 20.3 s on 22 Oct; the forward pass is unchanged.** Everything removed was CPU work
+after the model, measured first in DA3's own log lines (`Model Forward Pass Done`, `Export
+Results Done`) and on a Mac with DA3's code on run `20261023-025037-aff2db`, then on the RTX PRO
+6000 by resending that run's frames (`scripts/regress-run.mjs`):
+
+| Image | Server wall | Inference (forward + GLB export) | DA3 GLB export | npz write | Wall − inference |
+|---|---:|---:|---:|---:|---:|
+| `src-17e0b03e02628cf7`, 22 Oct (first run after warm-up) | 20.28 | 11.47 | 3.59 | — | 8.81 |
+| `src-c93332858b2b3c7d`, warm | 10.61 | 6.44 | 1.71 | 3.25 | 4.17 |
+| `src-c308738591e8d35f`, warm (×2) | **7.75 / 7.87** | 6.46 | — | **0.34** | **1.29 / 1.41** |
+
+The request as the Mac saw it, upload and response included: 12.2 s → 9.3–9.5 s. What changed:
+
+- **DA3's GLB exporter no longer renders a depth JPEG per frame** (`export_depth_vis=False`), used
+  only to copy the first to an unpublished `scene.jpg`: GLB export 3.59 → 1.71–1.81 s on the same
+  frames, `scene.glb` byte-identical (sha256, on the Mac).
+- **DA3's own npz is no longer requested.** It wrote `exports/npz/results.npz` — depth,
+  confidence and every image, 78.7 MB — on a background thread, 3.3 s of CPU, read by nothing.
+- **Our npz is deflated at level 1, in 4 MiB pieces on every core**, joined as one stream with
+  sync flushes (as pigz does), and written as a standard zip: 3.25 s → 0.34 s on the service,
+  94.3 MB against 93.6 MB at numpy's default. `np.load` and the studio's `npz.ts` read it
+  bit-identically (checked on the real run).
+- **The preview and `scene.glb` upload while the npz is written**, on their own threads.
+- **The manifest reports `diagnostics.stage_seconds`** (inference, npz_write, preview,
+  publish_<name>, collect); the timing log shows them.
+- **Measurement unchanged:** the nine tape-graded trials of run `20260811-161356-d387ec` moved
+  0.1–0.4 mm on both new images, the same as the 17 Oct RTX PRO 6000 regression; PASS.
+
+On the Mac path, a warm 58-frame run put the full cloud on screen 9.3–9.4 s after Run was
+pressed, the preview 1.3–1.5 s before it (preview poll at 400 ms, was 1 s). What remains, for
+that run: forward pass and GLB export 3.5 s, the `scene.glb` download 2.6–2.9 s, the frame upload
+0.8–1.6 s. `scene.glb` came down at 5.5–7.5 MB/s whether or not the npz downloaded beside it,
+so holding the npz back until the GLB arrived bought nothing for the cloud and cost Depth 2D
+2.7 s; it was tried and reverted. A `preconnect` to `storage.googleapis.com` at Run did not lift
+the preview above 1.1–1.7 MB/s.
+
+For the RunPod path these are all inside `measurement/server`, which the handler's image is
+built from; its own R2 publish after the response is untouched.

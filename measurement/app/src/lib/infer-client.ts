@@ -195,6 +195,7 @@ export function manifestFromWire(w: any): InferManifest {
           exportDirListing: w.diagnostics.export_dir_listing ?? [],
           publishMode: w.diagnostics.publish_mode ?? undefined,
           publishErrors: w.diagnostics.publish_errors ?? undefined,
+          stageSeconds: w.diagnostics.stage_seconds ?? undefined,
         }
       : undefined,
     transient: w.transient,

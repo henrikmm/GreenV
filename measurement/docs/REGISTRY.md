@@ -1905,6 +1905,24 @@ server's own `timing.gpu_seconds`.
     phone runs. That rebuild pinned `huggingface_hub<1.0`: unpinned, it drew 2.2.0 and the
     checkpoint download failed.
 
+19. **The service's work after the forward pass went from 8.8 s to 1.3 s.** Decided and measured
+    2026-10-23 on the RTX PRO 6000 by resending run `20261023-025037-aff2db` (118 frames): server
+    wall 20.28 s (22 Oct image, first run after warm-up) → 7.75 / 7.87 s warm on image
+    `src-c308738591e8d35f`, with inference itself at 6.46 s. Three things were CPU work nobody
+    used or could make cheaper: DA3's GLB exporter rendered a depth JPEG per frame for an
+    unpublished `scene.jpg` (now `export_depth_vis=False`; GLB export 3.59 → 1.71 s, `scene.glb`
+    byte-identical); DA3's own npz (`exports/npz/results.npz`, images included, 78.7 MB, 3.3 s of
+    CPU on a background thread) was requested and never read (export format is now `glb`); and
+    our npz was deflated at numpy's default level on one core (now level 1 in 4 MiB pieces on
+    every core, pigz-style: 3.25 → 0.34 s, 94.3 vs 93.6 MB, read bit-identically by `np.load` and
+    `npz.ts`). The preview and the GLB upload alongside the npz write, and the manifest carries
+    `diagnostics.stage_seconds`. The nine tape-graded trials of `20260811-161356-d387ec` moved
+    0.1–0.4 mm, as before: PASS. Corrects an earlier line in section 5: DA3 does write a result
+    file of its own when asked for `npz`, in a subdirectory the listing never reached.
+    Evidence: `server/test_contract.py` ("npz writer OK", "early publish OK"),
+    `scripts/regress-run.mjs` reports, DA3's `Export Results Done` log lines; full table in the
+    GreenV repository's `docs/NEXT-DEMO.md` §9.
+
 ---
 
 ## 5. What has been measured, and how well

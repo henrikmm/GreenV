@@ -404,4 +404,64 @@ for i in range(main._PREVIEWS_KEPT + 5):
 assert len(main._previews) == main._PREVIEWS_KEPT, "preview state must stay bounded"
 print("preview route OK: pending, ready, served, collected once, failure contained, bounded")
 
+# ----------------------------------------------------------------- faster post-GPU path
+#
+# Our npz is written at deflate level 1 and must read back exactly; uploads that started early
+# are awaited, never repeated.
+with tempfile.TemporaryDirectory() as tmp:
+    target = Path(tmp) / main.VERGE_NPZ_NAME
+    rng = np.random.default_rng(3)
+    arrays = {
+        "depth": rng.random((3, 8, 5), dtype=np.float32),
+        "confidence": rng.random((3, 8, 5), dtype=np.float32),
+        "extrinsics": rng.random((3, 3, 4), dtype=np.float32),
+        "intrinsics": rng.random((3, 3, 3), dtype=np.float32),
+    }
+    main._write_npz(target, arrays)
+    with np.load(target, allow_pickle=False) as handle:
+        assert sorted(handle.files) == sorted(arrays), handle.files
+        for key, value in arrays.items():
+            assert handle[key].dtype == value.dtype and np.array_equal(handle[key], value), key
+    # Many seams: 64-byte pieces put hundreds of joins inside each member, and the zipfile path
+    # (used past 4 GiB) must agree with the hand-written one.
+    original_piece = main.NPZ_PIECE_BYTES
+    main.NPZ_PIECE_BYTES = 64
+    try:
+        main._write_npz(target, arrays)
+    finally:
+        main.NPZ_PIECE_BYTES = original_piece
+    import zipfile as _zipfile
+    assert _zipfile.ZipFile(target).testzip() is None, "a member failed its CRC"
+    serial = Path(tmp) / "serial.npz"
+    main._write_npz_zipfile(serial, arrays)
+    for written in (target, serial):
+        with np.load(written, allow_pickle=False) as handle:
+            for key, value in arrays.items():
+                assert np.array_equal(handle[key], value), (written.name, key)
+print("npz writer OK: level", main.NPZ_COMPRESS_LEVEL, "round-trips every array exactly, across piece seams")
+
+with tempfile.TemporaryDirectory() as tmp:
+    d = Path(tmp)
+    (d / "scene.glb").write_bytes(b"g" * 8)
+    (d / main.VERGE_NPZ_NAME).write_bytes(b"n" * 8)
+    calls: list[str] = []
+    original_publish = main._publish
+
+    def counting_publish(path, run_id, notes):
+        calls.append(path.name)
+        return original_publish(path, run_id, notes)
+
+    main._publish = counting_publish
+    try:
+        stages: dict[str, float] = {}
+        early = {"scene.glb": main._publish_pool.submit(main._timed_publish, d / "scene.glb", "run-e", stages)}
+        early["scene.glb"].result()
+        arts = {a.name: a for a in main._collect_artifacts(d, "run-e", [], early, stages)}
+    finally:
+        main._publish = original_publish
+    assert calls.count("scene.glb") == 1, f"the GLB was published {calls.count('scene.glb')} times"
+    assert arts["scene.glb"].url == "/artifact/run-e/scene.glb" and main.VERGE_NPZ_NAME in arts
+    assert {"publish_scene.glb", f"publish_{main.VERGE_NPZ_NAME}"} <= set(stages), stages
+print("early publish OK: awaited once, timed per artifact")
+
 print("\nALL SERVER CONTRACT CHECKS PASSED")

@@ -31,8 +31,10 @@ import json
 import os
 import shutil
 import tempfile
+import threading
 import time
 import uuid
+import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from pathlib import Path
@@ -90,6 +92,12 @@ _model_load_seconds: float | None = None
 _infer_lock = asyncio.Lock()
 _busy = False
 _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="da3")
+
+#: Uploads that overlap the npz write: the preview and the full GLB exist the moment the forward
+#: pass returns, and waiting for the npz before sending them was ~1.4 s (preview) plus the GLB's
+#: upload added to every request (2026-10-23 timing log). Separate from `_executor`, which must
+#: stay one-at-a-time for the GPU.
+_publish_pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="publish")
 
 #: Preview state by client token, newest last. Written from the executor thread, read by
 #: GET /preview; each write replaces a whole dict, so a reader never sees half of one.
@@ -170,7 +178,11 @@ def _run_inference(frame_paths: list[str], params: InferParams, export_dir: Path
     """Blocking; runs on the executor thread."""
     model = _load_model()
 
-    export_formats = ["npz", "glb"]
+    # GLB only. DA3's own `npz` exporter (asked for here until 2026-10-23) writes
+    # exports/npz/results.npz — depth, confidence AND every image, compressed — on a background
+    # thread: 78.7 MB and 3.3 s of CPU for the 118-frame run 20261023-025037-aff2db, measured on
+    # a Mac with DA3's own code. Nothing reads it; ours below is the result.
+    export_formats = ["glb"]
     if params.infer_gs:
         export_formats += ["gs_ply"]
 
@@ -184,13 +196,26 @@ def _run_inference(frame_paths: list[str], params: InferParams, export_dir: Path
             infer_gs=params.infer_gs,
             export_dir=str(export_dir),
             export_format="-".join(export_formats),
+            # The GLB exporter otherwise renders a colourised depth JPEG for every frame, only to
+            # copy the first to scene.jpg, which nothing publishes. Off, the same run's GLB export
+            # went from 2.98 s to 1.01 s with a byte-identical scene.glb (same measurement as
+            # above). A fresh dict each call: DA3 mutates the one it is given.
+            export_kwargs={"glb": {"export_depth_vis": False}},
         )
     gpu_seconds = time.monotonic() - started
+    stages: dict[str, float] = {"inference": gpu_seconds}
 
-    # Before our npz is written and anything is published: this is the earliest moment a
-    # point cloud exists, and the whole point of the preview is to leave from here.
+    # Everything that already exists leaves now, while the npz is written: the preview (the
+    # earliest point cloud, and the reason it exists) and DA3's full GLB.
+    run_id = export_dir.parent.name
+    early: dict[str, Any] = {}
     if params.preview_token:
-        _make_preview(params.preview_token, params.preview_points, export_dir)
+        early[PREVIEW_NAME] = _publish_pool.submit(
+            _make_preview, params.preview_token, params.preview_points, export_dir, stages
+        )
+    for glb in sorted(export_dir.glob("*.glb")):
+        if glb.name != PREVIEW_NAME:
+            early[glb.name] = _publish_pool.submit(_timed_publish, glb, run_id, stages)
 
     import numpy as np
 
@@ -201,13 +226,17 @@ def _run_inference(frame_paths: list[str], params: InferParams, export_dir: Path
     # The keys below are the ones app/src/lib/npz.ts reads; see native_npz in the
     # manifest for what DA3 emitted alongside.
     ours = export_dir / VERGE_NPZ_NAME
-    np.savez_compressed(
+    npz_started = time.monotonic()
+    _write_npz(
         ours,
-        depth=prediction.depth,
-        confidence=prediction.conf,
-        extrinsics=prediction.extrinsics,
-        intrinsics=prediction.intrinsics,
+        {
+            "depth": prediction.depth,
+            "confidence": prediction.conf,
+            "extrinsics": prediction.extrinsics,
+            "intrinsics": prediction.intrinsics,
+        },
     )
+    stages["npz_write"] = time.monotonic() - npz_started
 
     # Record what DA3 itself produced, so the npz key names stop being a guess. This is
     # cheap (a directory listing plus one npz header read) and answers the open question
@@ -233,7 +262,102 @@ def _run_inference(frame_paths: list[str], params: InferParams, export_dir: Path
         "width": int(depth.shape[-1]),
         "native_npz": native_npz,
         "export_dir_listing": sorted(p.name for p in export_dir.iterdir() if p.is_file()),
+        "early": early,
+        "stages": stages,
     }
+
+
+#: zlib level for our npz. numpy's savez_compressed uses the default (6): 4.01 s and 93.6 MB for
+#: run 20261023-025037-aff2db on a Mac; level 1 wrote the same arrays in 1.92 s at 94.3 MB.
+#: Depth and confidence are float32 noise to deflate, so harder effort buys almost nothing.
+NPZ_COMPRESS_LEVEL = 1
+
+#: Each npz member is deflated in pieces this size, all at once. Level 1 on one core still took
+#: 3.25 s for 118 frames on the RTX PRO 6000 instance (20 vCPU) on 2026-10-23, the largest
+#: stretch left after the forward pass. Pieces are independent deflate streams joined with sync
+#: flushes, as pigz does: one valid stream, no back-reference across a seam, a few bytes per seam.
+NPZ_PIECE_BYTES = 4 * 1024 * 1024
+
+_deflate_pool = ThreadPoolExecutor(max_workers=max(2, os.cpu_count() or 2), thread_name_prefix="deflate")
+
+
+def _deflate_piece(piece: memoryview, last: bool) -> bytes:
+    import zlib
+
+    compressor = zlib.compressobj(NPZ_COMPRESS_LEVEL, zlib.DEFLATED, -15)
+    return compressor.compress(piece) + compressor.flush(zlib.Z_FINISH if last else zlib.Z_SYNC_FLUSH)
+
+
+def _deflate_member(data: memoryview) -> tuple[bytes, int]:
+    """Raw deflate of `data` in parallel pieces, and its CRC-32 (zlib releases the GIL for both)."""
+    import zlib
+
+    pieces = [data[i : i + NPZ_PIECE_BYTES] for i in range(0, len(data), NPZ_PIECE_BYTES)] or [data]
+    crc = _deflate_pool.submit(zlib.crc32, data)
+    compressed = _deflate_pool.map(_deflate_piece, pieces, [i == len(pieces) - 1 for i in range(len(pieces))])
+    return b"".join(compressed), crc.result()
+
+
+def _write_npz(path: Path, arrays: dict[str, Any]) -> None:
+    """`np.savez_compressed`, faster: deflate level 1, each member compressed on every core.
+
+    Same container and the same `.npy` members, so `np.load` and the studio's `npz.ts` read it
+    unchanged. The zip is written by hand because `zipfile` cannot take data compressed
+    elsewhere; members over 4 GiB, which would need zip64, go through `zipfile` instead.
+    """
+    import io
+    import struct
+
+    import numpy as np
+
+    members: list[tuple[bytes, bytes, int, int]] = []
+    for name, value in arrays.items():
+        buffer = io.BytesIO()
+        np.lib.format.write_array(buffer, np.asanyarray(value), allow_pickle=False)
+        raw = buffer.getbuffer()
+        if raw.nbytes >= 0xFFFFFFFF:
+            return _write_npz_zipfile(path, arrays)
+        compressed, crc = _deflate_member(raw)
+        members.append((f"{name}.npy".encode(), compressed, crc, raw.nbytes))
+
+    # 1980-01-01 00:00, the zip epoch: the timestamp carries no meaning here.
+    dos_time, dos_date = 0, (0 << 9) | (1 << 5) | 1
+    central = bytearray()
+    with path.open("wb") as out:
+        for name, compressed, crc, size in members:
+            offset = out.tell()
+            out.write(struct.pack("<IHHHHHIIIHH", 0x04034B50, 20, 0, 8, dos_time, dos_date, crc, len(compressed), size, len(name), 0))
+            out.write(name)
+            out.write(compressed)
+            central += struct.pack(
+                "<IHHHHHHIIIHHHHHII", 0x02014B50, 20, 20, 0, 8, dos_time, dos_date, crc, len(compressed), size, len(name), 0, 0, 0, 0, 0, offset
+            )
+            central += name
+        start = out.tell()
+        if start >= 0xFFFFFFFF:
+            out.close()
+            return _write_npz_zipfile(path, arrays)
+        out.write(central)
+        out.write(struct.pack("<IHHHHIIH", 0x06054B50, 0, 0, len(members), len(members), len(central), start, 0))
+
+
+def _write_npz_zipfile(path: Path, arrays: dict[str, Any]) -> None:
+    """The single-threaded path, through `zipfile` (zip64 when needed)."""
+    import numpy as np
+
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=NPZ_COMPRESS_LEVEL) as archive:
+        for name, value in arrays.items():
+            with archive.open(f"{name}.npy", "w", force_zip64=True) as member:
+                np.lib.format.write_array(member, np.asanyarray(value), allow_pickle=False)
+
+
+def _timed_publish(path: Path, run_id: str, stages: dict[str, float]) -> tuple[tuple[str, str | None], list[str]]:
+    """`_publish` off the request thread: its link, and its own notes to merge afterwards."""
+    notes: list[str] = []
+    started = time.monotonic()
+    published = _publish(path, run_id, notes)
+    stages[f"publish_{path.name}"] = time.monotonic() - started
+    return published, notes
 
 
 #: Our own npz, written by _run_inference. Deliberately not "result.npz" — see there.
@@ -247,14 +371,14 @@ def _register_preview(token: str, run_id: str) -> None:
         _previews.pop(next(iter(_previews)))
 
 
-def _make_preview(token: str, max_points: int, export_dir: Path) -> None:
+def _make_preview(token: str, max_points: int, export_dir: Path, stages: dict[str, float] | None = None) -> None:
     """Thin DA3's GLB and publish it. Never raises: the run it belongs to is already paid for."""
     entry = _previews.get(token)
     if entry is None:
         return
     run_id = entry["run_id"]
+    started = time.monotonic()
     try:
-        started = time.monotonic()
         source = next(p for p in sorted(export_dir.glob("*.glb")) if p.name != PREVIEW_NAME)
         stats = preview.thin_glb(source, export_dir / PREVIEW_NAME, max_points)
         built = time.monotonic()
@@ -276,6 +400,9 @@ def _make_preview(token: str, max_points: int, export_dir: Path) -> None:
         }
     except Exception as exc:  # noqa: BLE001 — a preview must never cost the run
         _previews[token] = {**entry, "state": "failed", "error": f"{type(exc).__name__}: {exc}"}
+    finally:
+        if stages is not None:
+            stages["preview"] = time.monotonic() - started
 
 
 def _published_preview(run_id: str) -> tuple[str, str | None] | None:
@@ -294,7 +421,20 @@ def preview_status(token: str) -> PreviewStatus:
     return PreviewStatus(**{k: v for k, v in entry.items() if k in PreviewStatus.model_fields})
 
 
-def _collect_artifacts(export_dir: Path, run_id: str, notes: list[str]) -> list[Artifact]:
+def _collect_artifacts(
+    export_dir: Path,
+    run_id: str,
+    notes: list[str],
+    early: dict[str, Any] | None = None,
+    stages: dict[str, float] | None = None,
+) -> list[Artifact]:
+    """Every artifact with its link. `early` holds uploads `_run_inference` started already:
+    each is awaited here rather than published twice."""
+    early = early or {}
+    for name, pending in early.items():
+        if name == PREVIEW_NAME:
+            pending.result()  # the preview records its own link in _previews
+    
     kinds = {
         ".glb": "glb",
         ".npz": "npz",
@@ -317,10 +457,20 @@ def _collect_artifacts(export_dir: Path, run_id: str, notes: list[str]) -> list[
             kind = "npz_native"
         # The preview went out early; publishing it again would collide with itself in the
         # bucket (if_generation_match=0) and read as a degraded run.
-        early = _published_preview(run_id) if path.name == PREVIEW_NAME else None
         if path.name == PREVIEW_NAME:
             kind = "cloud_preview"
-        url, gs_uri = early if early else _publish(path, run_id, notes)
+            published = _published_preview(run_id)
+        elif path.name in early:
+            published, publish_notes = early[path.name].result()
+            notes.extend(publish_notes)
+        else:
+            published = None
+        if published is None:
+            started = time.monotonic()
+            published = _publish(path, run_id, notes)
+            if stages is not None:
+                stages[f"publish_{path.name}"] = time.monotonic() - started
+        url, gs_uri = published
         artifacts.append(
             Artifact(
                 kind=kind,  # type: ignore[arg-type]
@@ -343,14 +493,23 @@ _storage_client: Any = None
 _signing_credentials: Any = None
 
 
+_thread_clients = threading.local()
+_sign_lock = threading.Lock()
+
+
 def _client() -> Any:
-    """One GCS client for the process. Building it per artifact would re-read ADC each time."""
-    global _storage_client
-    if _storage_client is None:
+    """One GCS client per thread. Uploads now run on `_publish_pool` beside the request thread,
+    and a client is not documented as safe to share across threads; building one per thread
+    re-reads ADC once per worker, not once per artifact."""
+    if _storage_client is not None:  # injected: one shared client, as the tests use
+        return _storage_client
+    client = getattr(_thread_clients, "client", None)
+    if client is None:
         from google.cloud import storage
 
-        _storage_client = storage.Client()
-    return _storage_client
+        client = storage.Client()
+        _thread_clients.client = client
+    return client
 
 
 def _sign(blob: Any) -> str:
@@ -366,23 +525,27 @@ def _sign(blob: Any) -> str:
     to the object it signs for — objectAdmin on the bucket, not merely objectCreator.
     """
     global _signing_credentials
-    if _signing_credentials is None:
-        import google.auth
+    # Several uploads can finish at once; one refresh at a time, and nobody signs mid-refresh.
+    with _sign_lock:
+        if _signing_credentials is None:
+            import google.auth
 
-        _signing_credentials, _ = google.auth.default()
-    # The access token IS the signing credential here, so a stale one produces a bad
-    # signature rather than a clean 401. Refresh whenever it is not currently valid.
-    if not getattr(_signing_credentials, "valid", False):
-        from google.auth.transport import requests as google_requests
+            _signing_credentials, _ = google.auth.default()
+        # The access token IS the signing credential here, so a stale one produces a bad
+        # signature rather than a clean 401. Refresh whenever it is not currently valid.
+        if not getattr(_signing_credentials, "valid", False):
+            from google.auth.transport import requests as google_requests
 
-        _signing_credentials.refresh(google_requests.Request())
+            _signing_credentials.refresh(google_requests.Request())
+        email = _signing_credentials.service_account_email
+        token = _signing_credentials.token
 
     return blob.generate_signed_url(
         version="v4",
         expiration=timedelta(seconds=SIGNED_URL_TTL_SECONDS),
         method="GET",
-        service_account_email=_signing_credentials.service_account_email,
-        access_token=_signing_credentials.token,
+        service_account_email=email,
+        access_token=token,
     )
 
 
@@ -535,7 +698,10 @@ async def infer(
     _discard_frames(run_dir)
 
     publish_notes: list[str] = []
-    artifacts = _collect_artifacts(export_dir, run_id, publish_notes)
+    stages: dict[str, float] = result["stages"]
+    collect_started = time.monotonic()
+    artifacts = _collect_artifacts(export_dir, run_id, publish_notes, result["early"], stages)
+    stages["collect"] = time.monotonic() - collect_started
 
     manifest = InferManifest(
         run_id=run_id,
@@ -567,6 +733,7 @@ async def infer(
             export_dir_listing=result["export_dir_listing"],
             publish_mode=_publish_mode(publish_notes),
             publish_errors=publish_notes,
+            stage_seconds={k: round(v, 3) for k, v in stages.items()},
         ),
     )
     (run_dir / "manifest.json").write_text(manifest.model_dump_json(indent=2))

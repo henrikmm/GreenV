@@ -246,6 +246,15 @@ subscribeRunPhase(() => {
  * `resolve` turns manifest paths into the URLs the browser fetches, so the downloads that follow
  * can be recognised as this run's.
  */
+/** The service's own stage seconds, after the forward pass, as one readable note. */
+function stageNote(stages: Record<string, number> | undefined): string | undefined {
+  if (!stages) return undefined;
+  const parts = Object.entries(stages)
+    .filter(([key]) => key !== "inference" && key !== "collect")
+    .map(([key, seconds]) => `${key.replace(/^publish_/, "upload ")} ${seconds.toFixed(1)} s`);
+  return parts.length ? `${parts.join(" · ")} (uploads overlap)` : undefined;
+}
+
 const SERVICE_ROWS = new Set(["server-outside", "server-load", "server-other", "server-forward"]);
 
 export function noteManifest(manifest: InferManifest, resolve: (url: string) => string, now = Date.now()): void {
@@ -307,7 +316,7 @@ export function noteManifest(manifest: InferManifest, resolve: (url: string) => 
       startMs: forwardEnd,
       endMs: now,
       derived: true,
-      note: misfit ?? undefined,
+      note: misfit ?? stageNote(manifest.diagnostics?.stageSeconds),
     },
   ];
   const urls = new Set<string>();

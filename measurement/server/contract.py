@@ -159,6 +159,12 @@ class Diagnostics(BaseModel):
     publish_mode: Literal["gcs", "local", "degraded"] = "local"
     publish_errors: list[str] = Field(default_factory=list)
 
+    # Seconds per stage of this request, on this service's clock (added 2026-10-23): what the
+    # demo's timing log needs to say which part of the wall is the model and which is files.
+    # Keys: inference (model.inference, GLB export included), npz_write, preview,
+    # publish_<artifact name>, collect. Absent stages were not run.
+    stage_seconds: dict[str, float] = Field(default_factory=dict)
+
 
 class InferManifest(BaseModel):
     schema_version: str = SCHEMA_VERSION

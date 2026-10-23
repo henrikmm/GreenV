@@ -228,6 +228,12 @@ export interface Diagnostics {
    */
   publishMode?: "gcs" | "local" | "degraded";
   publishErrors?: string[];
+  /**
+   * Seconds per stage on the service's clock (from 2026-10-23): inference (GLB export
+   * included), npz_write, preview, publish_<name>, collect. Uploads overlap, so they do not sum
+   * to the wall. Absent from older services.
+   */
+  stageSeconds?: Record<string, number>;
 }
 
 export interface Timing {
