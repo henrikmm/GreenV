@@ -19,6 +19,9 @@ final class FakeRecorder implements SegmentRecorder {
   int starts = 0;
   int stops = 0;
 
+  /// Thrown by [initialize] when set, the way a refused camera permission arrives.
+  Object? initializeError;
+
   @override
   bool get isInitialized => initialized;
 
@@ -29,7 +32,10 @@ final class FakeRecorder implements SegmentRecorder {
   Widget buildPreview() => const ColoredBox(color: Color(0xFF33283A));
 
   @override
-  Future<void> initialize() async => initialized = true;
+  Future<void> initialize() async {
+    if (initializeError != null) throw initializeError!;
+    initialized = true;
+  }
 
   @override
   Future<void> start() async => starts += 1;

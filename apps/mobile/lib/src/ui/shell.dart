@@ -17,18 +17,7 @@ const motivaMuted = Color(0xFF66736C);
 const motivaCanvas = Color(0xFFF3F6F2);
 const motivaLine = Color(0xFFDCE5DE);
 
-enum MotivaPage {
-  splash,
-  login,
-  forgotEmail,
-  forgotCode,
-  home,
-  upload,
-  stretches,
-  map,
-  orders,
-  teams,
-}
+enum MotivaPage { splash, login, home, upload, stretches, map, orders, teams }
 
 BoxDecoration cardDecoration({double radius = 15}) => BoxDecoration(
   color: Colors.white,

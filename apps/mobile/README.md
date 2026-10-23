@@ -11,10 +11,11 @@ for, because the phone cannot act on the answer and the wait keeps a finished ca
 background closes the current segment and stops recording; capture never continues invisibly.
 
 The presentation is isolated from Verge Studio's React application. It follows the supplied
-Motiva flow with login and password recovery, a GreenV operations dashboard, recording/upload,
-network summary and full-route map screens. The upload screen starts the native camera path; the
-dashboard and map data shown today are local presentation fixtures until their API contracts are
-defined.
+Motiva flow: corporate login, an operations dashboard, recording/upload, measured stretches with
+their frames, a map, service orders and teams. Every number on those screens is read back from
+the API; a screen that cannot reach it says so and offers a retry. There is no password recovery
+screen, because the API has no recovery contract and a mockup that pretends to send a code is
+worse than none.
 
 ## The demo build (test only)
 
@@ -39,13 +40,12 @@ Implemented:
 - The versioned `/v2/capture-sessions` API flow, up to and including segment delivery.
 - Bearer-token authentication against a deployed API, compiled in with `GREENV_API_TOKEN`.
 - A browser capture build that records from a workstation webcam and uploads to a deployed API.
-- Motiva splash/authentication presentation, operations home, upload/capture and map views.
+- Motiva splash and corporate login, operations home, capture, stretches, map, orders and teams,
+  all read from the API, with explicit loading, empty, offline and error states.
 
 Not implemented yet:
 
-- Real authentication or password recovery; those screens currently navigate local presentation
-  state only.
-- Dashboard, recent-upload and map APIs; the values on those screens are presentation fixtures.
+- Password recovery; the API exposes no contract for it.
 - Background recording. Leaving the foreground intentionally closes the current segment and stops.
 - Hardware timestamps for each camera frame or absolute device attitude.
 
@@ -53,7 +53,11 @@ Not implemented yet:
 
 | Path | Responsibility |
 |---|---|
-| `lib/src/ui/capture_app.dart` | Motiva screens, navigation and visible capture states |
+| `lib/src/ui/capture_app.dart` | App root, theme hookup, session guard and navigation |
+| `lib/src/ui/auth/` | Splash, login and the shared login layout |
+| `lib/src/ui/capture/` | Capture screen and its camera, telemetry, queue and error widgets |
+| `lib/src/ui/operations/` | One file per screen: home, stretches, stretch sheet, order form, map, orders, teams |
+| `lib/src/capture/capture_error_message.dart` | Turns camera and storage failures into words a field worker can act on |
 | `lib/src/capture/capture_coordinator.dart` | Session lifecycle and ten-second rotation |
 | `lib/src/capture/camera_segment_recorder.dart` | Native camera initialization/start/stop |
 | `lib/src/capture/phone_telemetry_collector.dart` | GNSS and inertial sampling |
@@ -125,8 +129,10 @@ database, queue and capture volumes.
 
 ### Android emulator
 
-No extra option is required. The compiled default is `http://10.0.2.2:8080`, Android's alias for
-the development host:
+No extra option is required. The compiled default of a debug or profile build is
+`http://10.0.2.2:8080`, Android's alias for the development host. A release build defaults to the
+deployed API, `https://greenvapi.matomomitsu.com`, so an APK handed out for installation signs in
+without anyone remembering the `--dart-define`:
 
 ```bash
 flutter run -d emulator
@@ -177,8 +183,8 @@ a screen without signing in:
 flutter run -d chrome --dart-define=GREENV_WEB_CAPTURE=false
 ```
 
-Preview states can be selected with `?screen=splash`, `login`, `forgotEmail`, `forgotCode`, `home`,
-`upload`, `network` or `map`. `?offline=1`, `?phase=preparing` and `?phase=error` exercise capture
+Preview states can be selected with `?screen=splash`, `login`, `home`, `upload`, `stretches`,
+`map`, `orders` or `teams`. `?offline=1`, `?phase=preparing` and `?phase=error` exercise capture
 states. The repository review command builds web first, then runs from the repository root:
 
 ```bash
@@ -322,8 +328,10 @@ flutter build web
 ```
 
 The tests cover ten-second rotation, queue persistence across restart, offline retry, deletion on
-delivery, normalized relative orientation, auth/navigation rendering, and the
-idle/recording Motiva states.
+delivery, normalized relative orientation, auth/navigation rendering, the idle/recording Motiva
+states, and the failure paths: no network on login and on every read screen, an expired session,
+empty lists, a refused order, a refused camera permission, and the keyboard closing on a tap
+outside a field.
 
 The latest verified debug artifact is produced at
 `build/app/outputs/flutter-apk/app-debug.apk`. iOS cannot be compiled or signed on Windows.

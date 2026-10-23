@@ -1,10 +1,21 @@
+import 'package:flutter/foundation.dart';
+
 /// Compile-time capture configuration. `String.fromEnvironment` only reads `--dart-define`, so
 /// these are baked into the build; there is no runtime environment variable to change afterwards.
 final class CaptureConfiguration {
   const CaptureConfiguration._();
 
+  /// The deployed API, which a release build talks to unless told otherwise. The APK handed out
+  /// for installation used to depend on someone remembering the `--dart-define`; built without
+  /// it, it pointed at the emulator's host alias and could not sign anyone in on a real phone.
+  static const String deployedApiUrl = 'https://greenvapi.matomomitsu.com';
+
   /// Android's alias for the development host, which is what a local Compose stack listens on.
-  static const String defaultApiUrl = 'http://10.0.2.2:8080';
+  static const String localApiUrl = 'http://10.0.2.2:8080';
+
+  static const String defaultApiUrl = kReleaseMode
+      ? deployedApiUrl
+      : localApiUrl;
 
   static const String apiUrl = String.fromEnvironment(
     'GREENV_API_URL',

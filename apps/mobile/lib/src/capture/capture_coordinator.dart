@@ -3,6 +3,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:greenv_capture/src/capture/capture_error_message.dart';
 import 'package:greenv_capture/src/capture/capture_ports.dart';
 import 'package:greenv_capture/src/domain/capture_models.dart';
 import 'package:greenv_capture/src/upload/queue_uploader.dart';
@@ -91,7 +92,7 @@ final class CaptureCoordinator extends ChangeNotifier {
       await _beginSegment();
     } on Object catch (error) {
       phase = CapturePhase.error;
-      errorMessage = error.toString();
+      errorMessage = describeCaptureError(error);
       await _foregroundLease.release();
       notifyListeners();
     }
@@ -160,7 +161,7 @@ final class CaptureCoordinator extends ChangeNotifier {
       _continueRecording = false;
       await _foregroundLease.release();
       phase = CapturePhase.error;
-      errorMessage = error.toString();
+      errorMessage = describeCaptureError(error);
       notifyListeners();
     } finally {
       _rotating = false;
