@@ -50,10 +50,12 @@ from contract import (
     HealthResponse,
     InferManifest,
     InferParams,
+    PreviewStatus,
     Timing,
     VramStats,
     WarmupResponse,
 )
+import preview
 import vram
 
 MODEL_DIR = os.environ.get("VERGE_MODEL_DIR", "/opt/mvl-models/da3_nested_giant_large_1_1")
@@ -88,6 +90,14 @@ _model_load_seconds: float | None = None
 _infer_lock = asyncio.Lock()
 _busy = False
 _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="da3")
+
+#: Preview state by client token, newest last. Written from the executor thread, read by
+#: GET /preview; each write replaces a whole dict, so a reader never sees half of one.
+_previews: dict[str, dict[str, Any]] = {}
+_PREVIEWS_KEPT = 32
+
+#: The thinned cloud's file name; distinct from DA3's GLB so nothing confuses the two.
+PREVIEW_NAME = "verge-preview.glb"
 
 
 def _sha256(path: Path) -> str:
@@ -177,6 +187,11 @@ def _run_inference(frame_paths: list[str], params: InferParams, export_dir: Path
         )
     gpu_seconds = time.monotonic() - started
 
+    # Before our npz is written and anything is published: this is the earliest moment a
+    # point cloud exists, and the whole point of the preview is to leave from here.
+    if params.preview_token:
+        _make_preview(params.preview_token, params.preview_points, export_dir)
+
     import numpy as np
 
     # Written as verge-result.npz, NOT result.npz. DA3's own `npz` exporter writes into
@@ -225,6 +240,60 @@ def _run_inference(frame_paths: list[str], params: InferParams, export_dir: Path
 VERGE_NPZ_NAME = "verge-result.npz"
 
 
+def _register_preview(token: str, run_id: str) -> None:
+    _previews.pop(token, None)
+    _previews[token] = {"state": "pending", "run_id": run_id, "accepted": time.monotonic()}
+    while len(_previews) > _PREVIEWS_KEPT:
+        _previews.pop(next(iter(_previews)))
+
+
+def _make_preview(token: str, max_points: int, export_dir: Path) -> None:
+    """Thin DA3's GLB and publish it. Never raises: the run it belongs to is already paid for."""
+    entry = _previews.get(token)
+    if entry is None:
+        return
+    run_id = entry["run_id"]
+    try:
+        started = time.monotonic()
+        source = next(p for p in sorted(export_dir.glob("*.glb")) if p.name != PREVIEW_NAME)
+        stats = preview.thin_glb(source, export_dir / PREVIEW_NAME, max_points)
+        built = time.monotonic()
+        notes: list[str] = []
+        url, gs_uri = _publish(export_dir / PREVIEW_NAME, run_id, notes)
+        published = time.monotonic()
+        _previews[token] = {
+            **entry,
+            "state": "ready",
+            "url": url,
+            "gs_uri": gs_uri,
+            "points": stats["points"],
+            "source_points": stats["source_points"],
+            "size_bytes": stats["size_bytes"],
+            "ready_after_seconds": published - entry["accepted"],
+            "build_seconds": built - started,
+            "publish_seconds": published - built,
+            "error": "; ".join(notes) or None,
+        }
+    except Exception as exc:  # noqa: BLE001 — a preview must never cost the run
+        _previews[token] = {**entry, "state": "failed", "error": f"{type(exc).__name__}: {exc}"}
+
+
+def _published_preview(run_id: str) -> tuple[str, str | None] | None:
+    for entry in _previews.values():
+        if entry.get("run_id") == run_id and entry.get("state") == "ready":
+            return entry["url"], entry.get("gs_uri")
+    return None
+
+
+@app.get("/preview/{token}", response_model=PreviewStatus)
+def preview_status(token: str) -> PreviewStatus:
+    """Polled by the studio while /infer is open. Reads memory only; wakes nothing extra."""
+    entry = _previews.get(token)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="no such preview")
+    return PreviewStatus(**{k: v for k, v in entry.items() if k in PreviewStatus.model_fields})
+
+
 def _collect_artifacts(export_dir: Path, run_id: str, notes: list[str]) -> list[Artifact]:
     kinds = {
         ".glb": "glb",
@@ -246,7 +315,12 @@ def _collect_artifacts(export_dir: Path, run_id: str, notes: list[str]) -> list[
         # filename can never shadow ours in the client's `find`.
         if kind == "npz" and path.name != VERGE_NPZ_NAME:
             kind = "npz_native"
-        url, gs_uri = _publish(path, run_id, notes)
+        # The preview went out early; publishing it again would collide with itself in the
+        # bucket (if_generation_match=0) and read as a degraded run.
+        early = _published_preview(run_id) if path.name == PREVIEW_NAME else None
+        if path.name == PREVIEW_NAME:
+            kind = "cloud_preview"
+        url, gs_uri = early if early else _publish(path, run_id, notes)
         artifacts.append(
             Artifact(
                 kind=kind,  # type: ignore[arg-type]
@@ -427,6 +501,8 @@ async def infer(
     export_dir = run_dir / "exports"
     frame_dir.mkdir(parents=True)
     export_dir.mkdir(parents=True)
+    if parsed.preview_token:
+        _register_preview(parsed.preview_token, run_id)
 
     frame_paths: list[str] = []
     for index, upload in enumerate(frames):
@@ -444,6 +520,12 @@ async def infer(
                 _executor, _run_inference, frame_paths, parsed, export_dir
             )
         except Exception as exc:  # surface the real reason, OOM included
+            if parsed.preview_token and _previews.get(parsed.preview_token, {}).get("state") == "pending":
+                _previews[parsed.preview_token] = {
+                    **_previews[parsed.preview_token],
+                    "state": "failed",
+                    "error": "inference failed",
+                }
             shutil.rmtree(run_dir, ignore_errors=True)
             raise HTTPException(status_code=500, detail=f"inference failed: {exc}") from exc
         finally:

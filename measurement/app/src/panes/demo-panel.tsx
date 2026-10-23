@@ -30,6 +30,9 @@ import { frameUrl } from "../lib/infer-client";
 import { FRAME_SOURCE_ID } from "../lib/load-clip";
 import { usePhoneAuto } from "../lib/phone-auto";
 import { useActivePhoneCapture, type PhoneCapture, type PhoneEvent } from "../lib/phone-link";
+import { useCloudPreview } from "../lib/cloud-preview";
+import { followLive, openCapture, runForCapture, useDemoHistory } from "../lib/demo-history";
+import { useRuns } from "../lib/runs-store";
 
 interface Stage {
   key: string;
@@ -240,6 +243,71 @@ function DemoHistory({ captures, activeId, pinnedId }: { captures: PhoneCapture[
   );
 }
 
+/**
+ * The same history on the Mac: the intake's captures, newest first, each opened through the run
+ * it produced (`lib/demo-history.ts`). A saved run opens with a click; an unsaved one offers
+ * "salvar e abrir", because only a run on disk can be shown and saving is never implied.
+ */
+function LocalHistory({ captures, shownId, busyId }: { captures: PhoneCapture[]; shownId: string | null; busyId: string | null }) {
+  const history = useDemoHistory();
+  const { runs } = useRuns();
+  if (captures.length === 0) return null;
+  const rows = [...captures].sort((a, b) => startedAt(b) - startedAt(a));
+  return (
+    <section className="demo-history" aria-label="Histórico de capturas">
+      <div className="demo-history-head">
+        <span>HISTÓRICO · {rows.length}</span>
+        {history.pinnedId && (
+          <button type="button" className="demo-history-live" onClick={followLive}>
+            voltar ao vivo
+          </button>
+        )}
+      </div>
+      <ol className="demo-history-list">
+        {rows.map((c) => {
+          const last = c.events.at(-1);
+          const fetched = c.events.find((e) => e.phase === "fetched" || e.phase === "measured");
+          // Only the capture Auto is working on is in progress; one that stopped short is history.
+          const state = last?.phase === "failed" ? "failed" : fetched ? "done" : c.id === busyId ? "active" : "done";
+          const start = startedAt(c);
+          const gpu = gpuName(c.events.find((e) => e.phase === "inferred")?.detail?.gpu);
+          const run = runForCapture(c, runs);
+          const what =
+            state === "failed" ? "falhou" : !fetched ? (state === "active" ? "processando" : "sem nuvem") : run ? (gpu ?? "pronto") : "sem nuvem";
+          return (
+            <li key={c.id}>
+              <button
+                type="button"
+                className={`demo-history-row ${state}${c.id === shownId ? " current" : ""}`}
+                aria-current={c.id === shownId ? "true" : undefined}
+                title={run ? `${c.id} · ${run.id}${run.persisted ? "" : " · não salvo"}` : c.id}
+                onClick={() => void openCapture(c, run)}
+              >
+                <span className="mark" aria-hidden="true" />
+                <span className="when num">{Number.isFinite(start) ? WHEN.format(start) : c.id}</span>
+                <span className="what">{what}</span>
+                <span className="t num">{fetched ? seconds(fetched.tMs) : ""}</span>
+              </button>
+              {run && !run.persisted && run.available && c.id === history.pinnedId && (
+                <button
+                  type="button"
+                  className="demo-history-delete"
+                  disabled={history.busy}
+                  title="Baixa a nuvem e os quadros para ~/verge-runs (~110 MB) e abre"
+                  onClick={() => void openCapture(c, run, true)}
+                >
+                  {history.busy ? "salvando…" : "salvar e abrir"}
+                </button>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+      {history.error && <p className="demo-error">{history.error}</p>}
+    </section>
+  );
+}
+
 /** Up to `count` frames spread over the whole extraction, in order. */
 function pick(paths: string[], count: number): string[] {
   if (paths.length <= count) return paths;
@@ -251,7 +319,10 @@ export function DemoPanel() {
   const active = useActivePhoneCapture();
   const graph = useGraph();
   const hosted = useHostedDemo();
-  const capture = captures.find((c) => c.id === busyId) ?? captures.find((c) => c.id === active) ?? captures[0];
+  const history = useDemoHistory();
+  const pinned = HOSTED ? undefined : captures.find((c) => c.id === history.pinnedId);
+  const capture =
+    pinned ?? captures.find((c) => c.id === busyId) ?? captures.find((c) => c.id === active) ?? captures[0];
 
   // Hosted: the server's timeline plus the page's own last step. Locally the timeline is whole.
   const timeline = capture ? (HOSTED && capture.id === hosted.activeId ? displayEvents(capture, hosted.shown) : capture.events) : [];
@@ -288,12 +359,24 @@ export function DemoPanel() {
       : [];
 
   const totalMs = last && createdAt !== null ? (finished ? last.tMs : Date.now() - createdAt) : null;
+  // The preview belongs to the run this studio is sending, which is the active capture's.
+  const previewState = useCloudPreview();
+  const previewAtMs =
+    previewState.status === "shown" && capture?.id === active && createdAt !== null
+      ? previewState.preview.shownAt - createdAt
+      : null;
 
   return (
     <div className="demo-panel">
       <div className="demo-head">
         <span className={`demo-live${running ? " on" : ""}`}>
-          {running ? "AO VIVO" : HOSTED && hosted.pinnedId && finished ? "HISTÓRICO" : finished ? "PRONTO" : "AGUARDANDO"}
+          {running
+            ? "AO VIVO"
+            : (HOSTED ? hosted.pinnedId : pinned) && finished
+              ? "HISTÓRICO"
+              : finished
+                ? "PRONTO"
+                : "AGUARDANDO"}
         </span>
         <span className="demo-total num">{totalMs === null ? "—" : seconds(totalMs)}</span>
       </div>
@@ -332,7 +415,17 @@ export function DemoPanel() {
         Above the frames, not below: switching captures empties the frame grid until the next
         one's links arrive, and a list under it would jump on every click.
       */}
-      {HOSTED && <DemoHistory captures={hosted.captures} activeId={hosted.activeId} pinnedId={hosted.pinnedId} />}
+      {HOSTED ? (
+        <DemoHistory captures={hosted.captures} activeId={hosted.activeId} pinnedId={hosted.pinnedId} />
+      ) : (
+        <LocalHistory captures={captures} shownId={capture?.id ?? null} busyId={busyId} />
+      )}
+      {previewAtMs !== null && previewState.status === "shown" && (
+        <p className="demo-preview num">
+          Prévia na tela em {seconds(previewAtMs)} · {Math.round(previewState.preview.points / 1000)} mil pontos · a nuvem
+          completa chega em seguida
+        </p>
+      )}
       {thumbs.length > 0 && (
         <div className="demo-frames" key={capture?.id}>
           {/*
@@ -352,6 +445,9 @@ export function DemoPanel() {
         </div>
       )}
       {failed && typeof last?.detail?.error === "string" && <p className="demo-error">{last.detail.error}</p>}
+      {capture && !failed && !auto.run && events.has("extracted") && !events.has("uploading-frames") && busyId === null && (
+        <p className="demo-error">Quadros prontos, mas a GPU automática está desligada: marque “run (GPU)” no Setup.</p>
+      )}
       {HOSTED ? (
         <div className="demo-foot">
           <span>{hosted.error ? "sem resposta da API" : `ao vivo de ${apiHost()}`}</span>

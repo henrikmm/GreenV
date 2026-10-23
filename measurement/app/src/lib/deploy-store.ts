@@ -158,6 +158,18 @@ export async function loadStatus(refresh = false): Promise<void> {
   try {
     state.status = await fetchCloudStatus(refresh);
     state.statusError = null;
+    /**
+     * A service that exists and an app not pointed at it is the state that sent the 2026-10-23
+     * demo capture nowhere: the page in Safari had been reloaded, the service was up, Setup read
+     * "GPU service: not deployed", and Auto quietly skipped the run. Connecting through the
+     * proxy sends nothing and wakes nothing (the state is "cold" until something asks), so a
+     * page that can see the service is pointed at it — after a reload as much as after Deploy.
+     */
+    const url = state.status.service.exists ? state.status.service.url : null;
+    if (url && getCloud().baseUrl === null) {
+      connectProxied(url, PROXY_BASE);
+      setCloudState("cold");
+    }
   } catch (e) {
     state.statusError = e instanceof Error ? e.message : String(e);
   } finally {

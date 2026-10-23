@@ -295,4 +295,113 @@ assert Diagnostics().publish_mode == "local" and Diagnostics().publish_errors ==
 assert Diagnostics(publish_mode="degraded", publish_errors=["x"]).publish_mode == "degraded"
 print("diagnostics OK")
 
+# ----------------------------------------------------------------- cloud preview
+#
+# The preview is DA3's own GLB with fewer points. What must hold: the scene graph and the
+# alignment survive byte for byte, every kept point keeps its own colour, the frustums are
+# untouched, and the whole path — register, build, publish, poll, collect — never fails a run.
+import numpy as np  # noqa: E402
+
+import preview  # noqa: E402
+
+
+def _synthetic_glb(path: Path, count: int) -> tuple[np.ndarray, np.ndarray, bytes]:
+    rng = np.random.default_rng(7)
+    positions = rng.normal(size=(count, 3)).astype(np.float32)
+    colours = rng.integers(0, 255, size=(count, 4), dtype=np.uint8)
+    # A colour that encodes its point's index, so a mismatched subset cannot pass.
+    colours[:, 0] = np.arange(count) % 251
+    frustum = np.arange(48, dtype=np.float32).tobytes()
+    binary = positions.tobytes() + colours.tobytes() + frustum
+    doc = {
+        "asset": {"version": "2.0"},
+        "scene": 0,
+        "scenes": [{"nodes": [0, 1], "extras": {"hf_alignment": [[1, 0, 0, 0.5], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]}}],
+        "nodes": [{"mesh": 0}, {"mesh": 1, "matrix": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 2, 0, 0, 1]}],
+        "meshes": [
+            {"primitives": [{"mode": 0, "attributes": {"POSITION": 0, "COLOR_0": 1}}]},
+            {"primitives": [{"mode": 1, "attributes": {"POSITION": 2}}]},
+        ],
+        "accessors": [
+            {"bufferView": 0, "componentType": 5126, "type": "VEC3", "count": count},
+            {"bufferView": 1, "componentType": 5121, "normalized": True, "type": "VEC4", "count": count},
+            {"bufferView": 2, "componentType": 5126, "type": "VEC3", "count": 16},
+        ],
+        "bufferViews": [
+            {"buffer": 0, "byteOffset": 0, "byteLength": count * 12},
+            {"buffer": 0, "byteOffset": count * 12, "byteLength": count * 4},
+            {"buffer": 0, "byteOffset": count * 16, "byteLength": len(frustum)},
+        ],
+        "buffers": [{"byteLength": len(binary)}],
+    }
+    preview.write_glb(path, doc, binary)
+    return positions, colours, frustum
+
+
+with tempfile.TemporaryDirectory() as tmp:
+    d = Path(tmp)
+    positions, colours, frustum = _synthetic_glb(d / "scene.glb", 5000)
+    stats = preview.thin_glb(d / "scene.glb", d / "thin.glb", 1200)
+    assert stats["points"] == 1200 and stats["source_points"] == 5000, stats
+    doc, binary = preview.read_glb(d / "thin.glb")
+    source_doc, _ = preview.read_glb(d / "scene.glb")
+    assert doc["scenes"] == source_doc["scenes"] and doc["nodes"] == source_doc["nodes"], "scene graph changed"
+    kept = preview._accessor_array(doc, binary, 0)
+    kept_colours = preview._accessor_array(doc, binary, 1)
+    assert kept.shape == (1200, 3) and kept_colours.shape == (1200, 4)
+    index = {tuple(row): i for i, row in enumerate(positions.tolist())}
+    for row, colour in zip(kept.tolist(), kept_colours):
+        assert colour[0] == index[tuple(row)] % 251, "a point lost its own colour"
+    order = [index[tuple(row)] for row in kept.tolist()]
+    assert order == sorted(order), "kept points must stay in DA3's view order"
+    assert preview._accessor_array(doc, binary, 2).tobytes() == frustum, "frustums changed"
+    assert np.allclose(doc["accessors"][0]["min"], kept.min(axis=0)), "bounds not recomputed"
+    # Fewer points than asked for is a copy, not an error.
+    assert preview.thin_glb(d / "scene.glb", d / "same.glb", 10_000)["points"] == 5000
+print("preview thinning OK: graph and alignment kept, colours paired, frustums intact")
+
+with tempfile.TemporaryDirectory() as tmp:
+    export_dir = Path(tmp) / "run-p" / "exports"
+    export_dir.mkdir(parents=True)
+    _synthetic_glb(export_dir / "scene.glb", 3000)
+    (export_dir / main.VERGE_NPZ_NAME).write_bytes(b"x")
+    original_bucket, original_root = main.OUTPUT_BUCKET, main.RUN_ROOT
+    main.OUTPUT_BUCKET, main.RUN_ROOT = "", Path(tmp)
+    try:
+        assert client.get("/preview/not-a-token-yet").status_code == 404
+        main._register_preview("tok-12345678", "run-p")
+        assert client.get("/preview/tok-12345678").json()["state"] == "pending"
+        main._make_preview("tok-12345678", 1000, export_dir)
+        status = client.get("/preview/tok-12345678").json()
+        assert status["state"] == "ready", status
+        assert status["url"] == f"/artifact/run-p/{main.PREVIEW_NAME}", status
+        assert status["points"] == 1000 and status["source_points"] == 3000, status
+        assert status["ready_after_seconds"] >= status["build_seconds"] >= 0, status
+        served = client.get(status["url"])
+        assert served.status_code == 200 and served.content[:4] == b"glTF", "the preview link must serve"
+        arts = {a.kind: a for a in main._collect_artifacts(export_dir, "run-p", [])}
+        assert arts["glb"].name == "scene.glb", "the full cloud must stay the one glb"
+        assert arts["cloud_preview"].url == status["url"], "the preview must not be published twice"
+
+        # A preview that cannot be built says so and leaves the run alone.
+        empty = Path(tmp) / "run-q" / "exports"
+        empty.mkdir(parents=True)
+        main._register_preview("tok-failing1", "run-q")
+        main._make_preview("tok-failing1", 1000, empty)
+        assert client.get("/preview/tok-failing1").json()["state"] == "failed"
+    finally:
+        main.OUTPUT_BUCKET, main.RUN_ROOT = original_bucket, original_root
+
+for bad in ("short", "has space in it", "x" * 65):
+    try:
+        main.InferParams(preview_token=bad)
+    except ValueError:
+        continue
+    raise AssertionError(f"preview token {bad!r} accepted")
+assert main.InferParams().preview_token is None, "no token must mean no preview"
+for i in range(main._PREVIEWS_KEPT + 5):
+    main._register_preview(f"tok-bound-{i:04d}", "r")
+assert len(main._previews) == main._PREVIEWS_KEPT, "preview state must stay bounded"
+print("preview route OK: pending, ready, served, collected once, failure contained, bounded")
+
 print("\nALL SERVER CONTRACT CHECKS PASSED")

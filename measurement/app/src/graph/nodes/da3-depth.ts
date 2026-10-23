@@ -20,6 +20,8 @@ import { registerRun } from "../../lib/runs";
 import { refreshRuns } from "../../lib/runs-store";
 import { update } from "../../lib/session-store";
 import { beginFetching, noteFramesRead } from "../../lib/run-phase";
+import { noteManifest } from "../../lib/run-timeline";
+import { adoptPreviewArtifact, newPreviewToken, watchPreview } from "../../lib/cloud-preview";
 import type { NodeSpec } from "../types";
 import type { FramesValue } from "./frame-source";
 
@@ -111,6 +113,8 @@ export const da3DepthSpec: NodeSpec = {
       noteFramesRead(blobs.length, frames.paths.length);
     }
 
+    const previewToken = newPreviewToken();
+    watchPreview(previewToken);
     const manifest: InferManifest = await infer(blobs, {
       fps: frames.plan.effectiveFps,
       sourceDurationS: frames.probe.durationS,
@@ -118,10 +122,12 @@ export const da3DepthSpec: NodeSpec = {
       processResMethod: params.processResMethod as ProcessResMethod,
       refViewStrategy: params.refViewStrategy as RefViewStrategy,
       maxFrames: Number(params.maxFrames),
-    });
+    }, previewToken);
 
     // The manifest is back, so the GPU is done and the remaining wait is artifacts coming down
     // the wire. This also stops the telemetry poll — nothing is left to observe on the device.
+    noteManifest(manifest, artifactUrl);
+    adoptPreviewArtifact(manifest);
     beginFetching();
 
     // The status bar's last-run chip reads this. Nothing set it until 2026-08-04, so the chip

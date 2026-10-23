@@ -173,6 +173,8 @@ export async function runInference(): Promise<void> {
     const manifest = (getGraph().runtime["da3-depth"]?.outputs?.depth?.value as { manifest?: InferManifest } | undefined)
       ?.manifest;
     reportPhonePhase("inferred", {
+      // Ties the capture to its run, so the Demo panel's history can open it later.
+      runId: manifest?.runId ?? null,
       gpu: getRunPhase().gpu?.deviceName ?? null,
       frames: manifest?.frames.count ?? null,
       gpuSeconds: manifest?.timing.gpuSeconds ?? null,

@@ -73,6 +73,7 @@ import { PhoneSection } from "./phone-captures";
 import { isRunActive, useRunPhase } from "../lib/run-phase";
 import { setMockTargetAllowed, useMockTargetAllowed } from "../lib/dev-target";
 import { clearRunReadout, preconditions, runInference } from "../lib/run-inference";
+import { RunTimingLog } from "./run-timing";
 import { HelpDot, HelpTerm } from "./help";
 import { ContactSheet } from "./contact-sheet";
 import { PhaseReadout, PreconditionList } from "./run-readout";
@@ -608,6 +609,7 @@ function RunSection({ onDeploy }: { onDeploy: () => void }) {
       </div>
 
       <PhaseReadout phase={phase} />
+      <RunTimingLog />
     </div>
   );
 }

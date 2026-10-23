@@ -162,7 +162,7 @@ export function PhoneSection() {
                   {typeof c.orbit?.degrees === "number" ? ` · ${Math.round(c.orbit.degrees)}°` : ""}
                   {c.truth ? ` · tape ${(c.truth.truthM * 100).toFixed(1)} cm` : ""}
                 </span>
-                <span className={`state ${c.state}`}>{isActive ? "loaded" : c.state}</span>
+                <span className={`state ${c.state}`}>{c.state}</span>
               </button>
               {isOpen && (
                 <div className="phone-body">

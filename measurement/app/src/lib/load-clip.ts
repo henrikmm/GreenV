@@ -28,6 +28,7 @@ import { getGraph, runNode, setNodeParams } from "../graph/graph-store";
 import type { FramesValue } from "../graph/nodes/frame-source";
 import { uploadVideo } from "./infer-client";
 import { clearActivePhoneCapture, reportPhonePhase } from "./phone-link";
+import { resetTimeline, timeSpan } from "./run-timeline";
 
 export const FRAME_SOURCE_ID = "frame-source";
 
@@ -38,7 +39,8 @@ export const FRAME_SOURCE_ID = "frame-source";
  * swallowed upload failure would leave the pane looking as though nothing had been clicked.
  */
 export async function loadClip(file: File): Promise<void> {
-  const source = await uploadVideo(file);
+  resetTimeline();
+  const source = await timeSpan({ key: "load", label: "copy clip to the Mac + probe", group: "mac" }, () => uploadVideo(file));
   clearActivePhoneCapture();
   setNodeParams(FRAME_SOURCE_ID, {
     videoPath: source.path,
@@ -69,7 +71,14 @@ export function setFrameCap(maxFrames: number): void {
 export async function extractClipFrames(): Promise<void> {
   const started = performance.now();
   reportPhonePhase("extracting");
-  await runNode(FRAME_SOURCE_ID);
+  await timeSpan(
+    { key: "extract", label: "extract frames (ffmpeg)", group: "mac" },
+    () => runNode(FRAME_SOURCE_ID),
+    () => {
+      const n = (getGraph().runtime[FRAME_SOURCE_ID]?.outputs?.frames?.value as FramesValue | undefined)?.paths?.length;
+      return n ? { note: `${n} frames` } : {};
+    },
+  );
   const runtime = getGraph().runtime[FRAME_SOURCE_ID];
   const frames = runtime?.outputs?.frames?.value as FramesValue | undefined;
   if (runtime?.error) reportPhonePhase("failed", { error: runtime.error, failedIn: "extracting" });

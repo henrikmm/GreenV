@@ -151,7 +151,7 @@ export type RefViewStrategy = "first" | "middle" | "saddle_balanced" | "saddle_s
  * "npz_native" is DA3's own export — kept and served, but distinguished so a
  * lookup by kind can never pick it up by accident.
  */
-export type ArtifactKind = "glb" | "npz" | "npz_native" | "depth_preview";
+export type ArtifactKind = "glb" | "npz" | "npz_native" | "depth_preview" | "cloud_preview";
 
 export interface InferParams {
   /** Sampling rate the local ffmpeg pass used. The server never resamples. */

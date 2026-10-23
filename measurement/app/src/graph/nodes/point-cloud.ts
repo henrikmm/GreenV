@@ -22,6 +22,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { buildCloud, framesFromArrays } from "../../../../geometry/cloud";
 import { artifactUrl } from "../../lib/infer-client";
+import { timeArtifact } from "../../lib/run-timeline";
 import type { DepthFieldValue } from "../../measurement/depth-field";
 import type { NodeSpec } from "../types";
 
@@ -219,9 +220,19 @@ function aborted(signal: AbortSignal): void {
 }
 
 async function loadGltf(url: string, signal: AbortSignal): Promise<THREE.Group> {
-  const response = await fetch(url, { signal });
-  if (!response.ok) throw new Error(`GLB load failed (${response.status}): ${url}`);
-  const data = await response.arrayBuffer();
+  return timeArtifact(
+    url,
+    "scene.glb",
+    async () => {
+      const response = await fetch(url, { signal });
+      if (!response.ok) throw new Error(`GLB load failed (${response.status}): ${url}`);
+      return response.arrayBuffer();
+    },
+    (data) => parseGltf(data, url, signal),
+  );
+}
+
+function parseGltf(data: ArrayBuffer, url: string, signal: AbortSignal): Promise<THREE.Group> {
   aborted(signal);
   return new Promise((resolve, reject) => {
     new GLTFLoader().parse(

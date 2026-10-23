@@ -56,6 +56,7 @@ import {
 } from "../graph/nodes";
 import { useAdvanced, useDemo } from "../lib/ui-mode";
 import { HOSTED } from "../lib/hosted";
+import { useCloudPreview } from "../lib/cloud-preview";
 import { DEFAULT_RUN_ID } from "../graph/nodes/fixture-run";
 import type { RunId } from "../lib/runs";
 import { closestFrame, type DepthFieldValue } from "../measurement/depth-field";
@@ -404,6 +405,34 @@ function ResultStrip({ readout }: { readout: ResultReadout }) {
   );
 }
 
+/**
+ * Demo only: draw a cloud in over a couple of seconds instead of all at once. DA3 writes its
+ * points frame by frame, so growing the draw range shows the scene assembling view by view — the
+ * reconstruction an audience came to see. The geometry is untouched; only how much of it is drawn
+ * changes, and the full range is restored however the reveal ends. Returns its cancel.
+ */
+function revealPoints(object: THREE.Object3D): () => void {
+  const points: THREE.Points[] = [];
+  object.traverse((child) => {
+    if (child instanceof THREE.Points) points.push(child);
+  });
+  const counts = points.map((p) => p.geometry.getAttribute("position")?.count ?? 0);
+  const started = performance.now();
+  const REVEAL_MS = 2500;
+  let raf = 0;
+  const step = (now: number) => {
+    const t = Math.min(1, (now - started) / REVEAL_MS);
+    const eased = 1 - Math.pow(1 - t, 2);
+    points.forEach((p, i) => p.geometry.setDrawRange(0, Math.ceil(counts[i]! * eased)));
+    if (t < 1) raf = requestAnimationFrame(step);
+  };
+  raf = requestAnimationFrame(step);
+  return () => {
+    cancelAnimationFrame(raf);
+    points.forEach((p, i) => p.geometry.setDrawRange(0, counts[i]!));
+  };
+}
+
 export function Viewport3D() {
   const hostRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene>(null);
@@ -461,6 +490,14 @@ export function Viewport3D() {
     | DepthFieldValue
     | undefined;
   const cloud = incoming?.value as PointCloudValue | undefined;
+  const previewState = useCloudPreview();
+  const preview = previewState.status === "shown" ? previewState.preview : null;
+  /**
+   * Set while a preview has been on screen and its full cloud has not landed yet. The full cloud
+   * then swaps in silently: re-framing would throw away wherever the audience was just orbited
+   * to, and replaying the draw-in would make the better cloud look like it started over.
+   */
+  const previewedRef = useRef(false);
   // Which cloud the switch is ASKING for, read from the node's own parameter rather than from
   // the rendered cloud. During a rebuild the two disagree for a second, and a chip that jumps
   // back to the old value while the new one loads reads as the click having failed.
@@ -590,22 +627,29 @@ export function Viewport3D() {
     });
 
   /** Frame the whole cloud. The one action that always gets you back to a view you recognise. */
+  const frameBox = useCallback(
+    (bbox: { min: ArrayLike<number>; max: ArrayLike<number> }, extent: number) => {
+      const controls = controlsRef.current;
+      const camera = cameraRef.current;
+      if (!controls || !camera) return;
+      const center = new THREE.Vector3(
+        (bbox.min[0]! + bbox.max[0]!) / 2,
+        (bbox.min[1]! + bbox.max[1]!) / 2,
+        (bbox.min[2]! + bbox.max[2]!) / 2,
+      );
+      controls.target.copy(center);
+      camera.position.copy(center).add(new THREE.Vector3(0, -extent * 0.15, -extent * 0.6));
+      camera.near = extent / 1000;
+      camera.far = extent * 10;
+      camera.fov = 50;
+      camera.updateProjectionMatrix();
+    },
+    [],
+  );
+
   const frameCloud = useCallback(() => {
-    const controls = controlsRef.current;
-    const camera = cameraRef.current;
-    if (!controls || !camera || !cloud) return;
-    const center = new THREE.Vector3(
-      (cloud.bbox.min[0] + cloud.bbox.max[0]) / 2,
-      (cloud.bbox.min[1] + cloud.bbox.max[1]) / 2,
-      (cloud.bbox.min[2] + cloud.bbox.max[2]) / 2,
-    );
-    controls.target.copy(center);
-    camera.position.copy(center).add(new THREE.Vector3(0, -cloud.extent * 0.15, -cloud.extent * 0.6));
-    camera.near = cloud.extent / 1000;
-    camera.far = cloud.extent * 10;
-    camera.fov = 50;
-    camera.updateProjectionMatrix();
-  }, [cloud]);
+    if (cloud) frameBox(cloud.bbox, cloud.extent);
+  }, [cloud, frameBox]);
 
   /** In Fixed, the same key means "point me back where the camera pointed". */
   const recentre = useCallback(() => {
@@ -902,33 +946,36 @@ export function Viewport3D() {
 
     scene.add(cloud.object);
     mountedRef.current = cloud.object;
+    if (previewedRef.current) {
+      previewedRef.current = false;
+      return;
+    }
     frameCloud();
 
-    // Demo only: draw the cloud in over a couple of seconds instead of all at once. DA3 writes
-    // its points frame by frame, so growing the draw range shows the scene assembling view by
-    // view — the reconstruction an audience came to see. The geometry is untouched; only how
-    // much of it is drawn changes, and the full range is restored however the effect ends.
     if (!demoRef.current) return;
-    const points: THREE.Points[] = [];
-    cloud.object.traverse((child) => {
-      if (child instanceof THREE.Points) points.push(child);
-    });
-    const counts = points.map((p) => p.geometry.getAttribute("position")?.count ?? 0);
-    const started = performance.now();
-    const REVEAL_MS = 2500;
-    let raf = 0;
-    const step = (now: number) => {
-      const t = Math.min(1, (now - started) / REVEAL_MS);
-      const eased = 1 - Math.pow(1 - t, 2);
-      points.forEach((p, i) => p.geometry.setDrawRange(0, Math.ceil(counts[i]! * eased)));
-      if (t < 1) raf = requestAnimationFrame(step);
-    };
-    raf = requestAnimationFrame(step);
-    return () => {
-      cancelAnimationFrame(raf);
-      points.forEach((p, i) => p.geometry.setDrawRange(0, counts[i]!));
-    };
+    return revealPoints(cloud.object);
   }, [cloud, frameCloud]);
+
+  /**
+   * The preview, while the full result is still on its way. It hides whatever cloud is mounted
+   * (most often the previous visitor's) rather than replacing it on the wire: the graph keeps
+   * describing the last complete run, and only the picture runs ahead of it.
+   */
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene || !preview) return;
+    const hidden = mountedRef.current;
+    if (hidden) hidden.visible = false;
+    scene.add(preview.object);
+    frameBox(preview.bbox, preview.extent);
+    previewedRef.current = true;
+    const stopReveal = demoRef.current ? revealPoints(preview.object) : undefined;
+    return () => {
+      stopReveal?.();
+      scene.remove(preview.object);
+      if (mountedRef.current) mountedRef.current.visible = true;
+    };
+  }, [preview, frameBox]);
 
   /**
    * Recover the camera poses, and check them against the scene file before believing them.
@@ -1646,6 +1693,17 @@ export function Viewport3D() {
           is, in reserved chrome that cannot occlude anything; here the diagnostics come back, in
           full, for the pass where you are asking about the plane rather than about the object.
         */}
+        {/*
+          Says what the picture is while it is only the preview: without it, a sparser cloud that
+          later changes under the viewer reads as a glitch rather than as the result arriving.
+        */}
+        {preview && (
+          <div className="preview-badge" role="status">
+            {demo
+              ? `Prévia · ${Math.round(preview.points / 1000)} mil pontos · nuvem completa a caminho`
+              : `PREVIEW · ${Math.round(preview.points / 1000)}k pts · full cloud on its way`}
+          </div>
+        )}
         {cloud && advanced && (
           <div className="viewport-overlay">
             {/*

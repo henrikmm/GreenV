@@ -25,10 +25,15 @@ RUN apt-get update \
 # xformers 0.0.28, so this is the one numerical change in the rebuild and the L4 regression
 # run is what checks it. The package list is the one the live image proved on 2026-09-25
 # (`feat/measurement-live-reconstruction`, live/Dockerfile), plus what this server uses.
+#
+# huggingface_hub is held below 1.0. On 2026-10-22 an unpinned build drew 2.2.0, whose httpx2
+# transport calls a zstd decoder API that the backports.zstd evo pulls in does not have, and the
+# checkpoint download died with "process() takes no keyword arguments". The 0.x line is the one
+# DA3 was written against and the one every image before that date carried.
 RUN python -m pip install --no-cache-dir --no-deps \
       "git+https://github.com/ByteDance-Seed/Depth-Anything-3.git@3d835ec1a5802d64a8b8b15f817a1ab54809bfe4" \
     && python -m pip install --no-cache-dir \
-      "numpy<2" einops huggingface_hub safetensors omegaconf imageio opencv-python-headless \
+      "numpy<2" einops "huggingface_hub<1.0" safetensors omegaconf imageio opencv-python-headless \
       trimesh plyfile pillow_heif e3nn evo typer moviepy==1.0.3 requests addict pycolmap \
       google-cloud-storage==2.19.0 \
       "fastapi==0.115.6" \
@@ -44,7 +49,7 @@ COPY download-models.py /tmp/download-models.py
 RUN python /tmp/download-models.py && rm /tmp/download-models.py
 
 WORKDIR /app
-COPY contract.py vram.py main.py /app/
+COPY contract.py vram.py preview.py main.py /app/
 
 ENV PYTHONUNBUFFERED=1
 ENV HF_HUB_OFFLINE=1

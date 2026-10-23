@@ -19,8 +19,10 @@ import { useSyncExternalStore } from "react";
 import { HOSTED } from "./hosted";
 import { hostedDemo, startHostedDemo } from "./hosted-demo";
 import { extractClipFrames } from "./load-clip";
-import { listPhoneCaptures, loadPhoneCapture, phoneInfo, type PhoneCapture, type PhoneInfo } from "./phone-link";
-import { canRun, clearRunReadout, runInference } from "./run-inference";
+import { listPhoneCaptures, loadPhoneCapture, phoneInfo, reportPhonePhase, type PhoneCapture, type PhoneInfo } from "./phone-link";
+import { canRun, clearRunReadout, preconditions, runInference } from "./run-inference";
+import { notePhoneUpload, resetTimeline, timeSpan } from "./run-timeline";
+import { releasePin } from "./demo-history";
 
 export interface AutoFlags {
   load: boolean;
@@ -97,6 +99,7 @@ export function setAuto(next: AutoFlags): void {
 
 /** Load a capture, then extract and run as asked. Shared by the buttons and by Auto. */
 export async function processCapture(id: string, steps: AutoFlags): Promise<void> {
+  releasePin();
   if (HOSTED) {
     set({ error: "the demo site only shows captures; the server processes them" });
     return;
@@ -104,11 +107,27 @@ export async function processCapture(id: string, steps: AutoFlags): Promise<void
   set({ busyId: id, error: null });
   try {
     const capture = state.captures.find((c) => c.id === id);
-    const loaded = await loadPhoneCapture(id, capture?.sampling);
+    resetTimeline();
+    if (capture) notePhoneUpload(capture.events, capture.video?.bytes ?? null);
+    const loaded = await timeSpan({ key: "load", label: "load capture into the studio", group: "mac" }, () =>
+      loadPhoneCapture(id, capture?.sampling),
+    );
     set({ planNote: loaded.plan });
     clearRunReadout();
     if (steps.extract) await extractClipFrames();
-    if (steps.extract && steps.run && canRun()) await runInference();
+    if (steps.extract && steps.run) {
+      if (canRun()) await runInference();
+      else {
+        // Said out loud, on the studio and on the phone: a skipped run used to leave both on
+        // "extracted" forever, which reads as a hang rather than as a missing GPU.
+        const missing = preconditions()
+          .filter((step) => !step.ok)
+          .map((step) => `${step.label}: ${step.detail}`)
+          .join("; ");
+        set({ error: `run skipped — ${missing}` });
+        reportPhonePhase("failed", { error: `A GPU não foi chamada (${missing})`, failedIn: "uploading-frames" });
+      }
+    }
   } catch (e) {
     set({ error: e instanceof Error ? e.message : String(e) });
   } finally {

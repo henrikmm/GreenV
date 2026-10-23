@@ -54,12 +54,22 @@ class InferParams(BaseModel):
     # the safety rail — that is max_frames itself, defaulting to DEFAULT_MAX_FRAMES.
     max_frames: int = Field(default=DEFAULT_MAX_FRAMES, ge=2, le=512)
 
+    # Ask for a thinned point cloud published the moment the forward pass returns, readable at
+    # GET /preview/{token} while this request is still open (added 2026-10-23 for the FIAP Next
+    # demo, where publishing and downloading the full result outlasted the GPU several times
+    # over). The client picks the token so it can poll before the run has an id. Absent, the
+    # service behaves exactly as before.
+    preview_token: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{8,64}$")
+    preview_points: int = Field(default=150_000, ge=10_000, le=1_000_000)
+
 
 class Artifact(BaseModel):
     # "npz" is OUR array bundle, with the key names app/src/lib/npz.ts reads.
     # "npz_native" is whatever DA3's own exporter wrote — kept, served, but never
     # mistaken for ours by a client looking artifacts up by kind.
-    kind: Literal["glb", "npz", "npz_native", "depth_preview", "gs_ply", "gs_video"]
+    # "cloud_preview" is the thinned GLB of server/preview.py — never "glb", which a client looks
+    # up by kind and must find the full cloud under.
+    kind: Literal["glb", "npz", "npz_native", "depth_preview", "cloud_preview", "gs_ply", "gs_video"]
     name: str
     size_bytes: int
     sha256: str
@@ -203,3 +213,24 @@ class WarmupResponse(BaseModel):
     model_loaded: bool
     model_load_seconds: float
     gpu: GpuSnapshot
+
+
+class PreviewStatus(BaseModel):
+    """GET /preview/{token}: whether the thinned cloud for an open /infer exists yet.
+
+    `pending` until the forward pass returns; then `ready` with the link, or `failed` — a
+    preview never fails the run it belongs to. The seconds are on this service's clock, counted
+    from when /infer accepted the request.
+    """
+
+    state: Literal["pending", "ready", "failed"]
+    run_id: str
+    url: str | None = None
+    gs_uri: str | None = None
+    points: int | None = None
+    source_points: int | None = None
+    size_bytes: int | None = None
+    ready_after_seconds: float | None = None
+    build_seconds: float | None = None
+    publish_seconds: float | None = None
+    error: str | None = None

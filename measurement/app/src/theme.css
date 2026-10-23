@@ -2933,3 +2933,159 @@ canvas {
   .demo-stage.active .mark { animation: none; }
   .demo-frames img { animation: none; opacity: 1; }
 }
+
+/*
+ * The timing log (Setup → Run). Bars share one time axis from the first logged stretch to the
+ * last, so their left edges are when and their lengths are how long — never progress. Colours
+ * reuse the port palette by part of the chain; the label carries the same fact in words.
+ */
+.timing-log {
+  border-top: 1px solid var(--border);
+  margin-top: 2px;
+}
+
+.timing-empty {
+  padding: 0 8px 6px;
+}
+
+.timing-totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 2px 8px 6px;
+  font-size: 10px;
+  color: var(--text);
+}
+
+.timing-group::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 4px;
+  border-radius: 1px;
+  background: var(--timing-colour, var(--text-dim));
+}
+
+.timing-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0 8px 4px;
+}
+
+.timing-row {
+  padding: 3px 0;
+}
+
+.timing-row.child {
+  padding-left: 12px;
+}
+
+.timing-row.child .timing-line .k::before {
+  content: "↳ ";
+  color: var(--text-dim);
+}
+
+.timing-line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.timing-line .k {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timing-row.child .timing-line {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.timing-line .v {
+  flex: none;
+  color: var(--text-dim);
+}
+
+.timing-idle {
+  font-size: 10px;
+  color: var(--text-dim);
+  padding-bottom: 2px;
+}
+
+.timing-axis {
+  position: relative;
+  height: 4px;
+  margin: 3px 0 1px;
+  background: var(--bg-app);
+  border-radius: 2px;
+}
+
+.timing-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 2px;
+  background: var(--timing-colour, var(--emph));
+}
+
+.timing-row.open .timing-bar {
+  animation: pulse 1s ease-in-out infinite;
+}
+
+.g-network {
+  --timing-colour: var(--port-depth);
+}
+.g-mac {
+  --timing-colour: var(--port-frames);
+}
+.g-gpu {
+  --timing-colour: var(--port-points);
+}
+.g-browser {
+  --timing-colour: var(--port-plane);
+}
+.g-idle {
+  --timing-colour: var(--border);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .timing-row.open .timing-bar {
+    animation: none;
+  }
+}
+
+.timing-milestones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding: 0 8px 6px;
+  font-size: 11px;
+  color: var(--emph-hi);
+}
+
+/* The preview reached the screen before the full result; said in words, not only drawn. */
+.demo-preview {
+  margin: 0;
+  font-size: 12px;
+  color: var(--emph-hi);
+}
+
+/* Over the 3D view while only the preview is on screen (lib/cloud-preview.ts). */
+.preview-badge {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  padding: 3px 8px;
+  border: 1px solid var(--accent-busy);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--bg-app) 80%, transparent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent-busy);
+  pointer-events: none;
+}

@@ -9,6 +9,7 @@ import {
   requestHeaders,
 } from "../lib/infer-client";
 import { parseNpz, type NpyArray } from "../lib/npz";
+import { timeArtifact } from "../lib/run-timeline";
 import type { FramesValue } from "../graph/nodes/frame-source";
 
 /**
@@ -103,7 +104,7 @@ function memoizedArrays(manifest: InferManifest): () => Promise<Record<string, N
     if (!cached) {
       const npz = manifest.artifacts.find((artifact) => artifact.kind === "npz");
       if (!npz) return Promise.reject(new Error("manifest has no NPZ artifact"));
-      cached = fetchArtifactBuffer(npz.url, npz.sizeBytes).then(parseNpz);
+      cached = timeArtifact(artifactUrl(npz.url), "verge-result.npz", () => fetchArtifactBuffer(npz.url, npz.sizeBytes), parseNpz);
     }
     return cached;
   };

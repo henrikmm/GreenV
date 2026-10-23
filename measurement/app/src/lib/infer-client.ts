@@ -204,6 +204,48 @@ export function manifestFromWire(w: any): InferManifest {
   };
 }
 
+/** GET /preview/{token}, camelCased. See `cloud-preview.ts` and `server/preview.py`. */
+export interface PreviewStatus {
+  state: "pending" | "ready" | "failed";
+  runId: string;
+  url?: string | null;
+  points?: number | null;
+  sourcePoints?: number | null;
+  sizeBytes?: number | null;
+  readyAfterSeconds?: number | null;
+  buildSeconds?: number | null;
+  publishSeconds?: number | null;
+  error?: string | null;
+}
+
+/**
+ * The preview's state, or null when this service has no preview route at all.
+ *
+ * Two different 404s: the service's own "no such preview" means the request carrying the token
+ * has not been accepted yet — still uploading, or a cold instance still starting — and is
+ * pending. Any other 404 is a service built before the route existed.
+ */
+export async function getPreviewStatus(token: string): Promise<PreviewStatus | null> {
+  const res = await gpuFetch(`/preview/${encodeURIComponent(token)}`);
+  if (res.status === 404) {
+    const body = (await res.json().catch(() => ({}))) as { detail?: unknown };
+    return body.detail === "no such preview" ? { state: "pending", runId: "" } : null;
+  }
+  const w = (await expectOk(res)) as Record<string, any>;
+  return {
+    state: w.state,
+    runId: w.run_id,
+    url: w.url,
+    points: w.points,
+    sourcePoints: w.source_points,
+    sizeBytes: w.size_bytes,
+    readyAfterSeconds: w.ready_after_seconds,
+    buildSeconds: w.build_seconds,
+    publishSeconds: w.publish_seconds,
+    error: w.error,
+  };
+}
+
 export async function getGpu(): Promise<GpuSnapshot> {
   return toGpu((await expectOk(await gpuFetch("/gpu"))) as WireGpu);
 }
@@ -392,6 +434,9 @@ function postFrames(url: string, form: FormData, headers: Record<string, string>
 export async function infer(
   frames: Blob[] | { frameCount: number },
   params: InferParams,
+  /** Asks the service for a thinned cloud published early. Not a parameter of the result, so
+   * it stays out of `InferParams` and out of DA3 Depth's cache key. */
+  previewToken?: string,
 ): Promise<InferManifest> {
   noteRun();
   if (!Array.isArray(frames)) {
@@ -424,6 +469,7 @@ export async function infer(
       process_res_method: params.processResMethod,
       ref_view_strategy: params.refViewStrategy,
       max_frames: params.maxFrames,
+      ...(previewToken ? { preview_token: previewToken } : {}),
     }),
   );
 

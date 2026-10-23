@@ -146,6 +146,13 @@ const state = {
 };
 
 /**
+ * Cloud previews by token, as the service keeps them (`server/main.py`, GET /preview/{token}).
+ * The mock has no thinned file to hand out, so a ready preview points at the fixture's full GLB:
+ * the point is to rehearse the timing — preview first, result later — not the file size.
+ */
+const previews = new Map();
+
+/**
  * Rehearse a cold service, so the run readout can be built and reviewed without a GPU.
  *
  * The mock answers instantly, which is what makes the app buildable offline — and it also means
@@ -396,6 +403,12 @@ export function localApi(options = {}) {
               });
               return json(res, 200, { archived });
             }
+          }
+
+          const previewRoute = /^\/api\/preview\/([^/]+)$/.exec(url.pathname);
+          if (previewRoute && req.method === "GET") {
+            const entry = previews.get(decodeURIComponent(previewRoute[1]));
+            return entry ? json(res, 200, entry) : json(res, 404, { detail: "no such preview" });
           }
 
           switch (`${req.method} ${url.pathname}`) {
@@ -658,6 +671,11 @@ export function localApi(options = {}) {
                 await new Promise((r) => setTimeout(r, latency.modelLoadMs));
               }
 
+              const runId = `mock-${randomUUID().slice(0, 8)}`;
+              const previewToken = typeof wireParams.preview_token === "string" ? wireParams.preview_token : null;
+              const accepted = Date.now();
+              if (previewToken) previews.set(previewToken, { state: "pending", run_id: runId });
+
               state.modelLoaded = true;
               state.busy = true;
               state.stage = "busy";
@@ -668,11 +686,31 @@ export function localApi(options = {}) {
               state.busy = false;
               state.stage = "idle";
 
+              // A real service publishes the preview here, then still writes the npz and publishes
+              // ~120 MB before it answers. The pause stands in for that tail, so the preview has a
+              // window to arrive first; it exists only when a preview was asked for.
+              if (previewToken) {
+                const glbStat = await readFile(new URL("scene.glb", FIXTURE_DIR));
+                previews.set(previewToken, {
+                  state: "ready",
+                  run_id: runId,
+                  url: "/roadside/scene.glb",
+                  points: null,
+                  source_points: null,
+                  size_bytes: glbStat.length,
+                  ready_after_seconds: (Date.now() - accepted) / 1000,
+                  build_seconds: 0,
+                  publish_seconds: 0,
+                  error: null,
+                });
+                await new Promise((r) => setTimeout(r, latency.enabled ? 4000 : 1500));
+              }
+
               const glb = await readFile(new URL("scene.glb", FIXTURE_DIR));
               const npz = await readFile(new URL("result.npz", FIXTURE_DIR));
               return json(res, 200, {
                 schema_version: "verge.infer-manifest/0.1.0",
-                run_id: `mock-${randomUUID().slice(0, 8)}`,
+                run_id: runId,
                 model_repository_id: "depth-anything/DA3NESTED-GIANT-LARGE-1.1",
                 model_revision: "b2359bdf726fb44ef62acca04d629dcf158053e7",
                 depth_mode: "metric",
@@ -734,6 +772,17 @@ export function localApi(options = {}) {
                     sha256: "fixture",
                     url: "/roadside/result.npz",
                   },
+                  ...(previewToken
+                    ? [
+                        {
+                          kind: "cloud_preview",
+                          name: "verge-preview.glb",
+                          size_bytes: glb.length,
+                          sha256: "fixture",
+                          url: "/roadside/scene.glb",
+                        },
+                      ]
+                    : []),
                 ],
                 // The fixture predates the split, so it has one npz under the "npz"
                 // kind and no native export to sit beside it.
