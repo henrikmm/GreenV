@@ -567,5 +567,12 @@ login.** API revision `demo-891186a` (`greenv-video-api@sha256:4161b2e6…`), ap
   `POST /v1/service-orders` 403. The dashboard's "Entrar como demonstração" button carries no
   password.
 - **The 23 Oct preview cloud and timing log** (§9) are merged; the hosted site carries their
-  site-side half. The GPU image was not rebuilt today, so the service-side savings of `3705b84`
-  are not in the cloud path yet.
+  site-side half.
+- **GPU image rebuilt from `3705b84`.** `verge-da3` rebuilt from `measurement/server` (base ~9 min,
+  `huggingface_hub` 0.36.2, torch 2.8.0+cu128), handler image
+  `greenv-depth-runpod:demo-3705b84@sha256:68b584eb…`, put on template `greenv-depth-demo`
+  (`8e5o3dew3k`) with only `imageName` changed. First capture on it, warm RTX PRO 6000:
+  `cap-20261024-111838-2a8f`, 112 frames, **23.2 s** to `fetched` (upload 1.8 s, video fetch
+  0.36 s + sampling 0.78 s on the GPU machine, inferring → inferred 17.9 s, GPU 6.9 s, service
+  wall 11.6 s), against 30.2 s for 96 frames on 21 Oct. Way back: the same PATCH with
+  `sha256:9dcf0805…` (handler `0ec7712`).
