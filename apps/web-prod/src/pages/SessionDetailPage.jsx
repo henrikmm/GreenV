@@ -2,8 +2,8 @@ import { Fragment, useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { AnimatePresence } from 'framer-motion'
 import { ArrowLeft, ClipboardList, ChevronRight, ChevronDown } from 'lucide-react'
-import { LEVELS, Card } from '@greenv/web-core'
-import { sessions, teams as teamsApi } from '../api/greenv'
+import { LEVELS, Card, useAuth } from '@greenv/web-core'
+import { sessions, teams as teamsApi, isReadOnly } from '../api/greenv'
 import { placeOfSegment, placeOfSession } from '../api/place'
 import { readingOf } from '../api/reading'
 import { sameStretch, stretchKey, stretchRange } from '../api/stretch'
@@ -112,6 +112,8 @@ const windowKeyOf = (segmentIndex, windowIndex) => `${segmentIndex}:${windowInde
 export default function SessionDetailPage() {
   const { sessionId } = useParams()
   const navigate = useNavigate()
+  // A demonstração não abre ordem: a API recusaria, e o botão só levaria o visitante ao erro.
+  const readOnly = isReadOnly(useAuth().user)
   const [state, setState] = useState({ loading: true })
   // Um segmento aberto por vez e, dentro dele, um trecho — e o quadro que abriu os dois.
   const [openIndex, setOpenIndex] = useState(null)
@@ -365,12 +367,14 @@ export default function SessionDetailPage() {
                 uma. Marcar um segmento marca os trechos medidos dele, que são os alvos da ordem.
               </div>
             </div>
-            <button style={s.orderBtn(chosenSegments.length > 0)}
-              disabled={chosenSegments.length === 0}
-              onClick={() => setOrdering(true)}>
-              <ClipboardList size={13} />
-              {chosenSegments.length > 1 ? `Criar OS (${chosenSegments.length})` : 'Criar OS'}
-            </button>
+            {!readOnly && (
+              <button style={s.orderBtn(chosenSegments.length > 0)}
+                disabled={chosenSegments.length === 0}
+                onClick={() => setOrdering(true)}>
+                <ClipboardList size={13} />
+                {chosenSegments.length > 1 ? `Criar OS (${chosenSegments.length})` : 'Criar OS'}
+              </button>
+            )}
           </div>
 
           {/* Só aparece quando há mais de um nível para separar: numa sessão de dois trechos

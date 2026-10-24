@@ -2,9 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import { RotateCw, Trash2, ClipboardList, Layers, History } from 'lucide-react'
 import {
-  Badge, STATUS_MAP, PRIORITY_MAP, LEVELS, vegetationLevel, useToast, OrderHistoryModal,
+  Badge, STATUS_MAP, PRIORITY_MAP, LEVELS, vegetationLevel, useToast, useAuth, OrderHistoryModal,
 } from '@greenv/web-core'
-import { serviceOrders, teams as teamsApi } from '../api/greenv'
+import { serviceOrders, teams as teamsApi, isReadOnly } from '../api/greenv'
 import PageShell from '../components/PageShell'
 
 /**
@@ -97,6 +97,8 @@ function toSharedShape(order) {
 
 export default function OrdersPage() {
   const { addToast } = useToast()
+  // A demonstração vê as ordens e o histórico, mas não avança nem cancela nenhuma.
+  const readOnly = isReadOnly(useAuth().user)
   const [state, setState] = useState({ loading: true, orders: [], teams: [] })
   const [filterStatus, setFilterStatus] = useState('all')
   const [filterPriority, setFilterPriority] = useState('all')
@@ -266,12 +268,16 @@ export default function OrdersPage() {
                       onClick={() => setHistoryOrder(toSharedShape(order))}>
                       <History size={13} />
                     </button>
-                    <button style={s.actionBtn} title="Avançar status" onClick={() => advance(order)}>
-                      <RotateCw size={13} />
-                    </button>
-                    <button style={s.actionBtnDanger} title="Cancelar" onClick={() => cancel(order)}>
-                      <Trash2 size={13} />
-                    </button>
+                    {!readOnly && (
+                      <>
+                        <button style={s.actionBtn} title="Avançar status" onClick={() => advance(order)}>
+                          <RotateCw size={13} />
+                        </button>
+                        <button style={s.actionBtnDanger} title="Cancelar" onClick={() => cancel(order)}>
+                          <Trash2 size={13} />
+                        </button>
+                      </>
+                    )}
                   </td>
                 </tr>
               )

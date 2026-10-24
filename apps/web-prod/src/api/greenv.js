@@ -21,6 +21,24 @@ export const auth = {
     }
   },
 
+  /**
+   * Entra como a conta de demonstração, que só lê.
+   *
+   * Não vai senha nenhuma: a API abre a sessão da conta fixa `DEMO` sem pedir credencial, e só
+   * quando a implantação liga `GREENV_DEMO_LOGIN_ENABLED`. Desligada, a rota responde 404.
+   */
+  async signInDemo() {
+    try {
+      const user = await sendJson('/v2/auth/demo', 'POST')
+      return { ok: true, user: toSession(user) }
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) {
+        return { ok: false, error: 'O acesso de demonstração não está habilitado neste ambiente.' }
+      }
+      return { ok: false, error: error.message || 'Não foi possível entrar na demonstração.' }
+    }
+  },
+
   async signOut() {
     try {
       await request('/v2/auth/logout', { method: 'POST', noRetry: true })
@@ -42,6 +60,14 @@ export const auth = {
       return null
     }
   },
+}
+
+/**
+ * Se a sessão é a de demonstração. A API recusa toda escrita dessa conta com 403; as telas usam
+ * isto para nem oferecer o botão, em vez de deixar o visitante esbarrar no erro.
+ */
+export function isReadOnly(user) {
+  return user?.role === 'DEMO'
 }
 
 function toSession(user) {

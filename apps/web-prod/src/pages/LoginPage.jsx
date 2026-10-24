@@ -1,15 +1,20 @@
 import { useState } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Eye, EyeOff, Mail, Lock, ArrowRight, Route, Ruler, Camera } from 'lucide-react'
+import { Eye, EyeOff, Mail, Lock, ArrowRight, Route, Ruler, Camera, PlayCircle } from 'lucide-react'
 import { useAuth, useToast, GrassHorizon, MotivaWordmark, GreenVWordmark } from '@greenv/web-core'
+import { auth } from '../api/greenv'
 
 /**
  * Entrar de verdade.
  *
- * A tela é a da demonstração, com uma ausência deliberada: não há botões de acesso rápido, porque
- * não existe credencial para exibir. A senha nunca esteve no cliente, e a primeira conta é criada
- * com o token estático pela rota de identidade — não há usuário semeado no banco.
+ * A tela é a da demonstração, sem os botões de acesso rápido de lá, porque não existe credencial
+ * para exibir: a senha nunca esteve no cliente, e as contas são criadas com o token estático pela
+ * rota de identidade.
+ *
+ * O único atalho é "Entrar como demonstração", e ele também não carrega senha: pede à API uma
+ * sessão da conta fixa de demonstração, que só lê. Se a implantação não ligou esse acesso, a API
+ * responde 404 e a tela diz isso.
  */
 const s = {
   page: {
@@ -64,6 +69,17 @@ const s = {
     cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
     marginTop: 6, fontFamily: 'inherit',
   },
+  divider: {
+    display: 'flex', alignItems: 'center', gap: 10, margin: '18px 0 14px',
+    fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em',
+  },
+  dividerLine: { flex: 1, height: 1, background: 'var(--border)' },
+  demo: {
+    width: '100%', padding: '11px 16px', background: 'white', color: 'var(--motiva)',
+    border: '1.5px solid var(--motiva)', borderRadius: 'var(--radius-sm)', fontSize: 13.5,
+    fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center',
+    justifyContent: 'center', gap: 8, fontFamily: 'inherit',
+  },
   note: {
     marginTop: 24, fontSize: 11.5, lineHeight: 1.6, color: 'var(--text-muted)',
     borderTop: '1px solid var(--border)', paddingTop: 14,
@@ -71,7 +87,7 @@ const s = {
 }
 
 export default function LoginPage() {
-  const { user, login } = useAuth()
+  const { user, login, loginWith } = useAuth()
   const { addToast } = useToast()
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
@@ -91,6 +107,16 @@ export default function LoginPage() {
     if (!result?.ok) { setError(result?.error ?? 'Não foi possível entrar.'); return }
     navigate('/sessoes', { replace: true })
     addToast({ type: 'success', message: `Bem-vindo(a), ${result.user?.name?.split(' ')[0] ?? ''}!` })
+  }
+
+  async function handleDemo() {
+    setBusy(true)
+    setError('')
+    const result = await loginWith(auth.signInDemo)
+    setBusy(false)
+    if (!result?.ok) { setError(result?.error ?? 'Não foi possível entrar na demonstração.'); return }
+    navigate('/sessoes', { replace: true })
+    addToast({ type: 'success', message: 'Modo demonstração: você pode navegar, mas não alterar nada.' })
   }
 
   return (
@@ -183,9 +209,19 @@ export default function LoginPage() {
             </motion.button>
           </form>
 
+          <div style={s.divider}><span style={s.dividerLine} />ou<span style={s.dividerLine} /></div>
+
+          <motion.button
+            type="button" style={{ ...s.demo, opacity: busy ? 0.65 : 1 }} disabled={busy}
+            onClick={handleDemo} whileTap={{ scale: 0.98 }}
+          >
+            <PlayCircle size={15} /> Entrar como demonstração
+          </motion.button>
+
           <div style={s.note}>
-            Sem acesso rápido: este painel fala com a API de verdade, e nenhuma senha vive no
-            navegador. As contas são criadas pela rota de identidade.
+            Este painel fala com a API de verdade, e nenhuma senha vive no navegador. A
+            demonstração abre uma sessão só de leitura, sem senha: dá para ver tudo, mas não
+            alterar nada.
           </div>
         </motion.div>
       </div>

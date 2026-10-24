@@ -54,6 +54,11 @@ async function failure(response) {
   } catch {
     // corpo vazio ou não-JSON; o status ainda diz o suficiente
   }
+  // A conta de demonstração só lê. As telas escondem as escritas dela, mas uma que escape deve
+  // explicar o motivo ao visitante em vez de mostrar a frase em inglês da API.
+  if (code === 'demo_read_only') {
+    detail = 'Modo demonstração: somente leitura. Esta ação não está disponível.'
+  }
   return new ApiError(response.status, code, detail)
 }
 
@@ -66,7 +71,9 @@ let refreshing = null
  * não há sessão para renovar. Só `/v2/auth/me` fica de fora desta lista, porque ali o 401 é
  * exatamente o sintoma que a renovação existe para resolver.
  */
-const SESSION_ROUTES = new Set(['/v2/auth/login', '/v2/auth/logout', '/v2/auth/refresh'])
+const SESSION_ROUTES = new Set([
+  '/v2/auth/login', '/v2/auth/demo', '/v2/auth/logout', '/v2/auth/refresh',
+])
 
 /**
  * Uma requisição, renovando a sessão uma única vez se o acesso tiver expirado.

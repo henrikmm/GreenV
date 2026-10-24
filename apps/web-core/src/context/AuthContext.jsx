@@ -35,13 +35,23 @@ export function AuthProvider({ children, signIn, signOut, restore }) {
     return result
   }, [signIn])
 
+  /**
+   * Entra por outro caminho que não e-mail e senha — em produção, o botão de demonstração. Recebe
+   * uma função que devolve o mesmo `{ ok, user, error }` de `signIn`, e o core só guarda a sessão.
+   */
+  const loginWith = useCallback(async (attempt) => {
+    const result = await attempt()
+    if (result?.ok) setUser(result.user)
+    return result
+  }, [])
+
   const logout = useCallback(async () => {
     await signOut?.()
     setUser(null)
   }, [signOut])
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, restoring }}>
+    <AuthContext.Provider value={{ user, login, loginWith, logout, restoring }}>
       {children}
     </AuthContext.Provider>
   )

@@ -90,13 +90,19 @@ aberto direto ou recarregado devolve 404 e só a raiz funciona.
 
 | Rota | O que é |
 |---|---|
-| `/login` | Entrar. Sem botões de acesso rápido: nenhuma senha vive no cliente |
+| `/login` | Entrar com e-mail e senha, ou pelo botão "Entrar como demonstração". O botão não carrega senha nenhuma: chama `POST /v2/auth/demo`, e a API abre uma sessão da conta fixa `DEMO`, que só lê. Responde 404 enquanto a implantação não liga `GREENV_DEMO_LOGIN_ENABLED` (`demo_login_enabled` no Terraform) |
 | `/sessoes` | A lista de capturas, com quantos trechos cada uma tem e quantos foram medidos |
 | `/sessoes/:id` | Uma sessão: a trilha no mapa, a tabela de trechos, e o quadro do ponto clicado |
 | `/trechos` | Toda leitura, a mais alta primeiro, cada uma com a própria rua |
 | `/mapa` | Todas as sessões no mesmo mapa, com a lista ao lado enquadrando cada uma |
 | `/ordens` | Ordens de serviço abertas contra trechos medidos |
 | `/equipes` | As equipes de campo e quantas ordens cada uma carrega |
+
+**O acesso de demonstração só lê.** Com a conta `DEMO` cada tela mostra a faixa "Modo demonstração ·
+somente leitura" e esconde o que escreve — "Criar OS", avançar e cancelar uma ordem. Quem garante
+isso é a API, não a tela: toda escrita dessa conta volta 403 `demo_read_only`, e o cliente traduz
+esse código para uma mensagem em português caso alguma escape. É o que impede um visitante de
+abrir uma captura ou uma ordem, que podem acordar a GPU paga.
 
 As quatro abas são as mesmas da demonstração. O que muda é o alvo de uma ordem: lá é um polígono
 do KMZ, aqui é um trecho medido, que é a única coisa neste sistema que carrega uma altura e uma

@@ -1,8 +1,8 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import { ClipboardList, Ruler, ChevronRight, ChevronDown } from 'lucide-react'
-import { LEVELS, vegetationLevel, Card } from '@greenv/web-core'
-import { measurements, teams as teamsApi } from '../api/greenv'
+import { LEVELS, vegetationLevel, Card, useAuth } from '@greenv/web-core'
+import { measurements, teams as teamsApi, isReadOnly } from '../api/greenv'
 import { placeOfSegment } from '../api/place'
 import { readingOf } from '../api/reading'
 import { stretchKey, stretchLabel } from '../api/stretch'
@@ -145,6 +145,8 @@ function instantOfDay(value, plusDays = 0) {
 }
 
 export default function SegmentsPage() {
+  // A demonstração não abre ordem: a API recusaria, e o botão só levaria o visitante ao erro.
+  const readOnly = isReadOnly(useAuth().user)
   const [sort, setSort] = useState('HEIGHT_DESC')
   const [filterLevel, setFilterLevel] = useState(null)
   // O dia da captura, não o da medição: é a saída a campo que a pessoa lembra. Campos de data
@@ -235,12 +237,14 @@ export default function SegmentsPage() {
             sessão mistura trecho limpo com trecho crítico, e aqui cada um responde por si.
           </div>
         </div>
-        <button style={s.orderBtn(chosenSegments.length > 0)}
-          disabled={chosenSegments.length === 0}
-          onClick={() => setOrdering(true)}>
-          <ClipboardList size={14} />
-          {chosenSegments.length > 1 ? `Criar OS (${chosenSegments.length})` : 'Criar OS'}
-        </button>
+        {!readOnly && (
+          <button style={s.orderBtn(chosenSegments.length > 0)}
+            disabled={chosenSegments.length === 0}
+            onClick={() => setOrdering(true)}>
+            <ClipboardList size={14} />
+            {chosenSegments.length > 1 ? `Criar OS (${chosenSegments.length})` : 'Criar OS'}
+          </button>
+        )}
       </div>
 
       <div style={s.statsRow}>
