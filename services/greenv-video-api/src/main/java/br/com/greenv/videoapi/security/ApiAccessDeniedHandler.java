@@ -5,6 +5,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.stereotype.Component;
 
@@ -21,13 +22,25 @@ final class ApiAccessDeniedHandler implements AccessDeniedHandler {
 "detail":"This credential is not allowed to perform that operation"}
             """;
 
+    /**
+     * Its own code, so the dashboard can tell a visitor "this is a demonstration" instead of
+     * showing a bare permission error.
+     */
+    private static final String DEMO_READ_ONLY_RESPONSE =
+            """
+            {"type":"urn:greenv:error:demo_read_only","title":"demo_read_only","status":403,\
+"detail":"The demonstration account is read-only"}
+            """;
+
     @Override
     public void handle(
             HttpServletRequest request,
             HttpServletResponse response,
             AccessDeniedException accessDeniedException) throws IOException {
+        boolean demoWrite = ApiSecurityConfiguration.isWrite(request)
+                && ApiSecurityConfiguration.isDemo(SecurityContextHolder.getContext().getAuthentication());
         response.setStatus(HttpServletResponse.SC_FORBIDDEN);
         response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
-        response.getWriter().write(RESPONSE);
+        response.getWriter().write(demoWrite ? DEMO_READ_ONLY_RESPONSE : RESPONSE);
     }
 }

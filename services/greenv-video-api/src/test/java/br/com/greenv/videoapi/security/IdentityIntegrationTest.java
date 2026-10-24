@@ -141,6 +141,15 @@ class IdentityIntegrationTest {
         assertThat(wrongValue.statusCode()).isEqualTo(401);
     }
 
+    /** Off unless GREENV_DEMO_LOGIN_ENABLED=true, and off looks exactly like a route that is not there. */
+    @Test
+    void servesNoDemonstrationLoginByDefault() throws Exception {
+        HttpResponse<String> demo = send(HttpRequest.newBuilder(uri("/v2/auth/demo"))
+                .POST(HttpRequest.BodyPublishers.noBody()));
+        assertThat(demo.statusCode()).isEqualTo(404);
+        assertThat(demo.headers().allValues("set-cookie")).isEmpty();
+    }
+
     /** Creating identities is the shared operational token's job, and nobody else's. */
     @Test
     void refusesToCreateAUserWithoutTheProvisionerToken() throws Exception {

@@ -2,6 +2,7 @@ package br.com.greenv.videoapi.service;
 
 import br.com.greenv.videoapi.config.AuthProperties;
 import br.com.greenv.videoapi.domain.AuthClientDocument;
+import br.com.greenv.videoapi.domain.AuthRole;
 import br.com.greenv.videoapi.domain.AuthSessionDocument;
 import br.com.greenv.videoapi.domain.AuthSessionTokens;
 import br.com.greenv.videoapi.domain.AuthUserDocument;
@@ -21,6 +22,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,6 +37,14 @@ public class AuthenticationService implements AuthenticationUseCase {
      */
     private static final String INVALID_CREDENTIALS = "email or password is not valid";
 
+    /**
+     * The one demonstration account. {@code .local} is reserved for local networks, so no real
+     * mailbox can ever hold this address and nobody can be provisioned under it by accident.
+     */
+    public static final String DEMO_EMAIL = "demo@greenv.local";
+
+    private static final String DEMO_DISPLAY_NAME = "Demonstração";
+
     private final UserStore users;
     private final AuthSessionStore sessions;
     private final OAuthClientStore clients;
@@ -43,6 +53,7 @@ public class AuthenticationService implements AuthenticationUseCase {
     private final IdentifierGenerator identifiers;
     private final AuthProperties properties;
     private final Clock clock;
+    private final boolean demoLoginEnabled;
 
     public AuthenticationService(
             UserStore users,
@@ -52,7 +63,8 @@ public class AuthenticationService implements AuthenticationUseCase {
             AccessTokenIssuer tokenIssuer,
             IdentifierGenerator identifiers,
             AuthProperties properties,
-            Clock clock) {
+            Clock clock,
+            @Value("${greenv.demo-login.enabled:false}") boolean demoLoginEnabled) {
         this.users = users;
         this.sessions = sessions;
         this.clients = clients;
@@ -61,6 +73,7 @@ public class AuthenticationService implements AuthenticationUseCase {
         this.identifiers = identifiers;
         this.properties = properties;
         this.clock = clock;
+        this.demoLoginEnabled = demoLoginEnabled;
     }
 
     @Override
@@ -77,13 +90,73 @@ public class AuthenticationService implements AuthenticationUseCase {
         }
 
         AuthUserDocument user = found.get();
-        if (!hasher.matches(password == null ? "" : password, user.passwordHash()) || !user.isActive()) {
+        // The demonstration account's hash is of a secret nobody was ever told, so the first test
+        // already fails. The role check is the second lock: it holds even if someone sets that
+        // account a real password, and it costs the same wall clock as any other refusal.
+        if (!hasher.matches(password == null ? "" : password, user.passwordHash())
+                || !user.isActive()
+                || user.role() == AuthRole.DEMO) {
             throw unauthorized();
         }
 
         Instant now = clock.instant();
         users.recordLogin(user.userId(), now);
         return openSession(user, now, now.plus(properties.refreshTokenTtl()));
+    }
+
+    /**
+     * Not transactional on purpose: the account is created with a statement of its own, so two
+     * visitors pressing the button at the same moment cannot leave a transaction aborted by the
+     * loser's duplicate key. The loser simply reads the row the winner wrote.
+     */
+    @Override
+    public AuthSessionTokens demoLogin() {
+        if (!demoLoginEnabled) {
+            throw new ApplicationException(
+                    FailureKind.NOT_FOUND, "not_found", "demonstration login is not enabled");
+        }
+
+        AuthUserDocument user = demoUser();
+        // A row under the demo address that is anything other than an active DEMO account was
+        // put there by hand. Signing a visitor into it could hand them an operator's writes.
+        if (user.role() != AuthRole.DEMO || !user.isActive()) {
+            log.warn("refused demonstration login: {} is not an active DEMO account", DEMO_EMAIL);
+            throw new ApplicationException(
+                    FailureKind.FORBIDDEN,
+                    "demo_account_misconfigured",
+                    "the demonstration account is not available");
+        }
+
+        Instant now = clock.instant();
+        users.recordLogin(user.userId(), now);
+        return openSession(user, now, now.plus(properties.refreshTokenTtl()));
+    }
+
+    private AuthUserDocument demoUser() {
+        String normalized = AuthUserDocument.normalizeEmail(DEMO_EMAIL);
+        Optional<AuthUserDocument> existing = users.findByNormalizedEmail(normalized);
+        if (existing.isPresent()) {
+            return existing.get();
+        }
+
+        Instant now = clock.instant();
+        try {
+            return users.insert(new AuthUserDocument(
+                    identifiers.next(),
+                    DEMO_EMAIL,
+                    normalized,
+                    // A digest of a random value that is discarded here: no password exists that
+                    // matches it, so /v2/auth/login can never open this account.
+                    hasher.hash(TokenDigest.randomToken()),
+                    DEMO_DISPLAY_NAME,
+                    AuthRole.DEMO,
+                    AuthUserDocument.STATUS_ACTIVE,
+                    now,
+                    now,
+                    null));
+        } catch (ApplicationException concurrentInsert) {
+            return users.findByNormalizedEmail(normalized).orElseThrow(() -> concurrentInsert);
+        }
     }
 
     @Override

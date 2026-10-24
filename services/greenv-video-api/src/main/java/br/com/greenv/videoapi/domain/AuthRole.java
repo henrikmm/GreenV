@@ -4,7 +4,13 @@ package br.com.greenv.videoapi.domain;
 public enum AuthRole {
     ADMIN,
     OPERATOR,
-    CAPTURE_CLIENT;
+    CAPTURE_CLIENT,
+    /**
+     * The public demonstration account behind {@code POST /v2/auth/demo}. It reads everything an
+     * operator reads and writes nothing: a write from it could open a capture or an order, and
+     * either one can wake the GPU that bills. ApiSecurityConfiguration enforces that.
+     */
+    DEMO;
 
     public String authority() {
         return "ROLE_" + name();

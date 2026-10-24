@@ -12,6 +12,12 @@ public interface AuthenticationUseCase {
     AuthSessionTokens login(String email, String password);
 
     /**
+     * Opens a session for the fixed, read-only demonstration account, creating it on first use.
+     * Takes no credential: whether the route is served at all is the deployment's decision.
+     */
+    AuthSessionTokens demoLogin();
+
+    /**
      * Exchanges a refresh token for a fresh pair. Presenting a token that was already exchanged
      * revokes every session of that user.
      */

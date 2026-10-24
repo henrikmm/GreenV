@@ -1,14 +1,21 @@
 package br.com.greenv.videoapi.security;
 
+import br.com.greenv.videoapi.domain.AuthRole;
+import jakarta.servlet.http.HttpServletRequest;
 import java.time.Duration;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpHeaders;
+import org.springframework.security.authentication.AuthenticationTrustResolver;
+import org.springframework.security.authentication.AuthenticationTrustResolverImpl;
+import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.web.cors.CorsConfiguration;
@@ -45,12 +52,29 @@ class ApiSecurityConfiguration {
      */
     private static final String[] PUBLIC_AUTH_PATHS = {
         "/v2/auth/login",
+        // Answers 404 unless GREENV_DEMO_LOGIN_ENABLED=true; the use case decides, not this list.
+        "/v2/auth/demo",
         "/v2/auth/refresh",
         // Public so an expired access token can still end its session and clear its cookies.
         "/v2/auth/logout",
         "/v2/oauth/token",
         "/.well-known/jwks.json"
     };
+
+    /** The methods that change nothing. Everything else is a write. */
+    private static final Set<String> SAFE_METHODS = Set.of("GET", "HEAD", "OPTIONS");
+
+    private static final AuthenticationTrustResolver TRUST = new AuthenticationTrustResolverImpl();
+
+    static boolean isWrite(HttpServletRequest request) {
+        return !SAFE_METHODS.contains(request.getMethod());
+    }
+
+    static boolean isDemo(Authentication authentication) {
+        return authentication != null
+                && authentication.getAuthorities().stream()
+                        .anyMatch(granted -> AuthRole.DEMO.authority().equals(granted.getAuthority()));
+    }
 
     @Bean
     SecurityFilterChain apiSecurityFilterChain(
@@ -100,6 +124,14 @@ class ApiSecurityConfiguration {
                     authorize
                             .requestMatchers("/v2/identity/**")
                             .hasRole("PROVISIONER")
+                            // The demonstration account reads and never writes. Refreshing and
+                            // ending its own session are matched as public above, before this.
+                            // Every other write is refused here, at the edge, rather than in each
+                            // controller, so a route added later is read-only for it by default.
+                            .requestMatchers(ApiSecurityConfiguration::isWrite)
+                            .access((authentication, context) -> new AuthorizationDecision(
+                                    TRUST.isAuthenticated(authentication.get())
+                                            && !isDemo(authentication.get())))
                             .anyRequest()
                             .authenticated();
                 })

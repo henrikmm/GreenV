@@ -43,6 +43,16 @@ public class AuthController {
         return sessionResponse(authentication.login(request.email(), request.password()));
     }
 
+    /**
+     * The dashboard's "Entrar como demonstração" button. No body and no password: the session it
+     * opens belongs to a fixed DEMO account that can read and cannot write, so there is nothing a
+     * client would need to prove. Answers 404 unless {@code GREENV_DEMO_LOGIN_ENABLED=true}.
+     */
+    @PostMapping("/demo")
+    ResponseEntity<AuthenticatedUserResponse> demo() {
+        return sessionResponse(authentication.demoLogin());
+    }
+
     @PostMapping("/refresh")
     ResponseEntity<AuthenticatedUserResponse> refresh(HttpServletRequest request) {
         String refreshToken = AuthCookies.read(request, AuthCookies.REFRESH).orElse(null);

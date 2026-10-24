@@ -17,6 +17,9 @@ info:
 
     Only `/actuator/health`, the sign-in routes and the JWK set are public - and, while the demo is
     enabled, `/v1/demo/**`, which checks its own pairing code (`demoPairingCode`) on writes.
+
+    While `GREENV_DEMO_LOGIN_ENABLED=true`, `/v2/auth/demo` opens a read-only session for anyone,
+    without a password; see the `DEMO` role.
 servers:
   - url: http://127.0.0.1:8080
   - url: https://greenvapi.matomomitsu.com
@@ -71,6 +74,56 @@ paths:
           description: |
             Wrong email or wrong password. Deliberately indistinguishable - saying which would turn
             the form into a way to discover which accounts exist.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: No signing key is provisioned, so no token can be issued.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /v2/auth/demo:
+    post:
+      operationId: demoLogin
+      tags: [identity]
+      summary: Open a read-only demonstration session
+      description: |
+        Served only when `GREENV_DEMO_LOGIN_ENABLED=true`; otherwise 404. Takes no body and no
+        password, and signs the caller in as the fixed account `demo@greenv.local` with role
+        `DEMO`, creating it on first use. That account's password hash is of a random value nobody
+        holds, and `/v2/auth/login` refuses the `DEMO` role outright, so this route is the only
+        way in.
+
+        The session is an ordinary one - the same four cookies and the same response as
+        `/v2/auth/login`. What differs is the role: a `DEMO` principal may `GET` and `HEAD` every
+        route an operator can read, and may refresh and end its own session. Every other write
+        answers 403 with `demo_read_only`, so a visitor can neither open a capture nor an order -
+        both of which can wake the paid GPU.
+      security: []
+      responses:
+        '200':
+          description: Signed in as the demonstration account
+          headers:
+            Set-Cookie:
+              description: Four cookies; all `Secure`, `SameSite=Lax`, `Path=/`, no `Domain`.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthenticatedUser'
+        '403':
+          description: |
+            `demo_account_misconfigured` - a row under the demonstration address exists but is not
+            an active `DEMO` account, so it is refused rather than handed to a visitor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Demonstration login is not enabled on this deployment.
           content:
             application/problem+json:
               schema:
@@ -2269,10 +2322,14 @@ components:
           description: Present on sign-in and rotation; null elsewhere.
     AuthRole:
       type: string
-      enum: [ADMIN, OPERATOR, CAPTURE_CLIENT]
+      enum: [ADMIN, OPERATOR, CAPTURE_CLIENT, DEMO]
       description: |
         Authorization is coarse today: any authenticated principal reaches every capture route.
         Only `/v2/identity/**` is gated, and on the provisioning credential rather than on a role.
+
+        The exception is `DEMO`, the account behind `/v2/auth/demo`: it may only read (`GET`,
+        `HEAD`) plus refresh and end its own session. Any other write answers 403 with the problem
+        type `urn:greenv:error:demo_read_only`.
     CreateUserRequest:
       type: object
       required: [email, password]
