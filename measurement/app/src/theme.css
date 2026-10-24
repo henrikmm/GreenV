@@ -2746,6 +2746,36 @@ canvas {
   color: var(--accent-err);
 }
 
+/* An example on screen in place of a capture's stages. */
+.demo-example {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 4px 0 8px;
+}
+
+.demo-example-name {
+  font-size: 15px;
+  color: var(--emph-hi);
+}
+
+.demo-example .detail {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.demo-example .demo-example-problem {
+  color: var(--accent-err);
+}
+
+/* A title is longer than a capture's date: let it take the row and cut it, never wrap it. */
+.demo-history-row .demo-example-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* The hosted site's history: compact rows, the current one marked with the panel's emphasis. */
 .demo-history {
   display: flex;

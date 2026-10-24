@@ -23,8 +23,11 @@ import {
   deleteHostedCapture,
   displayEvents,
   selectHostedCapture,
+  showHostedExample,
   startedAt,
   useHostedDemo,
+  type HostedExample,
+  type HostedShown,
 } from "../lib/hosted-demo";
 import { frameUrl } from "../lib/infer-client";
 import { FRAME_SOURCE_ID } from "../lib/load-clip";
@@ -244,6 +247,66 @@ function DemoHistory({ captures, activeId, pinnedId }: { captures: PhoneCapture[
 }
 
 /**
+ * Recorded reconstructions the API keeps for the stand (`GET examples`): something to show
+ * between visitors, or in place of a capture that failed. One click puts its frames and cloud on
+ * screen; "ao vivo", or the next capture from a phone, goes back.
+ */
+function DemoExamples({ examples, exampleId }: { examples: HostedExample[]; exampleId: string | null }) {
+  if (examples.length === 0) return null;
+  return (
+    <section className="demo-history" aria-label="Exemplos gravados">
+      <div className="demo-history-head">
+        <span>EXEMPLOS GRAVADOS · {examples.length}</span>
+        {exampleId && (
+          <button type="button" className="demo-history-live" onClick={() => showHostedExample(null)}>
+            voltar ao vivo
+          </button>
+        )}
+      </div>
+      <ol className="demo-history-list">
+        {examples.map((e) => (
+          <li key={e.id}>
+            <button
+              type="button"
+              className={`demo-history-row done${e.id === exampleId ? " current" : ""}`}
+              aria-current={e.id === exampleId ? "true" : undefined}
+              title={e.detail ?? e.id}
+              onClick={() => showHostedExample(e.id)}
+            >
+              <span className="mark" aria-hidden="true" />
+              {/* The row's date column stays empty, so the title takes the flexible one and can cut. */}
+              <span />
+              <span className="what demo-example-title">{e.title}</span>
+              <span className="t num">{e.frames > 0 ? `${e.frames} q` : ""}</span>
+            </button>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+/** What stands in for the stages while an example is on screen: what it is and where it came from. */
+function ExampleSummary({ example, shown }: { example: HostedExample; shown: HostedShown | null }) {
+  const gpu = gpuName(example.gpu);
+  return (
+    <div className="demo-example">
+      <span className="demo-example-name">{example.title}</span>
+      {example.detail && <span className="detail">{example.detail}</span>}
+      {(gpu || example.gpuSeconds !== null) && (
+        <span className="detail num">
+          {[gpu, example.gpuSeconds !== null ? `${seconds(example.gpuSeconds * 1000)} de GPU` : null].filter(Boolean).join(" · ")}
+        </span>
+      )}
+      {example.truth && <span className="detail">Medida na fita: {example.truth}</span>}
+      <span className={`detail${shown?.error ? " demo-example-problem" : ""}`}>
+        {shown === null ? "carregando a nuvem…" : shown.error ? `não foi possível abrir: ${shown.error}` : "gravado antes · não é uma captura ao vivo"}
+      </span>
+    </div>
+  );
+}
+
+/**
  * The same history on the Mac: the intake's captures, newest first, each opened through the run
  * it produced (`lib/demo-history.ts`). A saved run opens with a click; an unsaved one offers
  * "salvar e abrir", because only a run on disk can be shown and saving is never implied.
@@ -321,8 +384,11 @@ export function DemoPanel() {
   const hosted = useHostedDemo();
   const history = useDemoHistory();
   const pinned = HOSTED ? undefined : captures.find((c) => c.id === history.pinnedId);
-  const capture =
-    pinned ?? captures.find((c) => c.id === busyId) ?? captures.find((c) => c.id === active) ?? captures[0];
+  const example = HOSTED && hosted.exampleId ? (hosted.examples.find((e) => e.id === hosted.exampleId) ?? null) : null;
+  // An example replaces the capture on screen entirely: no stages, no live counter.
+  const capture = example
+    ? undefined
+    : (pinned ?? captures.find((c) => c.id === busyId) ?? captures.find((c) => c.id === active) ?? captures[0]);
 
   // Hosted: the server's timeline plus the page's own last step. Locally the timeline is whole.
   const timeline = capture ? (HOSTED && capture.id === hosted.activeId ? displayEvents(capture, hosted.shown) : capture.events) : [];
@@ -351,7 +417,7 @@ export function DemoPanel() {
   const extracted = Boolean(frames) && events.has("extracted");
   // Local frames are paths read back through the dev server; hosted ones are already URLs.
   const thumbs = HOSTED
-    ? capture && capture.id === hosted.activeId
+    ? example || (capture && capture.id === hosted.activeId)
       ? pick(hosted.frames, 24)
       : []
     : extracted && frames
@@ -370,17 +436,20 @@ export function DemoPanel() {
     <div className="demo-panel">
       <div className="demo-head">
         <span className={`demo-live${running ? " on" : ""}`}>
-          {running
-            ? "AO VIVO"
-            : (HOSTED ? hosted.pinnedId : pinned) && finished
-              ? "HISTÓRICO"
-              : finished
-                ? "PRONTO"
-                : "AGUARDANDO"}
+          {example
+            ? "EXEMPLO"
+            : running
+              ? "AO VIVO"
+              : (HOSTED ? hosted.pinnedId : pinned) && finished
+                ? "HISTÓRICO"
+                : finished
+                  ? "PRONTO"
+                  : "AGUARDANDO"}
         </span>
-        <span className="demo-total num">{totalMs === null ? "—" : seconds(totalMs)}</span>
+        <span className="demo-total num">{example ? "" : totalMs === null ? "—" : seconds(totalMs)}</span>
       </div>
-      {!capture && <p className="demo-idle">Grave um objeto no celular. Ele aparece aqui sozinho.</p>}
+      {example && <ExampleSummary example={example} shown={hosted.shown} />}
+      {!capture && !example && <p className="demo-idle">Grave um objeto no celular. Ele aparece aqui sozinho.</p>}
       {capture && (
         <ol className="demo-stages">
           {STAGES.filter((stage) => !stage.absent?.(events)).map((stage) => {
@@ -416,7 +485,10 @@ export function DemoPanel() {
         one's links arrive, and a list under it would jump on every click.
       */}
       {HOSTED ? (
-        <DemoHistory captures={hosted.captures} activeId={hosted.activeId} pinnedId={hosted.pinnedId} />
+        <>
+          <DemoHistory captures={hosted.captures} activeId={hosted.activeId} pinnedId={hosted.pinnedId} />
+          <DemoExamples examples={hosted.examples} exampleId={hosted.exampleId} />
+        </>
       ) : (
         <LocalHistory captures={captures} shownId={capture?.id ?? null} busyId={busyId} />
       )}

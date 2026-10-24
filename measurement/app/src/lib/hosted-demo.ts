@@ -13,6 +13,9 @@
  *   The frames become the panel's thumbnails; the manifest becomes a depth field and is handed
  *   to DA3 Depth's output, which is where a live run's result goes, so Run Source, the point
  *   cloud and both viewers pick it up through the graph exactly as they would a run made here.
+ * - `GET examples` once, and `GET examples/<id>/run` when one is chosen: recorded runs kept in
+ *   the bucket so the stand has something to show while no phone is capturing, or when a live
+ *   capture fails. An example stays on screen until "ao vivo" is chosen or a new capture arrives.
  *
  * ## What "fetched" means here, and the stage that replaces it
  *
@@ -76,6 +79,54 @@ export async function fetchHostedRun(base: string, id: string, fetchImpl: typeof
   return parseRun(await demoGet(base, `captures/${encodeURIComponent(id)}/run`, fetchImpl));
 }
 
+/** A recorded run the API serves from `demo/examples/` (index.json), shown on request. */
+export interface HostedExample {
+  id: string;
+  title: string;
+  detail: string | null;
+  frames: number;
+  gpu: string | null;
+  gpuSeconds: number | null;
+  /** The operator's tape reading, where one was taken. */
+  truth: string | null;
+}
+
+const text = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v : null);
+
+export function parseExamples(body: unknown): HostedExample[] {
+  const list = (body as { examples?: unknown } | null)?.examples;
+  if (!Array.isArray(list)) return [];
+  return list.flatMap((raw): HostedExample[] => {
+    const e = (raw ?? {}) as Record<string, unknown>;
+    const id = text(e.id);
+    if (!id) return [];
+    return [
+      {
+        id,
+        title: text(e.title) ?? id,
+        detail: text(e.detail),
+        frames: typeof e.frames === "number" ? e.frames : 0,
+        gpu: text(e.gpu),
+        gpuSeconds: typeof e.gpuSeconds === "number" ? e.gpuSeconds : null,
+        truth: text(e.truth),
+      },
+    ];
+  });
+}
+
+export async function fetchExamples(base: string, fetchImpl: typeof fetch = fetch): Promise<HostedExample[]> {
+  return parseExamples(await demoGet(base, "examples", fetchImpl));
+}
+
+export async function fetchExampleRun(base: string, id: string, fetchImpl: typeof fetch = fetch): Promise<HostedRun> {
+  return parseRun(await demoGet(base, `examples/${encodeURIComponent(id)}/run`, fetchImpl));
+}
+
+/** The active id an example takes, so it can never collide with a capture's. */
+export function exampleActiveId(id: string): string {
+  return `example:${id}`;
+}
+
 export function startedAt(capture: PhoneCapture): number {
   const t = Date.parse(capture.events[0]?.at ?? capture.capturedAt ?? "");
   return Number.isFinite(t) ? t : Number.NEGATIVE_INFINITY;
@@ -132,6 +183,10 @@ export interface HostedDemoState {
   activeId: string | null;
   /** A capture chosen from the history, shown instead of the newest. Null follows live. */
   pinnedId: string | null;
+  /** The recorded examples the API offers; empty until (and unless) it answers. */
+  examples: HostedExample[];
+  /** The example on screen instead of any capture. Null shows captures. */
+  exampleId: string | null;
   /** The active capture's frame URLs, kept from the first answer that had them. */
   frames: string[];
   manifest: InferManifest | null;
@@ -146,9 +201,13 @@ export interface HostedDemoDeps {
   /** A new capture is now the active one: point the app at it, dropping the previous result. */
   follow: (capture: PhoneCapture) => void;
   /** Build the cloud for a finished run. Resolves once it is on screen. */
-  show: (capture: PhoneCapture, manifest: InferManifest, frames: string[]) => Promise<void>;
+  show: (target: { id: string }, manifest: InferManifest, frames: string[]) => Promise<void>;
   /** Deletes a capture at the API with the code the operator typed. Rejects with the reason. */
   deleteCapture: (id: string, code: string) => Promise<void>;
+  listExamples?: () => Promise<HostedExample[]>;
+  fetchExampleRun?: (id: string) => Promise<HostedRun>;
+  /** An example is now the active one: point the app at it, as `follow` does for a capture. */
+  followExample?: (example: HostedExample) => void;
   now?: () => number;
 }
 
@@ -156,6 +215,8 @@ const INITIAL: HostedDemoState = {
   captures: [],
   activeId: null,
   pinnedId: null,
+  examples: [],
+  exampleId: null,
   frames: [],
   manifest: null,
   shown: null,
@@ -177,6 +238,9 @@ export function createHostedDemo(deps: HostedDemoDeps) {
   let showing: Promise<void> = Promise.resolve();
   /** A failed capture's run is read once, for whatever frames it got to, and then left alone. */
   let readAfterFailure = false;
+  let examplesAsked = false;
+  /** The newest capture when an example was chosen: a different one means a phone just sent. */
+  let newestAtExample: string | null = null;
 
   function set(patch: Partial<HostedDemoState>): void {
     state = { ...state, ...patch };
@@ -188,7 +252,34 @@ export function createHostedDemo(deps: HostedDemoDeps) {
     return !(lastPhase(capture) === "failed" && readAfterFailure);
   }
 
+  /** Builds the cloud for whatever is active under `id`, timing it as the page's `shown`. */
+  function present(id: string, manifest: InferManifest, frames: string[]): void {
+    set({ manifest });
+    const started = now();
+    showing = deps.show({ id }, manifest, frames).then(
+      () => {
+        if (state.activeId === id) set({ shown: { ms: Math.round(now() - started), error: null } });
+      },
+      (e) => {
+        if (state.activeId === id) set({ shown: { ms: Math.round(now() - started), error: message(e) } });
+      },
+    );
+  }
+
+  function askForExamples(): void {
+    if (examplesAsked || !deps.listExamples) return;
+    examplesAsked = true;
+    deps.listExamples().then(
+      (examples) => set({ examples }),
+      // An API without the route, or a slow answer, leaves the list empty; ask again next poll.
+      () => {
+        examplesAsked = false;
+      },
+    );
+  }
+
   async function tick(): Promise<void> {
+    askForExamples();
     let captures: PhoneCapture[];
     try {
       captures = await deps.listCaptures();
@@ -197,6 +288,12 @@ export function createHostedDemo(deps: HostedDemoDeps) {
       return;
     }
     set({ captures, error: null });
+
+    if (state.exampleId) {
+      if ((newestCapture(captures)?.id ?? null) === newestAtExample) return;
+      // A phone has just sent something: that is what the audience is waiting for.
+      set({ exampleId: null, pinnedId: null });
+    }
 
     const pinned = state.pinnedId ? (captures.find((c) => c.id === state.pinnedId) ?? null) : null;
     // A pinned capture the server no longer lists (cleaned up after three days, or pushed past
@@ -228,20 +325,40 @@ export function createHostedDemo(deps: HostedDemoDeps) {
     if (state.frames.length === 0 && run.frames.length > 0) set({ frames: run.frames });
 
     if (run.manifest && !state.manifest) {
-      const manifest = run.manifest;
-      const frames = run.frames.length > 0 ? run.frames : state.frames;
-      set({ manifest });
-      const id = active.id;
-      const started = now();
-      showing = deps.show(active, manifest, frames).then(
-        () => {
-          if (state.activeId === id) set({ shown: { ms: Math.round(now() - started), error: null } });
-        },
-        (e) => {
-          if (state.activeId === id) set({ shown: { ms: Math.round(now() - started), error: message(e) } });
-        },
-      );
+      present(active.id, run.manifest, run.frames.length > 0 ? run.frames : state.frames);
     }
+  }
+
+  /**
+   * Put a recorded example on screen, or `null` to go back to the captures. Its frames and cloud
+   * replace the capture's the way choosing from the history does.
+   */
+  async function showExample(id: string | null): Promise<void> {
+    if (id === null) {
+      if (state.exampleId === null) return;
+      set({ exampleId: null });
+      return tick();
+    }
+    const example = state.examples.find((e) => e.id === id);
+    if (!example || !deps.fetchExampleRun || id === state.exampleId) return;
+    newestAtExample = newestCapture(state.captures)?.id ?? null;
+    const activeId = exampleActiveId(id);
+    set({ exampleId: id, pinnedId: null, activeId, frames: [], manifest: null, shown: null, error: null });
+    deps.followExample?.(example);
+    let run: HostedRun;
+    try {
+      run = await deps.fetchExampleRun(id);
+    } catch (e) {
+      if (state.activeId === activeId) set({ shown: { ms: 0, error: message(e) } });
+      return;
+    }
+    if (state.activeId !== activeId) return;
+    set({ frames: run.frames });
+    if (!run.manifest) {
+      set({ shown: { ms: 0, error: "o exemplo não tem nuvem publicada" } });
+      return;
+    }
+    present(activeId, run.manifest, run.frames);
   }
 
   /**
@@ -249,8 +366,8 @@ export function createHostedDemo(deps: HostedDemoDeps) {
    * a click answers now rather than at the next two-second tick.
    */
   function select(id: string | null): Promise<void> {
-    if (id === state.pinnedId) return Promise.resolve();
-    set({ pinnedId: id });
+    if (id === state.pinnedId && state.exampleId === null) return Promise.resolve();
+    set({ pinnedId: id, exampleId: null });
     return tick();
   }
 
@@ -272,6 +389,7 @@ export function createHostedDemo(deps: HostedDemoDeps) {
     tick,
     select,
     remove,
+    showExample,
     getState: (): HostedDemoState => state,
     subscribe(listener: () => void): () => void {
       listeners.add(listener);
@@ -304,7 +422,19 @@ function followInGraph(capture: PhoneCapture): void {
   void runAuto();
 }
 
-async function showInGraph(_capture: PhoneCapture, manifest: InferManifest, frames: string[]): Promise<void> {
+/** As `followInGraph`, for a recorded example: a new identity, so the last cloud goes stale. */
+function followExampleInGraph(example: HostedExample): void {
+  setNodeParams(FRAME_SOURCE_ID, {
+    videoPath: "",
+    videoName: example.title,
+    videoSha256: exampleActiveId(example.id),
+    durationS: 0,
+  });
+  update({ lastRun: null });
+  void runAuto();
+}
+
+async function showInGraph(_target: { id: string }, manifest: InferManifest, frames: string[]): Promise<void> {
   const field = depthFieldFromRun(manifest, { rgbUrls: frames });
   const preview = manifest.artifacts.find((a) => a.kind === "depth_preview");
   publishNodeOutputs("da3-depth", {
@@ -337,6 +467,9 @@ export function hostedDemo(): HostedDemo {
     follow: followInGraph,
     show: showInGraph,
     deleteCapture: (id, code) => demoDeleteCapture(DEMO_API_BASE, id, code),
+    listExamples: () => fetchExamples(DEMO_API_BASE),
+    fetchExampleRun: (id) => fetchExampleRun(DEMO_API_BASE, id),
+    followExample: followExampleInGraph,
   });
   return instance;
 }
@@ -361,6 +494,10 @@ export function startHostedDemo(): void {
 
 export function selectHostedCapture(id: string | null): void {
   void hostedDemo().select(id);
+}
+
+export function showHostedExample(id: string | null): void {
+  void hostedDemo().showExample(id);
 }
 
 export function deleteHostedCapture(id: string, code: string): Promise<void> {

@@ -6,8 +6,12 @@ import {
   createHostedDemo,
   displayEvents,
   fetchHostedRun,
+  exampleActiveId,
+  fetchExampleRun,
   newestCapture,
+  parseExamples,
   parseRun,
+  type HostedExample,
   type HostedRun,
 } from "./hosted-demo";
 import type { PhoneCapture, PhoneEvent } from "./phone-link";
@@ -85,8 +89,11 @@ function harness() {
     captures: [] as PhoneCapture[],
     runs: new Map<string, HostedRun>(),
     listFails: false,
+    examples: [] as HostedExample[],
+    exampleRuns: new Map<string, HostedRun>(),
   };
   const followed: string[] = [];
+  const followedExamples: string[] = [];
   const shown: { id: string; manifest: InferManifest; frames: string[] }[] = [];
   let showResult: () => Promise<void> = () => Promise.resolve();
   let clock = 0;
@@ -108,12 +115,20 @@ function harness() {
       return showResult();
     },
     deleteCapture,
+    listExamples: async () => api.examples,
+    fetchExampleRun: async (id) => {
+      const run = api.exampleRuns.get(id);
+      if (!run) throw new Error(`demo API examples/${id}/run: 404`);
+      return run;
+    },
+    followExample: (e) => followedExamples.push(e.id),
     now: () => clock,
   });
   return {
     api,
     demo,
     followed,
+    followedExamples,
     shown,
     fetchRun,
     deleteCapture,
@@ -435,5 +450,90 @@ describe("the Demo panel's timeline", () => {
   it("adds nothing before the server has published", () => {
     const early = { ...c, events: server.slice(0, 2) };
     expect(displayEvents(early, { ms: 1, error: null })).toEqual(early.events);
+  });
+});
+
+describe("recorded examples", () => {
+  const example: HostedExample = {
+    id: "03-celular-gabinete-pro6000",
+    title: "Gabinete de PC sobre a mesa",
+    detail: "Celular · 58 quadros · RTX PRO 6000",
+    frames: 2,
+    gpu: "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+    gpuSeconds: 3.95,
+    truth: "Gabinete 0,45 m (fita)",
+  };
+
+  function withExample() {
+    const h = harness();
+    h.api.examples = [example];
+    h.api.exampleRuns.set(example.id, parseRun({ frames: frameUrls(2, "ex"), manifest: wireManifest(2) }));
+    return h;
+  }
+
+  it("reads the index, keeping only entries with an id", () => {
+    const list = parseExamples({ examples: [{ id: "a", title: "A", frames: 3, truth: null }, { title: "no id" }] });
+    expect(list).toEqual([{ id: "a", title: "A", detail: null, frames: 3, gpu: null, gpuSeconds: null, truth: null }]);
+    expect(parseExamples({})).toEqual([]);
+  });
+
+  it("asks the example's own run route", async () => {
+    const fetchImpl = vi.fn(async (_url: string) => new Response(JSON.stringify({ frames: [], manifest: null }), { status: 200 }));
+    await fetchExampleRun(BASE, "03-x", fetchImpl as unknown as typeof fetch);
+    expect(fetchImpl.mock.calls[0]![0]).toBe(`${BASE}examples/03-x/run`);
+  });
+
+  it("lists the examples on the first poll and puts a chosen one on screen", async () => {
+    const h = withExample();
+    h.api.captures = [capture("c1", FETCHED)];
+    await h.demo.tick();
+    await Promise.resolve();
+    expect(h.demo.getState().examples.map((e) => e.id)).toEqual([example.id]);
+
+    await h.demo.showExample(example.id);
+    await h.demo.idle();
+    const state = h.demo.getState();
+    expect(state.exampleId).toBe(example.id);
+    expect(state.activeId).toBe(exampleActiveId(example.id));
+    expect(state.frames).toEqual(frameUrls(2, "ex"));
+    expect(h.followedExamples).toEqual([example.id]);
+    expect(h.shown.at(-1)!.id).toBe(exampleActiveId(example.id));
+    expect(state.shown).toEqual({ ms: 1500, error: null });
+  });
+
+  it("stays on the example while the captures do not change, and leaves it for a new one", async () => {
+    const h = withExample();
+    h.api.captures = [capture("c1", FETCHED)];
+    await h.demo.tick();
+    await Promise.resolve();
+    await h.demo.showExample(example.id);
+    await h.demo.tick();
+    expect(h.demo.getState().exampleId).toBe(example.id);
+
+    h.api.captures = [capture("c1", FETCHED), capture("c2", ["created"], 60_000)];
+    await h.demo.tick();
+    expect(h.demo.getState().exampleId).toBeNull();
+    expect(h.demo.getState().activeId).toBe("c2");
+    expect(h.followed.at(-1)).toBe("c2");
+  });
+
+  it("goes back to the captures when live is chosen", async () => {
+    const h = withExample();
+    h.api.captures = [capture("c1", FETCHED)];
+    await h.demo.tick();
+    await Promise.resolve();
+    await h.demo.showExample(example.id);
+    await h.demo.showExample(null);
+    expect(h.demo.getState().exampleId).toBeNull();
+    expect(h.demo.getState().activeId).toBe("c1");
+  });
+
+  it("says why an example could not be opened", async () => {
+    const h = withExample();
+    h.api.exampleRuns.clear();
+    await h.demo.tick();
+    await Promise.resolve();
+    await h.demo.showExample(example.id);
+    expect(h.demo.getState().shown?.error).toMatch(/404/);
   });
 });
