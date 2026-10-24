@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -356,12 +357,16 @@ final class SettingsSheet extends StatefulWidget {
     required this.minExposure,
     required this.maxExposure,
     required this.onTestConnection,
+    this.gpuClient,
   });
 
   final DemoSettings initial;
   final double minExposure;
   final double maxExposure;
   final Future<GatewayHealth> Function(DemoSettings) onTestConnection;
+
+  /// A client on the saved gateway and code, for the GPU section; null leaves the section out.
+  final GatewayClient? Function()? gpuClient;
 
   @override
   State<SettingsSheet> createState() => _SettingsSheetState();
@@ -447,6 +452,7 @@ final class _SettingsSheetState extends State<SettingsSheet> {
                 if (_connection != null) Expanded(child: Text(_connection!, style: Verge.body.copyWith(fontSize: 12))),
               ],
             ),
+            if (widget.gpuClient != null) GpuPanel(client: widget.gpuClient!),
             _segmented<DemoResolution>('Resolução', DemoResolution.values, _s.resolution, (r) => r.label, (r) => _s = _s.copyWith(resolution: r)),
             _segmented<int>('Quadros por segundo', DemoSettings.fpsChoices, _s.fps, (f) => '$f', (f) => _s = _s.copyWith(fps: f)),
             _segmented<int>('Parada automática', DemoSettings.durationChoices, _s.maxSeconds, (d) => '$d s', (d) => _s = _s.copyWith(maxSeconds: d)),
@@ -504,6 +510,138 @@ final class _SettingsSheetState extends State<SettingsSheet> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Keeps the depth GPU warm for an event, or lets it scale to zero again. It works on the saved
+/// gateway and code, not on what is being typed above it, so what it controls is what captures
+/// will use. Polls only while it is on screen: closing the sheet disposes it.
+final class GpuPanel extends StatefulWidget {
+  const GpuPanel({super.key, required this.client, this.pollEvery = const Duration(seconds: 10)});
+
+  final GatewayClient? Function() client;
+  final Duration pollEvery;
+
+  @override
+  State<GpuPanel> createState() => _GpuPanelState();
+}
+
+final class _GpuPanelState extends State<GpuPanel> {
+  late final GatewayClient? _client = widget.client();
+  Timer? _poll;
+  GpuStatus? _status;
+  String? _statusProblem;
+  String? _toggleProblem;
+  bool? _pending;
+  bool _loading = false;
+
+  bool get _hasCode => _client?.pairingCode.trim().isNotEmpty ?? false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_client == null) {
+      _statusProblem = 'Nenhum gateway configurado';
+      return;
+    }
+    unawaited(_refresh());
+    _poll = Timer.periodic(widget.pollEvery, (_) => _refresh());
+  }
+
+  @override
+  void dispose() {
+    _poll?.cancel();
+    _client?.close();
+    super.dispose();
+  }
+
+  Future<void> _refresh() async {
+    final client = _client;
+    // A toggle in flight answers with the newer state; a GET landing after it would undo it.
+    if (client == null || _loading || _pending != null) return;
+    _loading = true;
+    try {
+      final status = await client.gpuStatus();
+      if (!mounted || _pending != null) return;
+      setState(() {
+        _status = status;
+        _statusProblem = null;
+      });
+    } on Object catch (error) {
+      if (!mounted || _pending != null) return;
+      setState(() => _statusProblem = error is GatewayException && error.statusCode == 404
+          ? 'Este servidor não controla a GPU'
+          : 'Não foi possível consultar a GPU');
+    } finally {
+      _loading = false;
+    }
+  }
+
+  Future<void> _toggle(bool keepWarm) async {
+    final client = _client;
+    if (client == null) return;
+    setState(() {
+      _pending = keepWarm;
+      _toggleProblem = null;
+    });
+    try {
+      final status = await client.setGpuKeepWarm(keepWarm);
+      if (!mounted) return;
+      setState(() {
+        _status = status;
+        _statusProblem = null;
+        _pending = null;
+      });
+      unawaited(_refresh());
+    } on Object catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _toggleProblem = gpuProblem(error);
+        _pending = null;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final status = _status;
+    final busy = _pending != null;
+    final enabled = _hasCode && status != null && !busy;
+    final line = _statusProblem ?? status?.summary ?? 'Consultando a GPU…';
+    final hint = Verge.label.copyWith(letterSpacing: 0.2, fontWeight: FontWeight.w400);
+    return Padding(
+      padding: const EdgeInsets.only(top: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('GPU DA DEMONSTRAÇÃO', style: Verge.label),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Manter GPU ligada'),
+            subtitle: Text(
+              line,
+              style: Verge.body.copyWith(fontSize: 12, color: _statusProblem != null ? Verge.error : Verge.text),
+            ),
+            secondary: busy
+                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Verge.busy))
+                : null,
+            value: _pending ?? status?.keepWarm ?? false,
+            onChanged: enabled ? _toggle : null,
+          ),
+          Text('Custa cerca de US\$ 3,50 por hora enquanto ligada. Desligue ao fim da apresentação.', style: hint),
+          if (!_hasCode)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text('Informe o código de pareamento para controlar a GPU', style: hint.copyWith(color: Verge.busy)),
+            ),
+          if (_toggleProblem != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(_toggleProblem!, style: Verge.body.copyWith(fontSize: 12, color: Verge.error)),
+            ),
+        ],
       ),
     );
   }

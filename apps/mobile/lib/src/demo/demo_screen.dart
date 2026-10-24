@@ -387,6 +387,7 @@ final class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserv
         minExposure: _camera.minExposureOffset,
         maxExposure: _camera.maxExposureOffset,
         onTestConnection: _healthOf,
+        gpuClient: _client,
       ),
     );
     if (updated == null || !mounted) return;

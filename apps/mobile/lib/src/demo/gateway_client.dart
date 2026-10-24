@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:http/http.dart' as http;
 
@@ -135,6 +136,29 @@ final class GatewayClient {
     return CaptureStatus.fromJson(jsonDecode(response.body) as Map<String, Object?>);
   }
 
+  /// The depth GPU's state. Unauthenticated: anyone at the stand may see whether it is on.
+  /// A 404 is a server without the route; a 502 is RunPod not answering the server.
+  Future<GpuStatus> gpuStatus() async {
+    final response = await _client.get(_at(['gpu'])).timeout(_shortTimeout);
+    if (response.statusCode != 200) throw GatewayException.fromResponse(response);
+    return GpuStatus.fromJson(jsonDecode(response.body) as Map<String, Object?>);
+  }
+
+  /// Keeps one GPU worker alive (`true`) or lets the endpoint scale to zero again (`false`).
+  /// Needs the pairing code, because a warm worker bills by the hour whether or not it measures.
+  Future<GpuStatus> setGpuKeepWarm(bool keepWarm) async {
+    final response = await _client
+        .put(
+          _at(['gpu']),
+          headers: {..._auth, 'content-type': 'application/json'},
+          body: jsonEncode({'keepWarm': keepWarm}),
+        )
+        // The server waits on RunPod's API before answering, which is slower than a health check.
+        .timeout(const Duration(seconds: 20));
+    if (response.statusCode != 200) throw GatewayException.fromResponse(response);
+    return GpuStatus.fromJson(jsonDecode(response.body) as Map<String, Object?>);
+  }
+
   void close() => _client.close();
 
   static String _describe(Object error) {
@@ -176,6 +200,96 @@ final class GatewayException implements Exception {
 
   @override
   String toString() => message;
+}
+
+/// RunPod's worker counts for the depth endpoint, as the server relays them.
+final class GpuWorkers {
+  const GpuWorkers({
+    this.idle = 0,
+    this.initializing = 0,
+    this.ready = 0,
+    this.running = 0,
+    this.throttled = 0,
+    this.unhealthy = 0,
+  });
+
+  factory GpuWorkers.fromJson(Map<String, Object?> json) {
+    int n(String key) => (json[key] as num?)?.toInt() ?? 0;
+    return GpuWorkers(
+      idle: n('idle'),
+      initializing: n('initializing'),
+      ready: n('ready'),
+      running: n('running'),
+      throttled: n('throttled'),
+      unhealthy: n('unhealthy'),
+    );
+  }
+
+  final int idle;
+  final int initializing;
+  final int ready;
+  final int running;
+  final int throttled;
+  final int unhealthy;
+
+  /// Workers that would take a job now. RunPod reports a warm worker waiting for work under
+  /// `ready` or `idle` depending on the moment, so the larger of the two is counted, never the sum.
+  int get available => math.max(ready, idle);
+}
+
+/// The depth endpoint's scaling and its workers: the body of `GET` and `PUT <base>gpu`.
+final class GpuStatus {
+  const GpuStatus({
+    required this.keepWarm,
+    this.workersMin = 0,
+    this.workersMax = 0,
+    this.idleTimeoutSeconds = 0,
+    this.workers = const GpuWorkers(),
+  });
+
+  factory GpuStatus.fromJson(Map<String, Object?> json) => GpuStatus(
+    keepWarm: json['keepWarm'] == true,
+    workersMin: (json['workersMin'] as num?)?.toInt() ?? 0,
+    workersMax: (json['workersMax'] as num?)?.toInt() ?? 0,
+    idleTimeoutSeconds: (json['idleTimeoutSeconds'] as num?)?.toInt() ?? 0,
+    workers: json['workers'] is Map<String, Object?>
+        ? GpuWorkers.fromJson(json['workers'] as Map<String, Object?>)
+        : const GpuWorkers(),
+  );
+
+  final bool keepWarm;
+  final int workersMin;
+  final int workersMax;
+  final int idleTimeoutSeconds;
+  final GpuWorkers workers;
+
+  /// One line for the operator. A worker that can take a job wins over everything else; a held
+  /// minimum with nothing up yet is a worker on its way.
+  String get summary {
+    final w = workers;
+    if (w.available > 0 || w.running > 0) {
+      final ready = '${w.available} ${w.available == 1 ? 'pronta' : 'prontas'}';
+      return w.running > 0 ? 'Ligada · $ready · ${w.running} em uso' : 'Ligada · $ready';
+    }
+    if (w.initializing > 0) return 'Ligando…';
+    if (w.throttled > 0) return 'Sem GPU disponível no momento';
+    if (keepWarm) return 'Ligando…';
+    return 'Desligada (liga sozinha a cada captura)';
+  }
+}
+
+/// Why a GPU call failed, in words for the operator.
+String gpuProblem(Object error) {
+  if (error is GatewayException) {
+    return switch (error.statusCode) {
+      401 || 403 => 'Código de pareamento incorreto',
+      404 => 'Este servidor não controla a GPU',
+      502 => 'A RunPod não respondeu ao servidor',
+      _ => 'Falha ao alterar a GPU (HTTP ${error.statusCode})',
+    };
+  }
+  if (error is SocketException || error is TimeoutException) return 'Sem conexão com o servidor';
+  return 'Falha ao alterar a GPU';
 }
 
 final class CapturePhase {

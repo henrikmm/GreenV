@@ -300,6 +300,98 @@ void main() {
       await dir.delete(recursive: true);
     });
 
+    group('gpu', () {
+      final cloud = Uri.parse('https://greenvapi.matomomitsu.com/v1/demo/');
+      Map<String, Object?> body({bool keepWarm = false, Map<String, int> workers = const {}}) => {
+        'keepWarm': keepWarm,
+        'workersMin': keepWarm ? 1 : 0,
+        'workersMax': 2,
+        'idleTimeoutSeconds': 60,
+        'workers': {'idle': 0, 'initializing': 0, 'ready': 0, 'running': 0, 'throttled': 0, 'unhealthy': 0, ...workers},
+      };
+
+      test('reads the status from <base>gpu without sending the code', () async {
+        http.Request? seen;
+        final client = GatewayClient(
+          baseUri: cloud,
+          pairingCode: 'secret',
+          client: MockClient((r) async {
+            seen = r;
+            return http.Response(jsonEncode(body(keepWarm: true, workers: {'ready': 1, 'running': 1})), 200);
+          }),
+        );
+        final s = await client.gpuStatus();
+        expect(seen!.method, 'GET');
+        expect(seen!.url.toString(), 'https://greenvapi.matomomitsu.com/v1/demo/gpu');
+        expect(seen!.headers.containsKey('authorization'), isFalse);
+        expect(s.keepWarm, isTrue);
+        expect(s.workersMin, 1);
+        expect(s.workersMax, 2);
+        expect(s.idleTimeoutSeconds, 60);
+        expect(s.workers.ready, 1);
+        expect(s.workers.running, 1);
+        expect(s.summary, 'Ligada · 1 pronta · 1 em uso');
+      });
+
+      test('sets keepWarm with a PUT carrying the code and a JSON body', () async {
+        http.Request? seen;
+        final client = GatewayClient(
+          baseUri: cloud,
+          pairingCode: 'secret',
+          client: MockClient((r) async {
+            seen = r;
+            return http.Response(jsonEncode(body(keepWarm: true, workers: {'initializing': 1})), 200);
+          }),
+        );
+        final s = await client.setGpuKeepWarm(true);
+        expect(seen!.method, 'PUT');
+        expect(seen!.url.toString(), 'https://greenvapi.matomomitsu.com/v1/demo/gpu');
+        expect(seen!.headers['authorization'], 'Bearer secret');
+        expect(seen!.headers['content-type'], startsWith('application/json'));
+        expect(jsonDecode(seen!.body), {'keepWarm': true});
+        expect(s.summary, 'Ligando…');
+      });
+
+      for (final (code, message) in [
+        (401, 'Código de pareamento incorreto'),
+        (403, 'Código de pareamento incorreto'),
+        (404, 'Este servidor não controla a GPU'),
+        (502, 'A RunPod não respondeu ao servidor'),
+      ]) {
+        test('a $code becomes "$message"', () async {
+          final client = GatewayClient(
+            baseUri: cloud,
+            pairingCode: 'x',
+            client: MockClient((r) async => http.Response(jsonEncode({'detail': 'no'}), code)),
+          );
+          Object? error;
+          try {
+            await client.setGpuKeepWarm(false);
+          } on Object catch (e) {
+            error = e;
+          }
+          expect(error, isA<GatewayException>().having((e) => e.statusCode, 'status', code));
+          expect(gpuProblem(error!), message);
+          await expectLater(client.gpuStatus(), throwsA(isA<GatewayException>().having((e) => e.statusCode, 'status', code)));
+        });
+      }
+
+      test('a refused connection is described without a status code', () {
+        expect(gpuProblem(const SocketException('refused')), 'Sem conexão com o servidor');
+      });
+
+      test('the status line follows the workers', () {
+        String line(Map<String, Object?> json) => GpuStatus.fromJson(json).summary;
+        expect(line(body(keepWarm: true, workers: {'ready': 2})), 'Ligada · 2 prontas');
+        expect(line(body(keepWarm: true, workers: {'idle': 1})), 'Ligada · 1 pronta');
+        expect(line(body(keepWarm: true, workers: {'initializing': 1})), 'Ligando…');
+        expect(line(body(keepWarm: true, workers: {'throttled': 3})), 'Sem GPU disponível no momento');
+        expect(line(body(keepWarm: true)), 'Ligando…');
+        expect(line(body()), 'Desligada (liga sozinha a cada captura)');
+        expect(line({'keepWarm': false}), 'Desligada (liga sozinha a cada captura)');
+      });
+    });
+
     test('the limit is 95 MiB, and the refusal names both sizes in Portuguese', () {
       expect(maxVideoBytes, 95 * 1024 * 1024);
       expect(GatewayClient(baseUri: base, pairingCode: '1').maxBytes, maxVideoBytes);
