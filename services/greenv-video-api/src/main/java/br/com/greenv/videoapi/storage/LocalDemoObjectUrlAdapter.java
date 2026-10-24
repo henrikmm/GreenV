@@ -13,7 +13,8 @@ import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 /**
- * Links to {@code GET /v1/demo/captures/{id}/files/...} on this API, for local storage, which has
+ * Links to {@code GET /v1/demo/captures/{id}/files/...} on this API — and to
+ * {@code /v1/demo/examples/{id}/files/...} for the recorded examples — for local storage, which has
  * no URL of its own to sign. It is what lets the phone, the API and the site run together on one laptop.
  *
  * <p>Nothing is signed: the demo's objects are public by contract, and the route serves nothing
@@ -38,11 +39,24 @@ public class LocalDemoObjectUrlAdapter implements ObjectUrlSigner {
         if (parts.length < 3 || !parts[0].equals("demo")) {
             throw new IllegalArgumentException("only demo/<capture>/... objects are served locally: " + objectKey);
         }
-        String rest = Arrays.stream(parts, 2, parts.length)
-                .map(part -> URLEncoder.encode(part, StandardCharsets.UTF_8).replace("+", "%20"))
+        if (parts[1].equals("examples")) {
+            // demo/examples/<id>/<file> and demo/examples/<id>/frames/<file>: the recorded examples.
+            if (parts.length < 4) {
+                throw new IllegalArgumentException("only demo/examples/<id>/... objects are served locally: " + objectKey);
+            }
+            return baseUrl() + "/v1/demo/examples/" + encode(parts[2]) + "/files/" + rest(parts, 3);
+        }
+        return baseUrl() + "/v1/demo/captures/" + encode(parts[1]) + "/files/" + rest(parts, 2);
+    }
+
+    private static String rest(String[] parts, int from) {
+        return Arrays.stream(parts, from, parts.length)
+                .map(LocalDemoObjectUrlAdapter::encode)
                 .collect(Collectors.joining("/"));
-        return baseUrl() + "/v1/demo/captures/" + URLEncoder.encode(parts[1], StandardCharsets.UTF_8)
-                + "/files/" + rest;
+    }
+
+    private static String encode(String part) {
+        return URLEncoder.encode(part, StandardCharsets.UTF_8).replace("+", "%20");
     }
 
     private String baseUrl() {

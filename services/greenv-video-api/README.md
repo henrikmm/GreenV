@@ -461,12 +461,23 @@ public. Objects go to `demo/<id>/video.<ext>` and `demo/<id>/sampled-frames/fram
 depth handler publishes beside them under `demo/<id>/depth/<run_id>/`. Captures and their objects
 are removed after `GREENV_DEMO_RETENTION_DAYS` (3).
 
+Recorded examples are uploaded by hand under `demo/examples/` (`index.json`, then
+`<id>/manifest.json`, its artifacts and `<id>/frames/frame-NNNN.jpg`). `GET /v1/demo/examples`
+lists the index (empty without one) and `GET /v1/demo/examples/{id}/run` answers in the shape of a
+capture's run, signed now. They are not captures: retention and delete never touch them.
+
+`GET /v1/demo/gpu` reports the demo endpoint's `workersMin`, `workersMax`, idle timeout and workers;
+`PUT /v1/demo/gpu` with the pairing code and `{"keepWarm": true|false}` sets `workersMin` to 1 or 0
+and writes nothing else. **A warm worker bills every second it is kept** — switch it off after the
+demo. With the `mock` depth adapter the switch is a mock too, and nothing reaches RunPod.
+
 | Setting | Variable | Default |
 |---|---|---|
 | Enable | `GREENV_DEMO_ENABLED` | `false` |
 | Pairing code | `GREENV_DEMO_PAIRING_CODE` | Required when enabled, at least 6 characters |
 | Depth adapter | `GREENV_DEMO_DEPTH_ADAPTER` | `runpod`; `mock` publishes placeholder artifacts marked `"mock": true` |
 | RunPod endpoint / key | `GREENV_DEMO_RUNPOD_ENDPOINT_ID`, `GREENV_DEMO_RUNPOD_API_KEY` | Required with `runpod` |
+| RunPod APIs | `GREENV_DEMO_RUNPOD_BASE_URL`, `GREENV_DEMO_RUNPOD_REST_BASE_URL` | `https://api.runpod.ai/v2` (jobs, health), `https://rest.runpod.io/v1` (endpoint settings) |
 | Frame budget | `GREENV_DEMO_MAX_FRAMES` | `112`, the demo endpoint's `GREENV_DEPTH_MAX_FRAMES` |
 | Sampling | `GREENV_DEMO_FPS`, `GREENV_DEMO_LONG_EDGE` | `10` fps (the phone's `sampling.fps` wins), `1024` px |
 | Job deadline | `GREENV_DEMO_JOB_DEADLINE` | `PT20M`, then the RunPod job is cancelled |

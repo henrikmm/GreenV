@@ -19,6 +19,7 @@ class ApplicationExceptionHandlerTest {
                 FailureKind.LENGTH_REQUIRED, 411,
                 FailureKind.UNSUPPORTED_MEDIA_TYPE, 415,
                 FailureKind.DEPENDENCY_UNAVAILABLE, 503,
+                FailureKind.UPSTREAM_FAILURE, 502,
                 FailureKind.INTERNAL_ERROR, 500);
         var handler = new ApplicationExceptionHandler();
 

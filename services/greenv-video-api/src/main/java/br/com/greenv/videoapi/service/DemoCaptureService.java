@@ -15,7 +15,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.DigestOutputStream;
@@ -40,7 +39,6 @@ import org.springframework.stereotype.Service;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
-import tools.jackson.databind.node.ObjectNode;
 
 /**
  * The demo's front door: the phone announces a capture and sends its video, and anyone may read
@@ -50,9 +48,9 @@ import tools.jackson.databind.node.ObjectNode;
  * The phone only changes its base URL, so every response keeps the shape the Mac gave it — and the
  * Mac's intake ({@code measurement/app/vite-plugins/phone-intake.mjs}) stays the fallback.
  *
- * <p>The pairing code is a speed bump, not an identity: one shared secret that the operator types
- * into the phone. It guards the only two calls that put anything on this server. It is compared
- * in constant time, so the time an answer takes says nothing about how much of a guess was right.
+ * <p>The pairing code ({@link DemoPairingCode}) is a speed bump, not an identity: one shared
+ * secret that the operator types into the phone. It guards every call that puts anything on this
+ * server or takes anything off it.
  */
 @Service
 @ConditionalOnProperty(name = "greenv.demo.enabled", havingValue = "true")
@@ -64,7 +62,6 @@ public class DemoCaptureService implements DemoCaptureUseCase {
     public static final int MAX_META_BYTES = 64 * 1024;
     public static final int MAX_LIST = 100;
 
-    private static final String BEARER_PREFIX = "Bearer ";
     private static final Pattern ID_PATTERN = Pattern.compile("^cap-\\d{8}-\\d{6}-[a-z0-9]{4}$");
     private static final String ID_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
     private static final DateTimeFormatter ID_STAMP =
@@ -83,7 +80,7 @@ public class DemoCaptureService implements DemoCaptureUseCase {
     private final ObjectMapper objectMapper;
     private final Clock clock;
     private final DemoProperties properties;
-    private final byte[] pairingCode;
+    private final DemoPairingCode pairingCode;
     private final SecureRandom random = new SecureRandom();
 
     public DemoCaptureService(
@@ -99,29 +96,17 @@ public class DemoCaptureService implements DemoCaptureUseCase {
         this.objectMapper = objectMapper;
         this.clock = clock;
         this.properties = properties;
-        this.pairingCode = properties.pairingCode().strip().getBytes(StandardCharsets.UTF_8);
+        this.pairingCode = new DemoPairingCode(properties.pairingCode());
     }
 
     @Override
     public boolean authorised(String authorization) {
-        if (authorization == null || !authorization.startsWith(BEARER_PREFIX)) {
-            return false;
-        }
-        byte[] presented = authorization.substring(BEARER_PREFIX.length()).strip().getBytes(StandardCharsets.UTF_8);
-        return MessageDigest.isEqual(presented, pairingCode);
+        return pairingCode.matches(authorization);
     }
 
     /** 401 when no code was presented at all, 403 when the one presented is wrong. */
     private void requireAuthorised(String authorization) {
-        if (authorization == null || !authorization.startsWith(BEARER_PREFIX)
-                || authorization.substring(BEARER_PREFIX.length()).isBlank()) {
-            throw new ApplicationException(
-                    FailureKind.UNAUTHORIZED, "pairing_code_required", "missing pairing code");
-        }
-        if (!authorised(authorization)) {
-            throw new ApplicationException(
-                    FailureKind.FORBIDDEN, "pairing_code_wrong", "wrong pairing code");
-        }
+        pairingCode.require(authorization);
     }
 
     @Override
@@ -270,35 +255,12 @@ public class DemoCaptureService implements DemoCaptureUseCase {
         List<String> frames = capture.frameKeys().stream()
                 .map(key -> signer.sign(key, properties.signedUrlTtl()))
                 .toList();
+        // Every artifact link is signed now, from its object key, and only inside this capture.
         JsonNode manifest = DemoPhases.FETCHED.equals(capture.state()) && capture.manifest() != null
-                ? signedManifest(capture)
+                ? DemoManifests.signArtifacts(
+                        capture.manifest(), DemoCapture.prefix(capture.id()), signer, properties.signedUrlTtl())
                 : null;
         return new DemoRun(frames, manifest, capture.gpu(), capture.gpuSeconds());
-    }
-
-    /**
-     * The handler's manifest with every artifact link signed now, from its object key. The
-     * handler's own links are twelve-hour links the API never hands out; a key outside this
-     * capture's prefix is dropped rather than signed, so a manifest can never be used to read
-     * another object.
-     */
-    private JsonNode signedManifest(DemoCapture capture) {
-        ObjectNode manifest = (ObjectNode) capture.manifest().deepCopy();
-        JsonNode artifacts = manifest.path("artifacts");
-        if (artifacts.isArray()) {
-            for (JsonNode artifact : artifacts) {
-                if (!(artifact instanceof ObjectNode node)) {
-                    continue;
-                }
-                String key = node.path("object_key").asString("");
-                if (key.startsWith(DemoCapture.prefix(capture.id())) && !key.contains("..")) {
-                    node.put("url", signer.sign(key, properties.signedUrlTtl()));
-                } else {
-                    node.putNull("url");
-                }
-            }
-        }
-        return manifest;
     }
 
     @Override

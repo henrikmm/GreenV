@@ -31,6 +31,7 @@ public class ApplicationExceptionHandler {
             case LENGTH_REQUIRED -> HttpStatus.LENGTH_REQUIRED;
             case UNSUPPORTED_MEDIA_TYPE -> HttpStatus.UNSUPPORTED_MEDIA_TYPE;
             case DEPENDENCY_UNAVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE;
+            case UPSTREAM_FAILURE -> HttpStatus.BAD_GATEWAY;
             case INTERNAL_ERROR -> HttpStatus.INTERNAL_SERVER_ERROR;
         };
     }

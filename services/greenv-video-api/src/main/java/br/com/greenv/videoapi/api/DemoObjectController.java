@@ -23,12 +23,13 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>With a bucket behind it the site is handed presigned links and fetches straight from the
  * bucket; this controller does not exist then. With local storage there is no bucket to sign for,
  * and this is what stands in for one, so the phone, the API and the site can run together on one
- * laptop. The three routes are the three places a capture keeps files:
+ * laptop. The three capture routes are the three places a capture keeps files:
  * {@code demo/<id>/<file>}, {@code demo/<id>/sampled-frames/<file>} and
- * {@code demo/<id>/depth/<run>/<file>}.
+ * {@code demo/<id>/depth/<run>/<file>}; the two example routes are where a recorded example keeps
+ * them, {@code demo/examples/<id>/<file>} and {@code demo/examples/<id>/frames/<file>}.
  */
 @RestController
-@RequestMapping("/v1/demo/captures/{captureId}/files")
+@RequestMapping("/v1/demo")
 @ConditionalOnExpression("${greenv.demo.enabled:false} and '${greenv.adapters.object-storage:local}' == 'local'")
 public class DemoObjectController {
 
@@ -40,11 +41,24 @@ public class DemoObjectController {
         this.demo = demo;
     }
 
-    @GetMapping({"/{name}", "/sampled-frames/{name}", "/depth/{runId}/{name}"})
+    @GetMapping({
+        "/captures/{captureId}/files/{name}",
+        "/captures/{captureId}/files/sampled-frames/{name}",
+        "/captures/{captureId}/files/depth/{runId}/{name}"
+    })
     ResponseEntity<Resource> file(@PathVariable String captureId, HttpServletRequest request) {
+        return serve("demo/" + captureId + "/", request);
+    }
+
+    @GetMapping({"/examples/{exampleId}/files/{name}", "/examples/{exampleId}/files/frames/{name}"})
+    ResponseEntity<Resource> exampleFile(@PathVariable String exampleId, HttpServletRequest request) {
+        return serve("demo/examples/" + exampleId + "/", request);
+    }
+
+    private ResponseEntity<Resource> serve(String prefix, HttpServletRequest request) {
         String uri = request.getRequestURI();
         String rest = URLDecoder.decode(uri.substring(uri.indexOf(MARKER) + MARKER.length()), StandardCharsets.UTF_8);
-        CaptureObjectStorage.ObjectContent content = demo.openObject("demo/" + captureId + "/" + rest);
+        CaptureObjectStorage.ObjectContent content = demo.openObject(prefix + rest);
         return ResponseEntity.ok()
                 .contentType(mediaType(rest))
                 .contentLength(content.bytes())

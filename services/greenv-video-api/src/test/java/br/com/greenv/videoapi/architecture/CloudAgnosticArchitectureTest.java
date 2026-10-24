@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import br.com.greenv.videoapi.api.AuthController;
 import br.com.greenv.videoapi.api.CaptureSessionController;
 import br.com.greenv.videoapi.api.DemoCaptureController;
+import br.com.greenv.videoapi.api.DemoExampleController;
+import br.com.greenv.videoapi.api.DemoGpuController;
 import br.com.greenv.videoapi.api.DemoObjectController;
 import br.com.greenv.videoapi.api.MeasurementController;
 import br.com.greenv.videoapi.api.ServiceOrderController;
@@ -25,6 +27,9 @@ import br.com.greenv.videoapi.port.CaptureSessionStore;
 import br.com.greenv.videoapi.port.CaptureSessionUseCase;
 import br.com.greenv.videoapi.port.DemoCaptureStore;
 import br.com.greenv.videoapi.port.DemoCaptureUseCase;
+import br.com.greenv.videoapi.port.DemoExampleUseCase;
+import br.com.greenv.videoapi.port.DemoGpuControl;
+import br.com.greenv.videoapi.port.DemoGpuUseCase;
 import br.com.greenv.videoapi.port.DemoFrameSampler;
 import br.com.greenv.videoapi.port.DepthJobRunner;
 import br.com.greenv.videoapi.port.ObjectUrlSigner;
@@ -49,6 +54,8 @@ import br.com.greenv.videoapi.service.AuthenticationService;
 import br.com.greenv.videoapi.service.CaptureSessionService;
 import br.com.greenv.videoapi.service.DemoCaptureService;
 import br.com.greenv.videoapi.service.DemoCleanupService;
+import br.com.greenv.videoapi.service.DemoExampleService;
+import br.com.greenv.videoapi.service.DemoGpuService;
 import br.com.greenv.videoapi.service.DemoPipelineService;
 import br.com.greenv.videoapi.service.IdentityAdminService;
 import br.com.greenv.videoapi.service.JobService;
@@ -71,7 +78,9 @@ import br.com.greenv.videoapi.storage.AzureBlobCaptureObjectStorageAdapter;
 import br.com.greenv.videoapi.task.AzureQueueMeasurementResultAdapter;
 import br.com.greenv.videoapi.task.AzureQueueSegmentWorkQueueAdapter;
 import br.com.greenv.videoapi.task.FfmpegDemoFrameSamplerAdapter;
+import br.com.greenv.videoapi.task.MockDemoGpuControlAdapter;
 import br.com.greenv.videoapi.task.MockDepthJobAdapter;
+import br.com.greenv.videoapi.task.RunPodDemoGpuControlAdapter;
 import br.com.greenv.videoapi.task.RunPodDepthJobAdapter;
 import br.com.greenv.videoapi.token.BCryptSecretHasherAdapter;
 import br.com.greenv.videoapi.token.NimbusAccessTokenIssuerAdapter;
@@ -106,12 +115,16 @@ class CloudAgnosticArchitectureTest {
         assertInboundDependencies(TeamController.class);
         assertInboundDependencies(DemoCaptureController.class);
         assertInboundDependencies(DemoObjectController.class);
+        assertInboundDependencies(DemoExampleController.class);
+        assertInboundDependencies(DemoGpuController.class);
         assertThat(CaptureSessionUseCase.class).isAssignableFrom(CaptureSessionService.class);
         assertThat(LegacyJobUseCase.class).isAssignableFrom(JobService.class);
         assertThat(AuthenticationUseCase.class).isAssignableFrom(AuthenticationService.class);
         assertThat(IdentityAdminUseCase.class).isAssignableFrom(IdentityAdminService.class);
         assertThat(OperationsUseCase.class).isAssignableFrom(OperationsService.class);
         assertThat(DemoCaptureUseCase.class).isAssignableFrom(DemoCaptureService.class);
+        assertThat(DemoExampleUseCase.class).isAssignableFrom(DemoExampleService.class);
+        assertThat(DemoGpuUseCase.class).isAssignableFrom(DemoGpuService.class);
     }
 
     @Test
@@ -122,6 +135,8 @@ class CloudAgnosticArchitectureTest {
         assertNoMethodTypeFromPackage(IdentityAdminUseCase.class, "br.com.greenv.videoapi.api");
         assertNoMethodTypeFromPackage(OperationsUseCase.class, "br.com.greenv.videoapi.api");
         assertNoMethodTypeFromPackage(DemoCaptureUseCase.class, "br.com.greenv.videoapi.api");
+        assertNoMethodTypeFromPackage(DemoExampleUseCase.class, "br.com.greenv.videoapi.api");
+        assertNoMethodTypeFromPackage(DemoGpuUseCase.class, "br.com.greenv.videoapi.api");
     }
 
     @Test
@@ -149,6 +164,8 @@ class CloudAgnosticArchitectureTest {
         assertThat(DemoFrameSampler.class).isAssignableFrom(FfmpegDemoFrameSamplerAdapter.class);
         assertThat(DepthJobRunner.class).isAssignableFrom(RunPodDepthJobAdapter.class);
         assertThat(DepthJobRunner.class).isAssignableFrom(MockDepthJobAdapter.class);
+        assertThat(DemoGpuControl.class).isAssignableFrom(RunPodDemoGpuControlAdapter.class);
+        assertThat(DemoGpuControl.class).isAssignableFrom(MockDemoGpuControlAdapter.class);
         assertThat(ObjectUrlSigner.class).isAssignableFrom(S3PresignedUrlAdapter.class);
         assertThat(ObjectUrlSigner.class).isAssignableFrom(LocalDemoObjectUrlAdapter.class);
         assertThat(FrameReadingsReader.class).isAssignableFrom(JacksonFrameReadingsAdapter.class);
@@ -185,6 +202,8 @@ class CloudAgnosticArchitectureTest {
         assertThat(FfmpegDemoFrameSamplerAdapter.class.getSimpleName()).endsWith("Adapter");
         assertThat(RunPodDepthJobAdapter.class.getSimpleName()).endsWith("Adapter");
         assertThat(MockDepthJobAdapter.class.getSimpleName()).endsWith("Adapter");
+        assertThat(RunPodDemoGpuControlAdapter.class.getSimpleName()).endsWith("Adapter");
+        assertThat(MockDemoGpuControlAdapter.class.getSimpleName()).endsWith("Adapter");
         assertThat(S3PresignedUrlAdapter.class.getSimpleName()).endsWith("Adapter");
         assertThat(LocalDemoObjectUrlAdapter.class.getSimpleName()).endsWith("Adapter");
     }
@@ -222,6 +241,12 @@ class CloudAgnosticArchitectureTest {
                 .extracting(field -> field.getType().getPackageName())
                 .noneMatch(this::isAdapterPackage);
         assertThat(DemoCleanupService.class.getDeclaredFields())
+                .extracting(field -> field.getType().getPackageName())
+                .noneMatch(this::isAdapterPackage);
+        assertThat(DemoExampleService.class.getDeclaredFields())
+                .extracting(field -> field.getType().getPackageName())
+                .noneMatch(this::isAdapterPackage);
+        assertThat(DemoGpuService.class.getDeclaredFields())
                 .extracting(field -> field.getType().getPackageName())
                 .noneMatch(this::isAdapterPackage);
     }

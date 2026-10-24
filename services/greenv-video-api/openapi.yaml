@@ -36,8 +36,9 @@ tags:
     description: |
       The FIAP Next demo: a phone sends a short video, the API samples it, a RunPod endpoint
       reconstructs it, and a public site shows every step. Served only when
-      `GREENV_DEMO_ENABLED=true`. The two writes need the demo's pairing code; the reads are
-      public.
+      `GREENV_DEMO_ENABLED=true`. The writes - announcing, uploading, deleting a capture and
+      switching the GPU's keep-warm - need the demo's pairing code; the reads, recorded
+      examples included, are public.
 paths:
   /v2/auth/login:
     post:
@@ -1373,6 +1374,150 @@ paths:
           $ref: '#/components/responses/DemoFile'
         '404':
           description: No such object
+  /v1/demo/examples:
+    get:
+      operationId: listDemoExamples
+      tags: [demo]
+      summary: The recorded examples the site can show without a capture
+      description: |
+        The entries of `demo/examples/index.json` in the demo's bucket, passed through as they
+        were uploaded. The examples are reconstructions made beforehand and uploaded by hand;
+        the API only reads them and never deletes them - they are not captures and the retention
+        cleanup does not see them. The index is kept for a minute. With no index the list is
+        empty, not an error, and an index uploaded later shows on the next request.
+      security: []
+      responses:
+        '200':
+          description: Every example in the index, possibly none
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DemoExampleList'
+  /v1/demo/examples/{exampleId}/run:
+    get:
+      operationId: getDemoExampleRun
+      tags: [demo]
+      summary: The frames and the reconstruction of one recorded example
+      description: |
+        Exactly the shape of `GET /v1/demo/captures/{captureId}/run`. `frames` are signed links
+        to `demo/examples/{exampleId}/frames/frame-0001.jpg` onwards, as many as the index's
+        `frames`. `manifest` is the example's `manifest.json` with every artifact `url` signed
+        now from its `object_key`; a key outside `demo/examples/{exampleId}/`, or one containing
+        `..`, gets `url: null`. `gpu` and `gpuSeconds` come from the index.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/DemoExampleId'
+      responses:
+        '200':
+          description: The example's run
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DemoRun'
+        '404':
+          description: No example with this id in the index (`demo_example_not_found`)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /v1/demo/examples/{exampleId}/files/{name}:
+    get:
+      operationId: getDemoExampleFile
+      tags: [demo]
+      summary: One of an example's artifacts, served by the API (local storage only)
+      description: |
+        Exists only with `GREENV_OBJECT_STORAGE_ADAPTER=local`, as the capture file routes do.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/DemoExampleId'
+        - $ref: '#/components/parameters/DemoFileName'
+      responses:
+        '200':
+          $ref: '#/components/responses/DemoFile'
+        '404':
+          description: No such object
+  /v1/demo/examples/{exampleId}/files/frames/{name}:
+    get:
+      operationId: getDemoExampleFrameFile
+      tags: [demo]
+      summary: One of an example's frames, served by the API (local storage only)
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/DemoExampleId'
+        - $ref: '#/components/parameters/DemoFileName'
+      responses:
+        '200':
+          $ref: '#/components/responses/DemoFile'
+        '404':
+          description: No such object
+  /v1/demo/gpu:
+    get:
+      operationId: getDemoGpu
+      tags: [demo]
+      summary: Whether the demo's GPU is kept warm, and its workers right now
+      description: |
+        Read from RunPod on every request: the endpoint's `workersMin`, `workersMax` and
+        `idleTimeout` from its management API, the workers by state from its health route.
+        `keepWarm` is `workersMin >= 1`. Asking wakes nothing and costs nothing.
+      security: []
+      responses:
+        '200':
+          description: The endpoint as RunPod reports it
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DemoGpu'
+        '502':
+          description: RunPod could not be reached or refused (`demo_gpu_unavailable`)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+    put:
+      operationId: setDemoGpuKeepWarm
+      tags: [demo]
+      summary: Keep the demo's GPU warm, or let it go cold
+      description: |
+        Sets the endpoint's `workersMin` to 1 (`keepWarm: true`) or 0 (`false`) and nothing else;
+        `workersMax` and the idle timeout are never written. **Warm bills**: RunPod charges for
+        the kept worker every second it is kept, whether or not a capture arrives. Only with the
+        pairing code, which is checked before the body is read. Answers like `GET`, read after
+        the change.
+      security:
+        - demoPairingCode: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [keepWarm]
+              properties:
+                keepWarm:
+                  type: boolean
+      responses:
+        '200':
+          description: Changed; the endpoint as RunPod now reports it
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DemoGpu'
+        '400':
+          description: '`keepWarm` is missing or not a boolean (`keep_warm_required`)'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          $ref: '#/components/responses/DemoPairingCodeMissing'
+        '403':
+          $ref: '#/components/responses/DemoPairingCodeWrong'
+        '502':
+          description: RunPod could not be reached or refused (`demo_gpu_unavailable`)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
 components:
   securitySchemes:
     bearerAuth:
@@ -1405,7 +1550,7 @@ components:
       bearerFormat: opaque
       description: |
         The demo's pairing code, `GREENV_DEMO_PAIRING_CODE`, typed into the phone by the
-        operator. Opens only the two demo writes. Compared in constant time. Missing is a 401,
+        operator. Opens only the demo's writes. Compared in constant time. Missing is a 401,
         wrong is a 403.
   responses:
     DemoPairingCodeMissing:
@@ -1448,6 +1593,13 @@ components:
       required: true
       schema:
         type: string
+    DemoExampleId:
+      name: exampleId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^[0-9]{2}-[a-z0-9-]+$'
     OrderId:
       name: orderId
       in: path
@@ -2692,3 +2844,64 @@ components:
           type: [string, 'null']
         gpuSeconds:
           type: [number, 'null']
+    DemoExampleList:
+      type: object
+      required: [examples]
+      properties:
+        examples:
+          type: array
+          description: The index's entries as uploaded; fields beyond these are passed through.
+          items:
+            type: object
+            required: [id]
+            additionalProperties: true
+            properties:
+              id:
+                type: string
+                pattern: '^[0-9]{2}-[a-z0-9-]+$'
+              title:
+                type: string
+              detail:
+                type: string
+              frames:
+                type: integer
+              width:
+                type: integer
+              height:
+                type: integer
+              gpu:
+                type: [string, 'null']
+              gpuSeconds:
+                type: [number, 'null']
+              truth:
+                type: [string, 'null']
+                description: The measured truth, when one was taken (e.g. with a tape).
+    DemoGpu:
+      type: object
+      required: [keepWarm, workersMin, workersMax, idleTimeoutSeconds, workers]
+      properties:
+        keepWarm:
+          type: boolean
+          description: '`workersMin >= 1`: one worker is kept alive between jobs, and bills.'
+        workersMin:
+          type: integer
+        workersMax:
+          type: integer
+        idleTimeoutSeconds:
+          type: integer
+        workers:
+          type: object
+          required: [idle, initializing, ready, running, throttled, unhealthy]
+          properties:
+            idle:
+              type: integer
+            initializing:
+              type: integer
+            ready:
+              type: integer
+            running:
+              type: integer
+            throttled:
+              type: integer
+            unhealthy:
+              type: integer

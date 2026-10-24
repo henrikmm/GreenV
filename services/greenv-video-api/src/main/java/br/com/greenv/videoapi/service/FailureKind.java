@@ -12,5 +12,7 @@ public enum FailureKind {
     LENGTH_REQUIRED,
     UNSUPPORTED_MEDIA_TYPE,
     DEPENDENCY_UNAVAILABLE,
+    /** A service this one relays to answered with an error, or could not be reached at all. */
+    UPSTREAM_FAILURE,
     INTERNAL_ERROR
 }

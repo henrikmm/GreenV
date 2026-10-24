@@ -123,19 +123,33 @@ public record DemoProperties(
     /**
      * The demo's own RunPod endpoint ({@code greenv-demo-depth}), never the field pipeline's: the
      * two are provisioned, sized and billed separately.
+     *
+     * <p>{@code baseUrl} is the serverless job API ({@code /run}, {@code /status}, {@code /health});
+     * {@code restBaseUrl} is RunPod's management API, where the endpoint's own settings live —
+     * the demo reads and changes {@code workersMin} there and nothing else.
      */
-    public record Runpod(String baseUrl, String endpointId, String apiKey) {
+    public record Runpod(String baseUrl, String endpointId, String apiKey, String restBaseUrl) {
 
+        // Two constructors, so the binder is told which one is the properties' own.
+        @ConstructorBinding
         public Runpod {
             if (baseUrl == null || baseUrl.isBlank()) {
                 baseUrl = "https://api.runpod.ai/v2";
             }
+            if (restBaseUrl == null || restBaseUrl.isBlank()) {
+                restBaseUrl = "https://rest.runpod.io/v1";
+            }
+        }
+
+        /** The job API only; the management API keeps its default. */
+        public Runpod(String baseUrl, String endpointId, String apiKey) {
+            this(baseUrl, endpointId, apiKey, null);
         }
 
         /** Never prints the API key. */
         @Override
         public String toString() {
-            return "Runpod[baseUrl=" + baseUrl + ", endpointId=" + endpointId
+            return "Runpod[baseUrl=" + baseUrl + ", restBaseUrl=" + restBaseUrl + ", endpointId=" + endpointId
                     + ", apiKey=" + (apiKey == null || apiKey.isBlank() ? "<unset>" : "<set>") + "]";
         }
     }
