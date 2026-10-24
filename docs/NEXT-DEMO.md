@@ -539,3 +539,33 @@ the preview above 1.1–1.7 MB/s.
 
 For the RunPod path these are all inside `measurement/server`, which the handler's image is
 built from; its own R2 publish after the response is untouched.
+
+## 10. Event day, 24 Oct 2026
+
+**For the event the API keeps one replica running, the stand can show twelve recorded
+reconstructions, the phone can keep the demo GPU warm, and the dashboard has a read-only demo
+login.** API revision `demo-891186a` (`greenv-video-api@sha256:4161b2e6…`), applied 24 Oct 2026.
+
+- **API at one replica.** `api_min_replicas = 1` in `terraform.tfvars`, applied in revision
+  `demo-1cfd4b0-min1`. Put it back to 0 after the event: one replica bills around the clock.
+- **Recorded examples.** Twelve runs from the 17–18 Oct package (`01`, `03`, `04`, `06`, `08`–`14`,
+  `16`; `02` left out because its frames use the door fixture's numbering) sit in R2 under
+  `demo/examples/<id>/` with `demo/examples/index.json`. The API serves `GET /v1/demo/examples` and
+  `GET /v1/demo/examples/{id}/run` (same shape as a capture's run, links signed on each read); the
+  hosted site lists them under the history as "EXEMPLOS GRAVADOS" and opens one like a capture.
+  An example stays on screen until "voltar ao vivo" or a new phone capture. Checked in Chrome on
+  `03` and `06`: frames, cloud, tape note; ranged GETs of the signed links answered 206 with the
+  site's CORS origin. Retention never touches `demo/examples/` (it deletes by capture prefix).
+- **Keep the GPU warm.** `GET/PUT /v1/demo/gpu`; the PUT needs the pairing code and sets only the
+  endpoint's `workersMin` to 1 or 0 through RunPod's REST API. The demo app's settings sheet has a
+  "Manter GPU ligada" switch for it. Checked against the live endpoint: on → `workersMin 1`, off →
+  `workersMin 0`, `workersMax`, template and idle timeout unchanged. A warm worker bills about
+  US$ 3.49/h; switch it off after the presentation.
+- **Dashboard demo login.** `POST /v2/auth/demo` (on with `demo_login_enabled`) opens a session for
+  `demo@greenv.local`, role `DEMO`, which may only read: any write answers 403 `demo_read_only`.
+  Checked against the live API: login 200, `/v2/auth/me` role DEMO, `/v2/capture-sessions` 200,
+  `POST /v1/service-orders` 403. The dashboard's "Entrar como demonstração" button carries no
+  password.
+- **The 23 Oct preview cloud and timing log** (§9) are merged; the hosted site carries their
+  site-side half. The GPU image was not rebuilt today, so the service-side savings of `3705b84`
+  are not in the cloud path yet.
