@@ -123,6 +123,12 @@ run "plans_cost_conscious_mvp_defaults" {
     error_message = "GREENV_JWT_EPHEMERAL_KEY must never reach a deployed revision."
   }
 
+  # The passwordless demonstration login opens every reading to anyone, so it is never a default.
+  assert {
+    condition     = !contains(keys(local.api_environment), "GREENV_DEMO_LOGIN_ENABLED")
+    error_message = "GREENV_DEMO_LOGIN_ENABLED must be absent unless demo_login_enabled is set."
+  }
+
   # The worker has no reason to mint or verify tokens, and holding the signing key would make it
   # able to impersonate any user.
   assert {
@@ -1017,6 +1023,32 @@ run "the_demo_off_changes_nothing" {
   assert {
     condition     = azurerm_container_app.api.template[0].min_replicas == 0
     error_message = "The API must still scale to zero unless api_min_replicas says otherwise."
+  }
+}
+
+# The dashboard's demonstration login stands on its own: it switches on one API setting and none
+# of the phone demo's, so it needs no pairing code, endpoint or RunPod key.
+run "plans_the_demo_login_on_its_own" {
+  command = plan
+
+  variables {
+    cloudflare_account_id    = "00000000000000000000000000000000"
+    r2_bucket_name           = "greenv-mvp-captures-test"
+    r2_access_key_id         = "test-access-key"
+    r2_secret_access_key     = "test-secret-key"
+    api_image                = "ghcr.io/example/greenv-video-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    worker_image             = "ghcr.io/example/greenv-frame-extractor@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    measurement_worker_image = "ghcr.io/example/greenv-measurement-worker@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    demo_login_enabled       = true
+  }
+
+  assert {
+    condition = (
+      local.api_environment.GREENV_DEMO_LOGIN_ENABLED == "true" &&
+      !contains(keys(local.api_environment), "GREENV_DEMO_ENABLED") &&
+      !contains(keys(local.worker_environment), "GREENV_DEMO_LOGIN_ENABLED")
+    )
+    error_message = "demo_login_enabled must reach the API alone, without switching on the phone demo."
   }
 }
 

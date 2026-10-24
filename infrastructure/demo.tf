@@ -140,8 +140,25 @@ variable "demo_sample_on" {
   }
 }
 
+variable "demo_login_enabled" {
+  description = <<-EOT
+    Whether the API serves `POST /v2/auth/demo`, which signs anyone into the dashboard as the
+    read-only DEMO account without a password. Independent of `demo_enabled`: that one is the phone
+    demo, this one is the dashboard's "Entrar como demonstração" button. Off by default because it
+    opens every reading the API holds to the public internet; the role cannot write, so it cannot
+    open a capture or an order, and therefore cannot wake the paid GPU.
+  EOT
+  type        = bool
+  default     = false
+}
+
 locals {
   demo_site_origin = "https://${var.demo_site_hostname}"
+
+  # Empty when off, so the API's environment is exactly what it was without it.
+  demo_login_api_environment = !var.demo_login_enabled ? {} : {
+    GREENV_DEMO_LOGIN_ENABLED = "true"
+  }
 
   # Every single-page host the zone's blanket block must let through, in one rule (see the
   # zone_firewall comment in cloudflare.tf for why it is one). With one host the expression is

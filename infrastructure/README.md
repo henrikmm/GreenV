@@ -252,6 +252,7 @@ that name; do not rename the other side.
 | `GREENV_AZURE_MEASURED_POISON_QUEUE_NAME` | `greenv-segment-measured-poison` | named explicitly, because the API's own default pointed at a queue this stack never created |
 | `GREENV_RABBITMQ_DYNAMIC` | `false` | — |
 | `GREENV_DEMO_ENABLED` | `true`, only while `demo_enabled` | the FIAP Next demo's `/v1/demo/*` routes. With the demo off none of the `GREENV_DEMO_*` names is set at all |
+| `GREENV_DEMO_LOGIN_ENABLED` | `true`, only while `demo_login_enabled` | the dashboard's passwordless, read-only `POST /v2/auth/demo`. Independent of `GREENV_DEMO_ENABLED`; absent, the route answers 404 |
 | `GREENV_DEMO_PAIRING_CODE` | secret, `demo_pairing_code` | the Bearer code every demo write needs; reads are public |
 | `GREENV_DEMO_RUNPOD_ENDPOINT_ID` | `demo_runpod_endpoint_id` | the demo's own endpoint, `greenv-demo-depth`; never the field pipeline's |
 | `GREENV_DEMO_RUNPOD_API_KEY` | secret, `demo_runpod_api_key`, else the RunPod `depth_service_token`, else `runpod_api_key` | one account, one key |
@@ -466,6 +467,7 @@ az containerapp revision list -n ca-greenv-mvp-worker -g rg-greenv-mvp -o table
 | `demo_runpod_endpoint_id` | `null` | the hand-made `greenv-demo-depth` endpoint ([recipe](../services/greenv-depth-runpod/README.md#the-demo-endpoint)) |
 | `demo_site_hostname` | `greenv-demo.matomomitsu.com` | joins the dashboard's zone firewall skip (the free plan caps that phase at five rules, all in use), the API's demo-only CORS origin (`GREENV_DEMO_ALLOWED_ORIGINS`, never the credentialed list) and the bucket's CORS rule |
 | `demo_max_frames` | `112` | — |
+| `demo_login_enabled` | `false` | the dashboard's "Entrar como demonstração": anyone may read every measurement as the `DEMO` role, which the API refuses every write. Needs nothing else |
 
 With the demo on, `cloudflare_r2_bucket_cors.demo_reads` lets the site's origin `GET`/`HEAD` the
 bucket through the API's presigned links. It owns the bucket's **whole** CORS policy, so list

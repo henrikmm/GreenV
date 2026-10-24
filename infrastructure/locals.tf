@@ -197,7 +197,7 @@ locals {
 
     # GREENV_JWT_EPHEMERAL_KEY is deliberately absent and asserted absent in tests/mvp.tftest.hcl.
     # A deployment must never fall back to a key that dies with the process.
-  }, local.demo_api_environment)
+  }, local.demo_api_environment, local.demo_login_api_environment)
 
   worker_environment = merge(local.common_environment, {
     AZURE_CLIENT_ID                            = azurerm_user_assigned_identity.worker.client_id
