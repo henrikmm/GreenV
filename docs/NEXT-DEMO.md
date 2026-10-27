@@ -547,7 +547,7 @@ reconstructions, the phone can keep the demo GPU warm, and the dashboard has a r
 login.** API revision `demo-891186a` (`greenv-video-api@sha256:4161b2e6…`), applied 24 Oct 2026.
 
 - **API at one replica.** `api_min_replicas = 1` in `terraform.tfvars`, applied in revision
-  `demo-1cfd4b0-min1`. Put it back to 0 after the event: one replica bills around the clock.
+  `demo-1cfd4b0-min1`. Put back to 0 on 27 Oct 2026 (revision `demo-891186a-min0`, same image).
 - **Recorded examples.** Twelve runs from the 17–18 Oct package (`01`, `03`, `04`, `06`, `08`–`14`,
   `16`; `02` left out because its frames use the door fixture's numbering) sit in R2 under
   `demo/examples/<id>/` with `demo/examples/index.json`. The API serves `GET /v1/demo/examples` and
