@@ -210,6 +210,19 @@ resource "azurerm_role_assignment" "api_measurement_result_processor" {
   skip_service_principal_aad_check = true
 }
 
+# The API's `measurement-results` scale rule reads this queue's length as the API identity, and
+# Message Processor cannot: from 27 Oct to 6 Nov 2026 KEDA logged FailedGetExternalMetric every
+# five minutes and, unable to read the rule, never took the API's last replica away - one replica
+# billed around the clock with zero requests for eleven hours at a time. The workers' rules work
+# because their identities hold Contributor; Reader is the smallest role that lets the scaler read.
+resource "azurerm_role_assignment" "api_measurement_result_reader" {
+  scope                            = local.measurement_result_queue_scope
+  role_definition_name             = "Storage Queue Data Reader"
+  principal_id                     = azurerm_user_assigned_identity.api.principal_id
+  principal_type                   = "ServicePrincipal"
+  skip_service_principal_aad_check = true
+}
+
 # Message Processor on the measured queue lets the API receive and delete, never add, so moving an
 # exhausted announcement needs this second, narrower grant on the destination alone.
 resource "azurerm_role_assignment" "api_measurement_result_poison_sender" {

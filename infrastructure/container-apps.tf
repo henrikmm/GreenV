@@ -190,7 +190,9 @@ resource "azurerm_container_app" "api" {
     # deactivated the API's only replica and sat in the queue, invisible to the dashboard, until
     # a request happened to wake it. A pending result is a reason to be awake, so the queue is a
     # scale source too: same form as the workers' rules, for the same reason (see the measurement
-    # app below), and the identity already holds Message Processor on this queue. queueLength = 1
+    # app below). The scaler reads the queue's length as this identity, which needs Reader on it
+    # (`api_measurement_result_reader`): Message Processor alone left the rule unreadable and the
+    # API never scaled to zero. queueLength = 1
     # wakes one replica per pending result; max_replicas bounds it as before.
     custom_scale_rule {
       name             = "measurement-results"
@@ -205,7 +207,11 @@ resource "azurerm_container_app" "api" {
     }
   }
 
-  depends_on = [azurerm_role_assignment.api_queue_sender, azurerm_role_assignment.api_measurement_result_processor]
+  depends_on = [
+    azurerm_role_assignment.api_queue_sender,
+    azurerm_role_assignment.api_measurement_result_processor,
+    azurerm_role_assignment.api_measurement_result_reader,
+  ]
 }
 
 resource "azurerm_container_app" "worker" {
